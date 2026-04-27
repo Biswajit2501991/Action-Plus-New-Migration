@@ -1,0 +1,18 @@
+/*
+  Custom styles for Action Plus Gym Manager.
+  At present most of the styling is handled by Tailwind CSS. This file is
+  reserved for small overrides or future enhancements. For the MVP it
+  intentionally remains minimal.
+*/
+
+/* Ensure scrollbars are subtle in dark mode */
+html.dark ::-webkit-scrollbar {
+  width: 8px;
+}
+html.dark ::-webkit-scrollbar-track {
+  background: #1e293b;
+}
+html.dark ::-webkit-scrollbar-thumb {
+  background-color: #64748b;
+  border-radius: 4px;
+}
