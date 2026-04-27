@@ -16,3 +16,13 @@ html.dark ::-webkit-scrollbar-thumb {
   background-color: #64748b;
   border-radius: 4px;
 }
+
+/* Final mobile polish: keep controls touch-friendly on narrow screens */
+@media (max-width: 640px) {
+  button,
+  input,
+  select,
+  textarea {
+    min-height: 40px;
+  }
+}
