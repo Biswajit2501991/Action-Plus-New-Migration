@@ -56,3 +56,23 @@ npm test
 ```
 
 If `npm` fails due to local Node/ICU mismatch, update or reinstall Node on your machine and run again.
+
+## GitHub Pages (HTTPS Hosting)
+
+This repo includes:
+
+- `.github/workflows/deploy-pages.yml` (GitHub Actions deploy workflow)
+- `.nojekyll` (prevents Jekyll processing issues on static projects)
+
+To host and share over HTTPS:
+
+1. Push the project to a GitHub repo on `main`.
+2. Open GitHub repo -> `Settings` -> `Pages`.
+3. Set `Source` to `GitHub Actions`.
+4. Wait for the workflow to complete in the `Actions` tab.
+
+Your app URL will be:
+
+- `https://<your-username>.github.io/<your-repo>/`
+
+Note: this app stores data in browser `localStorage`, so data is per browser/device and not shared in real time across users.
