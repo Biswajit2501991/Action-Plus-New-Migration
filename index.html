@@ -1037,7 +1037,7 @@ Please pay by: ${formattedLastDate}`;
             mobileOpen={mobileMenuOpen}
             onCloseMobile={() => setMobileMenuOpen(false)}
           />
-          <main className="flex-1 overflow-y-auto pt-14 md:pt-0">
+          <main className="flex-1 overflow-y-auto pt-16 md:pt-0">
             {activeTab === 'Dashboard' && (
               dashMode === 'summary' ? (
                 <DashboardSummary
@@ -1459,20 +1459,20 @@ function Sidebar({ user, active, onSelect, theme, setTheme, onLogout, onUndo, on
         { key: 'Cancelled', color: 'slate' }
       ];
       return (
-        <div className="p-8 space-y-6">
+        <div className="p-4 md:p-8 space-y-6">
           <div className="flex items-center justify-between gap-4 flex-wrap">
             <h1 className="text-2xl font-semibold">Dashboard</h1>
-            <div className="flex flex-1 max-w-2xl items-center gap-2">
+            <div className="flex flex-col md:flex-row flex-1 max-w-2xl items-stretch md:items-center gap-2 w-full md:w-auto">
               <input
                 value={q}
                 onChange={(e) => { const val = e.target.value; setQ(val); }}
                 placeholder="Search members (name, ID, mobile, email, staff)..."
-                className="flex-1 rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-300"
+                className="flex-1 rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-300 min-w-0"
               />
               <select
                 value={field}
                 onChange={(e) => { const f = e.target.value; setField(f); }}
-                className="rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm"
+                className="rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm md:w-auto"
               >
                 <option value="all">All</option>
                 <option value="name">Name</option>
@@ -1483,9 +1483,9 @@ function Sidebar({ user, active, onSelect, theme, setTheme, onLogout, onUndo, on
                 <option value="plan">Plan</option>
                 <option value="status">Status</option>
               </select>
-              <button onClick={() => onSearch(q, field)} className="rounded-xl px-4 py-2 border border-slate-300 bg-white text-sm font-medium">Search</button>
+              <button onClick={() => onSearch(q, field)} className="rounded-xl px-4 py-2 border border-slate-300 bg-white text-sm font-medium w-full md:w-auto">Search</button>
             </div>
-            <button onClick={onAddNew} className="rounded-2xl px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white font-semibold flex items-center gap-2"><span className="text-lg">＋</span> Add New Member</button>
+            <button onClick={onAddNew} className="rounded-2xl px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white font-semibold flex items-center justify-center gap-2 w-full sm:w-auto"><span className="text-lg">＋</span> Add New Member</button>
           </div>
           <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-5 gap-4">
             {tiles.map(tile => (
@@ -2012,16 +2012,16 @@ function DashboardView({ members, onEdit, onStatusChange, holdOptions, logs, fil
       }, [members, applyFilters]);
       const winbackCount = grouped.Deactivated.length;
       return (
-        <div className="p-8 space-y-6">
+        <div className="p-4 md:p-8 space-y-6">
           {/* Header row with Filter button */}
-          <div className="flex items-center justify-between mb-4">
+          <div className="flex items-center justify-between mb-4 gap-2 flex-wrap">
             <h1 className="text-2xl font-semibold">Members</h1>
-            <div className="flex items-center gap-2">
-              <span className="rounded-xl px-3 py-1.5 text-xs font-semibold bg-blue-50 text-blue-700 border border-blue-200">All Members</span>
-              <span className="rounded-xl px-3 py-1.5 text-xs font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200">Active ({grouped.Active.length})</span>
-              <span className="rounded-xl px-3 py-1.5 text-xs font-semibold bg-amber-50 text-amber-700 border border-amber-200">Hold ({grouped.Hold.length})</span>
-              <span className="rounded-xl px-3 py-1.5 text-xs font-semibold bg-pink-50 text-pink-700 border border-pink-200">Deactivated ({grouped.Deactivated.length})</span>
-              <span className="rounded-xl px-3 py-1.5 text-xs font-semibold bg-slate-100 text-slate-700 border border-slate-200">Cancelled ({grouped.Cancelled.length})</span>
+            <div className="flex items-center gap-2 flex-wrap">
+              <span className="rounded-xl px-2.5 py-1.5 text-xs font-semibold bg-blue-50 text-blue-700 border border-blue-200">All Members</span>
+              <span className="rounded-xl px-2.5 py-1.5 text-xs font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200">Active ({grouped.Active.length})</span>
+              <span className="rounded-xl px-2.5 py-1.5 text-xs font-semibold bg-amber-50 text-amber-700 border border-amber-200">Hold ({grouped.Hold.length})</span>
+              <span className="rounded-xl px-2.5 py-1.5 text-xs font-semibold bg-pink-50 text-pink-700 border border-pink-200">Deactivated ({grouped.Deactivated.length})</span>
+              <span className="rounded-xl px-2.5 py-1.5 text-xs font-semibold bg-slate-100 text-slate-700 border border-slate-200">Cancelled ({grouped.Cancelled.length})</span>
               {selectedIds.length > 0 && (
                 <>
                   <span className="text-sm text-slate-600">{selectedIds.length} selected</span>
