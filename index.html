@@ -537,6 +537,7 @@ Phone no: +91-7047157510`,
       const [dashFilter, setDashFilter] = React.useState('Active');
       const [dashSearch, setDashSearch] = React.useState('');
       const [dashField, setDashField] = React.useState('all');
+      const [mobileMenuOpen, setMobileMenuOpen] = React.useState(false);
       const HISTORY_LIMIT = 5;
       const skipHistoryCaptureRef = React.useRef(false);
       const historyRef = React.useRef({ past: [], current: null, currentSig: '', future: [] });
@@ -995,13 +996,36 @@ Please pay by: ${formattedLastDate}`;
         setDashMode('summary');
       };
       return (
-        <div className="min-h-screen flex">
+        <div className="min-h-screen flex bg-slate-100">
+          {mobileMenuOpen && (
+            <button
+              onClick={() => setMobileMenuOpen(false)}
+              className="fixed inset-0 z-30 bg-slate-900/40 md:hidden"
+              aria-label="Close navigation overlay"
+            />
+          )}
+          <div className="fixed top-0 inset-x-0 z-20 md:hidden bg-white border-b border-slate-200 px-3 py-2 flex items-center justify-between">
+            <button
+              onClick={() => setMobileMenuOpen(true)}
+              className="rounded-lg border border-slate-300 px-3 py-1.5 text-sm font-medium text-slate-700"
+            >
+              ☰ Menu
+            </button>
+            <div className="text-sm font-semibold text-slate-800 truncate max-w-[60%]">{activeTab}</div>
+            <button
+              onClick={logout}
+              className="rounded-lg border border-rose-300 bg-rose-50 px-3 py-1.5 text-sm font-medium text-rose-700"
+            >
+              Logout
+            </button>
+          </div>
           <Sidebar
             user={user}
             active={activeTab}
             onSelect={(tab) => {
               setActiveTab(tab);
               if (tab === 'Dashboard') setDashMode('summary');
+              setMobileMenuOpen(false);
             }}
             theme={theme}
             setTheme={setTheme}
@@ -1010,8 +1034,10 @@ Please pay by: ${formattedLastDate}`;
             onRedo={redoHistory}
             canUndo={historyState.canUndo}
             canRedo={historyState.canRedo}
+            mobileOpen={mobileMenuOpen}
+            onCloseMobile={() => setMobileMenuOpen(false)}
           />
-          <main className="flex-1 overflow-y-auto">
+          <main className="flex-1 overflow-y-auto pt-14 md:pt-0">
             {activeTab === 'Dashboard' && (
               dashMode === 'summary' ? (
                 <DashboardSummary
@@ -1235,7 +1261,7 @@ Please pay by: ${formattedLastDate}`;
     }
 
     // ---- Sidebar Component ----
-function Sidebar({ user, active, onSelect, theme, setTheme, onLogout, onUndo, onRedo, canUndo, canRedo }) {
+function Sidebar({ user, active, onSelect, theme, setTheme, onLogout, onUndo, onRedo, canUndo, canRedo, mobileOpen, onCloseMobile }) {
       // Nav items with icon mapping (emoji). Could be replaced with SVG icons.
       const NAV = [
         { key: 'Dashboard', label: 'Dashboard', icon: '🏠' },
@@ -1252,7 +1278,12 @@ function Sidebar({ user, active, onSelect, theme, setTheme, onLogout, onUndo, on
       const allowedSections = user && user.sections ? user.sections : ALL_SECTIONS;
       const navItems = NAV.filter(item => allowedSections.includes(item.key) || item.key === 'Support');
       return (
-        <aside className="w-72 shrink-0 bg-gradient-to-b from-blue-600 to-blue-500 text-white flex flex-col h-screen overflow-hidden">
+        <aside className={cx(
+          'w-72 bg-gradient-to-b from-blue-600 to-blue-500 text-white flex flex-col h-screen overflow-hidden',
+          'fixed inset-y-0 left-0 z-40 transform transition-transform duration-200',
+          mobileOpen ? 'translate-x-0' : '-translate-x-full',
+          'md:static md:translate-x-0 md:shrink-0'
+        )}>
           {/* Brand logo at top */}
           <div className="flex flex-col items-center pt-6 pb-4">
             <div className="h-14 w-14 rounded-full bg-white flex items-center justify-center shadow-lg">
@@ -1270,7 +1301,10 @@ function Sidebar({ user, active, onSelect, theme, setTheme, onLogout, onUndo, on
             {navItems.map(item => (
               <button
                 key={item.key}
-                onClick={() => onSelect(item.key)}
+                onClick={() => {
+                  onSelect(item.key);
+                  onCloseMobile && onCloseMobile();
+                }}
                 className={cx(
                   'w-full flex items-center gap-3 rounded-xl px-4 py-2 font-medium',
                   active === item.key ? 'bg-white/20' : 'hover:bg-white/10'
@@ -1646,7 +1680,7 @@ function MemberRow({ m, expanded, onToggle, onEdit, onStatusChange, holdOptions,
       const canWelcome = m.status === 'Active' && m.mobile && String(m.mobile).trim() && m.billingDate;
       return (
         <div className="border-b border-slate-200 last:border-none odd:bg-slate-50 even:bg-white">
-          <button onClick={onToggle} className="grid w-full grid-cols-12 items-center gap-4 px-2 py-3 text-left text-slate-700 hover:bg-slate-100">
+          <button onClick={onToggle} className="hidden md:grid w-full grid-cols-12 items-center gap-4 px-2 py-3 text-left text-slate-700 hover:bg-slate-100">
             {/* ID */}
             <div className="col-span-2 font-medium flex items-center gap-2">
               {selectable && (
@@ -1700,6 +1734,55 @@ function MemberRow({ m, expanded, onToggle, onEdit, onStatusChange, holdOptions,
                 >
                   <span>💬</span>
                   <span>Welcome</span>
+                </button>
+              )}
+            </div>
+          </button>
+          <button onClick={onToggle} className="md:hidden w-full px-3 py-3 text-left text-slate-700 hover:bg-slate-100">
+            <div className="flex items-start justify-between gap-2">
+              <div className="min-w-0">
+                <div className="flex items-center gap-2">
+                  {selectable && (
+                    <input
+                      type="checkbox"
+                      checked={Boolean(selected)}
+                      onChange={(e) => {
+                        e.stopPropagation();
+                        onSelectToggle && onSelectToggle(m.memberId);
+                      }}
+                      onClick={(e) => e.stopPropagation()}
+                    />
+                  )}
+                  <Avatar name={m.name} photo={m.photo} className="h-7 w-7" />
+                  <span className="font-semibold truncate">{m.name}</span>
+                </div>
+                <div className="text-xs text-slate-500 mt-1">ID: {m.memberId} | Plan: {m.plan || '-'}</div>
+                <div className="text-xs text-slate-500">Billing: {fmt(m.billingDate) || '-'}</div>
+              </div>
+              <Badge tone={toneForStatus(m.status)} className="text-center flex-shrink-0">{shortStatus(m.status)}</Badge>
+            </div>
+            <div className="mt-2 flex items-center gap-2">
+              <button
+                onClick={(e) => { e.stopPropagation(); onEdit(m); }}
+                className="rounded-lg px-2.5 py-1.5 text-xs font-medium bg-indigo-50 text-indigo-700 border border-indigo-200"
+              >
+                Action
+              </button>
+              {m.status === 'Active' && (
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onWelcome && onWelcome(m);
+                  }}
+                  disabled={!canWelcome}
+                  className={cx(
+                    'rounded-lg px-2.5 py-1.5 text-xs font-medium border',
+                    canWelcome
+                      ? 'bg-blue-50 text-blue-700 border-blue-200'
+                      : 'bg-slate-200 text-slate-500 border-slate-300 cursor-not-allowed'
+                  )}
+                >
+                  Welcome
                 </button>
               )}
             </div>
@@ -1992,7 +2075,7 @@ function DashboardView({ members, onEdit, onStatusChange, holdOptions, logs, fil
               <div key={key} className="space-y-3">
                 <h2 className="text-xl font-semibold">{key} Members ({list.length})</h2>
                 <div className="rounded-3xl bg-white p-4 shadow-sm">
-                  <div className="grid grid-cols-12 gap-4 px-3 py-2 text-sm font-semibold bg-blue-50 text-blue-700 border border-blue-100 rounded-2xl">
+                  <div className="hidden md:grid grid-cols-12 gap-4 px-3 py-2 text-sm font-semibold bg-blue-50 text-blue-700 border border-blue-100 rounded-2xl">
                     <div className="col-span-2">ID</div>
                     <div className="col-span-3">Name</div>
                     <div className="col-span-2">Plan</div>
@@ -2110,7 +2193,7 @@ function EditMemberModal({ member, onClose, onSave, planOptions, statusOptions, 
       const isInvalid = Object.values(req).some(Boolean);
       return (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 p-4">
-          <div className="w-full max-w-3xl rounded-3xl bg-white shadow-xl">
+          <div className="w-full max-w-3xl rounded-3xl bg-white shadow-xl max-h-[92vh] overflow-hidden">
             <div className="flex items-center justify-between px-6 py-4">
               <h3 className="text-lg font-semibold">Edit Member — {member.name}</h3>
               <button onClick={onClose} className="rounded-xl p-2 hover:bg-slate-200"><span>✕</span></button>
@@ -2132,7 +2215,7 @@ function EditMemberModal({ member, onClose, onSave, planOptions, statusOptions, 
                   </button>
                 )}
               </div>
-              <div className="grid grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 {/* Row 1: Form Number and Member ID */}
                 <div>
                   <label className="text-sm font-medium">Form Number</label>
@@ -2416,7 +2499,7 @@ function EditMemberModal({ member, onClose, onSave, planOptions, statusOptions, 
       if (!open) return null;
       return (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 p-4">
-          <div className="w-full max-w-3xl rounded-3xl bg-white shadow-xl">
+          <div className="w-full max-w-3xl rounded-3xl bg-white shadow-xl max-h-[92vh] overflow-hidden">
             <div className="flex items-center justify-between px-6 py-4">
               <h3 className="text-lg font-semibold">Add New Member — Step {step}</h3>
               <button onClick={onClose} className="rounded-xl p-2 hover:bg-slate-200"><span>✕</span></button>
@@ -2424,7 +2507,7 @@ function EditMemberModal({ member, onClose, onSave, planOptions, statusOptions, 
             <div className="px-6 pb-4 max-h-[70vh] overflow-auto">
               {warn && <div className="mb-3 rounded-xl bg-amber-50 text-amber-800 border border-amber-200 px-3 py-2 text-sm">{warn}</div>}
               {step === 1 && (
-                <div className="grid grid-cols-2 gap-4">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   <div>
                     <label className="text-sm font-medium">Form Number</label>
                     <input
@@ -2445,7 +2528,7 @@ function EditMemberModal({ member, onClose, onSave, planOptions, statusOptions, 
                 </div>
               )}
               {step === 2 && (
-                <div className="grid grid-cols-2 gap-4">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   <div><label className="text-sm font-medium">Staff (logged in)</label><input value={form.staff} readOnly className="w-full rounded-xl border border-blue-200 bg-blue-50 px-3 py-2 text-sm font-medium text-blue-700" /></div>
                   <div>
                     <label className="text-sm font-medium">Amount (INR)</label>
@@ -2476,7 +2559,7 @@ function EditMemberModal({ member, onClose, onSave, planOptions, statusOptions, 
                 </div>
               )}
               {step === 3 && (
-                <div className="grid grid-cols-2 gap-4">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   <div><label className="text-sm font-medium">Payment Mode</label><select value={form.paymentMethod} onChange={(e) => setForm({ ...form, paymentMethod: e.target.value })} className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm">
                     {settings.paymentMethods.map(p => <option key={p} value={p}>{p}</option>)}
                   </select></div>
@@ -2786,7 +2869,7 @@ function SettingsPage({ settings, updateSetting, members, storageInfo, onExport,
             <input value={filter} onChange={(e) => setFilter(e.target.value)} placeholder="Search logs..." className="rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm" />
           </div>
           <div className="overflow-x-auto rounded-2xl border border-slate-200 bg-white">
-            <table className="min-w-full text-sm">
+            <table className="min-w-full text-sm hidden md:table">
               <thead>
                 <tr className="bg-blue-50 text-blue-700">
                   <th className="px-3 py-2 text-left">Time</th>
@@ -2833,6 +2916,31 @@ function SettingsPage({ settings, updateSetting, members, storageInfo, onExport,
                 )}
               </tbody>
             </table>
+            <div className="md:hidden divide-y divide-slate-200">
+              {pageRows.map(l => (
+                <div key={l.id} className="p-3">
+                  <div className="flex items-center justify-between gap-2">
+                    <div className="font-medium text-slate-900 truncate">{l.actor || 'Unknown'}</div>
+                    <span className="inline-flex rounded-full bg-blue-100 px-2 py-0.5 text-xs font-semibold text-blue-700">{l.action}</span>
+                  </div>
+                  <div className="text-xs text-slate-500 mt-1">{fmt(l.ts)}</div>
+                  <div className="text-xs text-slate-600 mt-1">Entity: {l.entityType} / {l.entityId}</div>
+                  <div className="mt-2 grid grid-cols-1 gap-2 text-xs">
+                    <div className="rounded-lg bg-slate-900 text-slate-100 p-2 overflow-auto">
+                      <div className="text-slate-300 mb-1">before</div>
+                      <pre>{JSON.stringify(l.before || {}, null, 2)}</pre>
+                    </div>
+                    <div className="rounded-lg bg-slate-900 text-slate-100 p-2 overflow-auto">
+                      <div className="text-slate-300 mb-1">after</div>
+                      <pre>{JSON.stringify(l.after || {}, null, 2)}</pre>
+                    </div>
+                  </div>
+                </div>
+              ))}
+              {pageRows.length === 0 && (
+                <div className="p-4 text-center text-slate-500 text-sm">No log entries</div>
+              )}
+            </div>
             {filtered.length > pageSize && (
               <div className="flex items-center justify-between mt-3 text-sm">
                 <div>Page {safePage} of {totalPages}</div>
@@ -3412,7 +3520,7 @@ function SettingsPage({ settings, updateSetting, members, storageInfo, onExport,
               <div className="text-xs text-slate-500">Expand a row to see latest 10 logs</div>
             </div>
             <div className="overflow-x-auto">
-              <table className="min-w-full text-sm">
+              <table className="min-w-full text-sm hidden md:table">
                 <thead>
                   <tr className="bg-blue-50 text-blue-700">
                     <th className="px-3 py-2 text-left">Date</th>
@@ -3480,6 +3588,42 @@ function SettingsPage({ settings, updateSetting, members, storageInfo, onExport,
                   )}
                 </tbody>
               </table>
+              <div className="md:hidden divide-y divide-slate-200">
+                {pageRows.map(t => (
+                  <div key={t.id} className="p-3">
+                    <div className="flex items-center justify-between gap-2">
+                      <div className="font-medium text-slate-900 truncate">{t.memberName || '-'}</div>
+                      <span className="text-xs rounded-full bg-slate-100 px-2 py-0.5">{t.status}</span>
+                    </div>
+                    <div className="text-xs text-slate-500 mt-1">Date: {fmt(t.date)} | Plan: {t.plan || '-'}</div>
+                    <div className="text-xs text-slate-600">Method: {t.method || '-'} | Amount: ${Number(t.amount || 0).toLocaleString()}</div>
+                    <button
+                      onClick={() => setExpandedId(prev => prev === t.id ? '' : t.id)}
+                      className="mt-2 rounded-lg border border-slate-300 bg-white px-3 py-1 text-xs font-medium text-slate-700"
+                    >
+                      {expandedId === t.id ? 'Hide Logs' : 'View Logs'}
+                    </button>
+                    {expandedId === t.id && (
+                      <div className="mt-2 rounded-lg border border-slate-200 bg-slate-50 p-2">
+                        <div className="text-xs font-semibold text-slate-600 mb-1">Latest logs</div>
+                        <div className="space-y-1">
+                          {getMemberLogs(t.memberId).slice(0, 5).map(entry => (
+                            <div key={entry.id} className="text-xs text-slate-700">
+                              {fmt(entry.ts)} - {entry.actor || '-'} - {entry.action || '-'}
+                            </div>
+                          ))}
+                          {getMemberLogs(t.memberId).length === 0 && (
+                            <div className="text-xs text-slate-500">No logs found.</div>
+                          )}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                ))}
+                {pageRows.length === 0 && (
+                  <div className="p-4 text-center text-slate-500 text-sm">No transactions found for selected filters.</div>
+                )}
+              </div>
               {filteredTransactions.length > pageSize && (
                 <div className="flex items-center justify-between mt-3 text-sm">
                   <div>Page {safePage} of {totalPages}</div>
@@ -3867,12 +4011,12 @@ function SettingsPage({ settings, updateSetting, members, storageInfo, onExport,
 
           {modalOpen && (
             <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 p-4">
-              <div className="w-full max-w-lg rounded-3xl bg-white text-slate-900 border border-slate-200 shadow-xl ring-1 ring-slate-200">
+              <div className="w-full max-w-lg rounded-3xl bg-white text-slate-900 border border-slate-200 shadow-xl ring-1 ring-slate-200 max-h-[92vh] overflow-hidden">
                 <div className="flex justify-between items-center px-6 py-4">
                   <h3 className="text-lg font-semibold text-slate-900">{editingId ? 'Edit Staff' : 'Add Staff'}</h3>
                   <button onClick={() => setModalOpen(false)} className="rounded-xl p-2 text-slate-700 hover:bg-slate-200"><span>✕</span></button>
                 </div>
-                <div className="px-6 pb-4 space-y-3">
+                <div className="px-6 pb-4 space-y-3 overflow-auto">
                   {error && <div className="rounded-xl bg-rose-50 border border-rose-200 text-rose-700 px-3 py-2 text-sm">{error}</div>}
                   <div className="flex items-center gap-3">
                     <Avatar name={form.name || form.id || 'Staff'} photo={form.photo} className="h-12 w-12" />
@@ -3909,7 +4053,7 @@ function SettingsPage({ settings, updateSetting, members, storageInfo, onExport,
                         All
                       </label>
                     </div>
-                    <div className="grid grid-cols-2 gap-2">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                       {ALL_SECTIONS.map(sec => (
                         <label key={sec} className="inline-flex items-center gap-2 text-sm text-slate-800">
                           <input
@@ -3933,12 +4077,12 @@ function SettingsPage({ settings, updateSetting, members, storageInfo, onExport,
           )}
           {roleModalOpen && (
             <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 p-4">
-              <div className="w-full max-w-lg rounded-3xl bg-white text-slate-900 border border-slate-200 shadow-xl ring-1 ring-slate-200">
+              <div className="w-full max-w-lg rounded-3xl bg-white text-slate-900 border border-slate-200 shadow-xl ring-1 ring-slate-200 max-h-[92vh] overflow-hidden">
                 <div className="flex justify-between items-center px-6 py-4">
                   <h3 className="text-lg font-semibold text-slate-900">{editingRoleId ? 'Edit Role Template' : 'Add New Role'}</h3>
                   <button onClick={() => setRoleModalOpen(false)} className="rounded-xl p-2 text-slate-700 hover:bg-slate-200"><span>✕</span></button>
                 </div>
-                <div className="px-6 pb-4 space-y-3">
+                <div className="px-6 pb-4 space-y-3 overflow-auto">
                   {roleError && <div className="rounded-xl bg-rose-50 border border-rose-200 text-rose-700 px-3 py-2 text-sm">{roleError}</div>}
                   <div>
                     <label className="text-sm font-medium text-slate-700">Role Name</label>
@@ -3950,7 +4094,7 @@ function SettingsPage({ settings, updateSetting, members, storageInfo, onExport,
                   </div>
                   <div>
                     <label className="text-sm font-medium text-slate-700">Section Access</label>
-                    <div className="mt-2 grid grid-cols-2 gap-2">
+                    <div className="mt-2 grid grid-cols-1 sm:grid-cols-2 gap-2">
                       {ALL_SECTIONS.map(sec => (
                         <label key={sec} className="inline-flex items-center gap-2 text-sm text-slate-800">
                           <input
@@ -4049,7 +4193,7 @@ function SettingsPage({ settings, updateSetting, members, storageInfo, onExport,
       if (!open) return null;
       return (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 p-4">
-          <div className="w-full max-w-2xl rounded-3xl bg-white text-slate-900 border border-slate-200 shadow-xl overflow-hidden">
+              <div className="w-full max-w-2xl rounded-3xl bg-white text-slate-900 border border-slate-200 shadow-xl overflow-hidden max-h-[92vh]">
             <div className="flex justify-between items-center px-6 py-4 border-b border-slate-200">
               <h3 className="text-lg font-semibold">Filter Members</h3>
               <button onClick={onClose} className="rounded-xl p-2 hover:bg-slate-200"><span>✕</span></button>
@@ -4072,7 +4216,7 @@ function SettingsPage({ settings, updateSetting, members, storageInfo, onExport,
                   </div>
                 )}
               </div>
-              <div className="grid grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 {/* Plan */}
                 <div>
                   <label className="text-sm font-medium text-slate-700">Plan</label>
