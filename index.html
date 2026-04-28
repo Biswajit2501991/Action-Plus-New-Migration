@@ -89,6 +89,12 @@
       const dt = asUTC(d);
       return dt ? `${MONTHS[dt.getUTCMonth()]}-${dt.getUTCFullYear()}` : '';
     };
+    const normalizePhone = (v) => String(v || '').replace(/\D/g, '');
+    const isValidEmail = (v) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(v || '').trim());
+    const isValidPhone = (v) => {
+      const p = normalizePhone(v);
+      return p.length >= 10 && p.length <= 15;
+    };
     // Shorten status text for fixed width badges
     const shortStatus = (s) => {
       if (!s) return '';
@@ -351,6 +357,7 @@ Phone: +91-7047157510`;
       smsEvents: 'apg.sms.events',
       filters: 'apg.filters',
       theme: 'apg.theme',
+      addMemberDraft: 'apg.addMemberDraft',
     };
     const STORAGE_SOFT_LIMIT_BYTES = 4.5 * 1024 * 1024; // ~4.5MB budget
     const MAX_IMAGE_FILE_BYTES = 10 * 1024 * 1024; // 10MB input guard
@@ -994,6 +1001,10 @@ Please pay by: ${formattedLastDate}`;
         });
         const cleanPhone = String(member.mobile || '').replace(/\D/g, '');
         if (!cleanPhone) {
+          setMembers(prev => prev.map(m => m.memberId === member.memberId ? {
+            ...m,
+            messageHistory: [{ id: crypto.randomUUID(), channel: 'whatsapp', templateKey: resolvedKey, status: 'failed', reason: 'missing_phone', ts: new Date().toISOString() }, ...(m.messageHistory || [])].slice(0, 50),
+          } : m));
           setToast('Mobile number is missing.');
           setTimeout(() => setToast(''), 2500);
           return;
@@ -1001,13 +1012,21 @@ Please pay by: ${formattedLastDate}`;
         const finalPhone = cleanPhone.length === 10 ? `91${cleanPhone}` : cleanPhone;
         const url = `https://api.whatsapp.com/send?phone=${finalPhone}&text=${encodeURIComponent(message)}`;
         window.open(url, '_blank');
+        setMembers(prev => prev.map(m => m.memberId === member.memberId ? {
+          ...m,
+          messageHistory: [{ id: crypto.randomUUID(), channel: 'whatsapp', templateKey: resolvedKey, status: 'opened', ts: new Date().toISOString() }, ...(m.messageHistory || [])].slice(0, 50),
+        } : m));
         logEvent('welcome.whatsapp.opened', 'member', member.memberId, null, { templateKey: resolvedKey });
         setToast('WhatsApp message opened.');
         setTimeout(() => setToast(''), 2500);
       };
       const sendWelcomeGmail = (member) => {
         if (!member) return;
-        if (!member.email) {
+        if (!member.email || !isValidEmail(member.email)) {
+          setMembers(prev => prev.map(m => m.memberId === member.memberId ? {
+            ...m,
+            messageHistory: [{ id: crypto.randomUUID(), channel: 'gmail', templateKey: 'welcome', status: 'failed', reason: 'invalid_email', ts: new Date().toISOString() }, ...(m.messageHistory || [])].slice(0, 50),
+          } : m));
           setToast('Member email is missing.');
           setTimeout(() => setToast(''), 2500);
           return;
@@ -1023,13 +1042,22 @@ Please pay by: ${formattedLastDate}`;
         Object.keys(rep).forEach((k) => { body = body.split(k).join(rep[k]); });
         const url = `https://mail.google.com/mail/?view=cm&fs=1&to=${encodeURIComponent(member.email)}&cc=${encodeURIComponent('gymactionplus@gmail.com')}&su=${encodeURIComponent('Action Plus Gym - Registration Confirmation Mail.')}&body=${encodeURIComponent(body)}`;
         window.open(url, '_blank');
+        setMembers(prev => prev.map(m => m.memberId === member.memberId ? {
+          ...m,
+          messageHistory: [{ id: crypto.randomUUID(), channel: 'gmail', templateKey: 'welcome', status: 'opened', ts: new Date().toISOString() }, ...(m.messageHistory || [])].slice(0, 50),
+        } : m));
       };
       const addMemberAttachment = (memberId, attachment) => {
         if (!memberId || !attachment) return;
         setMembers(prev => prev.map(m => {
           if (m.memberId !== memberId) return m;
           const nextAttachments = [...(m.attachments || []), attachment];
-          return { ...m, attachments: nextAttachments };
+          return {
+            ...m,
+            attachments: nextAttachments,
+            staff: user?.name || m.staff || '',
+            updatedBy: user?.name || user?.id || '',
+          };
         }));
         setToast('Attachment uploaded.');
         setTimeout(() => setToast(''), 2000);
@@ -1051,6 +1079,37 @@ Please pay by: ${formattedLastDate}`;
         };
         // Validate required fields
         if (!toSave.name || !toSave.mobile || !toSave.plan || !toSave.status || !toSave.billingDate) {
+          return;
+        }
+        if (!isValidPhone(toSave.mobile)) {
+          setToast('Please enter a valid mobile number.');
+          setTimeout(() => setToast(''), 2500);
+          return;
+        }
+        if (String(toSave.email || '').trim() && !isValidEmail(toSave.email)) {
+          setToast('Please enter a valid Gmail ID.');
+          setTimeout(() => setToast(''), 2500);
+          return;
+        }
+        const duplicateMobile = members.some(m => m.memberId !== toSave.memberId && normalizePhone(m.mobile) === normalizePhone(toSave.mobile));
+        if (duplicateMobile) {
+          setToast('Another member already uses this mobile number.');
+          setTimeout(() => setToast(''), 2500);
+          return;
+        }
+        const duplicateEmail = String(toSave.email || '').trim()
+          ? members.some(m => m.memberId !== toSave.memberId && String(m.email || '').trim().toLowerCase() === String(toSave.email || '').trim().toLowerCase())
+          : false;
+        if (duplicateEmail) {
+          setToast('Another member already uses this Gmail ID.');
+          setTimeout(() => setToast(''), 2500);
+          return;
+        }
+        const originalMemberId = editMember?.memberId || toSave.memberId;
+        const duplicateMemberId = members.some(m => m.memberId !== originalMemberId && String(m.memberId || '').trim() === String(toSave.memberId || '').trim());
+        if (duplicateMemberId) {
+          setToast('Member ID already exists. Please use a unique ID.');
+          setTimeout(() => setToast(''), 2500);
           return;
         }
         // Enforce status/hold-duration consistency.
@@ -1880,7 +1939,7 @@ function Sidebar({ user, active, onSelect, theme, setTheme, onLogout, onUndo, on
           <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
             <div className="text-lg font-semibold text-slate-800 mb-3">Overdue Payments and Retention Alerts</div>
             <div className="overflow-x-auto">
-              <table className="min-w-full text-sm">
+              <table className="min-w-full text-sm hidden md:table">
                 <thead>
                   <tr className="bg-blue-50 text-blue-700">
                     <th className="px-3 py-2 text-left">Member</th>
@@ -1935,6 +1994,26 @@ function Sidebar({ user, active, onSelect, theme, setTheme, onLogout, onUndo, on
                   )}
                 </tbody>
               </table>
+              <div className="md:hidden space-y-3">
+                {overdueList.slice(0, 10).map(m => (
+                  <div key={`mob-${m.memberId}`} className="rounded-xl border border-slate-200 bg-white p-3">
+                    <div className="font-semibold text-slate-900">{m.name}</div>
+                    <div className="text-xs text-slate-500">ID: {m.memberId}</div>
+                    <div className="text-xs text-slate-600 mt-1">Plan: {m.plan || '-'} | Amount: ${Number(m.amount || 0).toLocaleString()}</div>
+                    <div className="text-xs text-slate-600">Overdue: {m.overdueDays} days</div>
+                    <div className="mt-2 flex gap-2">
+                      <button onClick={() => onWelcome && onWelcome(m, 'reminder')} className="rounded-full px-3 py-1 text-xs font-medium border border-emerald-200 bg-emerald-50 text-emerald-700">Send WhatsApp</button>
+                      <button onClick={() => setExpandedOverdueId(prev => prev === m.memberId ? '' : m.memberId)} className="rounded-full px-3 py-1 text-xs font-medium border border-slate-300 bg-white text-slate-700">{expandedOverdueId === m.memberId ? 'Hide' : 'Details'}</button>
+                    </div>
+                    {expandedOverdueId === m.memberId && <div className="mt-2"><MemberDetails m={m} logs={[]} /></div>}
+                  </div>
+                ))}
+                {overdueList.length === 0 && (
+                  <div className="px-3 py-4 text-center text-slate-500 text-sm">
+                    No overdue members. This list auto-updates when payment dates change.
+                  </div>
+                )}
+              </div>
             </div>
           </div>
         </div>
@@ -2359,12 +2438,14 @@ function DashboardView({ members, onEdit, onStatusChange, holdOptions, logs, fil
       // Single expanded row across all statuses. Only one memberId may be expanded at a time.
       const [expandedId, setExpandedId] = React.useState(null);
       const [selectedIds, setSelectedIds] = React.useState([]);
+      const [visibleByStatus, setVisibleByStatus] = React.useState({ Active: 20, Hold: 20, Deactivated: 20, Cancelled: 20 });
       // Pagination state per status tab. Each status has its own current page.
       const [pages, setPages] = React.useState({ Active: 1, Hold: 1, Deactivated: 1, Cancelled: 1 });
       // When members or filters change, reset pagination to page 1 for each status.
       React.useEffect(() => {
         setPages({ Active: 1, Hold: 1, Deactivated: 1, Cancelled: 1 });
         setSelectedIds([]);
+        setVisibleByStatus({ Active: 20, Hold: 20, Deactivated: 20, Cancelled: 20 });
       }, [members, filters]);
       const toggleSelect = (id) => {
         setSelectedIds(prev => prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]);
@@ -2492,7 +2573,7 @@ function DashboardView({ members, onEdit, onStatusChange, holdOptions, logs, fil
             const page = pages[key] > totalPages ? 1 : pages[key];
             const start = (page - 1) * pageSize;
             const end = start + pageSize;
-            const pageList = list.slice(start, end);
+            const pageList = list.slice(start, end).slice(0, visibleByStatus[key] || 20);
             return (
               <div key={key} className="space-y-3">
                 <h2 className="text-xl font-semibold">{key} Members ({list.length})</h2>
@@ -2526,6 +2607,11 @@ function DashboardView({ members, onEdit, onStatusChange, holdOptions, logs, fil
                   ))}
                   {pageList.length === 0 && (
                     <div className="px-3 py-4 text-slate-500 text-sm">No results found.</div>
+                  )}
+                  {list.slice(start, end).length > pageList.length && (
+                    <div className="px-3 py-3">
+                      <button onClick={() => setVisibleByStatus(v => ({ ...v, [key]: (v[key] || 20) + 20 }))} className="rounded-full border border-slate-300 bg-white px-3 py-1 text-xs font-medium text-slate-700 hover:bg-slate-100">Load 20 more</button>
+                    </div>
                   )}
                   {/* Pagination controls */}
                   {list.length > pageSize && (
@@ -2574,11 +2660,12 @@ function EditMemberModal({ member, onClose, onSave, planOptions, statusOptions, 
       // billingDate and amount are mandatory. Amount must be a positive integer.
       const req = {
         name: !String(edit.name || '').trim(),
-        mobile: !String(edit.mobile || '').trim(),
+        mobile: !String(edit.mobile || '').trim() || !isValidPhone(edit.mobile),
         plan: !edit.plan,
         status: !edit.status,
         billingDate: !iso(edit.billingDate),
         amount: !String(edit.amount || '').trim() || !(/^\d+$/.test(String(edit.amount).trim())) || Number(edit.amount) <= 0,
+        email: String(edit.email || '').trim() ? !isValidEmail(edit.email) : false,
         paymentMethod: !String(edit.paymentMethod || '').trim(),
         holdDuration: edit.status === 'Hold' && !String(edit.holdDuration || '').trim(),
       };
@@ -2814,8 +2901,27 @@ function EditMemberModal({ member, onClose, onSave, planOptions, statusOptions, 
         parentGuardianSignature: '',
       });
       const [warn, setWarn] = React.useState('');
+      const DRAFT_KEY = STORAGE_KEYS.addMemberDraft;
       // Update staff when prop changes
       React.useEffect(() => { setForm(f => ({ ...f, staff: staffName || '' })); }, [staffName]);
+      React.useEffect(() => {
+        if (!open) return;
+        try {
+          const raw = localStorage.getItem(DRAFT_KEY);
+          if (!raw) return;
+          const parsed = JSON.parse(raw);
+          if (parsed && parsed.form && parsed.step) {
+            setForm(f => ({ ...f, ...parsed.form, staff: staffName || parsed.form.staff || '' }));
+            setStep(Math.max(1, Math.min(5, Number(parsed.step) || 1)));
+          }
+        } catch {}
+      }, [open, staffName]);
+      React.useEffect(() => {
+        if (!open) return;
+        try {
+          localStorage.setItem(DRAFT_KEY, JSON.stringify({ step, form }));
+        } catch {}
+      }, [open, step, form]);
 
       // Auto generate the next form number when the wizard opens. We look at all
       // existing members' form numbers, interpret them as integers and pick the
@@ -2852,7 +2958,15 @@ function EditMemberModal({ member, onClose, onSave, planOptions, statusOptions, 
       }, [form.billingDate]);
       // Define which fields are mandatory for each step. We'll validate these before allowing the user
       // to proceed to the next step. All fields are required per the new requirements.
-      const req1 = { formNo: !form.formNo, name: !form.name.trim(), email: !form.email.trim(), dob: !form.dob, gender: !form.gender, mobile: !form.mobile.trim(), address: !form.address.trim() };
+      const req1 = {
+        formNo: !form.formNo,
+        name: !form.name.trim(),
+        email: !form.email.trim() || !isValidEmail(form.email),
+        dob: !form.dob || !asUTC(form.dob) || asUTC(form.dob) > asUTC(new Date()),
+        gender: !form.gender,
+        mobile: !form.mobile.trim() || !isValidPhone(form.mobile),
+        address: !form.address.trim()
+      };
       // Validate that amount is a positive integer (no decimals, not zero or negative)
       const isPositiveInt = (val) => /^\d+$/.test(String(val).trim()) && Number(val) > 0;
       const req2 = {
@@ -2872,6 +2986,28 @@ function EditMemberModal({ member, onClose, onSave, planOptions, statusOptions, 
         parentGuardianName: isMinor && !String(form.parentGuardianName || '').trim(),
         parentGuardianSignature: isMinor && !String(form.parentGuardianSignature || '').trim(),
       };
+      const missingSummary = React.useMemo(() => {
+        const lines = [];
+        if (req1.formNo) lines.push('Form Number');
+        if (req1.name) lines.push('Full Name');
+        if (req1.email) lines.push('Valid Gmail');
+        if (req1.dob) lines.push('Valid DOB');
+        if (req1.gender) lines.push('Gender');
+        if (req1.mobile) lines.push('Valid Mobile Number');
+        if (req1.address) lines.push('Address');
+        if (req2.amount) lines.push('Amount');
+        if (req2.plan) lines.push('Plan');
+        if (req2.joiningDate) lines.push('Joining Date');
+        if (req2.billingDate) lines.push('Billing Date');
+        if (req2.paymentBy) lines.push('Payment By');
+        if (req2.status) lines.push('Status');
+        if (req3.paymentMethod) lines.push('Payment Method');
+        if (req5.ackAccepted) lines.push('Acknowledgement Accepted');
+        if (req5.ackSignature) lines.push('Acknowledgement Signature');
+        if (req5.parentGuardianName) lines.push('Parent/Guardian Name');
+        if (req5.parentGuardianSignature) lines.push('Parent/Guardian Signature');
+        return lines;
+      }, [req1, req2, req3, req5]);
       const reqCls = (invalid) => cx('w-full rounded-xl border bg-white px-3 py-2 text-sm', invalid ? 'border-rose-300 bg-rose-50 text-rose-700' : 'border-slate-300');
       const reqClsXs = (invalid) => cx('w-full rounded-xl border bg-white px-3 py-2 text-xs md:text-sm', invalid ? 'border-rose-300 bg-rose-50 text-rose-700' : 'border-slate-300');
       const readOnlyCls = 'w-full rounded-xl border border-slate-200 bg-slate-100 px-3 py-2 text-sm text-slate-500';
@@ -2949,9 +3085,20 @@ function EditMemberModal({ member, onClose, onSave, planOptions, statusOptions, 
           setWarn('A member with this mobile number already exists. Please use a different mobile number.');
           return;
         }
+        const trimmedEmail = String(form.email || '').trim().toLowerCase();
+        const duplicateEmail = (members || []).some(m => String(m.email || '').trim().toLowerCase() === trimmedEmail);
+        if (duplicateEmail) {
+          setWarn('A member with this email already exists. Please use a different Gmail.');
+          return;
+        }
         // Generate member ID and payMonth label
         const yearSuffix = String(new Date().getFullYear()).slice(-2);
         const memberId = `APG-${form.formNo}/${yearSuffix}`;
+        const duplicateMemberId = (members || []).some(m => String(m.memberId || '').trim() === memberId);
+        if (duplicateMemberId) {
+          setWarn('Generated member ID already exists. Please change Form Number.');
+          return;
+        }
         const payMonth = payMonthLabel(addMonths(form.billingDate, 1));
         const newMember = {
           ...form,
@@ -2962,6 +3109,7 @@ function EditMemberModal({ member, onClose, onSave, planOptions, statusOptions, 
           payMonth
         };
         onSave(newMember);
+        try { localStorage.removeItem(DRAFT_KEY); } catch {}
         onClose();
         setStep(1);
         setForm({
@@ -3005,8 +3153,18 @@ function EditMemberModal({ member, onClose, onSave, planOptions, statusOptions, 
               <h3 className="text-lg font-semibold">Add New Member — Step {step}</h3>
               <button onClick={onClose} className="rounded-xl p-2 hover:bg-slate-200"><span>✕</span></button>
             </div>
+            <div className="px-6 pb-3">
+              <div className="h-2 rounded-full bg-slate-200 overflow-hidden">
+                <div className="h-full bg-blue-600 transition-all" style={{ width: `${(step / 5) * 100}%` }} />
+              </div>
+            </div>
             <div className="px-6 pb-4 max-h-[70vh] overflow-auto">
               {warn && <div className="mb-3 rounded-xl bg-amber-50 text-amber-800 border border-amber-200 px-3 py-2 text-sm">{warn}</div>}
+              {step === 5 && missingSummary.length > 0 && (
+                <div className="mb-3 rounded-xl bg-rose-50 text-rose-800 border border-rose-200 px-3 py-2 text-sm">
+                  Missing required fields: {missingSummary.join(', ')}
+                </div>
+              )}
               {step === 1 && (
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   <div>
@@ -3545,6 +3703,8 @@ function SettingsPage({ settings, updateSetting, members, storageInfo, onExport,
       const [search, setSearch] = React.useState('');
       const [expandedTemplates, setExpandedTemplates] = React.useState({});
       const messageCenterRef = React.useRef(null);
+      const [preview, setPreview] = React.useState({ open: false, member: null, templateKey: '' });
+      const VARIABLE_KEYS = ['[CustomerName]','[PLAN]','[CurrentPlan]','[Amount]','[BillingDate]','[PaymentBy]','[GymStartdate]','[NextPaymentDate]'];
       React.useEffect(() => {
         if (settings.smsTemplatePresetVersion === '2026-04-27') return;
         updateSetting('smsTemplates', { ...SMS_TEMPLATE_DEFAULTS });
@@ -3735,7 +3895,7 @@ function SettingsPage({ settings, updateSetting, members, storageInfo, onExport,
                       <button
                         onClick={() => {
                           const sample = members.find(m => m.status === 'Active') || members[0];
-                          sendNow(sample, card.key);
+                          setPreview({ open: true, member: sample || null, templateKey: card.key });
                         }}
                         className="w-full rounded-xl border border-emerald-300 bg-emerald-50 text-emerald-700 py-2 text-sm font-medium"
                       >
@@ -3788,7 +3948,7 @@ function SettingsPage({ settings, updateSetting, members, storageInfo, onExport,
                       <td className="px-3 py-2">{m.status || '-'}</td>
                       <td className="px-3 py-2">{fmt(m.paymentBy || m.billingDate)}</td>
                       <td className="px-3 py-2">
-                        <button onClick={() => sendNow(m, activeType)} className="rounded-lg border border-emerald-300 bg-emerald-50 px-3 py-1 text-xs font-medium text-emerald-700 hover:bg-emerald-100">Send</button>
+                        <button onClick={() => setPreview({ open: true, member: m, templateKey: activeType })} className="rounded-lg border border-emerald-300 bg-emerald-50 px-3 py-1 text-xs font-medium text-emerald-700 hover:bg-emerald-100">Send</button>
                       </td>
                     </tr>
                   ))}
@@ -3881,6 +4041,24 @@ function SettingsPage({ settings, updateSetting, members, storageInfo, onExport,
               </table>
             </div>
           </div>
+          {preview.open && (
+            <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 p-4">
+              <div className="w-full max-w-xl rounded-2xl bg-white p-4 shadow-xl space-y-3">
+                <div className="flex items-center justify-between">
+                  <div className="text-lg font-semibold">Message Preview</div>
+                  <button onClick={() => setPreview({ open: false, member: null, templateKey: '' })} className="rounded-lg px-2 py-1 hover:bg-slate-100">✕</button>
+                </div>
+                <div className="text-xs text-slate-500">Variables: {VARIABLE_KEYS.join(', ')}</div>
+                <div className="max-h-72 overflow-auto whitespace-pre-wrap rounded-xl border border-slate-200 bg-slate-50 p-3 text-sm">
+                  {renderSms(templates[preview.templateKey] || '', preview.member)}
+                </div>
+                <div className="flex justify-end gap-2">
+                  <button onClick={() => setPreview({ open: false, member: null, templateKey: '' })} className="rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm">Cancel</button>
+                  <button onClick={() => { sendNow(preview.member, preview.templateKey); setPreview({ open: false, member: null, templateKey: '' }); }} className="rounded-full bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700">Send</button>
+                </div>
+              </div>
+            </div>
+          )}
         </div>
       );
     }
