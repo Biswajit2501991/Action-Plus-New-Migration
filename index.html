@@ -203,29 +203,65 @@ Action Plus Gym Adra
 🌐 www.actionplusgym.com
 📞 +91 7047157510
 📧 gymactionplus@gmail.com`,
-      success: `Hello [CustomerName]! 🏋️ 
+      welcome: `Hello, *[CustomerName]*! 🏋️  .
 
-Thank you for the recent payment that you have made.
+Greetings from Action Plus Gym!
 
-For the amount of INR [Amount] on [TodaysDate].
+We’re delighted to inform you that your membership with Action Plus Gym & Fitness Club has been successfully activated. Below are your membership details for your reference."
 
-Your next billing cycle would be on *[NextBillingDate].*
+Current Plan - *[CurrentPlan]*
+Gym Starting date - *[GymStartdate]*
+Next Payment Date - *[NextPaymentDate]*
 
-*Mode of Payment* : *[ModeOfPayment]*
+*🏋️‍♂️ *Action Plus Gym – Member Policies*
 
-*OFFER FOR YOU*
+1. Membership Policies
+Membership is non-transferable and non-refundable.
+Membership will be suspended or terminated for any rule violation.
 
-*Active Members* : - Refer a friend or family and get rewards!
+2. Personal Training
+External/personal trainers (online or offline) are strictly not allowed.
+All personal training must be conducted by Action Plus certified trainers only.
 
-They get *₹100 off on admission* and *You get ₹50 off on your next billing cycle.*
+3. Gym Etiquette
+Wear appropriate gym attire and clean shoes.
+Wipe down equipment after use.
+Re-rack weights and return equipment to its place.
+Loud or abusive behavior will not be tolerated.
 
-If you have any queries, we are one call away.
+4. Safety & Cleanliness
+Report any malfunctioning machines to the staff immediately.
+Maintain hygiene—carry a towel and water bottle.
+
+5. Payment & Billing
+Late payments may attract a penalty or result in temporary suspension.
+Refunds are not provided for missed days or any day of month exits.
+
+6. Facility Use
+Gym equipment and space are for fitness purposes only.
+No unauthorized filming or photography inside the gym without approval.
+
+7. Guest & Visitors
+No walk-in guests allowed without prior permission.
+Members are responsible for the behavior of their guests (if allowed).
+
+8. Hold & Freeze Policy
+Membership can be put on hold only in special cases (medical/travel) with prior written request.
+Maximum hold period: 1–2 months (approval-based).
+
+9. Conduct & Compliance
+Action Plus Gym reserves the right to cancel membership for misconduct.
+Members must follow instructions from gym staff and trainers at all times.
+
+Not sure about any of the policies?
+Please feel free to ask—we’re here to help!
 
 Regards,
 Action Plus Gym and Fitness Club
-Email: gymactionplus@gmail.com
-Website: www.actionplusgym.com
-Phone no: +91-7047157510`,
+Adra
+Email:- gymactionplus@gmail.com
+WebSite: www.actionplusgym.com
+Phone no:-+91- 7047157510`,
     };
     const STORAGE_KEYS = {
       users: 'apg.users',
@@ -605,11 +641,14 @@ Phone no: +91-7047157510`,
           '[Name]': member.name || '',
           '[CustomerName]': member.name || '',
           '[PLAN]': member.plan || '',
+          '[CurrentPlan]': member.plan || '',
           '[Amount]': `${Number(member.amount || 0)}/-`,
           '[BillingDate]': billing ? fmt(billing) : '',
           '[DATE]': billing ? fmt(billing) : '',
+          '[GymStartdate]': member.joiningDate ? fmt(member.joiningDate) : '',
           '[LastDate]': paymentBy ? fmt(paymentBy) : '',
           '[PaymentBy]': paymentBy ? fmt(paymentBy) : '',
+          '[NextPaymentDate]': paymentBy ? fmt(paymentBy) : '',
         };
         let out = template;
         Object.keys(replacements).forEach(key => {
@@ -631,7 +670,7 @@ Phone no: +91-7047157510`,
           : toStatus === 'Deactivated'
             ? 'deactivate'
             : toStatus === 'Active'
-              ? 'success'
+              ? 'welcome'
               : '';
         if (!key || !templates[key]) return;
         const message = renderSmsTemplate(templates[key], member);
@@ -808,7 +847,7 @@ Please pay by: ${formattedLastDate}`;
       const sendWelcomeEmail = (member, templateKey) => {
         if (!member) return;
         const keyByStatus = {
-          Active: 'success',
+          Active: 'welcome',
           Hold: 'hold',
           Deactivated: 'deactivate',
           Cancelled: 'fine',
@@ -824,15 +863,18 @@ Please pay by: ${formattedLastDate}`;
           '[Name]': member.name || '',
           '[CustomerName]': member.name || '',
           '[PLAN]': member.plan || '',
+          '[CurrentPlan]': member.plan || '',
           '[Amount]': `${Number(member.amount || 0)}`,
           '[BillingDate]': billing ? fmt(billing) : '',
           '[DATE]': billing ? fmt(billing) : '',
+          '[GymStartdate]': member.joiningDate ? fmt(member.joiningDate) : '',
           '[LastDate]': paymentBy ? fmt(paymentBy) : '',
           '[PaymentBy]': paymentBy ? fmt(paymentBy) : '',
           '[HoldDate]': fmt(new Date()),
           '[HoldMonth]': member.holdDuration || '1 Month',
           '[TodaysDate]': fmt(new Date()),
           '[NextBillingDate]': billing ? fmt(addMonths(billing, 1)) : '',
+          '[NextPaymentDate]': paymentBy ? fmt(paymentBy) : '',
           '[ModeOfPayment]': member.paymentMethod || '',
         };
         let message = smsTemplates[resolvedKey] || smsTemplates.reminder || '';
@@ -1811,7 +1853,7 @@ function MemberRow({ m, expanded, onToggle, onEdit, onStatusChange, holdOptions,
           ? { key: 'deactivate', label: 'Deactivate SMS' }
           : m.status === 'Cancelled'
             ? { key: 'fine', label: 'Fine SMS' }
-            : { key: 'success', label: 'Welcome SMS' };
+            : { key: 'welcome', label: 'Welcome SMS' };
       return (
         <div className="border-b border-slate-200 last:border-none odd:bg-slate-50 even:bg-white">
           <button onClick={onToggle} className="hidden md:grid w-full grid-cols-12 items-center gap-4 px-2 py-3 text-left text-slate-700 hover:bg-slate-100">
@@ -1928,7 +1970,7 @@ function MemberRow({ m, expanded, onToggle, onEdit, onStatusChange, holdOptions,
                     { key: 'fine', label: 'Fine SMS' },
                     { key: 'deactivate', label: 'Deactivate SMS' },
                     { key: 'hold', label: 'Hold SMS' },
-                    { key: 'success', label: 'Welcome SMS' },
+                    { key: 'welcome', label: 'Welcome SMS' },
                   ].map(t => (
                     <button
                       key={t.key}
@@ -3150,7 +3192,7 @@ function SettingsPage({ settings, updateSetting, members, storageInfo, onExport,
         { key: 'fine', title: 'Overdue / Fine SMS', subtitle: 'SMS / WHATSAPP', tone: 'bg-rose-50 border-rose-200' },
         { key: 'deactivate', title: 'Deactivate SMS', subtitle: 'SMS / WHATSAPP', tone: 'bg-pink-50 border-pink-200' },
         { key: 'hold', title: 'Hold SMS', subtitle: 'SMS / WHATSAPP', tone: 'bg-amber-50 border-amber-200' },
-        { key: 'success', title: 'Success / Welcome SMS', subtitle: 'SMS / WHATSAPP', tone: 'bg-emerald-50 border-emerald-200' },
+        { key: 'welcome', title: 'Welcome SMS', subtitle: 'SMS / WHATSAPP', tone: 'bg-emerald-50 border-emerald-200' },
       ];
       const smsTypes = [
         { key: 'reminder', label: 'Reminder' },
@@ -3158,7 +3200,7 @@ function SettingsPage({ settings, updateSetting, members, storageInfo, onExport,
         { key: 'fine', label: 'Fine SMS' },
         { key: 'deactivate', label: 'Deactivate SMS' },
         { key: 'hold', label: 'Hold SMS' },
-        { key: 'success', label: 'Success SMS' },
+        { key: 'welcome', label: 'Welcome SMS' },
         { key: 'templates', label: 'WhatsApp Template' },
       ];
       const today = new Date();
@@ -3200,7 +3242,7 @@ function SettingsPage({ settings, updateSetting, members, storageInfo, onExport,
         }),
         deactivate: members.filter(m => m.status === 'Deactivated'),
         hold: members.filter(m => m.status === 'Hold'),
-        success: members.filter(m => m.status === 'Active'),
+        welcome: members.filter(m => m.status === 'Active'),
       }), [activeMembers, members, today]);
       const rows = React.useMemo(() => {
         const q = search.toLowerCase().trim();
@@ -3217,7 +3259,7 @@ function SettingsPage({ settings, updateSetting, members, storageInfo, onExport,
         fine: membersByType.fine.length,
         deactivate: membersByType.deactivate.length,
         hold: membersByType.hold.length,
-        success: membersByType.success.length,
+        welcome: membersByType.welcome.length,
         templates: templateCards.length,
       }), [membersByType, templateCards.length]);
       const rules = [
@@ -3243,15 +3285,18 @@ function SettingsPage({ settings, updateSetting, members, storageInfo, onExport,
           '[Name]': m.name || '',
           '[CustomerName]': m.name || '',
           '[PLAN]': m.plan || '',
+          '[CurrentPlan]': m.plan || '',
           '[Amount]': `${Number(m.amount || 0)}`,
           '[BillingDate]': billing ? fmt(billing) : '',
           '[DATE]': billing ? fmt(billing) : '',
+          '[GymStartdate]': m.joiningDate ? fmt(m.joiningDate) : '',
           '[LastDate]': paymentBy ? fmt(paymentBy) : '',
           '[PaymentBy]': paymentBy ? fmt(paymentBy) : '',
           '[HoldDate]': today ? fmt(today) : '',
           '[HoldMonth]': m.holdDuration || '1 Month',
           '[TodaysDate]': today ? fmt(today) : '',
           '[NextBillingDate]': billing ? fmt(addMonths(billing, 1)) : '',
+          '[NextPaymentDate]': paymentBy ? fmt(paymentBy) : '',
           '[ModeOfPayment]': m.paymentMethod || '',
         };
         let out = template || '';
