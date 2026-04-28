@@ -25,4 +25,28 @@ html.dark ::-webkit-scrollbar-thumb {
   textarea {
     min-height: 40px;
   }
+
+  /*
+    App-wide mobile button consistency:
+    - unified touch target
+    - unified spacing/typography
+    - preserve existing color variants from Tailwind classes
+    - skip compact/icon buttons that already use p-1/p-2 utility spacing
+  */
+  button:not([class*="p-1"]):not([class*="p-2"]) {
+    min-height: 44px !important;
+    padding: 10px 14px !important;
+    border-radius: 12px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    font-size: 14px;
+    font-weight: 600;
+    line-height: 1.2;
+  }
+
+  button.rounded-full {
+    border-radius: 9999px !important;
+  }
 }

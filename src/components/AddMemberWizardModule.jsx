@@ -13,6 +13,14 @@ const INITIAL_FORM = {
 export default function AddMemberWizardModule({ members, onCreate, onWarn }) {
   const [step, setStep] = React.useState(1);
   const [form, setForm] = React.useState(INITIAL_FORM);
+  const focusField = (fieldId) => {
+    window.requestAnimationFrame(() => {
+      const el = document.getElementById(fieldId);
+      if (!el) return;
+      el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      try { el.focus(); } catch {}
+    });
+  };
 
   React.useEffect(() => {
     const loaded = loadAddMemberDraft();
@@ -45,14 +53,40 @@ export default function AddMemberWizardModule({ members, onCreate, onWarn }) {
   }, [req]);
 
   const next = () => {
-    if (step === 1 && (req.name || req.email || req.mobile)) return onWarn('Please complete Step 1 fields.');
-    if (step === 2 && (req.plan || req.status || req.dob)) return onWarn('Please complete Step 2 fields.');
+    if (step === 1 && (req.name || req.email || req.mobile)) {
+      onWarn('Please complete Step 1 fields.');
+      if (req.name) focusField('module-add-member-name');
+      else if (req.email) focusField('module-add-member-email');
+      else if (req.mobile) focusField('module-add-member-mobile');
+      return;
+    }
+    if (step === 2 && (req.plan || req.status || req.dob)) {
+      onWarn('Please complete Step 2 fields.');
+      if (req.plan) focusField('module-add-member-plan');
+      else if (req.status) focusField('module-add-member-status');
+      else if (req.dob) focusField('module-add-member-dob');
+      return;
+    }
     setStep((s) => Math.min(3, s + 1));
   };
 
   const save = async () => {
     onWarn('');
-    if (missing.length) return onWarn(`Missing required: ${missing.join(', ')}`);
+    if (missing.length) {
+      onWarn(`Missing required: ${missing.join(', ')}`);
+      if (req.name || req.email || req.mobile) {
+        setStep(1);
+        if (req.name) focusField('module-add-member-name');
+        else if (req.email) focusField('module-add-member-email');
+        else if (req.mobile) focusField('module-add-member-mobile');
+      } else if (req.plan || req.status || req.dob) {
+        setStep(2);
+        if (req.plan) focusField('module-add-member-plan');
+        else if (req.status) focusField('module-add-member-status');
+        else if (req.dob) focusField('module-add-member-dob');
+      }
+      return;
+    }
     const memberId = `APG-${Date.now().toString().slice(-6)}`;
     const dup = checkMemberDuplicates(members, { ...form, memberId });
     if (dup.duplicatePhone) return onWarn('Phone already exists.');
@@ -72,23 +106,23 @@ export default function AddMemberWizardModule({ members, onCreate, onWarn }) {
       </div>
 
       {step === 1 && (
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, minmax(0,1fr))', gap: 8 }}>
-          <input placeholder="Name" value={form.name} onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))} />
-          <input placeholder="Email" value={form.email} onChange={(e) => setForm((f) => ({ ...f, email: e.target.value }))} />
-          <input placeholder="Mobile" value={form.mobile} onChange={(e) => setForm((f) => ({ ...f, mobile: e.target.value }))} />
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px,1fr))', gap: 8 }}>
+          <input id="module-add-member-name" placeholder="Name" value={form.name} onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))} />
+          <input id="module-add-member-email" placeholder="Email" value={form.email} onChange={(e) => setForm((f) => ({ ...f, email: e.target.value }))} />
+          <input id="module-add-member-mobile" inputMode="numeric" placeholder="Mobile" value={form.mobile} onChange={(e) => setForm((f) => ({ ...f, mobile: e.target.value }))} />
         </div>
       )}
 
       {step === 2 && (
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, minmax(0,1fr))', gap: 8 }}>
-          <input placeholder="Plan" value={form.plan} onChange={(e) => setForm((f) => ({ ...f, plan: e.target.value }))} />
-          <select value={form.status} onChange={(e) => setForm((f) => ({ ...f, status: e.target.value }))}>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px,1fr))', gap: 8 }}>
+          <input id="module-add-member-plan" placeholder="Plan" value={form.plan} onChange={(e) => setForm((f) => ({ ...f, plan: e.target.value }))} />
+          <select id="module-add-member-status" value={form.status} onChange={(e) => setForm((f) => ({ ...f, status: e.target.value }))}>
             <option value="Active">Active</option>
             <option value="Hold">Hold</option>
             <option value="Deactivated">Deactivated</option>
             <option value="Cancelled">Cancelled</option>
           </select>
-          <input type="date" value={form.dob || ''} onChange={(e) => setForm((f) => ({ ...f, dob: e.target.value }))} />
+          <input id="module-add-member-dob" type="date" value={form.dob || ''} onChange={(e) => setForm((f) => ({ ...f, dob: e.target.value }))} />
         </div>
       )}
 
@@ -98,9 +132,9 @@ export default function AddMemberWizardModule({ members, onCreate, onWarn }) {
         </div>
       )}
 
-      <div style={{ marginTop: 10, display: 'flex', gap: 8 }}>
-        {step > 1 && <button onClick={() => setStep((s) => Math.max(1, s - 1))}>Back</button>}
-        {step < 3 ? <button onClick={next}>Next</button> : <button onClick={save}>Create</button>}
+      <div style={{ marginTop: 10, display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+        {step > 1 && <button style={{ minHeight: 44, padding: '10px 14px' }} onClick={() => setStep((s) => Math.max(1, s - 1))}>Back</button>}
+        {step < 3 ? <button style={{ minHeight: 44, padding: '10px 14px' }} onClick={next}>Next</button> : <button style={{ minHeight: 44, padding: '10px 14px' }} onClick={save}>Create</button>}
       </div>
     </section>
   );
