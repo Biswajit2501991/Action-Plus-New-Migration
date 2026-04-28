@@ -901,7 +901,12 @@ Phone: +91-7047157510`;
         setMembers(prev => prev.map(m => {
           if (m.memberId === memberId) {
             const before = { ...m };
-            const updated = { ...m, status: nextStatus };
+            const updated = {
+              ...m,
+              status: nextStatus,
+              staff: user?.name || m.staff || '',
+              updatedBy: user?.name || user?.id || '',
+            };
             if (nextStatus === 'Hold') {
               updated.holdDuration = opts.holdDuration || m.holdDuration || settings.holdDurations[0];
             } else {
@@ -1039,6 +1044,11 @@ Please pay by: ${formattedLastDate}`;
         // to the current editMember state for backwards compatibility.
         let toSave = updated || editMember;
         if (!toSave) return;
+        toSave = {
+          ...toSave,
+          staff: user?.name || toSave.staff || '',
+          updatedBy: user?.name || user?.id || '',
+        };
         // Validate required fields
         if (!toSave.name || !toSave.mobile || !toSave.plan || !toSave.status || !toSave.billingDate) {
           return;
@@ -1080,9 +1090,14 @@ Please pay by: ${formattedLastDate}`;
 
       // Save new member from wizard
       const addMember = (m) => {
-        setMembers(prev => [m, ...prev]);
-        logEvent('member.created', 'member', m.memberId, null, m);
-        setToast(`${m.name} has been saved successfully`);
+        const memberWithAudit = {
+          ...m,
+          staff: user?.name || m.staff || '',
+          updatedBy: user?.name || user?.id || '',
+        };
+        setMembers(prev => [memberWithAudit, ...prev]);
+        logEvent('member.created', 'member', memberWithAudit.memberId, null, memberWithAudit);
+        setToast(`${memberWithAudit.name} has been saved successfully`);
         setTimeout(() => setToast(''), 2500);
       };
 
