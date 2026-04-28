@@ -238,7 +238,7 @@ Phone no: +91-7047157510`,
       theme: 'apg.theme',
     };
     const STORAGE_SOFT_LIMIT_BYTES = 4.5 * 1024 * 1024; // ~4.5MB budget
-    const MAX_IMAGE_FILE_BYTES = 1024 * 1024; // 1MB input guard
+    const MAX_IMAGE_FILE_BYTES = 10 * 1024 * 1024; // 10MB input guard
     const MAX_IMAGE_EDGE_PX = 720;
     const IMAGE_JPEG_QUALITY = 0.78;
 
@@ -743,6 +743,14 @@ Phone no: +91-7047157510`,
         return false;
       };
 
+      // Keep live user details (like photo) in sync after Settings updates.
+      React.useEffect(() => {
+        if (!user?.id) return;
+        const latest = users.find(u => u.id === user.id);
+        if (!latest) return;
+        setUser(prev => (prev ? { ...prev, ...latest } : prev));
+      }, [users]);
+
       // Status change handler (quick actions)
       const quickStatus = (memberId, nextStatus, opts = {}) => {
         setMembers(prev => prev.map(m => {
@@ -797,16 +805,50 @@ Please pay by: ${formattedLastDate}`;
       };
 
       // Open WhatsApp with prefilled welcome/payment reminder message.
-      const sendWelcomeEmail = (member) => {
+      const sendWelcomeEmail = (member, templateKey) => {
         if (!member) return;
-        const url = getWhatsAppLink(member);
-        if (!url) {
-          setToast('Mobile number or billing date is missing.');
+        const keyByStatus = {
+          Active: 'success',
+          Hold: 'hold',
+          Deactivated: 'deactivate',
+          Cancelled: 'fine',
+        };
+        const resolvedKey = templateKey || keyByStatus[member.status] || 'reminder';
+        const smsTemplates = {
+          ...SMS_TEMPLATE_DEFAULTS,
+          ...(settings.smsTemplates || {}),
+        };
+        const billing = asUTC(member.billingDate);
+        const paymentBy = asUTC(member.paymentBy || member.billingDate);
+        const replacements = {
+          '[Name]': member.name || '',
+          '[CustomerName]': member.name || '',
+          '[PLAN]': member.plan || '',
+          '[Amount]': `${Number(member.amount || 0)}`,
+          '[BillingDate]': billing ? fmt(billing) : '',
+          '[DATE]': billing ? fmt(billing) : '',
+          '[LastDate]': paymentBy ? fmt(paymentBy) : '',
+          '[PaymentBy]': paymentBy ? fmt(paymentBy) : '',
+          '[HoldDate]': fmt(new Date()),
+          '[HoldMonth]': member.holdDuration || '1 Month',
+          '[TodaysDate]': fmt(new Date()),
+          '[NextBillingDate]': billing ? fmt(addMonths(billing, 1)) : '',
+          '[ModeOfPayment]': member.paymentMethod || '',
+        };
+        let message = smsTemplates[resolvedKey] || smsTemplates.reminder || '';
+        Object.keys(replacements).forEach((k) => {
+          message = message.split(k).join(replacements[k]);
+        });
+        const cleanPhone = String(member.mobile || '').replace(/\D/g, '');
+        if (!cleanPhone) {
+          setToast('Mobile number is missing.');
           setTimeout(() => setToast(''), 2500);
           return;
         }
+        const finalPhone = cleanPhone.length === 10 ? `91${cleanPhone}` : cleanPhone;
+        const url = `https://api.whatsapp.com/send?phone=${finalPhone}&text=${encodeURIComponent(message)}`;
         window.open(url, '_blank');
-        logEvent('welcome.whatsapp.opened', 'member', member.memberId, null, null);
+        logEvent('welcome.whatsapp.opened', 'member', member.memberId, null, { templateKey: resolvedKey });
         setToast('WhatsApp message opened.');
         setTimeout(() => setToast(''), 2500);
       };
@@ -996,7 +1038,7 @@ Please pay by: ${formattedLastDate}`;
         setDashMode('summary');
       };
       return (
-        <div className="min-h-screen flex bg-slate-100">
+        <div className="h-screen overflow-hidden flex bg-slate-100">
           {mobileMenuOpen && (
             <button
               onClick={() => setMobileMenuOpen(false)}
@@ -1226,35 +1268,60 @@ Please pay by: ${formattedLastDate}`;
       const [id, setId] = React.useState('');
       const [pw, setPw] = React.useState('');
       return (
-        <div className="min-h-screen flex items-center justify-center bg-slate-100">
-          <div className="w-full max-w-md bg-white rounded-3xl p-8 shadow-xl">
-            <h1 className="text-2xl font-semibold mb-6">Sign in to Action Plus Gym</h1>
-            <label className="text-sm font-medium">Login ID</label>
-            <input
-              value={id}
-              onChange={(e) => setId(e.target.value)}
-              placeholder="owner, manager, trainer or reception"
-              className="mb-4 mt-1 w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-300"
-            />
-            <label className="text-sm font-medium">Password</label>
-            <input
-              type="password"
-              value={pw}
-              onChange={(e) => setPw(e.target.value)}
-              placeholder="••••"
-              className="mb-4 mt-1 w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-300"
-            />
-            <button
-              onClick={() => onSubmit(id.trim(), pw)}
-              className="w-full bg-blue-600 hover:bg-blue-700 text-white rounded-2xl py-2 font-semibold"
-            >Login</button>
-            <p className="mt-3 text-xs text-slate-500">
-              Demo accounts:&nbsp;
-              <b>owner / owner</b>,
-              &nbsp;<b>manager / manager</b>,
-              &nbsp;<b>trainer / trainer</b>,
-              &nbsp;<b>reception / reception</b>
-            </p>
+        <div className="min-h-screen flex items-center justify-center px-4 py-8 bg-[radial-gradient(circle_at_center,_#57b8be_0%,_#2f8f98_45%,_#256f79_100%)]">
+          <div className="w-full max-w-md border border-[#5aa6ab] bg-[#2f7f88]/50 p-4 shadow-[0_18px_45px_rgba(0,0,0,0.35)]">
+            <div className="border border-[#4b98a0] bg-gradient-to-br from-[#234e5f] via-[#113e52] to-[#0a3545] px-8 py-10 text-[#7ea0aa]">
+              <div className="mx-auto mb-4 h-16 w-16 rounded-full border-2 border-[#557f88] flex items-center justify-center text-3xl">📷</div>
+              <h1 className="text-center text-3xl tracking-[0.16em] text-[#6b8e97] mb-6">USER LOGIN</h1>
+
+              <div className="space-y-6">
+                <div>
+                  <label className="block text-lg text-[#6f949d] mb-1.5">✉&nbsp;&nbsp;Email ID</label>
+                  <input
+                    value={id}
+                    onChange={(e) => setId(e.target.value)}
+                    placeholder="admin, manager, trainer"
+                    className="w-full bg-transparent border-0 border-b border-[#57858f] px-0 py-2 text-base text-[#9bb5bc] placeholder:text-[#6f949d] focus:outline-none"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-lg text-[#6f949d] mb-1.5">🔒&nbsp;&nbsp;Password</label>
+                  <input
+                    type="password"
+                    value={pw}
+                    onChange={(e) => setPw(e.target.value)}
+                    placeholder="••••"
+                    className="w-full bg-transparent border-0 border-b border-[#57858f] px-0 py-2 text-base text-[#9bb5bc] placeholder:text-[#6f949d] focus:outline-none"
+                  />
+                </div>
+              </div>
+
+              <div className="mt-5 flex items-center justify-between text-sm text-[#7397a0]">
+                <label className="flex items-center gap-2 select-none">
+                  <input type="checkbox" className="accent-slate-800 h-4 w-4" />
+                  <span>Remember me</span>
+                </label>
+                <button
+                  type="button"
+                  onClick={() => window.alert('Please call or check with Admin to reset your password.')}
+                  className="hover:text-[#9eb8be]"
+                >
+                  Forgot Password?
+                </button>
+              </div>
+
+              <button
+                onClick={() => onSubmit(id.trim(), pw)}
+                className="mt-6 w-full bg-[#052734] hover:bg-[#073142] text-[#d7dfe3] py-3 text-lg font-semibold tracking-[0.14em]"
+              >
+                LOGIN
+              </button>
+
+              <p className="mt-6 text-sm text-[#7e9ca3] leading-relaxed">
+                Demo roles: <b>Admin</b>, <b>Manager</b>, <b>Trainer</b>
+              </p>
+            </div>
           </div>
         </div>
       );
@@ -1293,7 +1360,7 @@ function Sidebar({ user, active, onSelect, theme, setTheme, onLogout, onUndo, on
           </div>
           <div className="mx-4 mb-6 p-4 rounded-2xl bg-white/10 flex flex-col items-center">
             {/* User avatar using initials */}
-            <Avatar name={user.name} photo={user.photo || null} className="h-16 w-16 mb-2" />
+            <Avatar name={user.name} photo={user.photo || user.avatar || null} className="h-16 w-16 mb-2" />
             <div className="font-semibold text-base">{user.name}</div>
             <div className="text-white/80 text-sm">{user.email}</div>
           </div>
@@ -1365,6 +1432,9 @@ function Sidebar({ user, active, onSelect, theme, setTheme, onLogout, onUndo, on
       }, [members]);
       const [q, setQ] = React.useState('');
       const [field, setField] = React.useState('all');
+      const [filtersOpen, setFiltersOpen] = React.useState(false);
+      const [showTrendHistory, setShowTrendHistory] = React.useState(false);
+      const [expandedOverdueId, setExpandedOverdueId] = React.useState('');
       const today = new Date();
       const monthlyRevenue = members
         .filter(m => {
@@ -1404,18 +1474,24 @@ function Sidebar({ user, active, onSelect, theme, setTheme, onLogout, onUndo, on
           })
           .sort((a, b) => b.overdueDays - a.overdueDays);
       }, [members, today]);
-      const monthTrend = React.useMemo(() => {
+      const allMonthTrend = React.useMemo(() => {
+        const dates = members.map(m => asUTC(m.billingDate)).filter(Boolean);
+        const start = dates.length
+          ? new Date(Math.min(...dates.map(d => d.getTime())))
+          : new Date(today.getFullYear(), today.getMonth() - 5, 1);
+        const end = new Date(today.getFullYear(), today.getMonth(), 1);
         const labels = [];
-        for (let i = 5; i >= 0; i -= 1) {
-          const dt = new Date(today.getFullYear(), today.getMonth() - i, 1);
+        let cursor = new Date(start.getFullYear(), start.getMonth(), 1);
+        while (cursor <= end) {
           labels.push({
-            label: MONTHS[dt.getMonth()],
-            year: dt.getFullYear(),
-            month: dt.getMonth(),
+            label: MONTHS[cursor.getMonth()],
+            year: cursor.getFullYear(),
+            month: cursor.getMonth(),
           });
+          cursor = new Date(cursor.getFullYear(), cursor.getMonth() + 1, 1);
         }
         return labels.map(x => ({
-          label: x.label,
+          label: `${x.label}-${String(x.year).slice(-2)}`,
           total: members.reduce((sum, m) => {
             const bd = asUTC(m.billingDate);
             if (!bd) return sum;
@@ -1424,7 +1500,10 @@ function Sidebar({ user, active, onSelect, theme, setTheme, onLogout, onUndo, on
           }, 0),
         }));
       }, [members, today]);
+      const monthTrend = React.useMemo(() => allMonthTrend.slice(-6), [allMonthTrend]);
+      const historicalTrend = React.useMemo(() => allMonthTrend.slice(0, -6), [allMonthTrend]);
       const maxTrend = Math.max(1, ...monthTrend.map(x => x.total));
+      const maxHistoricalTrend = Math.max(1, ...historicalTrend.map(x => x.total));
       const planDistribution = React.useMemo(() => {
         const countsByPlan = {};
         members.forEach(m => {
@@ -1460,32 +1539,44 @@ function Sidebar({ user, active, onSelect, theme, setTheme, onLogout, onUndo, on
       ];
       return (
         <div className="p-3 md:p-8 space-y-5">
-          <div className="flex items-center justify-between gap-4 flex-wrap">
-            <h1 className="text-xl md:text-2xl font-semibold">Dashboard</h1>
-            <div className="flex flex-col md:flex-row flex-1 max-w-2xl items-stretch md:items-center gap-2 w-full md:w-auto">
-              <input
-                value={q}
-                onChange={(e) => { const val = e.target.value; setQ(val); }}
-                placeholder="Search members (name, ID, mobile, email, staff)..."
-                className="flex-1 rounded-xl border border-slate-300 bg-white px-3 py-2 text-xs md:text-sm focus:outline-none focus:ring-2 focus:ring-blue-300 min-w-0"
-              />
-              <select
-                value={field}
-                onChange={(e) => { const f = e.target.value; setField(f); }}
-                className="rounded-xl border border-slate-300 bg-white px-3 py-2 text-xs md:text-sm md:w-auto"
-              >
-                <option value="all">All</option>
-                <option value="name">Name</option>
-                <option value="mobile">Mobile</option>
-                <option value="memberId">Member ID</option>
-                <option value="email">Email</option>
-                <option value="staff">Staff</option>
-                <option value="plan">Plan</option>
-                <option value="status">Status</option>
-              </select>
-              <button onClick={() => onSearch(q, field)} className="rounded-xl px-4 py-2 border border-slate-300 bg-white text-xs md:text-sm font-medium w-full md:w-auto">Search</button>
+          <div className="space-y-3">
+            <div className="flex items-center justify-between gap-3">
+              <h1 className="text-xl md:text-2xl font-semibold text-slate-900">Dashboard</h1>
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={() => setFiltersOpen(prev => !prev)}
+                  className="rounded-full px-3 py-1.5 border border-blue-300 bg-blue-50 text-blue-700 text-xs md:text-sm font-medium"
+                >
+                  {filtersOpen ? 'Hide Filters' : 'Filter'}
+                </button>
+                <button onClick={onAddNew} className="rounded-full px-4 md:px-5 py-2 bg-blue-600 hover:bg-blue-700 text-white text-xs md:text-sm font-semibold flex items-center justify-center gap-2"><span className="text-base">＋</span> Add New Member</button>
+              </div>
             </div>
-            <button onClick={onAddNew} className="rounded-2xl px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white text-sm md:text-base font-semibold flex items-center justify-center gap-2 w-full sm:w-auto"><span className="text-lg">＋</span> Add New Member</button>
+            {filtersOpen && (
+              <div className="flex flex-col md:flex-row items-stretch md:items-center gap-2">
+                <input
+                  value={q}
+                  onChange={(e) => { const val = e.target.value; setQ(val); }}
+                  placeholder="Search members (name, ID, mobile, email, staff)..."
+                  className="flex-1 rounded-xl border border-slate-300 bg-white px-3 py-2 text-xs md:text-sm focus:outline-none focus:ring-2 focus:ring-blue-300 min-w-0"
+                />
+                <select
+                  value={field}
+                  onChange={(e) => { const f = e.target.value; setField(f); }}
+                  className="rounded-xl border border-slate-300 bg-white px-3 py-2 text-xs md:text-sm md:w-auto"
+                >
+                  <option value="all">All</option>
+                  <option value="name">Name</option>
+                  <option value="mobile">Mobile</option>
+                  <option value="memberId">Member ID</option>
+                  <option value="email">Email</option>
+                  <option value="staff">Staff</option>
+                  <option value="plan">Plan</option>
+                  <option value="status">Status</option>
+                </select>
+                <button onClick={() => onSearch(q, field)} className="rounded-full px-4 py-2 border border-slate-300 bg-white text-xs md:text-sm font-medium w-full md:w-auto">Search</button>
+              </div>
+            )}
           </div>
           <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-5 gap-4">
             {tiles.map(tile => (
@@ -1516,8 +1607,18 @@ function Sidebar({ user, active, onSelect, theme, setTheme, onLogout, onUndo, on
             <div className="xl:col-span-2 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
               <div className="flex items-center justify-between mb-3">
                 <div className="text-lg font-semibold text-slate-800">Revenue and Membership Trends</div>
-                <div className={cx('text-sm font-semibold', growthRate >= 0 ? 'text-emerald-700' : 'text-rose-700')}>
-                  Growth Rate {growthRate >= 0 ? '+' : ''}{growthRate}%
+                <div className="flex items-center gap-3">
+                  {historicalTrend.length > 0 && (
+                    <button
+                      onClick={() => setShowTrendHistory(v => !v)}
+                      className="rounded-full px-3 py-1 text-xs font-semibold border border-slate-300 bg-white text-slate-700 hover:bg-slate-100"
+                    >
+                      {showTrendHistory ? 'Hide Expanded Trend' : `Expand (${historicalTrend.length} more)`}
+                    </button>
+                  )}
+                  <div className={cx('text-sm font-semibold', growthRate >= 0 ? 'text-emerald-700' : 'text-rose-700')}>
+                    Growth Rate {growthRate >= 0 ? '+' : ''}{growthRate}%
+                  </div>
                 </div>
               </div>
               <div className="h-44 flex items-end gap-3">
@@ -1549,6 +1650,23 @@ function Sidebar({ user, active, onSelect, theme, setTheme, onLogout, onUndo, on
               </div>
             </div>
           </div>
+          {showTrendHistory && historicalTrend.length > 0 && (
+            <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+              <div className="text-base font-semibold text-slate-800 mb-3">Expanded Revenue Trend (Older Months)</div>
+              <div className="h-40 flex items-end gap-2 overflow-x-auto">
+                {historicalTrend.map(x => {
+                  const h = Math.max(10, Math.round((x.total / maxHistoricalTrend) * 130));
+                  return (
+                    <div key={x.label} className="w-16 shrink-0 flex flex-col items-center gap-1">
+                      <div className="text-[10px] text-slate-500">${x.total.toLocaleString()}</div>
+                      <div className="w-full rounded-t-lg bg-blue-300/80" style={{ height: `${h}px` }} />
+                      <div className="text-[11px] text-slate-700">{x.label}</div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
 
           <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
             <div className="text-lg font-semibold text-slate-800 mb-3">Overdue Payments and Retention Alerts</div>
@@ -1566,29 +1684,38 @@ function Sidebar({ user, active, onSelect, theme, setTheme, onLogout, onUndo, on
                 </thead>
                 <tbody>
                   {overdueList.slice(0, 10).map(m => (
-                    <tr key={m.memberId} className="border-b border-slate-200 hover:bg-slate-50">
-                      <td className="px-3 py-2 whitespace-nowrap">{m.name}</td>
-                      <td className="px-3 py-2 whitespace-nowrap">{m.memberId}</td>
-                      <td className="px-3 py-2 whitespace-nowrap">{m.plan || '-'}</td>
-                      <td className="px-3 py-2 whitespace-nowrap">${Number(m.amount || 0).toLocaleString()}</td>
-                      <td className="px-3 py-2 whitespace-nowrap">{m.overdueDays}</td>
-                      <td className="px-3 py-2 whitespace-nowrap">
-                        <div className="flex items-center gap-2">
-                          <button
-                            onClick={() => onWelcome && onWelcome(m)}
-                            className="rounded-lg px-3 py-1 text-xs font-medium border border-emerald-200 bg-emerald-50 text-emerald-700 hover:bg-emerald-100"
-                          >
-                            Send WhatsApp Reminder
-                          </button>
-                          <button
-                            onClick={() => onOpenMember && onOpenMember(m.memberId)}
-                            className="rounded-lg px-3 py-1 text-xs font-medium border border-slate-300 bg-white text-slate-700 hover:bg-slate-100"
-                          >
-                            View Details
-                          </button>
-                        </div>
-                      </td>
-                    </tr>
+                    <React.Fragment key={m.memberId}>
+                      <tr className="border-b border-slate-200 hover:bg-slate-50">
+                        <td className="px-3 py-2 whitespace-nowrap">{m.name}</td>
+                        <td className="px-3 py-2 whitespace-nowrap">{m.memberId}</td>
+                        <td className="px-3 py-2 whitespace-nowrap">{m.plan || '-'}</td>
+                        <td className="px-3 py-2 whitespace-nowrap">${Number(m.amount || 0).toLocaleString()}</td>
+                        <td className="px-3 py-2 whitespace-nowrap">{m.overdueDays}</td>
+                        <td className="px-3 py-2 whitespace-nowrap">
+                          <div className="flex items-center gap-2">
+                            <button
+                              onClick={() => onWelcome && onWelcome(m, 'reminder')}
+                              className="rounded-full px-3 py-1 text-xs font-medium border border-emerald-200 bg-emerald-50 text-emerald-700 hover:bg-emerald-100"
+                            >
+                              Send WhatsApp Reminder
+                            </button>
+                            <button
+                              onClick={() => setExpandedOverdueId(prev => prev === m.memberId ? '' : m.memberId)}
+                              className="rounded-full px-3 py-1 text-xs font-medium border border-slate-300 bg-white text-slate-700 hover:bg-slate-100"
+                            >
+                              {expandedOverdueId === m.memberId ? 'Hide Details' : 'View Details'}
+                            </button>
+                          </div>
+                        </td>
+                      </tr>
+                      {expandedOverdueId === m.memberId && (
+                        <tr className="bg-slate-50 border-b border-slate-200">
+                          <td colSpan={6} className="p-3">
+                            <MemberDetails m={m} logs={[]} />
+                          </td>
+                        </tr>
+                      )}
+                    </React.Fragment>
                   ))}
                   {overdueList.length === 0 && (
                     <tr>
@@ -1621,7 +1748,7 @@ function Sidebar({ user, active, onSelect, theme, setTheme, onLogout, onUndo, on
         <div className="p-8 space-y-4">
           <div className="flex items-center gap-3 mb-4">
             <button onClick={onBack} className="p-2 rounded-xl hover:bg-slate-200"><span className="text-xl">←</span></button>
-            <h1 className="text-2xl font-semibold">{title} ({list.length})</h1>
+            <h1 className="text-xl md:text-2xl font-semibold text-slate-900">{title} ({list.length})</h1>
           </div>
           <div className="rounded-3xl bg-white border border-slate-200 p-4 shadow-sm">
             <div className="grid grid-cols-12 gap-4 px-3 py-2 text-sm font-semibold bg-blue-50 text-blue-700 border border-blue-100 rounded-2xl">
@@ -1677,7 +1804,14 @@ function MemberRow({ m, expanded, onToggle, onEdit, onStatusChange, holdOptions,
       const todayHighlight = fmt(m.billingDate) === fmt(new Date());
       // Determine if we can open WhatsApp welcome/payment reminder.
       // Active members with mobile number and billing date qualify.
-      const canWelcome = m.status === 'Active' && m.mobile && String(m.mobile).trim() && m.billingDate;
+      const canWelcome = m.mobile && String(m.mobile).trim();
+      const statusTemplate = m.status === 'Hold'
+        ? { key: 'hold', label: 'Hold SMS' }
+        : m.status === 'Deactivated'
+          ? { key: 'deactivate', label: 'Deactivate SMS' }
+          : m.status === 'Cancelled'
+            ? { key: 'fine', label: 'Fine SMS' }
+            : { key: 'success', label: 'Welcome SMS' };
       return (
         <div className="border-b border-slate-200 last:border-none odd:bg-slate-50 even:bg-white">
           <button onClick={onToggle} className="hidden md:grid w-full grid-cols-12 items-center gap-4 px-2 py-3 text-left text-slate-700 hover:bg-slate-100">
@@ -1716,26 +1850,23 @@ function MemberRow({ m, expanded, onToggle, onEdit, onStatusChange, holdOptions,
                 <span>✎</span>
                 <span>Action</span>
               </button>
-              {/* Welcome WhatsApp button (Active members only) */}
-              {m.status === 'Active' && (
-                <button
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    onWelcome && onWelcome(m);
-                  }}
-                  disabled={!canWelcome}
-                  title={canWelcome ? 'Open WhatsApp Welcome Message' : 'Cannot open (missing mobile or billing date)'}
-                  className={cx(
-                    'flex-shrink-0 flex items-center gap-1 rounded-lg px-3 py-2 text-xs font-medium border',
-                    canWelcome
-                      ? 'bg-blue-50 text-blue-700 border-blue-200 hover:bg-blue-100'
-                      : 'bg-slate-200 text-slate-500 border-slate-300 cursor-not-allowed'
-                  )}
-                >
-                  <span>💬</span>
-                  <span>Welcome</span>
-                </button>
-              )}
+              <button
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onWelcome && onWelcome(m, statusTemplate.key);
+                }}
+                disabled={!canWelcome}
+                title={canWelcome ? `Open WhatsApp ${statusTemplate.label}` : 'Cannot open (missing mobile number)'}
+                className={cx(
+                  'flex-shrink-0 flex items-center gap-1 rounded-lg px-3 py-2 text-xs font-medium border',
+                  canWelcome
+                    ? 'bg-blue-50 text-blue-700 border-blue-200 hover:bg-blue-100'
+                    : 'bg-slate-200 text-slate-500 border-slate-300 cursor-not-allowed'
+                )}
+              >
+                <span>💬</span>
+                <span>{statusTemplate.label}</span>
+              </button>
             </div>
           </button>
           <button onClick={onToggle} className="md:hidden w-full px-3 py-3 text-left text-slate-700 hover:bg-slate-100">
@@ -1768,28 +1899,52 @@ function MemberRow({ m, expanded, onToggle, onEdit, onStatusChange, holdOptions,
               >
                 Action
               </button>
-              {m.status === 'Active' && (
-                <button
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    onWelcome && onWelcome(m);
-                  }}
-                  disabled={!canWelcome}
-                  className={cx(
-                    'rounded-lg px-2.5 py-1.5 text-xs font-medium border',
-                    canWelcome
-                      ? 'bg-blue-50 text-blue-700 border-blue-200'
-                      : 'bg-slate-200 text-slate-500 border-slate-300 cursor-not-allowed'
-                  )}
-                >
-                  Welcome
-                </button>
-              )}
+              <button
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onWelcome && onWelcome(m, statusTemplate.key);
+                }}
+                disabled={!canWelcome}
+                className={cx(
+                  'rounded-lg px-2.5 py-1.5 text-xs font-medium border',
+                  canWelcome
+                    ? 'bg-blue-50 text-blue-700 border-blue-200'
+                    : 'bg-slate-200 text-slate-500 border-slate-300 cursor-not-allowed'
+                )}
+              >
+                {statusTemplate.label}
+              </button>
             </div>
           </button>
           {expanded && (
             <div className="px-2 pb-4 space-y-3">
               <MemberDetails m={m} logs={logs} />
+              <div className="rounded-xl border border-slate-200 bg-white p-3">
+                <div className="text-xs font-semibold text-slate-600 mb-2">WhatsApp Message Types</div>
+                <div className="flex flex-wrap gap-2">
+                  {[
+                    { key: 'reminder', label: 'Reminder' },
+                    { key: 'monthReminder', label: 'Month Reminder' },
+                    { key: 'fine', label: 'Fine SMS' },
+                    { key: 'deactivate', label: 'Deactivate SMS' },
+                    { key: 'hold', label: 'Hold SMS' },
+                    { key: 'success', label: 'Welcome SMS' },
+                  ].map(t => (
+                    <button
+                      key={t.key}
+                      onClick={() => onWelcome && onWelcome(m, t.key)}
+                      disabled={!canWelcome}
+                      className={cx(
+                        'rounded-lg border px-2.5 py-1 text-xs font-medium',
+                        t.key === statusTemplate.key ? 'border-blue-300 bg-blue-50 text-blue-700' : 'border-slate-300 bg-white text-slate-700 hover:bg-slate-100',
+                        !canWelcome && 'cursor-not-allowed bg-slate-100 text-slate-400'
+                      )}
+                    >
+                      {t.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
               <QuickActions m={m} onStatusChange={onStatusChange} holdOptions={holdOptions} canDelete={canDelete} onDelete={onDelete} />
             </div>
           )}
@@ -2015,7 +2170,7 @@ function DashboardView({ members, onEdit, onStatusChange, holdOptions, logs, fil
         <div className="p-3 md:p-8 space-y-5">
           {/* Header row with Filter button */}
           <div className="flex items-center justify-between mb-4 gap-2 flex-wrap">
-            <h1 className="text-xl md:text-2xl font-semibold">Members</h1>
+            <h1 className="text-xl md:text-2xl font-semibold text-slate-900">Members</h1>
             <div className="flex items-center gap-2 flex-wrap">
               <span className="rounded-xl px-2 py-1 text-[11px] md:text-xs font-semibold bg-blue-50 text-blue-700 border border-blue-200">All Members</span>
               <span className="rounded-xl px-2 py-1 text-[11px] md:text-xs font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200">Active ({grouped.Active.length})</span>
@@ -2155,6 +2310,7 @@ function EditMemberModal({ member, onClose, onSave, planOptions, statusOptions, 
         status: !edit.status,
         billingDate: !iso(edit.billingDate),
         amount: !String(edit.amount || '').trim() || !(/^\d+$/.test(String(edit.amount).trim())) || Number(edit.amount) <= 0,
+        paymentMethod: !String(edit.paymentMethod || '').trim(),
         holdDuration: edit.status === 'Hold' && !String(edit.holdDuration || '').trim(),
       };
       // Determine if any field has been modified compared to the original member. We
@@ -2167,7 +2323,7 @@ function EditMemberModal({ member, onClose, onSave, planOptions, statusOptions, 
         const file = e.target.files && e.target.files[0];
         if (!file) return;
         if (file.size > MAX_IMAGE_FILE_BYTES) {
-          setToast('Image too large. Please upload a file up to 1MB.');
+          setToast('Image too large. Please upload a file up to 10MB.');
           setTimeout(() => setToast(''), 2500);
           return;
         }
@@ -2219,7 +2375,7 @@ function EditMemberModal({ member, onClose, onSave, planOptions, statusOptions, 
                 {/* Row 1: Form Number and Member ID */}
                 <div>
                   <label className="text-xs md:text-sm font-medium">Form Number</label>
-                  <input value={edit.formNo ?? ''} onChange={(e) => setEdit({ ...edit, formNo: e.target.value })} readOnly={!canEditFormNo} className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm" />
+                  <input value={edit.formNo ?? ''} onChange={(e) => setEdit({ ...edit, formNo: e.target.value })} readOnly={!canEditFormNo} className={cx('w-full rounded-xl border px-3 py-2 text-sm', canEditFormNo ? 'border-slate-300 bg-white' : 'border-slate-200 bg-slate-100 text-slate-500')} />
                 </div>
                 <div>
                   <label className="text-sm font-medium">Member Id</label>
@@ -2299,23 +2455,23 @@ function EditMemberModal({ member, onClose, onSave, planOptions, statusOptions, 
                 </div>
                 <div>
                   <label className="text-sm font-medium">Payment Method</label>
-                  <select value={edit.paymentMethod || ''} onChange={(e) => setEdit({ ...edit, paymentMethod: e.target.value })} className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm">
+                  <select value={edit.paymentMethod || ''} onChange={(e) => setEdit({ ...edit, paymentMethod: e.target.value })} className={cx('w-full rounded-xl border px-3 py-2 text-sm', req.paymentMethod ? 'border-rose-300 bg-rose-50 text-rose-700' : 'border-slate-300 bg-white')}>
                     {paymentOptions.map(pm => <option key={pm} value={pm}>{pm}</option>)}
                   </select>
                 </div>
                 {/* Row 6: Next Payment Date and Payment By */}
                 <div>
                   <label className="text-sm font-medium">Next Payment Date</label>
-                  <input readOnly value={fmt(edit.nextPaymentDate)} className="w-full rounded-xl border border-blue-200 bg-blue-50 px-3 py-2 text-sm text-blue-700" />
+                  <input readOnly value={fmt(edit.nextPaymentDate)} className="w-full rounded-xl border border-slate-200 bg-slate-100 px-3 py-2 text-sm text-slate-500" />
                 </div>
                 <div>
                   <label className="text-sm font-medium">Payment By</label>
-                  <input readOnly value={fmt(edit.paymentBy)} className="w-full rounded-xl border border-blue-200 bg-blue-50 px-3 py-2 text-sm text-blue-700" />
+                  <input readOnly value={fmt(edit.paymentBy)} className="w-full rounded-xl border border-slate-200 bg-slate-100 px-3 py-2 text-sm text-slate-500" />
                 </div>
                 {/* Row 7: Staff */}
                 <div>
                   <label className="text-sm font-medium">Staff</label>
-                  <input readOnly value={edit.staff || ''} className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-sm" />
+                  <input readOnly value={edit.staff || ''} className="w-full rounded-xl border border-slate-200 bg-slate-100 px-3 py-2 text-sm text-slate-500" />
                 </div>
               </div>
             </div>
@@ -2349,6 +2505,7 @@ function EditMemberModal({ member, onClose, onSave, planOptions, statusOptions, 
       const [form, setForm] = React.useState({
         formNo: '',
         name: '',
+        email: '',
         dob: '',
         gender: '',
         mobile: '',
@@ -2403,7 +2560,7 @@ function EditMemberModal({ member, onClose, onSave, planOptions, statusOptions, 
       }, [form.billingDate]);
       // Define which fields are mandatory for each step. We'll validate these before allowing the user
       // to proceed to the next step. All fields are required per the new requirements.
-      const req1 = { formNo: !form.formNo, name: !form.name.trim(), dob: !form.dob, gender: !form.gender, mobile: !form.mobile.trim(), address: !form.address.trim() };
+      const req1 = { formNo: !form.formNo, name: !form.name.trim(), email: !form.email.trim(), dob: !form.dob, gender: !form.gender, mobile: !form.mobile.trim(), address: !form.address.trim() };
       // Validate that amount is a positive integer (no decimals, not zero or negative)
       const isPositiveInt = (val) => /^\d+$/.test(String(val).trim()) && Number(val) > 0;
       const req2 = {
@@ -2416,6 +2573,9 @@ function EditMemberModal({ member, onClose, onSave, planOptions, statusOptions, 
         status: !form.status
       };
       const req3 = { paymentMethod: !form.paymentMethod };
+      const reqCls = (invalid) => cx('w-full rounded-xl border bg-white px-3 py-2 text-sm', invalid ? 'border-rose-300 bg-rose-50 text-rose-700' : 'border-slate-300');
+      const reqClsXs = (invalid) => cx('w-full rounded-xl border bg-white px-3 py-2 text-xs md:text-sm', invalid ? 'border-rose-300 bg-rose-50 text-rose-700' : 'border-slate-300');
+      const readOnlyCls = 'w-full rounded-xl border border-slate-200 bg-slate-100 px-3 py-2 text-sm text-slate-500';
       const next = () => {
         setWarn('');
         if (step === 1) {
@@ -2437,7 +2597,7 @@ function EditMemberModal({ member, onClose, onSave, planOptions, statusOptions, 
         const file = e.target.files?.[0];
         if (!file) return;
         if (file.size > MAX_IMAGE_FILE_BYTES) {
-          setWarn('Image too large. Please upload a file up to 1MB.');
+          setWarn('Image too large. Please upload a file up to 10MB.');
           return;
         }
         try {
@@ -2480,6 +2640,7 @@ function EditMemberModal({ member, onClose, onSave, planOptions, statusOptions, 
         setForm({
           formNo: '',
           name: '',
+          email: '',
           dob: '',
           gender: '',
           mobile: '',
@@ -2514,22 +2675,23 @@ function EditMemberModal({ member, onClose, onSave, planOptions, statusOptions, 
                       value={form.formNo}
                       onChange={(e) => setForm({ ...form, formNo: e.target.value })}
                       readOnly={!canEditFormNo}
-                      className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-xs md:text-sm"
+                      className={canEditFormNo ? reqClsXs(req1.formNo) : readOnlyCls}
                     />
                   </div>
-                  <div><label className="text-xs md:text-sm font-medium">Full Name</label><input value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-xs md:text-sm" /></div>
-                  <div><label className="text-sm font-medium">Date of Birth</label><input type="date" value={form.dob} onChange={(e) => setForm({ ...form, dob: e.target.value })} className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm" /></div>
-                  <div><label className="text-sm font-medium">Gender</label><select value={form.gender} onChange={(e) => setForm({ ...form, gender: e.target.value })} className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm">
+                  <div><label className="text-xs md:text-sm font-medium">Full Name</label><input value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} className={reqClsXs(req1.name)} /></div>
+                  <div><label className="text-sm font-medium">Gmail</label><input type="email" value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} placeholder="example@gmail.com" className={reqCls(req1.email)} /></div>
+                  <div><label className="text-sm font-medium">Date of Birth</label><input type="date" value={form.dob} onChange={(e) => setForm({ ...form, dob: e.target.value })} className={reqCls(req1.dob)} /></div>
+                  <div><label className="text-sm font-medium">Gender</label><select value={form.gender} onChange={(e) => setForm({ ...form, gender: e.target.value })} className={reqCls(req1.gender)}>
                     <option value="">Select gender</option>
                     {settings.genders.map(g => <option key={g} value={g}>{g}</option>)}
                   </select></div>
-                  <div><label className="text-sm font-medium">Mobile Number</label><input value={form.mobile} onChange={(e) => setForm({ ...form, mobile: e.target.value })} className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm" /></div>
-                  <div className="col-span-2"><label className="text-sm font-medium">Address</label><input value={form.address} onChange={(e) => setForm({ ...form, address: e.target.value })} className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm" /></div>
+                  <div><label className="text-sm font-medium">Mobile Number</label><input value={form.mobile} onChange={(e) => setForm({ ...form, mobile: e.target.value })} className={reqCls(req1.mobile)} /></div>
+                  <div className="col-span-2"><label className="text-sm font-medium">Address</label><input value={form.address} onChange={(e) => setForm({ ...form, address: e.target.value })} className={reqCls(req1.address)} /></div>
                 </div>
               )}
               {step === 2 && (
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  <div><label className="text-sm font-medium">Staff (logged in)</label><input value={form.staff} readOnly className="w-full rounded-xl border border-blue-200 bg-blue-50 px-3 py-2 text-sm font-medium text-blue-700" /></div>
+                  <div><label className="text-sm font-medium">Staff (logged in)</label><input value={form.staff} readOnly className={readOnlyCls} /></div>
                   <div>
                     <label className="text-sm font-medium">Amount (INR)</label>
                     <input
@@ -2543,24 +2705,24 @@ function EditMemberModal({ member, onClose, onSave, planOptions, statusOptions, 
                         }
                       }}
                       placeholder="Enter amount"
-                      className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm"
+                      className={reqCls(req2.amount)}
                     />
                   </div>
-                  <div><label className="text-sm font-medium">Plan</label><select value={form.plan} onChange={(e) => setForm({ ...form, plan: e.target.value })} className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm">
+                  <div><label className="text-sm font-medium">Plan</label><select value={form.plan} onChange={(e) => setForm({ ...form, plan: e.target.value })} className={reqCls(req2.plan)}>
                     <option value="">Select plan</option>
                     {settings.plans.map(p => <option key={p} value={p}>{p}</option>)}
                   </select></div>
-                  <div><label className="text-sm font-medium">Joining Date</label><input type="date" value={form.joiningDate} onChange={(e) => setForm({ ...form, joiningDate: e.target.value })} className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm" /></div>
-                  <div><label className="text-sm font-medium">Billing Date</label><input type="date" value={form.billingDate} onChange={(e) => setForm({ ...form, billingDate: e.target.value })} className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm" /></div>
-                  <div><label className="text-sm font-medium">Payment By</label><input type="date" value={form.paymentBy} readOnly className="w-full rounded-xl border border-blue-200 bg-blue-50 px-3 py-2 text-sm font-medium text-blue-700" /></div>
-                  <div><label className="text-sm font-medium">Status</label><select value={form.status} onChange={(e) => setForm({ ...form, status: e.target.value })} className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm">
+                  <div><label className="text-sm font-medium">Joining Date</label><input type="date" value={form.joiningDate} onChange={(e) => setForm({ ...form, joiningDate: e.target.value })} className={reqCls(req2.joiningDate)} /></div>
+                  <div><label className="text-sm font-medium">Billing Date</label><input type="date" value={form.billingDate} onChange={(e) => setForm({ ...form, billingDate: e.target.value })} className={reqCls(req2.billingDate)} /></div>
+                  <div><label className="text-sm font-medium">Payment By</label><input type="date" value={form.paymentBy} readOnly className={readOnlyCls} /></div>
+                  <div><label className="text-sm font-medium">Status</label><select value={form.status} onChange={(e) => setForm({ ...form, status: e.target.value })} className={reqCls(req2.status)}>
                     {settings.statuses.map(s => <option key={s} value={s}>{s}</option>)}
                   </select></div>
                 </div>
               )}
               {step === 3 && (
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  <div><label className="text-sm font-medium">Payment Mode</label><select value={form.paymentMethod} onChange={(e) => setForm({ ...form, paymentMethod: e.target.value })} className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm">
+                  <div><label className="text-sm font-medium">Payment Mode</label><select value={form.paymentMethod} onChange={(e) => setForm({ ...form, paymentMethod: e.target.value })} className={reqCls(req3.paymentMethod)}>
                     {settings.paymentMethods.map(p => <option key={p} value={p}>{p}</option>)}
                   </select></div>
                   <div>
@@ -2581,17 +2743,17 @@ function EditMemberModal({ member, onClose, onSave, planOptions, statusOptions, 
               {step === 3 ? (
                 <>
                   <button onClick={back} className="rounded-xl px-4 py-2 border border-slate-300 bg-white text-sm font-medium w-full sm:w-auto">Back</button>
-                  <button onClick={save} className="rounded-xl px-4 py-2 text-sm font-medium bg-blue-600 hover:bg-blue-700 text-white w-full sm:w-auto">Save New Member</button>
+                  <button onClick={save} className="rounded-full px-4 py-2 text-sm font-medium bg-blue-600 hover:bg-blue-700 text-white w-full sm:w-auto">Save New Member</button>
                 </>
               ) : step === 2 ? (
                 <>
                   <button onClick={back} className="rounded-xl px-4 py-2 border border-slate-300 bg-white text-sm font-medium w-full sm:w-auto">Back</button>
-                  <button onClick={next} className="rounded-xl px-4 py-2 text-sm font-medium bg-blue-600 hover:bg-blue-700 text-white w-full sm:w-auto">Next</button>
+                  <button onClick={next} className="rounded-full px-4 py-2 text-sm font-medium bg-blue-600 hover:bg-blue-700 text-white w-full sm:w-auto">Next</button>
                 </>
               ) : (
                 <>
                   <button onClick={onClose} className="rounded-xl px-4 py-2 border border-slate-300 bg-white text-sm font-medium w-full sm:w-auto">Cancel</button>
-                  <button onClick={next} className="rounded-xl px-4 py-2 text-sm font-medium bg-blue-600 hover:bg-blue-700 text-white w-full sm:w-auto">Next</button>
+                  <button onClick={next} className="rounded-full px-4 py-2 text-sm font-medium bg-blue-600 hover:bg-blue-700 text-white w-full sm:w-auto">Next</button>
                 </>
               )}
             </div>
@@ -2623,8 +2785,8 @@ function SettingsPage({ settings, updateSetting, members, storageInfo, onExport,
         updateSetting(key, settings[key].filter(x => x !== val));
       };
       return (
-        <div className="p-8 space-y-6">
-          <h1 className="text-2xl font-semibold mb-4">Settings</h1>
+        <div className="p-3 md:p-8 space-y-6">
+          <h1 className="text-xl md:text-2xl font-semibold text-slate-900 mb-4">Settings</h1>
           <div className="rounded-3xl bg-white border border-slate-200 p-4 shadow-sm space-y-2">
             <h3 className="text-lg font-semibold">Storage Diagnostics</h3>
             <div className="text-sm text-slate-700">
@@ -2634,7 +2796,7 @@ function SettingsPage({ settings, updateSetting, members, storageInfo, onExport,
               Last error: {storageInfo?.lastError ? `${storageInfo.lastError} (${storageInfo.lastKey || 'unknown key'})` : 'None'}
             </div>
             <div className="pt-2 flex items-center gap-2">
-              <button onClick={onExport} className="rounded-xl px-3 py-2 text-sm font-medium bg-blue-600 hover:bg-blue-700 text-white">Export Data</button>
+              <button onClick={onExport} className="rounded-full px-3 py-2 text-sm font-medium bg-blue-600 hover:bg-blue-700 text-white">Export Data</button>
               <button onClick={() => importRef.current && importRef.current.click()} className="rounded-xl px-3 py-2 text-sm font-medium border border-slate-300 bg-white hover:bg-slate-100">Import Data</button>
               <input
                 ref={importRef}
@@ -2662,7 +2824,7 @@ function SettingsPage({ settings, updateSetting, members, storageInfo, onExport,
               </div>
               <div className="flex items-center gap-2">
                 <input value={newValues[key]} onChange={(e) => setNewValues(nv => ({ ...nv, [key]: e.target.value }))} placeholder={`Enter new ${key.slice(0,-1)}`} className="flex-1 rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm" />
-                <button onClick={() => handleAdd(key)} className="rounded-xl px-4 py-2 text-sm font-medium bg-blue-600 hover:bg-blue-700 text-white">Add</button>
+                <button onClick={() => handleAdd(key)} className="rounded-full px-4 py-2 text-sm font-medium bg-blue-600 hover:bg-blue-700 text-white">Add</button>
               </div>
             </div>
           ))}
@@ -2706,10 +2868,10 @@ function SettingsPage({ settings, updateSetting, members, storageInfo, onExport,
         logEvent('settings.updated', 'settings', 'staff', s, null);
       };
       return (
-        <div className="p-8 space-y-6">
+        <div className="p-3 md:p-8 space-y-6">
           <div className="flex justify-between items-center">
-            <h1 className="text-2xl font-semibold mb-4">Staff</h1>
-            <button onClick={openAdd} className="rounded-xl px-4 py-2 text-sm font-medium bg-blue-600 hover:bg-blue-700 text-white">Add Staff</button>
+            <h1 className="text-xl md:text-2xl font-semibold text-slate-900 mb-4">Staff</h1>
+            <button onClick={openAdd} className="rounded-full px-4 py-2 text-sm font-medium bg-blue-600 hover:bg-blue-700 text-white">Add Staff</button>
           </div>
           <div className="rounded-3xl bg-white p-4 shadow-sm">
             <div className="grid grid-cols-5 gap-4 px-3 py-2 text-sm md:text-base font-semibold bg-blue-50 text-blue-700 border border-blue-100 rounded-2xl">
@@ -2753,7 +2915,7 @@ function SettingsPage({ settings, updateSetting, members, storageInfo, onExport,
                 </div>
                 <div className="flex flex-col-reverse sm:flex-row justify-end gap-3 px-4 sm:px-6 py-4">
                   <button onClick={() => setModalOpen(false)} className="rounded-xl px-4 py-2 border border-slate-300 bg-white text-sm font-medium w-full sm:w-auto">Cancel</button>
-                  <button onClick={saveStaff} className="rounded-xl px-4 py-2 text-sm font-medium bg-blue-600 hover:bg-blue-700 text-white w-full sm:w-auto">Save</button>
+                  <button onClick={saveStaff} className="rounded-full px-4 py-2 text-sm font-medium bg-blue-600 hover:bg-blue-700 text-white w-full sm:w-auto">Save</button>
                 </div>
               </div>
             </div>
@@ -2969,11 +3131,11 @@ function SettingsPage({ settings, updateSetting, members, storageInfo, onExport,
 
     // ---- WhatsApp SMS Page ----
     function WhatsAppSmsPage({ members, settings, updateSetting, smsEvents, logEvent }) {
-      const [tab, setTab] = React.useState('templates');
       const [ruleTab, setRuleTab] = React.useState('all');
       const [activeType, setActiveType] = React.useState('reminder');
       const [search, setSearch] = React.useState('');
       const [expandedTemplates, setExpandedTemplates] = React.useState({});
+      const messageCenterRef = React.useRef(null);
       React.useEffect(() => {
         if (settings.smsTemplatePresetVersion === '2026-04-27') return;
         updateSetting('smsTemplates', { ...SMS_TEMPLATE_DEFAULTS });
@@ -2997,6 +3159,7 @@ function SettingsPage({ settings, updateSetting, members, storageInfo, onExport,
         { key: 'deactivate', label: 'Deactivate SMS' },
         { key: 'hold', label: 'Hold SMS' },
         { key: 'success', label: 'Success SMS' },
+        { key: 'templates', label: 'WhatsApp Template' },
       ];
       const today = new Date();
       const activeMembers = members.filter(m => m.status === 'Active');
@@ -3048,6 +3211,15 @@ function SettingsPage({ settings, updateSetting, members, storageInfo, onExport,
           return hay.includes(q);
         });
       }, [membersByType, activeType, search]);
+      const smsTypeCounts = React.useMemo(() => ({
+        reminder: membersByType.reminder.length,
+        monthReminder: membersByType.monthReminder.length,
+        fine: membersByType.fine.length,
+        deactivate: membersByType.deactivate.length,
+        hold: membersByType.hold.length,
+        success: membersByType.success.length,
+        templates: templateCards.length,
+      }), [membersByType, templateCards.length]);
       const rules = [
         { name: 'Billing D-5', status: 'Active', recipients: billingD5, type: 'billing' },
         { name: 'Billing D-3', status: 'Active', recipients: billingD3, type: 'billing' },
@@ -3105,54 +3277,72 @@ function SettingsPage({ settings, updateSetting, members, storageInfo, onExport,
         logEvent && logEvent('sms.send_now.opened', 'member', member.memberId || '', null, { templateKey, mobile: finalPhone });
       };
       return (
-        <div className="p-8 space-y-5 bg-slate-100 min-h-screen">
+        <div className="p-3 md:p-8 space-y-5 bg-slate-100">
           <div className="flex items-center justify-between">
-            <h1 className="text-4xl font-semibold">WhatsApp SMS</h1>
-            <button className="rounded-2xl bg-blue-600 text-white px-4 py-2 text-sm font-semibold">＋ Messaging Center</button>
+            <h1 className="text-xl md:text-2xl font-semibold text-slate-900">WhatsApp SMS</h1>
           </div>
           <div className="border-t border-slate-300" />
-          <div className="flex items-center gap-2 text-sm font-medium flex-wrap">
-            {smsTypes.map(s => (
-              <button
-                key={s.key}
-                onClick={() => setActiveType(s.key)}
-                className={cx('rounded-xl px-3 py-1.5 border', activeType === s.key ? 'bg-blue-50 text-blue-700 border-blue-300' : 'bg-white text-slate-700 border-slate-300')}
-              >
-                {s.label} ({(membersByType[s.key] || []).length})
-              </button>
-            ))}
-          </div>
-          <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
-            {templateCards.map(card => (
-              <div key={card.key} className={cx('rounded-2xl border p-4 bg-white shadow-sm', card.tone)}>
-                <div className="text-2xl font-semibold">{card.title}</div>
-                <div className="text-lg text-slate-600">({card.subtitle})</div>
-                <div className={cx('mt-3 text-sm text-slate-800 whitespace-pre-wrap rounded-xl border border-slate-200 bg-slate-50 p-2', expandedTemplates[card.key] ? 'max-h-[340px] overflow-auto' : 'h-24 overflow-hidden')}>
-                  {templates[card.key] || '-'}
-                </div>
-                <div className="mt-3 grid grid-cols-2 gap-2">
-                  <button onClick={() => editTemplate(card.key)} className="w-full rounded-xl bg-blue-600 text-white py-2 text-sm font-medium">EDIT</button>
-                  <button
-                    onClick={() => {
-                      const sample = members.find(m => m.status === 'Active') || members[0];
-                      sendNow(sample, card.key);
-                    }}
-                    className="w-full rounded-xl border border-emerald-300 bg-emerald-50 text-emerald-700 py-2 text-sm font-medium"
-                  >
-                    Send Now
-                  </button>
-                </div>
+          <div className="overflow-x-auto">
+            <div className="flex items-center gap-2 text-sm font-medium whitespace-nowrap pb-1 min-w-max">
+              {smsTypes.map(s => (
                 <button
-                  onClick={() => setExpandedTemplates(prev => ({ ...prev, [card.key]: !prev[card.key] }))}
-                  className="mt-2 w-full rounded-lg border border-slate-300 bg-white py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-100"
+                  key={s.key}
+                  onClick={() => {
+                    setActiveType(s.key);
+                  }}
+                  className={cx('rounded-xl px-3 py-1.5 border shrink-0', activeType === s.key ? 'bg-blue-50 text-blue-700 border-blue-300' : 'bg-white text-slate-700 border-slate-300')}
                 >
-                  {expandedTemplates[card.key] ? 'Collapse SMS' : 'Expand SMS'}
+                  {s.label} ({smsTypeCounts[s.key] || 0})
+                </button>
+              ))}
+            </div>
+          </div>
+          {activeType === 'templates' && (
+            <div className="space-y-4">
+              <div className="flex items-center justify-end">
+                <button
+                  onClick={() => {
+                    messageCenterRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                    setActiveType('reminder');
+                  }}
+                  className="rounded-full bg-blue-600 text-white px-4 py-2 text-sm font-semibold"
+                >
+                  ＋ Messaging Center
                 </button>
               </div>
-            ))}
-          </div>
+              <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
+                {templateCards.map(card => (
+                  <div key={card.key} className={cx('rounded-2xl border p-4 bg-white shadow-sm', card.tone)}>
+                    <div className="text-2xl font-semibold">{card.title}</div>
+                    <div className="text-lg text-slate-600">({card.subtitle})</div>
+                    <div className={cx('mt-3 text-sm text-slate-800 whitespace-pre-wrap rounded-xl border border-slate-200 bg-slate-50 p-2', expandedTemplates[card.key] ? 'max-h-[340px] overflow-auto' : 'h-24 overflow-hidden')}>
+                      {templates[card.key] || '-'}
+                    </div>
+                    <div className="mt-3 grid grid-cols-2 gap-2">
+                      <button onClick={() => editTemplate(card.key)} className="w-full rounded-full bg-blue-600 text-white py-2 text-sm font-medium">EDIT</button>
+                      <button
+                        onClick={() => {
+                          const sample = members.find(m => m.status === 'Active') || members[0];
+                          sendNow(sample, card.key);
+                        }}
+                        className="w-full rounded-xl border border-emerald-300 bg-emerald-50 text-emerald-700 py-2 text-sm font-medium"
+                      >
+                        Send Now
+                      </button>
+                    </div>
+                    <button
+                      onClick={() => setExpandedTemplates(prev => ({ ...prev, [card.key]: !prev[card.key] }))}
+                      className="mt-2 w-full rounded-lg border border-slate-300 bg-white py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-100"
+                    >
+                      {expandedTemplates[card.key] ? 'Collapse SMS' : 'Expand SMS'}
+                    </button>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
 
-          <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm space-y-3">
+          <div ref={messageCenterRef} className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm space-y-3">
             <div className="flex items-center justify-between gap-3 flex-wrap">
               <div className="text-xl font-semibold">Search Section: whom to send what SMS</div>
               <div className="flex items-center gap-2">
@@ -3419,7 +3609,7 @@ function SettingsPage({ settings, updateSetting, members, storageInfo, onExport,
 
       const cardBase = 'rounded-2xl border border-slate-200 bg-white p-4 shadow-sm';
       return (
-        <div className="p-6 md:p-8 space-y-5 bg-slate-100 min-h-screen">
+        <div className="p-3 md:p-8 space-y-5 bg-slate-100">
           <div className="flex items-center justify-between gap-3 flex-wrap">
             <h1 className="text-2xl font-semibold text-slate-900">Finance</h1>
             <div className="flex gap-2">
@@ -3429,8 +3619,8 @@ function SettingsPage({ settings, updateSetting, members, storageInfo, onExport,
                 placeholder="Search member, plan, method"
                 className="rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm"
               />
-              <button onClick={() => setAppliedQuery(query)} className="rounded-xl bg-blue-600 text-white px-3 py-2 text-sm font-medium hover:bg-blue-700">Search</button>
-              <button onClick={() => setShowFilter(v => !v)} className="rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm font-medium text-slate-700">Filter</button>
+              <button onClick={() => setAppliedQuery(query)} className="rounded-full bg-blue-600 text-white px-4 py-2 text-sm font-medium hover:bg-blue-700">Search</button>
+              <button onClick={() => setShowFilter(v => !v)} className="rounded-full border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-700">Filter</button>
             </div>
           </div>
 
@@ -3642,7 +3832,7 @@ function SettingsPage({ settings, updateSetting, members, storageInfo, onExport,
     // ---- Placeholder Page (for pages not yet implemented) ----
     function PlaceholderPage({ title }) {
       return (
-        <div className="p-8"><h1 className="text-2xl font-semibold mb-2">{title}</h1><p className="text-slate-600">This section is under development.</p></div>
+        <div className="p-3 md:p-8"><h1 className="text-xl md:text-2xl font-semibold text-slate-900 mb-2">{title}</h1><p className="text-slate-600">This section is under development.</p></div>
       );
     }
 
@@ -3779,7 +3969,7 @@ function SettingsPage({ settings, updateSetting, members, storageInfo, onExport,
         const file = e.target.files && e.target.files[0];
         if (!file) return;
         if (file.size > MAX_IMAGE_FILE_BYTES) {
-          setError('Image too large. Please upload a file up to 1MB.');
+          setError('Image too large. Please upload a file up to 10MB.');
           return;
         }
         try {
@@ -3896,11 +4086,11 @@ function SettingsPage({ settings, updateSetting, members, storageInfo, onExport,
       };
 
       return (
-        <div className="p-8 space-y-6">
+        <div className="p-3 md:p-8 space-y-6">
           <div className="flex justify-between items-center">
-            <h1 className="text-2xl font-semibold mb-4">Staff Management</h1>
+            <h1 className="text-xl md:text-2xl font-semibold text-slate-900 mb-4">Staff Management</h1>
             {isOwner && (
-              <button onClick={openAdd} className="rounded-xl px-4 py-2 text-sm font-medium bg-blue-600 hover:bg-blue-700 text-white">Add Staff</button>
+              <button onClick={openAdd} className="rounded-full px-4 py-2 text-sm font-medium bg-blue-600 hover:bg-blue-700 text-white">Add Staff</button>
             )}
           </div>
 
@@ -3908,7 +4098,7 @@ function SettingsPage({ settings, updateSetting, members, storageInfo, onExport,
             <div className="flex items-center justify-between">
               <h2 className="text-xl font-semibold text-slate-900">Role Configuration Manager</h2>
               {isOwner && (
-                <button onClick={openRoleAdd} className="rounded-xl px-3 py-2 text-sm font-medium bg-blue-600 hover:bg-blue-700 text-white">Add New Role</button>
+                <button onClick={openRoleAdd} className="rounded-full px-3 py-2 text-sm font-medium bg-blue-600 hover:bg-blue-700 text-white">Add New Role</button>
               )}
             </div>
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
@@ -4070,7 +4260,7 @@ function SettingsPage({ settings, updateSetting, members, storageInfo, onExport,
                 </div>
                 <div className="flex flex-col-reverse sm:flex-row justify-end gap-3 px-4 sm:px-6 py-4">
                   <button onClick={() => setModalOpen(false)} className="rounded-xl px-4 py-2 border border-slate-300 bg-white text-sm font-medium text-slate-700 w-full sm:w-auto">Cancel</button>
-                  <button onClick={save} className="rounded-xl px-4 py-2 text-sm font-medium bg-blue-600 hover:bg-blue-700 text-white w-full sm:w-auto">{editingId ? 'Update' : 'Save'}</button>
+                  <button onClick={save} className="rounded-full px-4 py-2 text-sm font-medium bg-blue-600 hover:bg-blue-700 text-white w-full sm:w-auto">{editingId ? 'Update' : 'Save'}</button>
                 </div>
               </div>
             </div>
@@ -4111,7 +4301,7 @@ function SettingsPage({ settings, updateSetting, members, storageInfo, onExport,
                 </div>
                 <div className="flex flex-col-reverse sm:flex-row justify-end gap-3 px-4 sm:px-6 py-4">
                   <button onClick={() => setRoleModalOpen(false)} className="rounded-xl px-4 py-2 border border-slate-300 bg-white text-sm font-medium text-slate-700 w-full sm:w-auto">Cancel</button>
-                  <button onClick={saveRoleTemplate} className="rounded-xl px-4 py-2 text-sm font-medium bg-blue-600 hover:bg-blue-700 text-white w-full sm:w-auto">{editingRoleId ? 'Update Role' : 'Save Role'}</button>
+                  <button onClick={saveRoleTemplate} className="rounded-full px-4 py-2 text-sm font-medium bg-blue-600 hover:bg-blue-700 text-white w-full sm:w-auto">{editingRoleId ? 'Update Role' : 'Save Role'}</button>
                 </div>
               </div>
             </div>
@@ -4203,7 +4393,7 @@ function SettingsPage({ settings, updateSetting, members, storageInfo, onExport,
                 <div className="text-sm font-medium text-slate-700">Saved Filters</div>
                 <div className="flex items-center gap-2">
                   <input value={presetName} onChange={(e) => setPresetName(e.target.value)} placeholder="Preset name" className="flex-1 rounded-xl border border-slate-300 bg-white text-slate-900 px-3 py-2 text-sm" />
-                  <button onClick={savePreset} className="rounded-xl px-3 py-2 text-sm font-medium bg-blue-600 hover:bg-blue-700 text-white">Save Preset</button>
+                  <button onClick={savePreset} className="rounded-full px-3 py-2 text-sm font-medium bg-blue-600 hover:bg-blue-700 text-white">Save Preset</button>
                 </div>
                 {presets.length > 0 && (
                   <div className="space-y-1">
@@ -4280,7 +4470,7 @@ function SettingsPage({ settings, updateSetting, members, storageInfo, onExport,
             <div className="flex flex-col-reverse sm:flex-row justify-end gap-3 px-4 sm:px-6 py-4 border-t border-slate-200">
               <button onClick={clear} className="rounded-xl px-4 py-2 border border-slate-300 bg-white text-sm font-medium w-full sm:w-auto">Clear</button>
               <button onClick={clearAll} className="rounded-xl px-4 py-2 border border-slate-300 bg-white text-sm font-medium w-full sm:w-auto">Clear All</button>
-              <button onClick={apply} className="rounded-xl px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium w-full sm:w-auto">Apply Filter</button>
+              <button onClick={apply} className="rounded-full px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium w-full sm:w-auto">Apply Filter</button>
             </div>
           </div>
         </div>
