@@ -599,11 +599,21 @@ Phone no:-+91- 7047157510`,
       const [editMember, setEditMember] = React.useState(null);
       const [addOpen, setAddOpen] = React.useState(false);
       const [toast, setToast] = React.useState('');
+      const [showAddMemberLabel, setShowAddMemberLabel] = React.useState(true);
+      const [addMemberFabHover, setAddMemberFabHover] = React.useState(false);
 
       // Candidate member for deletion. When non‑null, a confirmation
       // dialog will be presented to the user. Only owners can delete
       // members (see canDelete prop passed to QuickActions below).
       const [deleteCandidate, setDeleteCandidate] = React.useState(null);
+
+      React.useEffect(() => {
+        const fabVisible = user && user.sections && user.sections.includes('Members') && !addOpen && !editMember;
+        if (!fabVisible) return;
+        setShowAddMemberLabel(true);
+        const timer = setTimeout(() => setShowAddMemberLabel(false), 5000);
+        return () => clearTimeout(timer);
+      }, [user, addOpen, editMember]);
 
       // Log event helper
       // To keep logs safe and small, redact sensitive/large fields and clamp long strings.
@@ -1254,10 +1264,17 @@ Please pay by: ${formattedLastDate}`;
           {user && user.sections && user.sections.includes('Members') && !addOpen && !editMember && (
             <button
               onClick={() => setAddOpen(true)}
-              className="fixed bottom-6 right-6 flex items-center gap-2 bg-blue-600 hover:bg-blue-700 text-white px-4 py-3 rounded-full shadow-lg z-40"
+              onMouseEnter={() => setAddMemberFabHover(true)}
+              onMouseLeave={() => setAddMemberFabHover(false)}
+              onFocus={() => setAddMemberFabHover(true)}
+              onBlur={() => setAddMemberFabHover(false)}
+              className={cx(
+                'fixed bottom-6 right-6 flex items-center bg-blue-600 hover:bg-blue-700 text-white py-3 rounded-full shadow-lg z-40 transition-all',
+                (showAddMemberLabel || addMemberFabHover) ? 'px-4 gap-2' : 'px-3 gap-0'
+              )}
             >
               <span className="text-xl">＋</span>
-              <span className="hidden sm:inline">Add Member</span>
+              {(showAddMemberLabel || addMemberFabHover) && <span>Add Member</span>}
             </button>
           )}
 
