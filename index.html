@@ -263,6 +263,85 @@ Email:- gymactionplus@gmail.com
 WebSite: www.actionplusgym.com
 Phone no:-+91- 7047157510`,
     };
+    const MEDICAL_QUESTIONNAIRE_TEMPLATE_DEFAULT = `Medical Questionnaire
+1. Have you ever or do you have any of the following?
+Heart Disease(Y/N). Cardiovascular Condition (Y/N). High/Low Blood Pressure (Y/N).
+Arthritis (Y/N). Gout Family Hx of Heart Disease (Y/N). Other (Y/N).
+2. Do you have any problems/injuries in the follow areas?(Please tick and explain to the best of your ability):
+A. Knees. B. Lower Back C. Neck/Shoulders D. Hips/Pelvis Flexibility. Other: ____________
+3. Are you pregnant? Yes/No__________ If so, how many week _____________________________________
+4. Are you currently doing any regular physical activity, what and how many times per week__________
+5. Have you had surgery in the last 5 years, if yes, when & what? _________________________________
+6. Do you smoke, if yes how many per day, and for how long have you smoked? _____________________
+7. Are you on any medication, if yes what and when do you take? _________________________________
+8. Anything else we need to know? (If unsure write it down)_______________________________________`;
+    const ACKNOWLEDGEMENT_TEMPLATE_DEFAULT = `ACKNOWLEDGEMENT RELEASE AND ASSUMPTION OF RISK
+Warning: This is an important document that affects your legal rights and obligations. Please read it carefully.
+
+Acknowledgment of Risks, Injury and Obligations
+I acknowledge that the activities I am about to undertake involve potential dangers, and by participating in them, I am exposed to certain risks. I understand and agree that while participating in these activities:
+- I may suffer physical or mental injury, or even death;
+- Any existing physical conditions may be aggravated or worsened;
+- My personal property may be lost, stolen, or damaged;
+- Other participants may cause me injury or damage my property;
+- I may cause injury to others or damage their property;
+- The conditions in which the activities are conducted may change without warning;
+- I may be injured, die, or suffer damage to my property due to negligence or breach of contract by the Fitness Centre operator, its servants, or agents;
+- There may be insufficient or inadequate facilities for treatment or transport if I am injured.
+
+Release and Indemnity to Fitness Centre Operator
+I participate in the activities at my sole risk and responsibility.
+I release, indemnify, and hold harmless the Fitness Centre Operator, its servants, and agents.
+
+Full Name: [FullName]
+DOB: [DOB]
+Signature: [Signature]
+Date: [Date]`;
+    const ACKNOWLEDGEMENT_UNDER18_TEMPLATE_DEFAULT = `WHERE PARTICIPANT IS UNDER 18 YEARS OF AGE
+(Parent/Guardian to read and sign)
+
+I, [ParentGuardianName], being the parent or legal guardian of [FullName], acknowledge and agree:
+- I have read the entire document and understand it;
+- I consent to the person named participating in the activity;
+- I am aware of the risks, dangers, and obligations outlined.
+
+Full Name of Parent / Guardian: [ParentGuardianName]
+DOB: [ParentGuardianDOB]
+Signature of Parent / Guardian: [ParentGuardianSignature]
+DATE: [Date]`;
+    const GMAIL_WELCOME_TEMPLATE_DEFAULT = `Hello, [CustomerName]
+
+Warm greetings from Action Plus Gym!
+
+We’re thrilled to welcome you to the Action Plus Gym and Fitness Club family. Your membership has been successfully activated, and we’re excited to be a part of your fitness journey.
+
+Here are your membership details:
+- Current Plan: [CurrentPlan]
+- Gym Start Date: [GymStartdate]
+- Next Payment Due: [NextPaymentDate]
+
+Let’s work together to help you achieve your health and fitness goals. We're here to support and motivate you every step of the way!
+
+Stay strong. Stay consistent. Stay fit!
+
+🏋️ Action Plus Gym – Member Policies
+1. Membership is non-transferable and non-refundable. Violations may lead to suspension/termination.
+2. No external/personal trainers allowed. Use Action Plus certified trainers only.
+3. Wear proper attire, wipe equipment, return weights, and avoid loud behavior.
+4. Report machine issues, carry towel/water, maintain hygiene.
+5. Late payments may incur penalties. No refunds for missed days or mid-month exits.
+6. Gym is for fitness only. No filming/photography without permission.
+7. No guests without prior approval. You're responsible for your guest’s behavior.
+8. Holds only for valid reasons with written request (max 1–2 months).
+9. Misconduct leads to cancellation. Follow gym staff and trainer instructions.
+
+Not sure about any of the policies? Feel free to ask—we’re here to help!
+
+Best regards,
+Team Action Plus Gym & Fitness Club
+Email: gymactionplus@gmail.com
+Website: www.actionplusgym.com
+Phone: +91-7047157510`;
     const STORAGE_KEYS = {
       users: 'apg.users',
       members: 'apg.members',
@@ -321,7 +400,20 @@ Phone no:-+91- 7047157510`,
       img.onerror = () => resolve(dataUrl);
       img.src = dataUrl;
     });
-
+    const ageFromDob = (dob) => {
+      const d = asUTC(dob);
+      if (!d) return null;
+      const now = new Date();
+      let age = now.getFullYear() - d.getFullYear();
+      const m = now.getMonth() - d.getMonth();
+      if (m < 0 || (m === 0 && now.getDate() < d.getDate())) age -= 1;
+      return age;
+    };
+    const escHtml = (s) => String(s || '')
+      .replaceAll('&', '&amp;')
+      .replaceAll('<', '&lt;')
+      .replaceAll('>', '&gt;')
+      .replaceAll('"', '&quot;');
     // ---- Predefined demo users ----
     const DEMO_USERS = {
       // Default staff roles with matching passwords
@@ -382,6 +474,10 @@ Phone no:-+91- 7047157510`,
           staff: [ { id:'Bis', name:'Bis', email:'bis@example.com', avatar:null }, { id:'Raja', name:'Raja', email:'raja@example.com', avatar:null } ],
           roleTemplates: [...DEFAULT_ROLE_TEMPLATES],
           smsTemplates: { ...SMS_TEMPLATE_DEFAULTS },
+          medicalQuestionnaireTemplate: MEDICAL_QUESTIONNAIRE_TEMPLATE_DEFAULT,
+          acknowledgementTemplate: ACKNOWLEDGEMENT_TEMPLATE_DEFAULT,
+          acknowledgementUnder18Template: ACKNOWLEDGEMENT_UNDER18_TEMPLATE_DEFAULT,
+          gmailWelcomeTemplate: GMAIL_WELCOME_TEMPLATE_DEFAULT,
         };
       });
       const [logs, setLogs] = React.useState(() => {
@@ -904,6 +1000,35 @@ Please pay by: ${formattedLastDate}`;
         setToast('WhatsApp message opened.');
         setTimeout(() => setToast(''), 2500);
       };
+      const sendWelcomeGmail = (member) => {
+        if (!member) return;
+        if (!member.email) {
+          setToast('Member email is missing.');
+          setTimeout(() => setToast(''), 2500);
+          return;
+        }
+        const tpl = settings.gmailWelcomeTemplate || GMAIL_WELCOME_TEMPLATE_DEFAULT;
+        const rep = {
+          '[CustomerName]': member.name || '',
+          '[CurrentPlan]': member.plan || '',
+          '[GymStartdate]': fmt(member.joiningDate) || '',
+          '[NextPaymentDate]': fmt(member.paymentBy || member.billingDate) || '',
+        };
+        let body = tpl;
+        Object.keys(rep).forEach((k) => { body = body.split(k).join(rep[k]); });
+        const url = `https://mail.google.com/mail/?view=cm&fs=1&to=${encodeURIComponent(member.email)}&cc=${encodeURIComponent('gymactionplus@gmail.com')}&su=${encodeURIComponent('Action Plus Gym - Registration Confirmation Mail.')}&body=${encodeURIComponent(body)}`;
+        window.open(url, '_blank');
+      };
+      const addMemberAttachment = (memberId, attachment) => {
+        if (!memberId || !attachment) return;
+        setMembers(prev => prev.map(m => {
+          if (m.memberId !== memberId) return m;
+          const nextAttachments = [...(m.attachments || []), attachment];
+          return { ...m, attachments: nextAttachments };
+        }));
+        setToast('Attachment uploaded.');
+        setTimeout(() => setToast(''), 2000);
+      };
       // Save edits from edit modal
       // Accept the updated member as argument to avoid stale state issues. This fixes
       // the bug where plan changes were not persisted because the editMember
@@ -1163,6 +1288,9 @@ Please pay by: ${formattedLastDate}`;
                   onStatusChange={quickStatus}
                   holdOptions={settings.holdDurations}
                   logs={logs}
+                  onWelcome={sendWelcomeEmail}
+                  onWelcomeMail={sendWelcomeGmail}
+                  onAddAttachment={addMemberAttachment}
                 />
               )
             )}
@@ -1181,6 +1309,8 @@ Please pay by: ${formattedLastDate}`;
                 canDelete={user && user.id === 'owner'}
                 onDelete={(m) => setDeleteCandidate(m)}
                 onWelcome={sendWelcomeEmail}
+                onWelcomeMail={sendWelcomeGmail}
+                onAddAttachment={addMemberAttachment}
               />
             )}
             {activeTab === 'Settings' && (
@@ -1230,7 +1360,12 @@ Please pay by: ${formattedLastDate}`;
                 logEvent={logEvent}
               />
             )}
-            {activeTab === 'Support' && (<PlaceholderPage title="Support" />)}
+            {activeTab === 'Support' && (
+              <SupportPage
+                settings={settings}
+                updateSetting={updateSettingValue}
+              />
+            )}
           </main>
           {/* Edit Member Modal */}
           {editMember && (
@@ -1792,7 +1927,7 @@ function Sidebar({ user, active, onSelect, theme, setTheme, onLogout, onUndo, on
     }
 
     // ---- Members List (Dashboard list mode) ----
-    function MembersList({ title, list, onBack, onEdit, onStatusChange, holdOptions, logs }) {
+    function MembersList({ title, list, onBack, onEdit, onStatusChange, holdOptions, logs, onWelcome, onWelcomeMail, onAddAttachment }) {
       const [openId, setOpenId] = React.useState(null);
       const [page, setPage] = React.useState(1);
       const pageSize = 10;
@@ -1828,6 +1963,9 @@ function Sidebar({ user, active, onSelect, theme, setTheme, onLogout, onUndo, on
                 holdOptions={holdOptions}
                 canDelete={false}
                 onDelete={() => {}}
+                onWelcome={onWelcome}
+                onWelcomeMail={onWelcomeMail}
+                onAddAttachment={onAddAttachment}
                 logs={logs}
                 selectable={false}
               />
@@ -1859,7 +1997,7 @@ function Sidebar({ user, active, onSelect, theme, setTheme, onLogout, onUndo, on
     }
 
     // ---- Member Row ----
-function MemberRow({ m, expanded, onToggle, onEdit, onStatusChange, holdOptions, onDelete, canDelete, onWelcome, logs, selected, onSelectToggle, selectable }) {
+function MemberRow({ m, expanded, onToggle, onEdit, onStatusChange, holdOptions, onDelete, canDelete, onWelcome, onWelcomeMail, onAddAttachment, logs, selected, onSelectToggle, selectable }) {
       const todayHighlight = fmt(m.billingDate) === fmt(new Date());
       // Determine if we can open WhatsApp welcome/payment reminder.
       // Active members with mobile number and billing date qualify.
@@ -1871,6 +2009,26 @@ function MemberRow({ m, expanded, onToggle, onEdit, onStatusChange, holdOptions,
           : m.status === 'Cancelled'
             ? { key: 'fine', label: 'Fine SMS' }
             : { key: 'welcome', label: 'Welcome SMS' };
+      const uploadDoc = async (e) => {
+        const file = e.target.files?.[0];
+        if (!file) return;
+        if (file.size > MAX_IMAGE_FILE_BYTES) {
+          window.alert('File too large. Please upload up to 10MB.');
+          return;
+        }
+        const reader = new FileReader();
+        reader.onload = () => {
+          onAddAttachment && onAddAttachment(m.memberId, {
+            id: crypto.randomUUID(),
+            name: file.name,
+            mime: file.type || 'application/octet-stream',
+            size: file.size,
+            dataUrl: String(reader.result || ''),
+            uploadedAt: new Date().toISOString(),
+          });
+        };
+        reader.readAsDataURL(file);
+      };
       return (
         <div className="border-b border-slate-200 last:border-none odd:bg-slate-50 even:bg-white">
           <button onClick={onToggle} className="hidden md:grid w-full grid-cols-12 items-center gap-4 px-2 py-3 text-left text-slate-700 hover:bg-slate-100">
@@ -2004,6 +2162,20 @@ function MemberRow({ m, expanded, onToggle, onEdit, onStatusChange, holdOptions,
                   ))}
                 </div>
               </div>
+              <div className="rounded-xl border border-slate-200 bg-white p-3 flex flex-wrap items-center gap-2">
+                {m.status === 'Active' && (
+                  <button
+                    onClick={() => onWelcomeMail && onWelcomeMail(m)}
+                    className="rounded-full border border-indigo-300 bg-indigo-50 px-3 py-1 text-xs font-medium text-indigo-700 hover:bg-indigo-100"
+                  >
+                    Send Gmail Welcome
+                  </button>
+                )}
+                <label className="cursor-pointer rounded-full border border-slate-300 bg-white px-3 py-1 text-xs font-medium text-slate-700 hover:bg-slate-100">
+                  Upload Document
+                  <input type="file" className="hidden" onChange={uploadDoc} />
+                </label>
+              </div>
               <QuickActions m={m} onStatusChange={onStatusChange} holdOptions={holdOptions} canDelete={canDelete} onDelete={onDelete} />
             </div>
           )}
@@ -2065,6 +2237,27 @@ function MemberRow({ m, expanded, onToggle, onEdit, onStatusChange, holdOptions,
       ];
       return (
         <div className="rounded-xl border border-slate-200 bg-slate-50 p-4 text-sm space-y-3">
+          {Array.isArray(m.attachments) && m.attachments.length > 0 && (
+            <div className="pb-2 border-b border-slate-200 space-y-1">
+              <div className="text-xs font-semibold text-slate-600">Uploaded Documents</div>
+              <div className="flex flex-wrap gap-2">
+                {m.attachments.map((a) => (
+                  <button
+                    key={a.id}
+                    onClick={() => {
+                      const link = document.createElement('a');
+                      link.href = a.dataUrl;
+                      link.download = a.name || 'attachment';
+                      link.click();
+                    }}
+                    className="rounded-full border border-slate-300 bg-white px-3 py-1 text-xs font-medium text-slate-700 hover:bg-slate-100"
+                  >
+                    {a.name}
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
           <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
             {rows.map(([k, v]) => (
               <div key={k} className="flex justify-between gap-2">
@@ -2147,7 +2340,7 @@ function QuickActions({ m, onStatusChange, holdOptions, canDelete, onDelete }) {
     }
 
     // ---- Dashboard View (Members grouped by status) ----
-function DashboardView({ members, onEdit, onStatusChange, holdOptions, logs, filters, filterOpen, setFilterOpen, anyFilterActive, canDelete, onDelete, billingMonthOptions, onWelcome }) {
+function DashboardView({ members, onEdit, onStatusChange, holdOptions, logs, filters, filterOpen, setFilterOpen, anyFilterActive, canDelete, onDelete, billingMonthOptions, onWelcome, onWelcomeMail, onAddAttachment }) {
       // Single expanded row across all statuses. Only one memberId may be expanded at a time.
       const [expandedId, setExpandedId] = React.useState(null);
       const [selectedIds, setSelectedIds] = React.useState([]);
@@ -2308,6 +2501,8 @@ function DashboardView({ members, onEdit, onStatusChange, holdOptions, logs, fil
                       canDelete={canDelete}
                       onDelete={onDelete}
                       onWelcome={onWelcome}
+                      onWelcomeMail={onWelcomeMail}
+                      onAddAttachment={onAddAttachment}
                       logs={logs}
                       selectable={true}
                       selected={selectedIds.includes(m.memberId)}
@@ -2398,7 +2593,7 @@ function EditMemberModal({ member, onClose, onSave, planOptions, statusOptions, 
       const dirty = React.useMemo(() => {
         // Compare editable fields to determine if anything changed. Include
         // formNo, amount and paymentMethod in addition to existing fields.
-        const keysToCheck = ['formNo','memberId','name','mobile','plan','status','holdDuration','billingDate','amount','paymentMethod','photo'];
+        const keysToCheck = ['formNo','memberId','name','email','mobile','plan','status','holdDuration','billingDate','amount','paymentMethod','photo'];
         return keysToCheck.some(k => {
           const a = edit[k] ?? '';
           const b = member[k] ?? '';
@@ -2448,6 +2643,16 @@ function EditMemberModal({ member, onClose, onSave, planOptions, statusOptions, 
                 <div>
                   <label className="text-sm font-medium">Mobile Number</label>
                   <input value={edit.mobile} onChange={(e) => setEdit({ ...edit, mobile: e.target.value })} className={cx('w-full rounded-xl border px-3 py-2 text-sm', req.mobile ? 'border-rose-300 bg-rose-50 text-rose-700' : 'border-slate-300 bg-white')} />
+                </div>
+                <div>
+                  <label className="text-sm font-medium">Gmail</label>
+                  <input
+                    type="email"
+                    value={edit.email || ''}
+                    onChange={(e) => setEdit({ ...edit, email: e.target.value })}
+                    placeholder="example@gmail.com"
+                    className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm"
+                  />
                 </div>
                 {/* Row 3: Plan and Status */}
                 <div>
@@ -2579,6 +2784,19 @@ function EditMemberModal({ member, onClose, onSave, planOptions, statusOptions, 
         paymentMethod: settings.paymentMethods[0],
         remark: '',
         photo: '',
+        attachments: [],
+        medicalSkipped: false,
+        medicalAnswers: {
+          heartDisease: '', cardiovascularCondition: '', bloodPressure: '', arthritis: '', goutFamilyHistory: '', otherCondition: '',
+          injuries: { knees: false, lowerBack: false, neckShoulders: false, hipsPelvis: false, flexibility: false, other: '' },
+          pregnant: 'No', pregnantWeeks: '', physicalActivity: '', surgeryHistory: '', smoking: '', medication: '', extraInfo: '',
+        },
+        ackAccepted: false,
+        ackSignature: '',
+        ackDate: iso(new Date()),
+        parentGuardianName: '',
+        parentGuardianDob: '',
+        parentGuardianSignature: '',
       });
       const [warn, setWarn] = React.useState('');
       // Update staff when prop changes
@@ -2632,6 +2850,13 @@ function EditMemberModal({ member, onClose, onSave, planOptions, statusOptions, 
         status: !form.status
       };
       const req3 = { paymentMethod: !form.paymentMethod };
+      const isMinor = ageFromDob(form.dob) !== null && ageFromDob(form.dob) < 18;
+      const req5 = {
+        ackAccepted: !form.ackAccepted,
+        ackSignature: !String(form.ackSignature || '').trim(),
+        parentGuardianName: isMinor && !String(form.parentGuardianName || '').trim(),
+        parentGuardianSignature: isMinor && !String(form.parentGuardianSignature || '').trim(),
+      };
       const reqCls = (invalid) => cx('w-full rounded-xl border bg-white px-3 py-2 text-sm', invalid ? 'border-rose-300 bg-rose-50 text-rose-700' : 'border-slate-300');
       const reqClsXs = (invalid) => cx('w-full rounded-xl border bg-white px-3 py-2 text-xs md:text-sm', invalid ? 'border-rose-300 bg-rose-50 text-rose-700' : 'border-slate-300');
       const readOnlyCls = 'w-full rounded-xl border border-slate-200 bg-slate-100 px-3 py-2 text-sm text-slate-500';
@@ -2649,7 +2874,15 @@ function EditMemberModal({ member, onClose, onSave, planOptions, statusOptions, 
             return;
           }
         }
-        setStep(s => Math.min(3, s + 1));
+        if (step === 3 && Object.values(req3).some(Boolean)) {
+          setWarn('Please fill all required fields in Step 3.');
+          return;
+        }
+        if (step === 5 && Object.values(req5).some(Boolean)) {
+          setWarn('Please complete the acknowledgement details in Step 5.');
+          return;
+        }
+        setStep(s => Math.min(5, s + 1));
       };
       const back = () => setStep(s => Math.max(1, s - 1));
       const onPhoto = async (e) => {
@@ -2667,10 +2900,30 @@ function EditMemberModal({ member, onClose, onSave, planOptions, statusOptions, 
           setWarn('Unable to process photo. Please try another image.');
         }
       };
+      const onAttachment = async (e) => {
+        const files = Array.from(e.target.files || []);
+        if (!files.length) return;
+        const valid = files.filter(f => f.size <= MAX_IMAGE_FILE_BYTES);
+        if (valid.length !== files.length) setWarn('Some files were skipped (over 10MB).');
+        const entries = await Promise.all(valid.map((file) => new Promise((resolve) => {
+          const r = new FileReader();
+          r.onload = () => resolve({
+            id: crypto.randomUUID(),
+            name: file.name,
+            mime: file.type || 'application/octet-stream',
+            size: file.size,
+            dataUrl: String(r.result || ''),
+            uploadedAt: new Date().toISOString(),
+          });
+          r.onerror = () => resolve(null);
+          r.readAsDataURL(file);
+        })));
+        setForm(f => ({ ...f, attachments: [...(f.attachments || []), ...entries.filter(Boolean)] }));
+      };
       const save = () => {
         setWarn('');
         // Validate all fields on final step
-        if (Object.values(req1).some(Boolean) || Object.values(req2).some(Boolean) || Object.values(req3).some(Boolean)) {
+        if (Object.values(req1).some(Boolean) || Object.values(req2).some(Boolean) || Object.values(req3).some(Boolean) || Object.values(req5).some(Boolean)) {
           setWarn('Please fill all required fields.');
           return;
         }
@@ -2713,7 +2966,20 @@ function EditMemberModal({ member, onClose, onSave, planOptions, statusOptions, 
           status: 'Active',
           paymentMethod: settings.paymentMethods[0],
           remark: '',
-          photo: ''
+          photo: '',
+          attachments: [],
+          medicalSkipped: false,
+          medicalAnswers: {
+            heartDisease: '', cardiovascularCondition: '', bloodPressure: '', arthritis: '', goutFamilyHistory: '', otherCondition: '',
+            injuries: { knees: false, lowerBack: false, neckShoulders: false, hipsPelvis: false, flexibility: false, other: '' },
+            pregnant: 'No', pregnantWeeks: '', physicalActivity: '', surgeryHistory: '', smoking: '', medication: '', extraInfo: '',
+          },
+          ackAccepted: false,
+          ackSignature: '',
+          ackDate: iso(new Date()),
+          parentGuardianName: '',
+          parentGuardianDob: '',
+          parentGuardianSignature: '',
         });
       };
       if (!open) return null;
@@ -2794,17 +3060,86 @@ function EditMemberModal({ member, onClose, onSave, planOptions, statusOptions, 
                       </label>
                     </div>
                   </div>
+                  <div>
+                    <label className="text-sm font-medium">Upload Documents (up to 10MB each)</label>
+                    <label className="mt-1 inline-block cursor-pointer rounded-xl border border-slate-300 px-3 py-2 text-sm hover:bg-slate-100">
+                      <input type="file" multiple className="hidden" onChange={onAttachment} />
+                      Add Document
+                    </label>
+                    {(form.attachments || []).length > 0 && (
+                      <div className="mt-2 flex flex-wrap gap-2">
+                        {form.attachments.map((a) => (
+                          <button key={a.id} type="button" onClick={() => setForm(f => ({ ...f, attachments: (f.attachments || []).filter(x => x.id !== a.id) }))} className="rounded-full border border-slate-300 bg-white px-3 py-1 text-xs text-slate-700 hover:bg-slate-100">{a.name} ✕</button>
+                        ))}
+                      </div>
+                    )}
+                  </div>
                   <div className="col-span-2"><label className="text-sm font-medium">Remark</label><textarea value={form.remark} onChange={(e) => setForm({ ...form, remark: e.target.value })} className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm" rows={3} placeholder="Enter a short note" /></div>
+                </div>
+              )}
+              {step === 4 && (
+                <div className="space-y-4">
+                  <div className="text-sm text-slate-600">{settings.medicalQuestionnaireTemplate || MEDICAL_QUESTIONNAIRE_TEMPLATE_DEFAULT}</div>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                    {[
+                      ['heartDisease','Heart Disease'],
+                      ['cardiovascularCondition','Cardiovascular Condition'],
+                      ['bloodPressure','High/Low Blood Pressure'],
+                      ['arthritis','Arthritis'],
+                      ['goutFamilyHistory','Gout Family Hx of Heart Disease'],
+                      ['otherCondition','Other Condition'],
+                    ].map(([key,label]) => (
+                      <div key={key} className="rounded-xl border border-slate-200 p-3">
+                        <div className="text-sm font-medium mb-1">{label}</div>
+                        <div className="flex gap-3 text-sm">
+                          <label><input type="radio" name={key} checked={form.medicalAnswers[key] === 'Y'} onChange={() => setForm({ ...form, medicalAnswers: { ...form.medicalAnswers, [key]: 'Y' } })} /> Yes</label>
+                          <label><input type="radio" name={key} checked={form.medicalAnswers[key] === 'N'} onChange={() => setForm({ ...form, medicalAnswers: { ...form.medicalAnswers, [key]: 'N' } })} /> No</label>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                  <div><label className="text-sm font-medium">Injuries / Notes</label><textarea value={form.medicalAnswers.extraInfo} onChange={(e) => setForm({ ...form, medicalAnswers: { ...form.medicalAnswers, extraInfo: e.target.value } })} rows={3} className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm" /></div>
+                  <div><label className="text-sm font-medium">Pregnant (Yes/No) and weeks</label><input value={`${form.medicalAnswers.pregnant || 'No'} ${form.medicalAnswers.pregnantWeeks || ''}`.trim()} onChange={(e) => setForm({ ...form, medicalAnswers: { ...form.medicalAnswers, pregnant: e.target.value.includes('Yes') ? 'Yes' : 'No', pregnantWeeks: e.target.value } })} className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm" /></div>
+                  <div><label className="text-sm font-medium">Physical activity</label><input value={form.medicalAnswers.physicalActivity} onChange={(e) => setForm({ ...form, medicalAnswers: { ...form.medicalAnswers, physicalActivity: e.target.value } })} className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm" /></div>
+                  <div><label className="text-sm font-medium">Surgery history</label><input value={form.medicalAnswers.surgeryHistory} onChange={(e) => setForm({ ...form, medicalAnswers: { ...form.medicalAnswers, surgeryHistory: e.target.value } })} className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm" /></div>
+                  <div><label className="text-sm font-medium">Smoking details</label><input value={form.medicalAnswers.smoking} onChange={(e) => setForm({ ...form, medicalAnswers: { ...form.medicalAnswers, smoking: e.target.value } })} className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm" /></div>
+                  <div><label className="text-sm font-medium">Medication details</label><input value={form.medicalAnswers.medication} onChange={(e) => setForm({ ...form, medicalAnswers: { ...form.medicalAnswers, medication: e.target.value } })} className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm" /></div>
+                </div>
+              )}
+              {step === 5 && (
+                <div className="space-y-4">
+                  <div className="rounded-xl border border-slate-200 bg-slate-50 p-3 text-xs whitespace-pre-wrap">{settings.acknowledgementTemplate || ACKNOWLEDGEMENT_TEMPLATE_DEFAULT}</div>
+                  <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={form.ackAccepted} onChange={(e) => setForm({ ...form, ackAccepted: e.target.checked })} /> I acknowledge and accept</label>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                    <div><label className="text-sm font-medium">Signature (Type Full Name)</label><input value={form.ackSignature} onChange={(e) => setForm({ ...form, ackSignature: e.target.value })} className={reqCls(req5.ackSignature)} /></div>
+                    <div><label className="text-sm font-medium">Date</label><input type="date" value={form.ackDate} onChange={(e) => setForm({ ...form, ackDate: e.target.value })} className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm" /></div>
+                  </div>
+                  {isMinor && (
+                    <div className="space-y-3">
+                      <div className="rounded-xl border border-amber-200 bg-amber-50 p-3 text-xs whitespace-pre-wrap">{settings.acknowledgementUnder18Template || ACKNOWLEDGEMENT_UNDER18_TEMPLATE_DEFAULT}</div>
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                        <div><label className="text-sm font-medium">Parent/Guardian Full Name</label><input value={form.parentGuardianName} onChange={(e) => setForm({ ...form, parentGuardianName: e.target.value })} className={reqCls(req5.parentGuardianName)} /></div>
+                        <div><label className="text-sm font-medium">Parent/Guardian DOB</label><input type="date" value={form.parentGuardianDob} onChange={(e) => setForm({ ...form, parentGuardianDob: e.target.value })} className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm" /></div>
+                        <div><label className="text-sm font-medium">Parent/Guardian Signature</label><input value={form.parentGuardianSignature} onChange={(e) => setForm({ ...form, parentGuardianSignature: e.target.value })} className={reqCls(req5.parentGuardianSignature)} /></div>
+                      </div>
+                    </div>
+                  )}
                 </div>
               )}
             </div>
             <div className="flex flex-col-reverse sm:flex-row justify-end gap-3 px-4 sm:px-6 py-4">
-              {step === 3 ? (
+              {step === 5 ? (
                 <>
                   <button onClick={back} className="rounded-xl px-4 py-2 border border-slate-300 bg-white text-sm font-medium w-full sm:w-auto">Back</button>
                   <button onClick={save} className="rounded-full px-4 py-2 text-sm font-medium bg-blue-600 hover:bg-blue-700 text-white w-full sm:w-auto">Save New Member</button>
                 </>
-              ) : step === 2 ? (
+              ) : step === 4 ? (
+                <>
+                  <button onClick={back} className="rounded-xl px-4 py-2 border border-slate-300 bg-white text-sm font-medium w-full sm:w-auto">Back</button>
+                  <button onClick={() => { setForm({ ...form, medicalSkipped: true }); setStep(5); }} className="rounded-xl px-4 py-2 border border-slate-300 bg-white text-sm font-medium w-full sm:w-auto">Skip For Now</button>
+                  <button onClick={next} className="rounded-full px-4 py-2 text-sm font-medium bg-blue-600 hover:bg-blue-700 text-white w-full sm:w-auto">Next</button>
+                </>
+              ) : step >= 2 ? (
                 <>
                   <button onClick={back} className="rounded-xl px-4 py-2 border border-slate-300 bg-white text-sm font-medium w-full sm:w-auto">Back</button>
                   <button onClick={next} className="rounded-full px-4 py-2 text-sm font-medium bg-blue-600 hover:bg-blue-700 text-white w-full sm:w-auto">Next</button>
@@ -3886,6 +4221,44 @@ function SettingsPage({ settings, updateSetting, members, storageInfo, onExport,
                 </div>
               )}
             </div>
+          </div>
+        </div>
+      );
+    }
+
+    function SupportPage({ settings, updateSetting }) {
+      const [medicalTemplate, setMedicalTemplate] = React.useState(settings.medicalQuestionnaireTemplate || MEDICAL_QUESTIONNAIRE_TEMPLATE_DEFAULT);
+      const [ackTemplate, setAckTemplate] = React.useState(settings.acknowledgementTemplate || ACKNOWLEDGEMENT_TEMPLATE_DEFAULT);
+      const [ackU18Template, setAckU18Template] = React.useState(settings.acknowledgementUnder18Template || ACKNOWLEDGEMENT_UNDER18_TEMPLATE_DEFAULT);
+      const [gmailTemplate, setGmailTemplate] = React.useState(settings.gmailWelcomeTemplate || GMAIL_WELCOME_TEMPLATE_DEFAULT);
+      React.useEffect(() => {
+        setMedicalTemplate(settings.medicalQuestionnaireTemplate || MEDICAL_QUESTIONNAIRE_TEMPLATE_DEFAULT);
+        setAckTemplate(settings.acknowledgementTemplate || ACKNOWLEDGEMENT_TEMPLATE_DEFAULT);
+        setAckU18Template(settings.acknowledgementUnder18Template || ACKNOWLEDGEMENT_UNDER18_TEMPLATE_DEFAULT);
+        setGmailTemplate(settings.gmailWelcomeTemplate || GMAIL_WELCOME_TEMPLATE_DEFAULT);
+      }, [settings.medicalQuestionnaireTemplate, settings.acknowledgementTemplate, settings.acknowledgementUnder18Template, settings.gmailWelcomeTemplate]);
+      return (
+        <div className="p-3 md:p-8 space-y-5">
+          <h1 className="text-xl md:text-2xl font-semibold text-slate-900">Support Templates</h1>
+          <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm space-y-3">
+            <label className="text-sm font-medium text-slate-700">Medical Questionnaire Template</label>
+            <textarea value={medicalTemplate} onChange={(e) => setMedicalTemplate(e.target.value)} rows={10} className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm" />
+            <button onClick={() => updateSetting('medicalQuestionnaireTemplate', medicalTemplate)} className="rounded-full bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700">Save Medical Template</button>
+          </div>
+          <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm space-y-3">
+            <label className="text-sm font-medium text-slate-700">Acknowledgement Template (Adult)</label>
+            <textarea value={ackTemplate} onChange={(e) => setAckTemplate(e.target.value)} rows={12} className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm" />
+            <button onClick={() => updateSetting('acknowledgementTemplate', ackTemplate)} className="rounded-full bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700">Save Adult Acknowledgement</button>
+          </div>
+          <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm space-y-3">
+            <label className="text-sm font-medium text-slate-700">Acknowledgement Template (Under 18 Parent/Guardian)</label>
+            <textarea value={ackU18Template} onChange={(e) => setAckU18Template(e.target.value)} rows={10} className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm" />
+            <button onClick={() => updateSetting('acknowledgementUnder18Template', ackU18Template)} className="rounded-full bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700">Save Under-18 Acknowledgement</button>
+          </div>
+          <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm space-y-3">
+            <label className="text-sm font-medium text-slate-700">Gmail Welcome Template</label>
+            <textarea value={gmailTemplate} onChange={(e) => setGmailTemplate(e.target.value)} rows={12} className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm" />
+            <button onClick={() => updateSetting('gmailWelcomeTemplate', gmailTemplate)} className="rounded-full bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700">Save Gmail Welcome Template</button>
           </div>
         </div>
       );
