@@ -2868,6 +2868,7 @@ function EditMemberModal({ member, onClose, onSave, planOptions, statusOptions, 
     // ---- Add Member Wizard ----
     function AddMemberWizard({ open, onClose, onSave, settings, staffName, members, canEditFormNo }) {
       const [step, setStep] = React.useState(1);
+      const [hideFooterOnMobile, setHideFooterOnMobile] = React.useState(false);
       const [form, setForm] = React.useState({
         formNo: '',
         name: '',
@@ -2922,6 +2923,36 @@ function EditMemberModal({ member, onClose, onSave, planOptions, statusOptions, 
           localStorage.setItem(DRAFT_KEY, JSON.stringify({ step, form }));
         } catch {}
       }, [open, step, form]);
+      React.useEffect(() => {
+        if (!open) {
+          setHideFooterOnMobile(false);
+          return;
+        }
+        const isSmallScreen = () => window.matchMedia('(max-width: 640px)').matches;
+        const isEditableField = (el) => {
+          if (!el) return false;
+          const tag = String(el.tagName || '').toLowerCase();
+          return tag === 'input' || tag === 'textarea' || tag === 'select';
+        };
+        const onFocusIn = (e) => {
+          if (!isSmallScreen()) return;
+          if (isEditableField(e.target)) setHideFooterOnMobile(true);
+        };
+        const onFocusOut = () => {
+          if (!isSmallScreen()) return;
+          window.requestAnimationFrame(() => {
+            const active = document.activeElement;
+            setHideFooterOnMobile(isEditableField(active));
+          });
+        };
+        document.addEventListener('focusin', onFocusIn);
+        document.addEventListener('focusout', onFocusOut);
+        return () => {
+          document.removeEventListener('focusin', onFocusIn);
+          document.removeEventListener('focusout', onFocusOut);
+          setHideFooterOnMobile(false);
+        };
+      }, [open]);
 
       // Auto generate the next form number when the wizard opens. We look at all
       // existing members' form numbers, interpret them as integers and pick the
@@ -3210,7 +3241,7 @@ function EditMemberModal({ member, onClose, onSave, planOptions, statusOptions, 
                 <div className="h-full bg-blue-600 transition-all" style={{ width: `${(step / 5) * 100}%` }} />
               </div>
             </div>
-            <div className="px-4 sm:px-6 pb-4 max-h-[calc(95dvh-170px)] sm:max-h-[70vh] overflow-auto">
+            <div className="px-4 sm:px-6 pb-36 sm:pb-6 max-h-[calc(95dvh-170px)] sm:max-h-[70vh] overflow-auto">
               {warn && <div className="mb-3 rounded-xl bg-amber-50 text-amber-800 border border-amber-200 px-3 py-2 text-sm">{warn}</div>}
               {step === 5 && missingSummary.length > 0 && (
                 <div className="mb-3 rounded-xl bg-rose-50 text-rose-800 border border-rose-200 px-3 py-2 text-sm">
@@ -3242,7 +3273,7 @@ function EditMemberModal({ member, onClose, onSave, planOptions, statusOptions, 
                 </div>
               )}
               {step === 2 && (
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 sm:gap-4">
                   <div><label className="text-sm font-medium">Staff (logged in)</label><input value={form.staff} readOnly className={readOnlyCls} /></div>
                   <div>
                     <label className="text-sm font-medium">Amount (INR)</label>
@@ -3307,7 +3338,7 @@ function EditMemberModal({ member, onClose, onSave, planOptions, statusOptions, 
                 </div>
               )}
               {step === 4 && (
-                <div className="space-y-4">
+                <div className="space-y-4 pb-6">
                   <div className="text-sm text-slate-600">{settings.medicalQuestionnaireTemplate || MEDICAL_QUESTIONNAIRE_TEMPLATE_DEFAULT}</div>
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                     {[
@@ -3336,7 +3367,7 @@ function EditMemberModal({ member, onClose, onSave, planOptions, statusOptions, 
                 </div>
               )}
               {step === 5 && (
-                <div className="space-y-4">
+                <div className="space-y-4 pb-6">
                   <div className="rounded-xl border border-slate-200 bg-slate-50 p-3 text-xs whitespace-pre-wrap">{settings.acknowledgementTemplate || ACKNOWLEDGEMENT_TEMPLATE_DEFAULT}</div>
                   <label className="flex items-center gap-2 text-sm"><input id="add-member-ackAccepted" type="checkbox" checked={form.ackAccepted} onChange={(e) => setForm({ ...form, ackAccepted: e.target.checked })} /> I acknowledge and accept</label>
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
@@ -3356,7 +3387,10 @@ function EditMemberModal({ member, onClose, onSave, planOptions, statusOptions, 
                 </div>
               )}
             </div>
-            <div className="sticky bottom-0 z-10 bg-white border-t border-slate-200 flex flex-col-reverse sm:flex-row justify-end gap-3 px-4 sm:px-6 py-4 pb-[max(1rem,env(safe-area-inset-bottom))]">
+            <div className={cx(
+              'sticky bottom-0 z-10 bg-white border-t border-slate-200 flex flex-col-reverse sm:flex-row justify-end gap-3 px-4 sm:px-6 py-4 pb-[max(1rem,env(safe-area-inset-bottom))]',
+              hideFooterOnMobile ? 'hidden sm:flex' : ''
+            )}>
               {step === 5 ? (
                 <>
                   <button onClick={back} className="rounded-xl px-4 py-3 border border-slate-300 bg-white text-sm font-medium min-h-[44px] w-full sm:w-auto">Back</button>
