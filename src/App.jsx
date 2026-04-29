@@ -3,8 +3,10 @@ import { createApiClient } from './services/apiClient.js';
 import AddMemberWizardModule from './components/AddMemberWizardModule.jsx';
 import AppHeaderModule from './components/AppHeaderModule.jsx';
 import EditMemberModalModule from './components/EditMemberModalModule.jsx';
+import LeaveTrackerPageModule from './components/LeaveTrackerPageModule.jsx';
 import MemberListModule from './components/MemberListModule.jsx';
 import WhatsAppSmsPageModule from './components/WhatsAppSmsPageModule.jsx';
+import { DEFAULT_ACCESS, sectionsWithRoleDefaults } from './features/access/permissions.js';
 import { useComposer } from './hooks/useComposer.js';
 import { useMemberFilters } from './hooks/useMemberFilters.js';
 import { useMembersData } from './hooks/useMembersData.js';
@@ -27,7 +29,38 @@ export default function App() {
   const [warn, setWarn] = React.useState('');
   const [toast, setToast] = React.useState('');
   const [editId, setEditId] = React.useState('');
+  const [users, setUsers] = React.useState(() => {
+    try {
+      const raw = JSON.parse(localStorage.getItem('apg.users') || '[]');
+      return Array.isArray(raw) ? raw.map((u) => sectionsWithRoleDefaults(u)) : [];
+    } catch {
+      return [];
+    }
+  });
+  const [settings, setSettings] = React.useState(() => {
+    try {
+      return JSON.parse(localStorage.getItem('apg.settings') || '{}') || {};
+    } catch {
+      return {};
+    }
+  });
   const { composer, openComposer, onComposerChange, sendWhatsApp } = useComposer(members, setWarn);
+  const currentUser = React.useMemo(() => {
+    const owner = users.find((u) => u.id === 'owner');
+    return owner ? { ...owner, access: owner.access || { ...DEFAULT_ACCESS } } : { id: 'owner', name: 'Owner', access: { ...DEFAULT_ACCESS } };
+  }, [users]);
+
+  React.useEffect(() => {
+    localStorage.setItem('apg.users', JSON.stringify(users || []));
+  }, [users]);
+
+  React.useEffect(() => {
+    localStorage.setItem('apg.settings', JSON.stringify(settings || {}));
+  }, [settings]);
+
+  const updateSetting = React.useCallback((key, value) => {
+    setSettings((prev) => ({ ...prev, [key]: value }));
+  }, []);
 
   const onCreateMember = async (nextMember) => {
     const next = [nextMember, ...members];
@@ -67,6 +100,12 @@ export default function App() {
         composer={composer}
         onComposerChange={onComposerChange}
         onSendWhatsApp={sendWhatsApp}
+      />
+      <LeaveTrackerPageModule
+        users={users}
+        settings={settings}
+        updateSetting={updateSetting}
+        currentUser={currentUser}
       />
       <EditMemberModalModule
         member={members.find((m) => m.memberId === editId) || null}

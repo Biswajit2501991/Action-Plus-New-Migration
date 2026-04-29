@@ -17,6 +17,14 @@
 <body class="bg-slate-100 text-slate-900">
   <!-- React mounts the application here -->
   <div id="root"></div>
+  <script>
+    window.__APG_MODULES = window.__APG_MODULES || {};
+    window.__APG_MODULES_READY = new Promise((resolve) => {
+      window.__APG_RESOLVE_MODULES = resolve;
+      window.setTimeout(resolve, 3000);
+    });
+  </script>
+  <script type="module" src="./src/runtime/registerApgModules.js"></script>
   <!-- Application Code. Babel will compile this JSX on the fly. -->
   <script type="text/babel" data-presets="react">
     {/**
@@ -140,7 +148,38 @@
     // assignments and to filter the navigation bar depending on a user's
     // allowed sections. If you add new tabs you should also update this
     // list accordingly.
-    const ALL_SECTIONS = ['Dashboard','Members','WhatsApp SMS','Finance','Staff','Settings','Logs','Support'];
+    const extractedPermissions = (window.__APG_MODULES__ && window.__APG_MODULES__.permissions) || null;
+    const INLINE_ALL_SECTIONS = ['Dashboard','Members','PT Clients','WhatsApp SMS','Finance','Staff','Attendance','Leave Tracker','Settings','Logs','Support'];
+    const ALL_SECTIONS = extractedPermissions?.ALL_SECTIONS || INLINE_ALL_SECTIONS;
+    const DASHBOARD_CHILD_PERMISSIONS = extractedPermissions?.DASHBOARD_CHILD_PERMISSIONS || [
+      { key: 'viewRevenueMonthly', label: 'Total Revenue (Monthly)' },
+      { key: 'viewRevenueTrend', label: 'Revenue and Membership Trends' },
+    ];
+    const INLINE_DEFAULT_ACCESS = {
+      dashboard: {
+        viewRevenueMonthly: true,
+        viewRevenueTrend: true,
+      },
+      finance: {
+        viewRevenueAutoMembers: true,
+        viewRevenueTrend4Months: true,
+        viewPlanPopularity: true,
+        viewTransactionsAutoMembers: true,
+      },
+    };
+    const DEFAULT_ACCESS = extractedPermissions?.DEFAULT_ACCESS || INLINE_DEFAULT_ACCESS;
+    const normalizeAccess = extractedPermissions?.normalizeAccess || ((access) => ({
+      dashboard: {
+        viewRevenueMonthly: access?.dashboard?.viewRevenueMonthly !== false,
+        viewRevenueTrend: access?.dashboard?.viewRevenueTrend !== false,
+      },
+      finance: {
+        viewRevenueAutoMembers: access?.finance?.viewRevenueAutoMembers !== false,
+        viewRevenueTrend4Months: access?.finance?.viewRevenueTrend4Months !== false,
+        viewPlanPopularity: access?.finance?.viewPlanPopularity !== false,
+        viewTransactionsAutoMembers: access?.finance?.viewTransactionsAutoMembers !== false,
+      },
+    }));
     const DEFAULT_ROLE_TEMPLATES = [
       {
         id: 'admin',
@@ -153,14 +192,14 @@
         id: 'frontdesk',
         title: 'Front Desk Manager',
         subtitle: 'Member and Front Desk Ops',
-        sections: ['Dashboard', 'Members', 'WhatsApp SMS', 'Finance', 'Settings'],
+        sections: ['Dashboard', 'Members', 'PT Clients', 'WhatsApp SMS', 'Finance', 'Attendance', 'Leave Tracker', 'Settings'],
         color: 'bg-amber-50 border-amber-200',
       },
       {
         id: 'trainer',
         title: 'Trainer',
         subtitle: 'Class and Progress Access',
-        sections: ['Dashboard', 'Members'],
+        sections: ['Dashboard', 'Members', 'PT Clients', 'Attendance'],
         color: 'bg-blue-50 border-blue-200',
       },
     ];
@@ -497,10 +536,10 @@ Phone: +91-7047157510`;
           if (saved) return JSON.parse(saved);
         } catch {}
         return [
-          { id: 'owner', password: 'owner', name: 'Owner', email: 'owner@example.com', sections: [...ALL_SECTIONS], blocked: false, blockedReason: '', blockedAt: '', updatedBy: '', photo: null },
-          { id: 'manager', password: 'manager', name: 'Manager', email: 'manager@example.com', sections: ['Dashboard','Members','Finance','Settings','Logs'], blocked: false, blockedReason: '', blockedAt: '', updatedBy: '', photo: null },
-          { id: 'trainer', password: 'trainer', name: 'Trainer', email: 'trainer@example.com', sections: ['Dashboard','Members'], blocked: false, blockedReason: '', blockedAt: '', updatedBy: '', photo: null },
-          { id: 'reception', password: 'reception', name: 'Reception', email: 'reception@example.com', sections: ['Members'], blocked: false, blockedReason: '', blockedAt: '', updatedBy: '', photo: null },
+          { id: 'owner', password: 'owner', name: 'Owner', email: 'owner@example.com', sections: [...ALL_SECTIONS], access: { ...DEFAULT_ACCESS }, blocked: false, blockedReason: '', blockedAt: '', updatedBy: '', photo: null },
+          { id: 'manager', password: 'manager', name: 'Manager', email: 'manager@example.com', sections: ['Dashboard','Members','PT Clients','Finance','Staff','Attendance','Leave Tracker','Settings','Logs'], access: { ...DEFAULT_ACCESS }, blocked: false, blockedReason: '', blockedAt: '', updatedBy: '', photo: null },
+          { id: 'trainer', password: 'trainer', name: 'Trainer', email: 'trainer@example.com', sections: ['Dashboard','Members','PT Clients','Attendance'], access: { ...DEFAULT_ACCESS }, blocked: false, blockedReason: '', blockedAt: '', updatedBy: '', photo: null },
+          { id: 'reception', password: 'reception', name: 'Reception', email: 'reception@example.com', sections: ['Members'], access: { ...DEFAULT_ACCESS }, blocked: false, blockedReason: '', blockedAt: '', updatedBy: '', photo: null },
         ];
       });
       // Theme: we enforce a single light theme across the app. Previously the app
@@ -569,6 +608,56 @@ Phone: +91-7047157510`;
           return [];
         }
       });
+      const normalizeSectionsForUser = React.useCallback((u) => {
+        if (extractedPermissions?.sectionsWithRoleDefaults) {
+          return extractedPermissions.sectionsWithRoleDefaults(u);
+        }
+        if (!u || !u.id) return u;
+        const current = Array.isArray(u.sections) ? u.sections : [];
+        let required = [];
+        if (u.id === 'owner') required = [...ALL_SECTIONS];
+        if (u.id === 'manager') required = ['Dashboard','Members','PT Clients','Finance','Staff','Attendance','Leave Tracker','Settings','Logs'];
+        if (u.id === 'trainer') required = ['Dashboard','Members','PT Clients','Attendance'];
+        if (!required.length) return u;
+        const nextSections = Array.from(new Set([...current, ...required]));
+        const normalizedAccess = normalizeAccess(u.access);
+        const accessChanged = JSON.stringify(normalizedAccess) !== JSON.stringify(normalizeAccess(u.access || {}));
+        const changed = nextSections.length !== current.length || nextSections.some((s, i) => s !== current[i]) || !u.access || accessChanged;
+        return changed ? { ...u, sections: nextSections, access: normalizedAccess } : u;
+      }, []);
+      // One-time migration for existing localStorage users so newly introduced tabs
+      // are visible without requiring manual role reconfiguration.
+      React.useEffect(() => {
+        setUsers(prev => {
+          let changed = false;
+          const next = prev.map(u => {
+            const normalized = normalizeSectionsForUser(u);
+            if (normalized !== u) changed = true;
+            return normalized;
+          });
+          return changed ? next : prev;
+        });
+      }, [normalizeSectionsForUser]);
+      // Keep role templates aligned with latest app sections for future staff setup.
+      React.useEffect(() => {
+        const templates = Array.isArray(settings.roleTemplates) ? settings.roleTemplates : [];
+        let changed = false;
+        const nextTemplates = templates.map(t => {
+          if (!t || !t.id) return t;
+          let required = [];
+          if (t.id === 'admin') required = [...ALL_SECTIONS];
+          if (t.id === 'frontdesk') required = ['Dashboard', 'Members', 'PT Clients', 'WhatsApp SMS', 'Finance', 'Attendance', 'Leave Tracker', 'Settings'];
+          if (t.id === 'trainer') required = ['Dashboard', 'Members', 'PT Clients', 'Attendance'];
+          if (!required.length) return t;
+          const current = Array.isArray(t.sections) ? t.sections : [];
+          const nextSections = Array.from(new Set([...current, ...required]));
+          const changedTemplate = nextSections.length !== current.length || nextSections.some((s, i) => s !== current[i]);
+          if (!changedTemplate) return t;
+          changed = true;
+          return { ...t, sections: nextSections };
+        });
+        if (changed) setSettings(prev => ({ ...prev, roleTemplates: nextTemplates }));
+      }, [settings.roleTemplates]);
 
       // ----- Filtering state -----
       // Filters for the members page. Keys: plan, status, billingMonth,
@@ -762,6 +851,11 @@ Phone: +91-7047157510`;
       // members (see canDelete prop passed to QuickActions below).
       const [deleteCandidate, setDeleteCandidate] = React.useState(null);
       const [duplicateMobileConflict, setDuplicateMobileConflict] = React.useState(null);
+      const dashboardTopTabs = React.useMemo(() => {
+        const ordered = ['Dashboard', 'Members', 'PT Clients', 'WhatsApp SMS', 'Finance', 'Staff', 'Attendance', 'Leave Tracker', 'Settings', 'Logs', 'Support'];
+        const allowed = user && Array.isArray(user.sections) ? user.sections : ALL_SECTIONS;
+        return ordered.filter((key) => key === 'Support' || allowed.includes(key));
+      }, [user]);
 
       React.useEffect(() => {
         const fabVisible = user && user.sections && user.sections.includes('Members') && !addOpen && !editMember;
@@ -923,7 +1017,7 @@ Phone: +91-7047157510`;
             return false;
           }
           // Login success. Use the user record as is (id, name, email, sections).
-          setUser({ ...rec });
+          setUser({ ...rec, access: normalizeAccess(rec.access) });
           setActiveTab('Dashboard');
           setDashMode('summary');
           logEvent('auth.login', 'user', id, null, { id });
@@ -933,7 +1027,7 @@ Phone: +91-7047157510`;
         const legacyAllowed = id === 'Bis' || id === 'Raja';
         const legacy = legacyAllowed ? DEMO_USERS[id] : null;
         if (legacy && legacy.password === pw) {
-          const newUser = { id, name: legacy.name, email: legacy.email, sections: [...ALL_SECTIONS], blocked: false, blockedReason: '', blockedAt: '', updatedBy: '', photo: null };
+          const newUser = { id, name: legacy.name, email: legacy.email, sections: [...ALL_SECTIONS], access: { ...DEFAULT_ACCESS }, blocked: false, blockedReason: '', blockedAt: '', updatedBy: '', photo: null };
           setUser(newUser);
           // Persist this user so they can log in again
           setUsers(prev => {
@@ -1435,10 +1529,34 @@ Please pay by: ${formattedLastDate}`;
             onCloseMobile={() => setMobileMenuOpen(false)}
           />
           <main className="flex-1 overflow-y-auto pt-16 md:pt-0 pb-24 md:pb-0">
+            <div className="hidden md:block px-8 pt-6">
+              <div className="rounded-2xl border border-slate-200 bg-white p-2 shadow-sm">
+                <div className="flex flex-wrap items-center gap-2">
+                  {dashboardTopTabs.map((tab) => (
+                    <button
+                      key={tab}
+                      onClick={() => {
+                        setActiveTab(tab);
+                        if (tab === 'Dashboard') setDashMode('summary');
+                      }}
+                      className={cx(
+                        'rounded-full px-3 py-1.5 text-xs font-semibold border transition-colors',
+                        activeTab === tab
+                          ? 'bg-blue-600 text-white border-blue-600'
+                          : 'bg-white text-slate-700 border-slate-300 hover:bg-slate-100'
+                      )}
+                    >
+                      {tab}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            </div>
             {activeTab === 'Dashboard' && (
               dashMode === 'summary' ? (
                 <DashboardSummary
                   members={members}
+                  access={normalizeAccess(user?.access)}
                   onSelectStatus={(s) => {
                     setDashFilter(s);
                     setDashMode('list');
@@ -1509,6 +1627,15 @@ Please pay by: ${formattedLastDate}`;
                 isOwner={user && user.id === 'owner'}
               />
             )}
+            {activeTab === 'PT Clients' && (
+              <PTClientsPage
+                members={members}
+                users={users}
+                settings={settings}
+                updateSetting={updateSettingValue}
+                currentUser={user}
+              />
+            )}
             {activeTab === 'Settings' && (
               <SettingsPage
                 settings={settings}
@@ -1544,6 +1671,7 @@ Please pay by: ${formattedLastDate}`;
                 members={members}
                 settings={settings}
                 logs={logs}
+                access={normalizeAccess(user?.access)}
               />
             )}
             {activeTab === 'Staff' && (
@@ -1554,6 +1682,22 @@ Please pay by: ${formattedLastDate}`;
                 setSettings={setSettings}
                 currentUser={user}
                 logEvent={logEvent}
+              />
+            )}
+            {activeTab === 'Attendance' && (
+              <AttendancePage
+                users={users}
+                settings={settings}
+                updateSetting={updateSettingValue}
+                currentUser={user}
+              />
+            )}
+            {activeTab === 'Leave Tracker' && (
+              <LeaveTrackerPage
+                users={users}
+                settings={settings}
+                updateSetting={updateSettingValue}
+                currentUser={user}
               />
             )}
             {activeTab === 'Support' && (
@@ -1771,9 +1915,12 @@ function Sidebar({ user, active, onSelect, theme, setTheme, onLogout, onUndo, on
       const NAV = [
         { key: 'Dashboard', label: 'Dashboard', icon: '🏠' },
         { key: 'Members', label: 'Members', icon: '👥' },
+        { key: 'PT Clients', label: 'PT Clients', icon: '🏋️' },
         { key: 'WhatsApp SMS', label: 'WhatsApp SMS', icon: '✉️' },
         { key: 'Finance', label: 'Finance', icon: '💰' },
         { key: 'Staff', label: 'Staff', icon: '👤' },
+        { key: 'Attendance', label: 'Attendance', icon: '🗓️' },
+        { key: 'Leave Tracker', label: 'Leave Tracker', icon: '📝' },
         { key: 'Settings', label: 'Settings', icon: '⚙️' },
         { key: 'Logs', label: 'Logs', icon: '📜' },
         { key: 'Support', label: 'Support', icon: '❓' },
@@ -1859,7 +2006,7 @@ function Sidebar({ user, active, onSelect, theme, setTheme, onLogout, onUndo, on
     }
 
     // ---- Dashboard Summary Component ----
-    function DashboardSummary({ members, onSelectStatus, onAddNew, onSearch, onOpenMember, onWelcome }) {
+    function DashboardSummary({ members, access, onSelectStatus, onAddNew, onSearch, onOpenMember, onWelcome }) {
       const counts = React.useMemo(() => {
         return {
           Active: members.filter(m => m.status === 'Active').length,
@@ -1975,6 +2122,8 @@ function Sidebar({ user, active, onSelect, theme, setTheme, onLogout, onUndo, on
         { key: 'Deactivated', color: 'pink' },
         { key: 'Cancelled', color: 'slate' }
       ];
+      const canViewRevenueMonthly = access?.dashboard?.viewRevenueMonthly !== false;
+      const canViewRevenueTrend = access?.dashboard?.viewRevenueTrend !== false;
       return (
         <div className="p-3 md:p-8 space-y-5">
           <div className="space-y-3">
@@ -2034,14 +2183,17 @@ function Sidebar({ user, active, onSelect, theme, setTheme, onLogout, onUndo, on
                 <div className="mt-1 text-xs underline">View {tile.key} members</div>
               </button>
             ))}
-            <div className="rounded-2xl p-5 text-left shadow border bg-emerald-50 border-emerald-200 text-emerald-800">
-              <div className="text-sm">Total Revenue (Monthly)</div>
-              <div className="mt-2 text-3xl font-bold">${monthlyRevenue.toLocaleString()}</div>
-              <div className="mt-1 text-xs">Auto from member billing data</div>
-            </div>
+            {canViewRevenueMonthly && (
+              <div className="rounded-2xl p-5 text-left shadow border bg-emerald-50 border-emerald-200 text-emerald-800">
+                <div className="text-sm">Total Revenue (Monthly)</div>
+                <div className="mt-2 text-3xl font-bold">${monthlyRevenue.toLocaleString()}</div>
+                <div className="mt-1 text-xs">Auto from member billing data</div>
+              </div>
+            )}
           </div>
 
           <div className="grid grid-cols-1 xl:grid-cols-3 gap-4">
+            {canViewRevenueTrend && (
             <div className="xl:col-span-2 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
               <div className="flex items-center justify-between mb-3">
                 <div className="text-lg font-semibold text-slate-800">Revenue and Membership Trends</div>
@@ -2072,6 +2224,7 @@ function Sidebar({ user, active, onSelect, theme, setTheme, onLogout, onUndo, on
                 })}
               </div>
             </div>
+            )}
             <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
               <div className="text-lg font-semibold text-slate-800 mb-3">Membership by Plan Type</div>
               <div className="flex items-center gap-4">
@@ -2088,7 +2241,7 @@ function Sidebar({ user, active, onSelect, theme, setTheme, onLogout, onUndo, on
               </div>
             </div>
           </div>
-          {showTrendHistory && historicalTrend.length > 0 && (
+          {canViewRevenueTrend && showTrendHistory && historicalTrend.length > 0 && (
             <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
               <div className="text-base font-semibold text-slate-800 mb-3">Expanded Revenue Trend (Older Months)</div>
               <div className="h-40 flex items-end gap-2 overflow-x-auto">
@@ -2798,8 +2951,10 @@ function QuickActions({ m, onStatusChange, holdOptions, canDelete, onDelete }) {
 function DashboardView({ members, onEdit, onStatusChange, holdOptions, logs, filters, filterOpen, setFilterOpen, anyFilterActive, canDelete, onDelete, billingMonthOptions, onWelcome, onWelcomeMail, onAddAttachment, onQuickFieldEdit, editOptions, isOwner }) {
       // Single expanded row across all statuses. Only one memberId may be expanded at a time.
       const [expandedId, setExpandedId] = React.useState(null);
+      const [focusStatus, setFocusStatus] = React.useState('');
       const [selectedIds, setSelectedIds] = React.useState([]);
       const [visibleByStatus, setVisibleByStatus] = React.useState({ Active: 20, Hold: 20, Deactivated: 20, Cancelled: 20 });
+      const sectionRefs = React.useRef({});
       // Pagination state per status tab. Each status has its own current page.
       const [pages, setPages] = React.useState({ Active: 1, Hold: 1, Deactivated: 1, Cancelled: 1 });
       // When members or filters change, reset pagination to page 1 for each status.
@@ -2808,6 +2963,13 @@ function DashboardView({ members, onEdit, onStatusChange, holdOptions, logs, fil
         setSelectedIds([]);
         setVisibleByStatus({ Active: 20, Hold: 20, Deactivated: 20, Cancelled: 20 });
       }, [members, filters]);
+      React.useEffect(() => {
+        if (!focusStatus) return;
+        const node = sectionRefs.current[focusStatus];
+        if (node && typeof node.scrollIntoView === 'function') {
+          node.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        }
+      }, [focusStatus]);
       const toggleSelect = (id) => {
         setSelectedIds(prev => prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]);
       };
@@ -2866,6 +3028,10 @@ function DashboardView({ members, onEdit, onStatusChange, holdOptions, logs, fil
       // Page size determines how many members to show per page in each
       // status group. Show maximum 10 rows per page.
       const pageSize = 10;
+      const chipClass = (isActive, activeCls, idleCls) => cx(
+        'rounded-xl px-2.5 py-1.5 text-[11px] md:text-xs font-semibold border transition-all duration-150',
+        isActive ? `${activeCls} ring-2 ring-offset-1 shadow-sm` : `${idleCls} hover:shadow-sm`
+      );
       const overdueCount = React.useMemo(() => {
         const today = new Date();
         return applyFilters(members).filter(m => {
@@ -2881,11 +3047,11 @@ function DashboardView({ members, onEdit, onStatusChange, holdOptions, logs, fil
           <div className="flex items-center justify-between mb-4 gap-2 flex-wrap">
             <h1 className="text-xl md:text-2xl font-semibold text-slate-900">Members</h1>
             <div className="flex items-center gap-2 flex-wrap">
-              <span className="rounded-xl px-2 py-1 text-[11px] md:text-xs font-semibold bg-blue-50 text-blue-700 border border-blue-200">All Members</span>
-              <span className="rounded-xl px-2 py-1 text-[11px] md:text-xs font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200">Active ({grouped.Active.length})</span>
-              <span className="rounded-xl px-2 py-1 text-[11px] md:text-xs font-semibold bg-amber-50 text-amber-700 border border-amber-200">Hold ({grouped.Hold.length})</span>
-              <span className="rounded-xl px-2 py-1 text-[11px] md:text-xs font-semibold bg-pink-50 text-pink-700 border border-pink-200">Deactivated ({grouped.Deactivated.length})</span>
-              <span className="rounded-xl px-2 py-1 text-[11px] md:text-xs font-semibold bg-slate-100 text-slate-700 border border-slate-200">Cancelled ({grouped.Cancelled.length})</span>
+              <button aria-pressed={!focusStatus} onClick={() => setFocusStatus('')} className={chipClass(!focusStatus, 'bg-blue-600 text-white border-blue-600 ring-blue-200', 'bg-blue-50 text-blue-700 border-blue-200')}>All Members</button>
+              <button aria-pressed={focusStatus === 'Active'} onClick={() => setFocusStatus('Active')} className={chipClass(focusStatus === 'Active', 'bg-emerald-600 text-white border-emerald-600 ring-emerald-200', 'bg-emerald-50 text-emerald-700 border-emerald-200')}>Active ({grouped.Active.length})</button>
+              <button aria-pressed={focusStatus === 'Hold'} onClick={() => setFocusStatus('Hold')} className={chipClass(focusStatus === 'Hold', 'bg-amber-500 text-white border-amber-500 ring-amber-200', 'bg-amber-50 text-amber-700 border-amber-200')}>Hold ({grouped.Hold.length})</button>
+              <button aria-pressed={focusStatus === 'Deactivated'} onClick={() => setFocusStatus('Deactivated')} className={chipClass(focusStatus === 'Deactivated', 'bg-pink-600 text-white border-pink-600 ring-pink-200', 'bg-pink-50 text-pink-700 border-pink-200')}>Deactivated ({grouped.Deactivated.length})</button>
+              <button aria-pressed={focusStatus === 'Cancelled'} onClick={() => setFocusStatus('Cancelled')} className={chipClass(focusStatus === 'Cancelled', 'bg-slate-700 text-white border-slate-700 ring-slate-200', 'bg-slate-100 text-slate-700 border-slate-200')}>Cancelled ({grouped.Cancelled.length})</button>
               {selectedIds.length > 0 && (
                 <>
                   <span className="text-sm text-slate-600">{selectedIds.length} selected</span>
@@ -2928,7 +3094,7 @@ function DashboardView({ members, onEdit, onStatusChange, holdOptions, logs, fil
               <div className="text-xs text-rose-700">Deactivated Members</div>
             </div>
           </div>
-          {['Active','Hold','Deactivated','Cancelled'].map(key => {
+          {(focusStatus ? [focusStatus] : ['Active','Hold','Deactivated','Cancelled']).map(key => {
             const list = grouped[key];
             const totalPages = Math.max(1, Math.ceil(list.length / pageSize));
             const page = pages[key] > totalPages ? 1 : pages[key];
@@ -2936,7 +3102,7 @@ function DashboardView({ members, onEdit, onStatusChange, holdOptions, logs, fil
             const end = start + pageSize;
             const pageList = list.slice(start, end).slice(0, visibleByStatus[key] || 20);
             return (
-              <div key={key} className="space-y-3">
+              <div key={key} className="space-y-3" ref={(el) => { sectionRefs.current[key] = el; }}>
                 <h2 className="text-xl font-semibold">{key} Members ({list.length})</h2>
                 <div className="rounded-3xl bg-white p-4 shadow-sm">
                   <div className="hidden md:grid grid-cols-12 gap-4 px-3 py-2 text-sm font-semibold bg-blue-50 text-blue-700 border border-blue-100 rounded-2xl">
@@ -3898,6 +4064,279 @@ function EditMemberModal({ member, onClose, onSave, planOptions, statusOptions, 
       );
     }
 
+    // ---- PT Clients Page ----
+function PTClientsPage({ members, users, settings, updateSetting, currentUser }) {
+      const PT_TABS = ['PT Workout', 'Workout Plan', 'Diet Plan', 'Chat Trainer', 'Today Sessions', 'Weight Progress'];
+      const [activeSubTab, setActiveSubTab] = React.useState('PT Workout');
+      const ptProfiles = settings.ptClientProfiles || {};
+      const [selectedMemberId, setSelectedMemberId] = React.useState('');
+      const [chatDraft, setChatDraft] = React.useState('');
+      const [sessionDraft, setSessionDraft] = React.useState({ date: iso(new Date()), time: '07:00', status: 'Scheduled', note: '' });
+      const [weightDraft, setWeightDraft] = React.useState({ date: iso(new Date()), weight: '' });
+      const trainers = (users || []).filter(u => !u.blocked && (u.id === 'trainer' || (u.sections || []).includes('PT Clients')));
+      const ptMembers = React.useMemo(() => {
+        const active = (members || []).filter(m => String(m.status || '') === 'Active');
+        return active.filter(m => /\bpt\b/i.test(String(m.plan || '')) || String(m.trainer || '').trim() || (ptProfiles[m.memberId]));
+      }, [members, ptProfiles]);
+      React.useEffect(() => {
+        if (!ptMembers.length) {
+          setSelectedMemberId('');
+          return;
+        }
+        if (!selectedMemberId || !ptMembers.some(m => m.memberId === selectedMemberId)) {
+          setSelectedMemberId(ptMembers[0].memberId);
+        }
+      }, [ptMembers, selectedMemberId]);
+      const selectedMember = ptMembers.find(m => m.memberId === selectedMemberId) || null;
+      const profile = selectedMember ? (ptProfiles[selectedMember.memberId] || {}) : {};
+      const persistProfile = (memberId, patch) => {
+        if (!memberId) return;
+        const prevAll = settings.ptClientProfiles || {};
+        const prevProfile = prevAll[memberId] || {};
+        const nextAll = { ...prevAll, [memberId]: { ...prevProfile, ...patch, updatedAt: new Date().toISOString(), updatedBy: currentUser?.name || currentUser?.id || '' } };
+        updateSetting('ptClientProfiles', nextAll);
+      };
+      const addChatMessage = () => {
+        if (!selectedMember || !chatDraft.trim()) return;
+        const next = [{ id: crypto.randomUUID(), by: currentUser?.name || 'Staff', text: chatDraft.trim(), ts: new Date().toISOString() }, ...((profile.chat || []))].slice(0, 100);
+        persistProfile(selectedMember.memberId, { chat: next, lastChatAt: new Date().toISOString() });
+        setChatDraft('');
+      };
+      const addSession = () => {
+        if (!selectedMember || !sessionDraft.date) return;
+        const next = [{ id: crypto.randomUUID(), ...sessionDraft, createdAt: new Date().toISOString() }, ...((profile.sessions || []))].slice(0, 120);
+        persistProfile(selectedMember.memberId, { sessions: next });
+      };
+      const addWeightLog = () => {
+        if (!selectedMember || !weightDraft.date || !String(weightDraft.weight).trim()) return;
+        const val = Number(weightDraft.weight);
+        if (Number.isNaN(val) || val <= 0) return;
+        const next = [{ id: crypto.randomUUID(), date: weightDraft.date, weight: val, createdAt: new Date().toISOString() }, ...((profile.weightLogs || []))]
+          .sort((a, b) => String(b.date || '').localeCompare(String(a.date || '')))
+          .slice(0, 200);
+        persistProfile(selectedMember.memberId, { weightLogs: next });
+        setWeightDraft(v => ({ ...v, weight: '' }));
+      };
+      const sessionsToday = (profile.sessions || []).filter(s => iso(s.date) === iso(new Date()));
+      const weightLogs = (profile.weightLogs || []).slice().sort((a, b) => String(a.date || '').localeCompare(String(b.date || '')));
+      const firstWeight = weightLogs[0]?.weight ?? null;
+      const latestWeight = weightLogs[weightLogs.length - 1]?.weight ?? null;
+      const weightDelta = (firstWeight != null && latestWeight != null) ? (latestWeight - firstWeight) : null;
+      return (
+        <div className="p-3 md:p-8 space-y-4">
+          <div className="flex flex-col gap-3 md:flex-row md:items-end md:justify-between">
+            <div>
+              <h1 className="text-xl md:text-2xl font-semibold text-slate-900">PT Clients</h1>
+              <p className="text-sm text-slate-600">Training operations from member data + PT logs.</p>
+            </div>
+            <div className="w-full md:w-80">
+              <label className="text-xs text-slate-500">Select PT Client</label>
+              <select value={selectedMemberId} onChange={(e) => setSelectedMemberId(e.target.value)} className="mt-1 w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm">
+                {ptMembers.map(m => <option key={m.memberId} value={m.memberId}>{m.name} - {m.plan}</option>)}
+              </select>
+            </div>
+          </div>
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+            <div className="rounded-2xl border border-blue-200 bg-blue-50 p-3"><div className="text-xs text-blue-700">Total PT Clients</div><div className="text-xl font-semibold text-blue-900">{ptMembers.length}</div></div>
+            <div className="rounded-2xl border border-emerald-200 bg-emerald-50 p-3"><div className="text-xs text-emerald-700">Today's Sessions</div><div className="text-xl font-semibold text-emerald-900">{sessionsToday.length}</div></div>
+            <div className="rounded-2xl border border-violet-200 bg-violet-50 p-3"><div className="text-xs text-violet-700">Weight Trend</div><div className="text-xl font-semibold text-violet-900">{weightDelta == null ? 'NA' : `${weightDelta > 0 ? '+' : ''}${weightDelta.toFixed(1)} kg`}</div></div>
+          </div>
+          <div className="rounded-3xl bg-white border border-slate-200 p-3 sm:p-4">
+            <div className="flex flex-wrap gap-2 mb-4">
+              {PT_TABS.map(tab => (
+                <button key={tab} onClick={() => setActiveSubTab(tab)} className={cx('rounded-full px-3 py-2 text-xs font-medium border', activeSubTab === tab ? 'bg-blue-600 text-white border-blue-600' : 'bg-white text-slate-700 border-slate-300 hover:bg-slate-100')}>
+                  {tab}
+                </button>
+              ))}
+            </div>
+            {!selectedMember && <div className="rounded-xl border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800">No PT client found. Assign PT plan in Members to enable this section.</div>}
+            {selectedMember && (
+              <div className="space-y-4">
+                <div className="rounded-xl border border-slate-200 bg-slate-50 p-3 text-sm">
+                  <span className="font-semibold">{selectedMember.name}</span> • {selectedMember.plan} • Billing: {fmt(selectedMember.billingDate)}
+                </div>
+                {activeSubTab === 'PT Workout' && (
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                    <div>
+                      <label className="text-sm font-medium">Assigned Trainer</label>
+                      <select value={profile.trainerId || ''} onChange={(e) => persistProfile(selectedMember.memberId, { trainerId: e.target.value })} className="mt-1 w-full rounded-xl border border-slate-300 px-3 py-2 text-sm">
+                        <option value="">Select trainer</option>
+                        {trainers.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
+                      </select>
+                    </div>
+                    <div>
+                      <label className="text-sm font-medium">Primary Focus</label>
+                      <input value={profile.focusArea || ''} onChange={(e) => persistProfile(selectedMember.memberId, { focusArea: e.target.value })} placeholder="Fat loss / Strength / Rehab" className="mt-1 w-full rounded-xl border border-slate-300 px-3 py-2 text-sm" />
+                    </div>
+                    <div className="md:col-span-2">
+                      <label className="text-sm font-medium">PT Workout Notes</label>
+                      <textarea rows={4} value={profile.ptWorkoutNotes || ''} onChange={(e) => persistProfile(selectedMember.memberId, { ptWorkoutNotes: e.target.value })} className="mt-1 w-full rounded-xl border border-slate-300 px-3 py-2 text-sm" />
+                    </div>
+                  </div>
+                )}
+                {activeSubTab === 'Workout Plan' && (
+                  <div>
+                    <label className="text-sm font-medium">Weekly Workout Plan</label>
+                    <textarea rows={6} value={profile.workoutPlan || ''} onChange={(e) => persistProfile(selectedMember.memberId, { workoutPlan: e.target.value })} placeholder="Day-wise split, reps, sets, progressive overload notes." className="mt-1 w-full rounded-xl border border-slate-300 px-3 py-2 text-sm" />
+                  </div>
+                )}
+                {activeSubTab === 'Diet Plan' && (
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                    <div><label className="text-sm font-medium">Calories / day</label><input value={profile.calories || ''} onChange={(e) => persistProfile(selectedMember.memberId, { calories: e.target.value })} className="mt-1 w-full rounded-xl border border-slate-300 px-3 py-2 text-sm" /></div>
+                    <div><label className="text-sm font-medium">Protein (g)</label><input value={profile.protein || ''} onChange={(e) => persistProfile(selectedMember.memberId, { protein: e.target.value })} className="mt-1 w-full rounded-xl border border-slate-300 px-3 py-2 text-sm" /></div>
+                    <div><label className="text-sm font-medium">Water (L)</label><input value={profile.water || ''} onChange={(e) => persistProfile(selectedMember.memberId, { water: e.target.value })} className="mt-1 w-full rounded-xl border border-slate-300 px-3 py-2 text-sm" /></div>
+                    <div className="md:col-span-3"><label className="text-sm font-medium">Diet Plan Details</label><textarea rows={5} value={profile.dietPlan || ''} onChange={(e) => persistProfile(selectedMember.memberId, { dietPlan: e.target.value })} className="mt-1 w-full rounded-xl border border-slate-300 px-3 py-2 text-sm" /></div>
+                  </div>
+                )}
+                {activeSubTab === 'Chat Trainer' && (
+                  <div className="space-y-3">
+                    <div className="flex gap-2">
+                      <input value={chatDraft} onChange={(e) => setChatDraft(e.target.value)} placeholder="Enter trainer update / member concern..." className="flex-1 rounded-xl border border-slate-300 px-3 py-2 text-sm" />
+                      <button onClick={addChatMessage} className="rounded-full bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700">Save Note</button>
+                    </div>
+                    <div className="space-y-2">
+                      {(profile.chat || []).slice(0, 10).map(msg => (
+                        <div key={msg.id} className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-sm">
+                          <div className="font-medium text-slate-800">{msg.by}</div>
+                          <div className="text-slate-700">{msg.text}</div>
+                          <div className="text-xs text-slate-500 mt-1">{fmt(msg.ts)}</div>
+                        </div>
+                      ))}
+                      {(!profile.chat || profile.chat.length === 0) && <div className="text-sm text-slate-500">No trainer notes yet.</div>}
+                    </div>
+                  </div>
+                )}
+                {activeSubTab === 'Today Sessions' && (
+                  <div className="space-y-3">
+                    <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
+                      <div><label className="text-sm font-medium">Date</label><input type="date" value={sessionDraft.date} onChange={(e) => setSessionDraft(v => ({ ...v, date: e.target.value }))} className="mt-1 w-full rounded-xl border border-slate-300 px-3 py-2 text-sm" /></div>
+                      <div><label className="text-sm font-medium">Time</label><input type="time" value={sessionDraft.time} onChange={(e) => setSessionDraft(v => ({ ...v, time: e.target.value }))} className="mt-1 w-full rounded-xl border border-slate-300 px-3 py-2 text-sm" /></div>
+                      <div><label className="text-sm font-medium">Status</label><select value={sessionDraft.status} onChange={(e) => setSessionDraft(v => ({ ...v, status: e.target.value }))} className="mt-1 w-full rounded-xl border border-slate-300 px-3 py-2 text-sm"><option>Scheduled</option><option>Completed</option><option>Missed</option></select></div>
+                      <div className="md:self-end"><button onClick={addSession} className="w-full rounded-full bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700">Add Session</button></div>
+                      <div className="md:col-span-4"><input value={sessionDraft.note} onChange={(e) => setSessionDraft(v => ({ ...v, note: e.target.value }))} placeholder="Session note" className="w-full rounded-xl border border-slate-300 px-3 py-2 text-sm" /></div>
+                    </div>
+                    <div className="space-y-2">
+                      {(profile.sessions || []).slice(0, 8).map(s => (
+                        <div key={s.id} className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
+                          <div>{fmt(s.date)} • {s.time || '--'} • <span className="font-medium">{s.status}</span></div>
+                          <div className="text-slate-600">{s.note || '-'}</div>
+                        </div>
+                      ))}
+                      {(!profile.sessions || profile.sessions.length === 0) && <div className="text-sm text-slate-500">No sessions added.</div>}
+                    </div>
+                  </div>
+                )}
+                {activeSubTab === 'Weight Progress' && (
+                  <div className="space-y-3">
+                    <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
+                      <div><label className="text-sm font-medium">Date</label><input type="date" value={weightDraft.date} onChange={(e) => setWeightDraft(v => ({ ...v, date: e.target.value }))} className="mt-1 w-full rounded-xl border border-slate-300 px-3 py-2 text-sm" /></div>
+                      <div><label className="text-sm font-medium">Weight (kg)</label><input value={weightDraft.weight} onChange={(e) => setWeightDraft(v => ({ ...v, weight: e.target.value }))} className="mt-1 w-full rounded-xl border border-slate-300 px-3 py-2 text-sm" /></div>
+                      <div className="md:self-end"><button onClick={addWeightLog} className="w-full rounded-full bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700">Add Weight</button></div>
+                    </div>
+                    <div className="text-sm text-slate-700">Current: <span className="font-semibold">{latestWeight == null ? 'NA' : `${latestWeight} kg`}</span> • Change: <span className="font-semibold">{weightDelta == null ? 'NA' : `${weightDelta > 0 ? '+' : ''}${weightDelta.toFixed(1)} kg`}</span></div>
+                    <div className="space-y-1">
+                      {weightLogs.slice().reverse().map(w => (
+                        <div key={w.id} className="rounded-lg border border-slate-200 px-3 py-2 text-sm">{fmt(w.date)}: <span className="font-medium">{w.weight} kg</span></div>
+                      ))}
+                      {weightLogs.length === 0 && <div className="text-sm text-slate-500">No weight logs yet.</div>}
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+        </div>
+      );
+    }
+
+    // ---- Attendance Page ----
+function AttendancePage({ users, settings, updateSetting, currentUser }) {
+      const [date, setDate] = React.useState(iso(new Date()));
+      const staff = (users || []).filter(u => !u.blocked);
+      const records = settings.staffAttendance || [];
+      const keyFor = (userId) => `${date}__${userId}`;
+      const map = React.useMemo(() => {
+        const out = {};
+        records.forEach(r => { out[`${iso(r.date)}__${r.userId}`] = r; });
+        return out;
+      }, [records]);
+      const upsert = (userId, patch) => {
+        const existing = records.find(r => iso(r.date) === date && r.userId === userId);
+        let next;
+        if (existing) {
+          next = records.map(r => (r.id === existing.id ? { ...r, ...patch, updatedAt: new Date().toISOString(), updatedBy: currentUser?.name || currentUser?.id || '' } : r));
+        } else {
+          next = [{ id: crypto.randomUUID(), date, userId, status: 'Present', checkIn: '', checkOut: '', note: '', markedBy: currentUser?.name || currentUser?.id || '', ...patch }, ...records];
+        }
+        updateSetting('staffAttendance', next);
+      };
+      const presentCount = staff.filter(s => (map[keyFor(s.id)]?.status || 'Absent') === 'Present').length;
+      const leaveCount = staff.filter(s => (map[keyFor(s.id)]?.status || '') === 'Leave').length;
+      return (
+        <div className="p-3 md:p-8 space-y-4">
+          <div className="flex flex-col gap-3 md:flex-row md:items-end md:justify-between">
+            <div>
+              <h1 className="text-xl md:text-2xl font-semibold text-slate-900">Attendance</h1>
+              <p className="text-sm text-slate-600">Daily staff attendance with check-in/out tracking.</p>
+            </div>
+            <div className="flex items-center gap-2">
+              <input type="date" value={date} onChange={(e) => setDate(iso(e.target.value))} className="rounded-xl border border-slate-300 px-3 py-2 text-sm" />
+              <button onClick={() => staff.forEach(s => upsert(s.id, { status: 'Present' }))} className="rounded-full bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700">Mark All Present</button>
+            </div>
+          </div>
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+            <div className="rounded-2xl border border-emerald-200 bg-emerald-50 p-3"><div className="text-xs text-emerald-700">Present</div><div className="text-xl font-semibold text-emerald-900">{presentCount}</div></div>
+            <div className="rounded-2xl border border-amber-200 bg-amber-50 p-3"><div className="text-xs text-amber-700">On Leave</div><div className="text-xl font-semibold text-amber-900">{leaveCount}</div></div>
+            <div className="rounded-2xl border border-slate-200 bg-slate-50 p-3"><div className="text-xs text-slate-600">Total Staff</div><div className="text-xl font-semibold text-slate-900">{staff.length}</div></div>
+          </div>
+          <div className="rounded-3xl border border-slate-200 bg-white p-3 sm:p-4 space-y-3">
+            {staff.map(s => {
+              const rec = map[keyFor(s.id)] || {};
+              return (
+                <div key={s.id} className="rounded-2xl border border-slate-200 p-3 grid grid-cols-1 lg:grid-cols-6 gap-2">
+                  <div>
+                    <div className="text-sm font-semibold text-slate-900">{s.name}</div>
+                    <div className="text-xs text-slate-500">{s.id}</div>
+                  </div>
+                  <div>
+                    <label className="text-xs text-slate-500">Status</label>
+                    <select value={rec.status || 'Absent'} onChange={(e) => upsert(s.id, { status: e.target.value })} className="mt-1 w-full rounded-xl border border-slate-300 px-3 py-2 text-sm">
+                      <option>Present</option><option>Absent</option><option>Half Day</option><option>Leave</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label className="text-xs text-slate-500">Check-In</label>
+                    <input type="time" value={rec.checkIn || ''} onChange={(e) => upsert(s.id, { checkIn: e.target.value })} className="mt-1 w-full rounded-xl border border-slate-300 px-3 py-2 text-sm" />
+                  </div>
+                  <div>
+                    <label className="text-xs text-slate-500">Check-Out</label>
+                    <input type="time" value={rec.checkOut || ''} onChange={(e) => upsert(s.id, { checkOut: e.target.value })} className="mt-1 w-full rounded-xl border border-slate-300 px-3 py-2 text-sm" />
+                  </div>
+                  <div className="lg:col-span-2">
+                    <label className="text-xs text-slate-500">Note</label>
+                    <input value={rec.note || ''} onChange={(e) => upsert(s.id, { note: e.target.value })} placeholder="Reason / shift notes" className="mt-1 w-full rounded-xl border border-slate-300 px-3 py-2 text-sm" />
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      );
+    }
+
+    // ---- Leave Tracker Page (module-registered) ----
+    const LeaveTrackerPage = (window.__APG_MODULES__ && window.__APG_MODULES__.LeaveTrackerPageModule)
+      ? window.__APG_MODULES__.LeaveTrackerPageModule
+      : function LeaveTrackerFallback() {
+        return (
+          <div className="p-3 md:p-8">
+            <div className="rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-800">
+              Leave Tracker module is loading. Please refresh if this message persists.
+            </div>
+          </div>
+        );
+      };
+
     // ---- Settings Page ----
 function SettingsPage({ settings, updateSetting, members, storageInfo, onExport, onImport }) {
       const [newValues, setNewValues] = React.useState({ plans: '', statuses: '', paymentMethods: '', holdDurations: '', genders: '' });
@@ -4683,7 +5122,7 @@ function SettingsPage({ settings, updateSetting, members, storageInfo, onExport,
     }
 
     // ---- Finance Page ----
-    function FinancePage({ members, settings, logs }) {
+    function FinancePage({ members, settings, logs, access }) {
       const [query, setQuery] = React.useState('');
       const [appliedQuery, setAppliedQuery] = React.useState('');
       const [showFilter, setShowFilter] = React.useState(false);
@@ -4817,6 +5256,10 @@ function SettingsPage({ settings, updateSetting, members, storageInfo, onExport,
       };
 
       const cardBase = 'rounded-2xl border border-slate-200 bg-white p-4 shadow-sm';
+      const canFinanceRevenue = access?.finance?.viewRevenueAutoMembers !== false;
+      const canFinanceTrend = access?.finance?.viewRevenueTrend4Months !== false;
+      const canFinancePlan = access?.finance?.viewPlanPopularity !== false;
+      const canFinanceTransactions = access?.finance?.viewTransactionsAutoMembers !== false;
       return (
         <div className="p-3 md:p-8 space-y-5 bg-slate-100">
           <div className="flex items-center justify-between gap-3 flex-wrap">
@@ -4857,11 +5300,13 @@ function SettingsPage({ settings, updateSetting, members, storageInfo, onExport,
           )}
 
           <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4">
+            {canFinanceRevenue && (
             <div className={cardBase}>
               <div className="text-sm text-slate-500">Revenue</div>
               <div className="mt-1 text-3xl font-bold text-emerald-700">${revenue.toLocaleString()}</div>
               <div className="text-sm text-emerald-700">Auto from Members</div>
             </div>
+            )}
             <div className={cardBase}>
               <div className="text-sm text-slate-500">Pending Payments</div>
               <div className="mt-1 text-3xl font-bold text-amber-700">${pendingAmount.toLocaleString()}</div>
@@ -4880,6 +5325,7 @@ function SettingsPage({ settings, updateSetting, members, storageInfo, onExport,
           </div>
 
           <div className="grid grid-cols-1 xl:grid-cols-3 gap-4">
+            {canFinanceTrend && (
             <div className={cx(cardBase, 'xl:col-span-2')}>
               <div className="text-lg font-semibold text-slate-900 mb-4">Revenue Trend (Last 4 Months)</div>
               <div className="h-48 flex items-end gap-3">
@@ -4895,6 +5341,8 @@ function SettingsPage({ settings, updateSetting, members, storageInfo, onExport,
                 })}
               </div>
             </div>
+            )}
+            {canFinancePlan && (
             <div className={cardBase}>
               <div className="text-lg font-semibold text-slate-900 mb-4">Plan Popularity</div>
               <div className="flex items-center gap-4">
@@ -4911,8 +5359,10 @@ function SettingsPage({ settings, updateSetting, members, storageInfo, onExport,
                 </div>
               </div>
             </div>
+            )}
           </div>
 
+          {canFinanceTransactions && (
           <div className={cardBase}>
             <div className="flex items-center justify-between mb-3">
               <h2 className="text-lg font-semibold text-slate-900">Transactions (Auto from Members)</h2>
@@ -5034,6 +5484,7 @@ function SettingsPage({ settings, updateSetting, members, storageInfo, onExport,
               )}
             </div>
           </div>
+          )}
         </div>
       );
     }
@@ -5087,11 +5538,20 @@ function SettingsPage({ settings, updateSetting, members, storageInfo, onExport,
     // This page allows the owner to add new staff and assign which sections they can access.
     function UserManagementPage({ users, setUsers, settings, setSettings, currentUser, logEvent }) {
       const [modalOpen, setModalOpen] = React.useState(false);
-      const [form, setForm] = React.useState({ id: '', password: '', name: '', email: '', sections: [], blocked: false, blockedReason: '', blockedAt: '', updatedBy: '', photo: null });
+      const [form, setForm] = React.useState({ id: '', password: '', name: '', email: '', sections: [], access: { ...DEFAULT_ACCESS }, blocked: false, blockedReason: '', blockedAt: '', updatedBy: '', photo: null });
       const [error, setError] = React.useState('');
       const [editingId, setEditingId] = React.useState(null);
       const [shownPasswords, setShownPasswords] = React.useState({});
+      const [dashboardAccessOpen, setDashboardAccessOpen] = React.useState(false);
+      const [financeAccessOpen, setFinanceAccessOpen] = React.useState(false);
       const isOwner = currentUser && currentUser.id === 'owner';
+      const closeStaffModal = () => {
+        setModalOpen(false);
+        setError('');
+        setSelectedRole('');
+        setDashboardAccessOpen(false);
+        setFinanceAccessOpen(false);
+      };
       const roleTemplates = React.useMemo(() => {
         const list = settings && Array.isArray(settings.roleTemplates) && settings.roleTemplates.length
           ? settings.roleTemplates
@@ -5117,20 +5577,22 @@ function SettingsPage({ settings, updateSetting, members, storageInfo, onExport,
       });
 
       const openAdd = () => {
-        setForm({ id: '', password: '', name: '', email: '', sections: [], blocked: false, blockedReason: '', blockedAt: '', updatedBy: '', photo: null });
+        setForm({ id: '', password: '', name: '', email: '', sections: [], access: { ...DEFAULT_ACCESS }, blocked: false, blockedReason: '', blockedAt: '', updatedBy: '', photo: null });
         setError('');
         setEditingId(null);
         setSelectedRole('');
+        setDashboardAccessOpen(false);
         setModalOpen(true);
       };
 
       const openEdit = (u) => {
         setForm({
           id: u.id,
-          password: u.password || '',
+          password: '',
           name: u.name || '',
           email: u.email || '',
           sections: Array.isArray(u.sections) ? [...u.sections] : [],
+          access: normalizeAccess(u.access),
           blocked: Boolean(u.blocked),
           blockedReason: u.blockedReason || '',
           blockedAt: u.blockedAt || '',
@@ -5140,13 +5602,15 @@ function SettingsPage({ settings, updateSetting, members, storageInfo, onExport,
         setError('');
         setEditingId(u.id);
         setSelectedRole('');
+        setDashboardAccessOpen(true);
+        setFinanceAccessOpen(true);
         setModalOpen(true);
       };
       const applyRolePreset = (roleKey) => {
         const role = roleTemplates.find(r => r.id === roleKey);
         if (!role) return;
         setSelectedRole(roleKey);
-        setForm(prev => ({ ...prev, sections: [...role.sections] }));
+        setForm(prev => ({ ...prev, sections: [...role.sections], access: normalizeAccess(prev.access) }));
       };
       const openRoleAdd = () => {
         if (!isOwner) return;
@@ -5234,10 +5698,69 @@ function SettingsPage({ settings, updateSetting, members, storageInfo, onExport,
           return { ...f, sections: list };
         });
       };
+      const toggleDashboardParent = () => {
+        setForm(f => {
+          const hasDashboard = f.sections.includes('Dashboard');
+          const allChildren = DASHBOARD_CHILD_PERMISSIONS.every(p => f.access?.dashboard?.[p.key] !== false);
+          const nextSections = hasDashboard ? f.sections.filter(s => s !== 'Dashboard') : [...f.sections, 'Dashboard'];
+          const nextAccess = {
+            ...normalizeAccess(f.access),
+            dashboard: DASHBOARD_CHILD_PERMISSIONS.reduce((acc, p) => ({ ...acc, [p.key]: hasDashboard ? false : true }), {}),
+          };
+          if (!hasDashboard) return { ...f, sections: nextSections, access: nextAccess };
+          if (!allChildren) return { ...f, sections: nextSections, access: nextAccess };
+          return { ...f, sections: nextSections, access: nextAccess };
+        });
+      };
+      const toggleDashboardChild = (key) => {
+        setForm(f => {
+          const normalized = normalizeAccess(f.access);
+          const next = { ...normalized, dashboard: { ...normalized.dashboard, [key]: !(normalized.dashboard[key] !== false) } };
+          const shouldEnableDashboard = Object.values(next.dashboard).some(Boolean);
+          const hasDashboard = f.sections.includes('Dashboard');
+          const nextSections = shouldEnableDashboard
+            ? (hasDashboard ? f.sections : [...f.sections, 'Dashboard'])
+            : f.sections.filter(s => s !== 'Dashboard');
+          return { ...f, sections: nextSections, access: next };
+        });
+      };
+      const FINANCE_CHILD_PERMISSIONS = [
+        { key: 'viewRevenueAutoMembers', label: 'Finance - Revenue (Auto from Members)' },
+        { key: 'viewRevenueTrend4Months', label: 'Revenue Trend (Last 4 Months)' },
+        { key: 'viewPlanPopularity', label: 'Plan Popularity' },
+        { key: 'viewTransactionsAutoMembers', label: 'Transactions (Auto from Members)' },
+      ];
+      const toggleFinanceParent = () => {
+        setForm(f => {
+          const hasFinance = f.sections.includes('Finance');
+          const nextSections = hasFinance ? f.sections.filter(s => s !== 'Finance') : [...f.sections, 'Finance'];
+          const nextAccess = {
+            ...normalizeAccess(f.access),
+            finance: FINANCE_CHILD_PERMISSIONS.reduce((acc, p) => ({ ...acc, [p.key]: hasFinance ? false : true }), {}),
+          };
+          return { ...f, sections: nextSections, access: nextAccess };
+        });
+      };
+      const toggleFinanceChild = (key) => {
+        setForm(f => {
+          const normalized = normalizeAccess(f.access);
+          const next = { ...normalized, finance: { ...normalized.finance, [key]: !(normalized.finance[key] !== false) } };
+          const shouldEnableFinance = Object.values(next.finance).some(Boolean);
+          const hasFinance = f.sections.includes('Finance');
+          const nextSections = shouldEnableFinance
+            ? (hasFinance ? f.sections : [...f.sections, 'Finance'])
+            : f.sections.filter(s => s !== 'Finance');
+          return { ...f, sections: nextSections, access: next };
+        });
+      };
       const toggleAllSections = () => {
         setForm(f => {
           const allSelected = ALL_SECTIONS.every(sec => f.sections.includes(sec));
-          return { ...f, sections: allSelected ? [] : [...ALL_SECTIONS] };
+          return {
+            ...f,
+            sections: allSelected ? [] : [...ALL_SECTIONS],
+            access: allSelected ? normalizeAccess({ dashboard: { viewRevenueMonthly: false, viewRevenueTrend: false } }) : normalizeAccess(f.access),
+          };
         });
       };
 
@@ -5283,10 +5806,12 @@ function SettingsPage({ settings, updateSetting, members, storageInfo, onExport,
       const save = () => {
         setError('');
         const id = form.id.trim();
-        const password = form.password;
+        const beforeUser = editingId ? users.find(u => u.id === editingId) : null;
+        const passwordInput = String(form.password || '');
+        const password = editingId ? (passwordInput || beforeUser?.password || '') : passwordInput;
         const name = form.name.trim();
         const email = form.email.trim();
-        if (!id || !password || !name) {
+        if (!id || !name || (!editingId && !password)) {
           setError('Please enter a username, password and name.');
           return;
         }
@@ -5298,13 +5823,13 @@ function SettingsPage({ settings, updateSetting, members, storageInfo, onExport,
           setError('Please select at least one section.');
           return;
         }
-        const beforeUser = editingId ? users.find(u => u.id === editingId) : null;
         const updatedUser = {
           id,
           password,
           name,
           email,
           sections: [...form.sections],
+          access: normalizeAccess(form.access),
           blocked: Boolean(form.blocked),
           blockedReason: form.blockedReason || '',
           blockedAt: form.blockedAt || '',
@@ -5328,7 +5853,7 @@ function SettingsPage({ settings, updateSetting, members, storageInfo, onExport,
           }
           return { ...prev, staff: [...staffList, { id, name, email, avatar: form.photo || null }] };
         });
-        setModalOpen(false);
+        closeStaffModal();
         setEditingId(null);
       };
 
@@ -5499,9 +6024,9 @@ function SettingsPage({ settings, updateSetting, members, storageInfo, onExport,
               <div className="w-full max-w-lg rounded-3xl bg-white text-slate-900 border border-slate-200 shadow-xl ring-1 ring-slate-200 max-h-[92vh] overflow-hidden">
                 <div className="flex justify-between items-center px-6 py-4">
                   <h3 className="text-lg font-semibold text-slate-900">{editingId ? 'Edit Staff' : 'Add Staff'}</h3>
-                  <button onClick={() => setModalOpen(false)} className="rounded-xl p-2 text-slate-700 hover:bg-slate-200"><span>✕</span></button>
+                  <button onClick={closeStaffModal} className="rounded-xl p-2 text-slate-700 hover:bg-slate-200"><span>✕</span></button>
                 </div>
-                <div className="px-6 pb-4 space-y-3 overflow-auto">
+                <div className="px-6 pb-28 sm:pb-24 space-y-3 overflow-auto max-h-[calc(92vh-140px)]">
                   {error && <div className="rounded-xl bg-rose-50 border border-rose-200 text-rose-700 px-3 py-2 text-sm">{error}</div>}
                   <div className="flex items-center gap-3">
                     <Avatar name={form.name || form.id || 'Staff'} photo={form.photo} className="h-12 w-12" />
@@ -5511,7 +6036,11 @@ function SettingsPage({ settings, updateSetting, members, storageInfo, onExport,
                     </label>
                   </div>
                   <div><label className="text-sm font-medium text-slate-700">Username</label><input value={form.id} onChange={(e) => setForm({ ...form, id: e.target.value })} readOnly={Boolean(editingId)} className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 read-only:bg-slate-100 read-only:text-slate-500" /></div>
-                  <div><label className="text-sm font-medium text-slate-700">Password</label><input type="text" value={form.password} onChange={(e) => setForm({ ...form, password: e.target.value })} className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900" /></div>
+                  <div>
+                    <label className="text-sm font-medium text-slate-700">Password</label>
+                    <input type="text" value={form.password} onChange={(e) => setForm({ ...form, password: e.target.value })} placeholder={editingId ? 'Leave blank to keep old password' : ''} className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900" />
+                    {editingId && <p className="mt-1 text-xs text-slate-500">Leave blank to keep the existing password.</p>}
+                  </div>
                   <div><label className="text-sm font-medium text-slate-700">Name</label><input value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900" /></div>
                   <div><label className="text-sm font-medium text-slate-700">Email</label><input value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900" /></div>
                   <div>
@@ -5539,7 +6068,77 @@ function SettingsPage({ settings, updateSetting, members, storageInfo, onExport,
                       </label>
                     </div>
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                      {ALL_SECTIONS.map(sec => (
+                      <div className="sm:col-span-2 rounded-xl border border-slate-200 bg-slate-50 p-2">
+                        <div className="flex items-center justify-between gap-2">
+                          <label className="inline-flex items-center gap-2 text-sm text-slate-800">
+                            <input
+                              type="checkbox"
+                              checked={form.sections.includes('Dashboard')}
+                              onChange={toggleDashboardParent}
+                              className="rounded"
+                            />
+                            Dashboard
+                          </label>
+                          <button
+                            type="button"
+                            onClick={() => setDashboardAccessOpen(v => !v)}
+                            className="rounded-lg border border-slate-300 bg-white px-2 py-1 text-[11px] font-medium text-slate-700 hover:bg-slate-100"
+                          >
+                            {dashboardAccessOpen ? 'Hide Access' : 'Expand Access'}
+                          </button>
+                        </div>
+                        {dashboardAccessOpen && (
+                          <div className="mt-2 grid grid-cols-1 sm:grid-cols-2 gap-2 pl-2">
+                            {DASHBOARD_CHILD_PERMISSIONS.map((perm) => (
+                              <label key={perm.key} className="inline-flex items-center gap-2 text-xs text-slate-700">
+                                <input
+                                  type="checkbox"
+                                  checked={normalizeAccess(form.access).dashboard[perm.key] !== false}
+                                  onChange={() => toggleDashboardChild(perm.key)}
+                                  className="rounded"
+                                />
+                                {perm.label}
+                              </label>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                      <div className="sm:col-span-2 rounded-xl border border-slate-200 bg-slate-50 p-2">
+                        <div className="flex items-center justify-between gap-2">
+                          <label className="inline-flex items-center gap-2 text-sm text-slate-800">
+                            <input
+                              type="checkbox"
+                              checked={form.sections.includes('Finance')}
+                              onChange={toggleFinanceParent}
+                              className="rounded"
+                            />
+                            Finance
+                          </label>
+                          <button
+                            type="button"
+                            onClick={() => setFinanceAccessOpen(v => !v)}
+                            className="rounded-lg border border-slate-300 bg-white px-2 py-1 text-[11px] font-medium text-slate-700 hover:bg-slate-100"
+                          >
+                            {financeAccessOpen ? 'Hide Access' : 'Expand Access'}
+                          </button>
+                        </div>
+                        {financeAccessOpen && (
+                          <div className="mt-2 grid grid-cols-1 sm:grid-cols-2 gap-2 pl-2">
+                            {FINANCE_CHILD_PERMISSIONS.map((perm) => (
+                              <label key={perm.key} className="inline-flex items-center gap-2 text-xs text-slate-700">
+                                <input
+                                  type="checkbox"
+                                  checked={normalizeAccess(form.access).finance[perm.key] !== false}
+                                  onChange={() => toggleFinanceChild(perm.key)}
+                                  className="rounded"
+                                />
+                                {perm.label}
+                              </label>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                      {ALL_SECTIONS.filter(sec => sec !== 'Dashboard' && sec !== 'Finance').map(sec => (
                         <label key={sec} className="inline-flex items-center gap-2 text-sm text-slate-800">
                           <input
                             type="checkbox"
@@ -5553,9 +6152,11 @@ function SettingsPage({ settings, updateSetting, members, storageInfo, onExport,
                     </div>
                   </div>
                 </div>
-                <div className="flex flex-col-reverse sm:flex-row justify-end gap-3 px-4 sm:px-6 py-4">
-                  <button onClick={() => setModalOpen(false)} className="rounded-xl px-4 py-2 border border-slate-300 bg-white text-sm font-medium text-slate-700 w-full sm:w-auto">Cancel</button>
-                  <button onClick={save} className="rounded-full px-4 py-2 text-sm font-medium bg-blue-600 hover:bg-blue-700 text-white w-full sm:w-auto">{editingId ? 'Update' : 'Save'}</button>
+                <div className="sticky bottom-0 z-20 border-t border-slate-200 bg-white/95 backdrop-blur supports-[backdrop-filter]:bg-white/85">
+                  <div className="flex flex-col-reverse sm:flex-row justify-end gap-3 px-4 sm:px-6 py-4 pb-[max(1rem,env(safe-area-inset-bottom))]">
+                    <button onClick={closeStaffModal} className="rounded-xl px-4 py-2 border border-slate-300 bg-white text-sm font-medium text-slate-700 w-full sm:w-auto min-h-[44px]">Cancel</button>
+                    <button onClick={save} className="rounded-full px-4 py-2 text-sm font-medium bg-blue-600 hover:bg-blue-700 text-white w-full sm:w-auto min-h-[44px]">{editingId ? 'Update' : 'Save'}</button>
+                  </div>
                 </div>
               </div>
             </div>
@@ -5772,8 +6373,11 @@ function SettingsPage({ settings, updateSetting, members, storageInfo, onExport,
       );
     }
 
-    // Mount the app
-    ReactDOM.createRoot(document.getElementById('root')).render(<GymApp />);
+    // Mount the app after module bridge registration completes.
+    const mountApp = () => {
+      ReactDOM.createRoot(document.getElementById('root')).render(<GymApp />);
+    };
+    Promise.resolve(window.__APG_MODULES_READY).finally(mountApp);
   
   </script>
 </body>
