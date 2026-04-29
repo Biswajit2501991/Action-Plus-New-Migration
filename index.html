@@ -1680,13 +1680,13 @@ function Sidebar({ user, active, onSelect, theme, setTheme, onLogout, onUndo, on
           'md:static md:translate-x-0 md:shrink-0'
         )}>
           {/* Brand logo at top */}
-          <div className="flex flex-col items-center pt-6 pb-4">
+          <div className="flex flex-col items-start md:items-center pt-6 pb-4 px-4">
             <div className="h-14 w-14 rounded-full bg-white flex items-center justify-center shadow-lg">
               <span className="text-blue-600 font-bold text-xl">AP</span>
             </div>
             <div className="mt-2 text-sm font-semibold">Action Plus Gym</div>
           </div>
-          <div className="mx-4 mb-6 p-4 rounded-2xl bg-white/10 flex flex-col items-center">
+          <div className="mx-4 mb-6 p-4 rounded-2xl bg-white/10 flex flex-col items-start md:items-center">
             {/* User avatar using initials */}
             <Avatar name={user.name} photo={user.photo || user.avatar || null} className="h-16 w-16 mb-2" />
             <div className="font-semibold text-base">{user.name}</div>
@@ -1701,7 +1701,7 @@ function Sidebar({ user, active, onSelect, theme, setTheme, onLogout, onUndo, on
                   onCloseMobile && onCloseMobile();
                 }}
                 className={cx(
-                  'w-full flex items-center gap-3 rounded-xl px-4 py-2 font-medium',
+                  'w-full flex items-center justify-start text-left gap-3 rounded-xl px-4 py-2 font-medium',
                   active === item.key ? 'bg-white/20' : 'hover:bg-white/10'
                 )}
               >
