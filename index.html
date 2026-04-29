@@ -2093,12 +2093,12 @@ function Sidebar({ user, active, onSelect, theme, setTheme, onLogout, onUndo, on
         setPage(1);
       }, [list]);
       return (
-        <div className="p-3 md:p-8 space-y-4">
+        <div className="p-2 md:p-8 space-y-4">
           <div className="flex items-center gap-3 mb-4">
             <button onClick={onBack} className="p-2 rounded-xl hover:bg-slate-200"><span className="text-xl">←</span></button>
             <h1 className="text-xl md:text-2xl font-semibold text-slate-900">{title} ({list.length})</h1>
           </div>
-          <div className="rounded-3xl bg-white border border-slate-200 p-3 md:p-4 shadow-sm overflow-hidden">
+          <div className="rounded-3xl bg-white border border-slate-200 p-2 md:p-4 shadow-sm overflow-hidden">
             <div className="hidden lg:grid grid-cols-12 gap-4 px-3 py-2 text-sm font-semibold bg-blue-50 text-blue-700 border border-blue-100 rounded-2xl">
               <div className="col-span-1">ID</div>
               <div className="col-span-3">Name</div>
@@ -2106,7 +2106,7 @@ function Sidebar({ user, active, onSelect, theme, setTheme, onLogout, onUndo, on
               <div className="col-span-2">Billing Date</div>
               <div className="col-span-4">Status / Action / Welcome</div>
             </div>
-            <div className="lg:hidden px-2 pb-2 text-xs text-slate-500">Tap a member card to view full details and actions.</div>
+            <div className="lg:hidden px-1 pb-2 text-xs text-slate-500">Tap a member card to view full details and actions.</div>
             {pageList.map(m => (
               <MemberRow
                 key={m.memberId}
@@ -2209,7 +2209,7 @@ function MemberRow({ m, expanded, onToggle, onEdit, onStatusChange, holdOptions,
             expanded={expanded}
           />
           {expanded && (
-            <div className="px-1 lg:px-2 pt-2 pb-4">
+            <div className="px-0 lg:px-2 pt-2 pb-4">
               <div className="rounded-2xl border border-slate-200 bg-white/95 shadow-sm p-3 sm:p-4 space-y-3">
                 <ExpandedActionsMobileView
                   m={m}
@@ -2467,7 +2467,7 @@ function MemberRow({ m, expanded, onToggle, onEdit, onStatusChange, holdOptions,
         if (val === undefined || val === null || val === '') return '—';
         return val;
       };
-      const quickEditableKeys = new Set(['name', 'mobile', 'plan', 'status', 'billingDate', 'paymentMethod']);
+      const quickEditableKeys = new Set(['name', 'mobile', 'amount', 'plan', 'status', 'billingDate', 'paymentMethod']);
       const rows = [
         { label: 'Form #', key: 'formNo', value: normal(m.formNo), editable: false },
         { label: 'ID', key: 'memberId', value: normal(m.memberId), editable: false },
@@ -2478,7 +2478,7 @@ function MemberRow({ m, expanded, onToggle, onEdit, onStatusChange, holdOptions,
         { label: 'Email', key: 'email', value: normal(m.email), editable: false, type: 'email' },
         { label: 'Address', key: 'address', value: normal(m.address), editable: false, type: 'text' },
         { label: 'Staff', key: 'staff', value: normal(m.staff), editable: false },
-        { label: 'Amount', key: 'amount', value: m.amount !== undefined && m.amount !== null ? m.amount : '—', editable: false, type: 'number' },
+        { label: 'Amount', key: 'amount', value: m.amount !== undefined && m.amount !== null ? m.amount : '—', editable: quickEditableKeys.has('amount'), type: 'number' },
         { label: 'Plan', key: 'plan', value: normal(m.plan), editable: quickEditableKeys.has('plan'), type: 'select', options: editOptions?.plans || [] },
         { label: 'Joining Date', key: 'joiningDate', value: fmt(m.joiningDate) || '—', editable: false, type: 'date', rawValue: iso(m.joiningDate) || '' },
         { label: 'Billing Date', key: 'billingDate', value: fmt(m.billingDate) || '—', editable: quickEditableKeys.has('billingDate'), type: 'date', rawValue: iso(m.billingDate) || '' },
