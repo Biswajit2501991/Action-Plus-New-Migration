@@ -2100,11 +2100,11 @@ function Sidebar({ user, active, onSelect, theme, setTheme, onLogout, onUndo, on
           </div>
           <div className="rounded-3xl bg-white border border-slate-200 p-3 md:p-4 shadow-sm overflow-hidden">
             <div className="hidden lg:grid grid-cols-12 gap-4 px-3 py-2 text-sm font-semibold bg-blue-50 text-blue-700 border border-blue-100 rounded-2xl">
-              <div className="col-span-2">ID</div>
+              <div className="col-span-1">ID</div>
               <div className="col-span-3">Name</div>
               <div className="col-span-2">Plan</div>
               <div className="col-span-2">Billing Date</div>
-              <div className="col-span-3">Status / Action / Welcome</div>
+              <div className="col-span-4">Status / Action / Welcome</div>
             </div>
             <div className="lg:hidden px-2 pb-2 text-xs text-slate-500">Tap a member card to view full details and actions.</div>
             {pageList.map(m => (
@@ -2249,7 +2249,7 @@ function MemberRow({ m, expanded, onToggle, onEdit, onStatusChange, holdOptions,
     function MemberRowDesktopView({ m, selectable, selected, onSelectToggle, onToggle, onEdit, onWelcome, canWelcome, statusTemplate, todayHighlight }) {
       return (
         <button onClick={onToggle} className="hidden lg:grid w-full grid-cols-12 items-center gap-4 px-2 py-3 text-left text-slate-700 hover:bg-slate-100">
-          <div className="col-span-2 font-medium flex items-center gap-2">
+          <div className="col-span-1 font-medium flex items-center gap-2 min-w-0">
             {selectable && (
               <input
                 type="checkbox"
@@ -2261,7 +2261,7 @@ function MemberRow({ m, expanded, onToggle, onEdit, onStatusChange, holdOptions,
                 onClick={(e) => e.stopPropagation()}
               />
             )}
-            <span>{m.memberId}</span>
+            <span className="truncate">{m.memberId}</span>
           </div>
           <div className={cx('col-span-3 flex items-center gap-2', todayHighlight && 'bg-amber-50 text-amber-800 font-semibold rounded-md px-2 py-1')}>
             <Avatar name={m.name} photo={m.photo} className="h-7 w-7" />
@@ -2269,11 +2269,11 @@ function MemberRow({ m, expanded, onToggle, onEdit, onStatusChange, holdOptions,
           </div>
           <div className="col-span-2 truncate">{m.plan}</div>
           <div className="col-span-2">{fmt(m.billingDate)}</div>
-          <div className="col-span-3 flex items-center gap-2">
+          <div className="col-span-4 flex items-center gap-2 pr-2 overflow-hidden">
             <Badge tone={toneForStatus(m.status)} className="w-24 text-center flex-shrink-0">{shortStatus(m.status)}</Badge>
             <button
               onClick={(e) => { e.stopPropagation(); onEdit(m); }}
-              className="flex-shrink-0 flex items-center gap-1 rounded-lg px-3 py-2 text-xs font-medium bg-indigo-50 text-indigo-700 border border-indigo-200 hover:bg-indigo-100"
+              className="flex-shrink-0 whitespace-nowrap flex items-center gap-1 rounded-lg px-3 py-2 text-xs font-medium bg-indigo-50 text-indigo-700 border border-indigo-200 hover:bg-indigo-100"
             >
               <span>✎</span>
               <span>Action</span>
@@ -2286,7 +2286,7 @@ function MemberRow({ m, expanded, onToggle, onEdit, onStatusChange, holdOptions,
               disabled={!canWelcome}
               title={canWelcome ? `Open WhatsApp ${statusTemplate.label}` : 'Cannot open (missing mobile number)'}
               className={cx(
-                'flex-shrink-0 flex items-center gap-1 rounded-lg px-3 py-2 text-xs font-medium border',
+                'flex-shrink-0 whitespace-nowrap flex items-center gap-1 rounded-lg px-3 py-2 text-xs font-medium border',
                 canWelcome
                   ? 'bg-blue-50 text-blue-700 border-blue-200 hover:bg-blue-100'
                   : 'bg-slate-200 text-slate-500 border-slate-300 cursor-not-allowed'
@@ -2811,11 +2811,11 @@ function DashboardView({ members, onEdit, onStatusChange, holdOptions, logs, fil
                 <h2 className="text-xl font-semibold">{key} Members ({list.length})</h2>
                 <div className="rounded-3xl bg-white p-4 shadow-sm">
                   <div className="hidden md:grid grid-cols-12 gap-4 px-3 py-2 text-sm font-semibold bg-blue-50 text-blue-700 border border-blue-100 rounded-2xl">
-                    <div className="col-span-2">ID</div>
+                    <div className="col-span-1">ID</div>
                     <div className="col-span-3">Name</div>
                     <div className="col-span-2">Plan</div>
                     <div className="col-span-2">Billing Date</div>
-                    <div className="col-span-3">Status / Action / Welcome</div>
+                    <div className="col-span-4">Status / Action / Welcome</div>
                   </div>
                   {pageList.map(m => (
                     <MemberRow
