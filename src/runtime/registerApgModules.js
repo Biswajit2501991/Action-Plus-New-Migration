@@ -16,6 +16,7 @@ function emitTelemetry(level, code, message, meta = {}) {
 
 async function precheckLeaveTrackerModule() {
   const url = new URL('../components/LeaveTrackerPageModule.jsx', import.meta.url);
+  if (url.origin !== window.location.origin) throw new Error('precheck-cross-origin-blocked');
   if (!window.React) throw new Error('precheck-react-missing');
   if (!window.Babel) throw new Error('precheck-babel-missing');
   const res = await fetch(url.href, { cache: 'no-store' });

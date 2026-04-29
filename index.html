@@ -155,6 +155,13 @@
       { key: 'viewRevenueMonthly', label: 'Total Revenue (Monthly)' },
       { key: 'viewRevenueTrend', label: 'Revenue and Membership Trends' },
     ];
+    const SETTINGS_CHILD_PERMISSIONS = [
+      { key: 'managePlans', label: 'Plans' },
+      { key: 'manageStatuses', label: 'Statuses' },
+      { key: 'managePaymentMethods', label: 'Payment Methods' },
+      { key: 'manageHoldDurations', label: 'Hold Durations' },
+      { key: 'manageGenders', label: 'Genders' },
+    ];
     const INLINE_DEFAULT_ACCESS = {
       dashboard: {
         viewRevenueMonthly: true,
@@ -165,6 +172,13 @@
         viewRevenueTrend4Months: true,
         viewPlanPopularity: true,
         viewTransactionsAutoMembers: true,
+      },
+      settings: {
+        managePlans: true,
+        manageStatuses: true,
+        managePaymentMethods: true,
+        manageHoldDurations: true,
+        manageGenders: true,
       },
     };
     const DEFAULT_ACCESS = extractedPermissions?.DEFAULT_ACCESS || INLINE_DEFAULT_ACCESS;
@@ -178,6 +192,13 @@
         viewRevenueTrend4Months: access?.finance?.viewRevenueTrend4Months !== false,
         viewPlanPopularity: access?.finance?.viewPlanPopularity !== false,
         viewTransactionsAutoMembers: access?.finance?.viewTransactionsAutoMembers !== false,
+      },
+      settings: {
+        managePlans: access?.settings?.managePlans !== false,
+        manageStatuses: access?.settings?.manageStatuses !== false,
+        managePaymentMethods: access?.settings?.managePaymentMethods !== false,
+        manageHoldDurations: access?.settings?.manageHoldDurations !== false,
+        manageGenders: access?.settings?.manageGenders !== false,
       },
     }));
     const DEFAULT_ROLE_TEMPLATES = [
@@ -450,6 +471,7 @@ Phone: +91-7047157510`;
       addMemberDraft: 'apg.addMemberDraft',
     };
     const STORAGE_SOFT_LIMIT_BYTES = 4.5 * 1024 * 1024; // ~4.5MB budget
+    const MAX_IMPORT_FILE_BYTES = 5 * 1024 * 1024; // 5MB guardrail for backup imports
     const MAX_IMAGE_FILE_BYTES = 10 * 1024 * 1024; // 10MB input guard
     const MAX_IMAGE_EDGE_PX = 720;
     const IMAGE_JPEG_QUALITY = 0.78;
@@ -497,6 +519,25 @@ Phone: +91-7047157510`;
       img.onerror = () => resolve(dataUrl);
       img.src = dataUrl;
     });
+    const safeOpenExternal = (url) => {
+      try {
+        const w = window.open(url, '_blank', 'noopener,noreferrer');
+        if (w) w.opener = null;
+      } catch {}
+    };
+    const sanitizeImportValue = (value, depth = 0) => {
+      if (depth > 30) return null;
+      if (Array.isArray(value)) return value.map(v => sanitizeImportValue(v, depth + 1));
+      if (value && typeof value === 'object') {
+        const out = {};
+        Object.keys(value).forEach((k) => {
+          if (k === '__proto__' || k === 'prototype' || k === 'constructor') return;
+          out[k] = sanitizeImportValue(value[k], depth + 1);
+        });
+        return out;
+      }
+      return value;
+    };
     const ageFromDob = (dob) => {
       const d = asUTC(dob);
       if (!d) return null;
@@ -1193,7 +1234,7 @@ Please pay by: ${formattedLastDate}`;
         }
         const finalPhone = cleanPhone.length === 10 ? `91${cleanPhone}` : cleanPhone;
         const url = `https://api.whatsapp.com/send?phone=${finalPhone}&text=${encodeURIComponent(message)}`;
-        window.open(url, '_blank');
+        safeOpenExternal(url);
         setMembers(prev => prev.map(m => m.memberId === member.memberId ? {
           ...m,
           reminderSentAt: resolvedKey === 'reminder' ? new Date().toISOString() : m.reminderSentAt,
@@ -1224,7 +1265,7 @@ Please pay by: ${formattedLastDate}`;
         let body = tpl;
         Object.keys(rep).forEach((k) => { body = body.split(k).join(rep[k]); });
         const url = `https://mail.google.com/mail/?view=cm&fs=1&to=${encodeURIComponent(member.email)}&cc=${encodeURIComponent('gymactionplus@gmail.com')}&su=${encodeURIComponent('Action Plus Gym - Registration Confirmation Mail.')}&body=${encodeURIComponent(body)}`;
-        window.open(url, '_blank');
+        safeOpenExternal(url);
         setMembers(prev => prev.map(m => m.memberId === member.memberId ? {
           ...m,
           messageHistory: [{ id: crypto.randomUUID(), channel: 'gmail', templateKey: 'welcome', status: 'opened', ts: new Date().toISOString() }, ...(m.messageHistory || [])].slice(0, 50),
@@ -1447,8 +1488,10 @@ Please pay by: ${formattedLastDate}`;
       const importData = async (file) => {
         if (!file) return;
         try {
+          if (file.size > MAX_IMPORT_FILE_BYTES) throw new Error('import-too-large');
           const text = await file.text();
-          const parsed = JSON.parse(text);
+          const parsedRaw = JSON.parse(text);
+          const parsed = sanitizeImportValue(parsedRaw);
           if (!parsed || typeof parsed !== 'object') throw new Error('invalid-backup');
           if (!Array.isArray(parsed.members) || !Array.isArray(parsed.users) || !Array.isArray(parsed.logs) || !parsed.settings || typeof parsed.settings !== 'object') {
             throw new Error('invalid-schema');
@@ -1798,6 +1841,7 @@ Please pay by: ${formattedLastDate}`;
                 settings={settings}
                 updateSetting={updateSettingValue}
                 members={members}
+                access={normalizeAccess(user?.access)}
                 storageInfo={storageInfo}
                 onExport={exportData}
                 onImport={importData}
@@ -2005,7 +2049,9 @@ Please pay by: ${formattedLastDate}`;
         <div className="min-h-screen flex items-center justify-center px-4 py-8 bg-[radial-gradient(circle_at_center,_#57b8be_0%,_#2f8f98_45%,_#256f79_100%)]">
           <div className="w-full max-w-md border border-[#5aa6ab] bg-[#2f7f88]/50 p-4 shadow-[0_18px_45px_rgba(0,0,0,0.35)]">
             <div className="border border-[#4b98a0] bg-gradient-to-br from-[#234e5f] via-[#113e52] to-[#0a3545] px-8 py-10 text-[#7ea0aa]">
-              <div className="mx-auto mb-4 h-16 w-16 rounded-full border-2 border-[#557f88] flex items-center justify-center text-3xl">📷</div>
+              <div className="mx-auto mb-4 h-16 w-16 rounded-full border-2 border-[#557f88] bg-white/10 p-1.5 shadow-sm">
+                <img src="./assets/action-plus-logo.png" alt="Action Plus Gym logo" className="h-full w-full rounded-full object-cover" />
+              </div>
               <h1 className="text-center text-3xl tracking-[0.16em] text-[#6b8e97] mb-6">USER LOGIN</h1>
 
               <form className="space-y-6" onSubmit={handleSubmit}>
@@ -2098,8 +2144,8 @@ function Sidebar({ user, active, onSelect, theme, setTheme, onLogout, onUndo, on
         )}>
           {/* Brand logo at top */}
           <div className="flex flex-col items-center pt-6 pb-4">
-            <div className="h-14 w-14 rounded-full bg-white flex items-center justify-center shadow-lg">
-              <span className="text-blue-600 font-bold text-xl">AP</span>
+            <div className="h-14 w-14 rounded-full bg-white p-1 shadow-lg overflow-hidden">
+              <img src="./assets/action-plus-logo.png" alt="Action Plus Gym logo" className="h-full w-full rounded-full object-cover" />
             </div>
             <div className="mt-2 text-sm font-semibold">Action Plus Gym</div>
           </div>
@@ -4661,7 +4707,7 @@ function AttendancePage({ users, settings, updateSetting, currentUser }) {
       };
 
     // ---- Settings Page ----
-function SettingsPage({ settings, updateSetting, members, storageInfo, onExport, onImport }) {
+function SettingsPage({ settings, updateSetting, members, access, storageInfo, onExport, onImport }) {
       const [newValues, setNewValues] = React.useState({ plans: '', statuses: '', paymentMethods: '', holdDurations: '', genders: '' });
       const importRef = React.useRef(null);
       const [moduleDiag, setModuleDiag] = React.useState(() => {
@@ -4713,6 +4759,14 @@ function SettingsPage({ settings, updateSetting, members, storageInfo, onExport,
         if (key === 'paymentMethods' && members.some(m => m.paymentMethod === val)) return;
         updateSetting(key, settings[key].filter(x => x !== val));
       };
+      const settingsAccess = normalizeAccess(access).settings;
+      const settingItems = [
+        { key: 'plans', label: 'Plans', allowed: settingsAccess.managePlans },
+        { key: 'statuses', label: 'Statuses', allowed: settingsAccess.manageStatuses },
+        { key: 'paymentMethods', label: 'Payment Methods', allowed: settingsAccess.managePaymentMethods },
+        { key: 'holdDurations', label: 'Hold Durations', allowed: settingsAccess.manageHoldDurations },
+        { key: 'genders', label: 'Genders', allowed: settingsAccess.manageGenders },
+      ].filter(x => x.allowed);
       return (
         <div className="p-3 md:p-8 space-y-6">
           <div className="flex items-center justify-between gap-2">
@@ -4755,9 +4809,14 @@ function SettingsPage({ settings, updateSetting, members, storageInfo, onExport,
               />
             </div>
           </div>
-          {['plans','statuses','paymentMethods','holdDurations','genders'].map(key => (
+          {settingItems.length === 0 && (
+            <div className="rounded-2xl border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800">
+              You have Settings access, but no child permission is enabled for configuration lists.
+            </div>
+          )}
+          {settingItems.map(({ key, label }) => (
             <div key={key} className="rounded-3xl bg-white p-4 shadow-sm space-y-3">
-              <h3 className="text-lg font-semibold capitalize">{key.replace(/([A-Z])/g, ' $1')}</h3>
+              <h3 className="text-lg font-semibold">{label}</h3>
               <div className="flex flex-wrap gap-2">
                 {settings[key].map(val => (
                   <span key={val} className="inline-flex items-center gap-2 bg-blue-50 text-blue-700 border border-blue-200 rounded-full px-3 py-1 text-sm">
@@ -5224,7 +5283,7 @@ function SettingsPage({ settings, updateSetting, members, storageInfo, onExport,
         }
         const finalPhone = cleanPhone.length === 10 ? `91${cleanPhone}` : cleanPhone;
         const url = `https://api.whatsapp.com/send?phone=${finalPhone}&text=${encodeURIComponent(message)}`;
-        window.open(url, '_blank');
+        safeOpenExternal(url);
         logEvent && logEvent('sms.send_now.opened', 'member', member.memberId || '', null, { templateKey, mobile: finalPhone });
       };
       return (
@@ -5913,6 +5972,7 @@ function SettingsPage({ settings, updateSetting, members, storageInfo, onExport,
       const [shownPasswords, setShownPasswords] = React.useState({});
       const [dashboardAccessOpen, setDashboardAccessOpen] = React.useState(false);
       const [financeAccessOpen, setFinanceAccessOpen] = React.useState(false);
+      const [settingsAccessOpen, setSettingsAccessOpen] = React.useState(false);
       const isOwner = currentUser && currentUser.id === 'owner';
       const closeStaffModal = () => {
         setModalOpen(false);
@@ -5920,6 +5980,7 @@ function SettingsPage({ settings, updateSetting, members, storageInfo, onExport,
         setSelectedRole('');
         setDashboardAccessOpen(false);
         setFinanceAccessOpen(false);
+        setSettingsAccessOpen(false);
       };
       const roleTemplates = React.useMemo(() => {
         const list = settings && Array.isArray(settings.roleTemplates) && settings.roleTemplates.length
@@ -5973,6 +6034,7 @@ function SettingsPage({ settings, updateSetting, members, storageInfo, onExport,
         setSelectedRole('');
         setDashboardAccessOpen(true);
         setFinanceAccessOpen(true);
+        setSettingsAccessOpen(true);
         setModalOpen(true);
       };
       const applyRolePreset = (roleKey) => {
@@ -6122,13 +6184,42 @@ function SettingsPage({ settings, updateSetting, members, storageInfo, onExport,
           return { ...f, sections: nextSections, access: next };
         });
       };
+      const toggleSettingsParent = () => {
+        setForm(f => {
+          const hasSettings = f.sections.includes('Settings');
+          const nextSections = hasSettings ? f.sections.filter(s => s !== 'Settings') : [...f.sections, 'Settings'];
+          const nextAccess = {
+            ...normalizeAccess(f.access),
+            settings: SETTINGS_CHILD_PERMISSIONS.reduce((acc, p) => ({ ...acc, [p.key]: hasSettings ? false : true }), {}),
+          };
+          return { ...f, sections: nextSections, access: nextAccess };
+        });
+      };
+      const toggleSettingsChild = (key) => {
+        setForm(f => {
+          const normalized = normalizeAccess(f.access);
+          const next = { ...normalized, settings: { ...normalized.settings, [key]: !(normalized.settings[key] !== false) } };
+          const shouldEnableSettings = Object.values(next.settings).some(Boolean);
+          const hasSettings = f.sections.includes('Settings');
+          const nextSections = shouldEnableSettings
+            ? (hasSettings ? f.sections : [...f.sections, 'Settings'])
+            : f.sections.filter(s => s !== 'Settings');
+          return { ...f, sections: nextSections, access: next };
+        });
+      };
       const toggleAllSections = () => {
         setForm(f => {
           const allSelected = ALL_SECTIONS.every(sec => f.sections.includes(sec));
           return {
             ...f,
             sections: allSelected ? [] : [...ALL_SECTIONS],
-            access: allSelected ? normalizeAccess({ dashboard: { viewRevenueMonthly: false, viewRevenueTrend: false } }) : normalizeAccess(f.access),
+            access: allSelected
+              ? normalizeAccess({
+                dashboard: { viewRevenueMonthly: false, viewRevenueTrend: false },
+                finance: { viewRevenueAutoMembers: false, viewRevenueTrend4Months: false, viewPlanPopularity: false, viewTransactionsAutoMembers: false },
+                settings: { managePlans: false, manageStatuses: false, managePaymentMethods: false, manageHoldDurations: false, manageGenders: false },
+              })
+              : normalizeAccess(f.access),
           };
         });
       };
@@ -6507,7 +6598,42 @@ function SettingsPage({ settings, updateSetting, members, storageInfo, onExport,
                           </div>
                         )}
                       </div>
-                      {ALL_SECTIONS.filter(sec => sec !== 'Dashboard' && sec !== 'Finance').map(sec => (
+                      <div className="sm:col-span-2 rounded-xl border border-slate-200 bg-slate-50 p-2">
+                        <div className="flex items-center justify-between gap-2">
+                          <label className="inline-flex items-center gap-2 text-sm text-slate-800">
+                            <input
+                              type="checkbox"
+                              checked={form.sections.includes('Settings')}
+                              onChange={toggleSettingsParent}
+                              className="rounded"
+                            />
+                            Settings
+                          </label>
+                          <button
+                            type="button"
+                            onClick={() => setSettingsAccessOpen(v => !v)}
+                            className="rounded-lg border border-slate-300 bg-white px-2 py-1 text-[11px] font-medium text-slate-700 hover:bg-slate-100"
+                          >
+                            {settingsAccessOpen ? 'Hide Access' : 'Expand Access'}
+                          </button>
+                        </div>
+                        {settingsAccessOpen && (
+                          <div className="mt-2 grid grid-cols-1 sm:grid-cols-2 gap-2 pl-2">
+                            {SETTINGS_CHILD_PERMISSIONS.map((perm) => (
+                              <label key={perm.key} className="inline-flex items-center gap-2 text-xs text-slate-700">
+                                <input
+                                  type="checkbox"
+                                  checked={normalizeAccess(form.access).settings[perm.key] !== false}
+                                  onChange={() => toggleSettingsChild(perm.key)}
+                                  className="rounded"
+                                />
+                                {perm.label}
+                              </label>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                      {ALL_SECTIONS.filter(sec => sec !== 'Dashboard' && sec !== 'Finance' && sec !== 'Settings').map(sec => (
                         <label key={sec} className="inline-flex items-center gap-2 text-sm text-slate-800">
                           <input
                             type="checkbox"
