@@ -100,6 +100,34 @@
       if (!s) return '';
       return s.length > 10 ? s.slice(0, 4) + '....' : s;
     };
+    // Determine the primary WhatsApp action button for a member in real time.
+    // For Active members:
+    // - paymentBy < today => Fine SMS
+    // - billingDate <= today => Reminder (becomes "Reminder Sent" once used)
+    // - otherwise => Welcome SMS
+    // For other statuses, keep status-based mapping.
+    const primaryMessageActionForMember = (member, isOwner = false) => {
+      if (!member) return { key: 'welcome', label: 'Welcome SMS', disabled: false };
+      const today = asUTC(new Date());
+      const billingDate = asUTC(member.billingDate);
+      const paymentBy = asUTC(member.paymentBy || member.billingDate);
+      if (member.status === 'Active') {
+        if (paymentBy && today && paymentBy < today) return { key: 'fine', label: 'Fine SMS', disabled: false };
+        if (billingDate && today && billingDate <= today) {
+          const reminderSent = Boolean(member.reminderSentAt);
+          return {
+            key: 'reminder',
+            label: reminderSent ? 'Reminder Sent' : 'Reminder',
+            disabled: reminderSent && !isOwner,
+          };
+        }
+        return { key: 'welcome', label: 'Welcome SMS', disabled: false };
+      }
+      if (member.status === 'Hold') return { key: 'hold', label: 'Hold SMS', disabled: false };
+      if (member.status === 'Deactivated') return { key: 'deactivate', label: 'Deactivate SMS', disabled: false };
+      if (member.status === 'Cancelled') return { key: 'fine', label: 'Fine SMS', disabled: false };
+      return { key: 'welcome', label: 'Welcome SMS', disabled: false };
+    };
     // Determine tone (colour) for a status
     const toneForStatus = (s) => {
       return s === 'Active' ? 'green'
@@ -268,6 +296,29 @@ Adra
 Email:- gymactionplus@gmail.com
 WebSite: www.actionplusgym.com
 Phone no:-+91- 7047157510`,
+      success: `Hello [CustomerName]! 🏋️
+
+Thank you for the recent payment that you have made.
+
+For the amount of INR [Amount] on [TodaysDate].
+
+Your next billing cycle would be on *[NextBillingDate].*
+
+*Mode of Payment* : *[PaymentMethod]*
+
+*OFFER FOR YOU*
+
+*Active Members* : - Refer a friend or family and get rewards!
+
+They get *₹100 off on admission* and *You get ₹50 off on your next billing cycle.*
+
+If you have any queries, we are one call away.
+
+Regards,
+Action Plus Gym and Fitness Club
+Email: gymactionplus@gmail.com
+Website: www.actionplusgym.com
+Phone no: +91-7047157510`,
     };
     const MEDICAL_QUESTIONNAIRE_TEMPLATE_DEFAULT = `Medical Questionnaire
 1. Have you ever or do you have any of the following?
@@ -710,6 +761,7 @@ Phone: +91-7047157510`;
       // dialog will be presented to the user. Only owners can delete
       // members (see canDelete prop passed to QuickActions below).
       const [deleteCandidate, setDeleteCandidate] = React.useState(null);
+      const [duplicateMobileConflict, setDuplicateMobileConflict] = React.useState(null);
 
       React.useEffect(() => {
         const fabVisible = user && user.sections && user.sections.includes('Members') && !addOpen && !editMember;
@@ -995,6 +1047,7 @@ Please pay by: ${formattedLastDate}`;
           '[NextBillingDate]': billing ? fmt(addMonths(billing, 1)) : '',
           '[NextPaymentDate]': paymentBy ? fmt(paymentBy) : '',
           '[ModeOfPayment]': member.paymentMethod || '',
+          '[PaymentMethod]': member.paymentMethod || '',
         };
         let message = smsTemplates[resolvedKey] || smsTemplates.reminder || '';
         Object.keys(replacements).forEach((k) => {
@@ -1015,6 +1068,7 @@ Please pay by: ${formattedLastDate}`;
         window.open(url, '_blank');
         setMembers(prev => prev.map(m => m.memberId === member.memberId ? {
           ...m,
+          reminderSentAt: resolvedKey === 'reminder' ? new Date().toISOString() : m.reminderSentAt,
           messageHistory: [{ id: crypto.randomUUID(), channel: 'whatsapp', templateKey: resolvedKey, status: 'opened', ts: new Date().toISOString() }, ...(m.messageHistory || [])].slice(0, 50),
         } : m));
         logEvent('welcome.whatsapp.opened', 'member', member.memberId, null, { templateKey: resolvedKey });
@@ -1078,40 +1132,51 @@ Please pay by: ${formattedLastDate}`;
           staff: user?.name || toSave.staff || '',
           updatedBy: user?.name || user?.id || '',
         };
+        const beforeMember = members.find(m => m.memberId === toSave.memberId) || null;
+        const changed = (key) => String((beforeMember?.[key] ?? '')) !== String((toSave?.[key] ?? ''));
         // Validate required fields
-        if (!toSave.name || !toSave.mobile || !toSave.plan || !toSave.status || !toSave.billingDate) {
-          return;
+        if ((!toSave.name && changed('name')) || (!toSave.mobile && changed('mobile')) || (!toSave.plan && changed('plan')) || (!toSave.status && changed('status')) || (!toSave.billingDate && changed('billingDate'))) {
+          return false;
         }
-        if (!isValidPhone(toSave.mobile)) {
+        if (changed('mobile') && !isValidPhone(toSave.mobile)) {
           setToast('Please enter a valid mobile number.');
           setTimeout(() => setToast(''), 2500);
-          return;
+          return false;
         }
-        if (String(toSave.email || '').trim() && !isValidEmail(toSave.email)) {
+        if (changed('email') && String(toSave.email || '').trim() && !isValidEmail(toSave.email)) {
           setToast('Please enter a valid Gmail ID.');
           setTimeout(() => setToast(''), 2500);
-          return;
+          return false;
         }
-        const duplicateMobile = members.some(m => m.memberId !== toSave.memberId && normalizePhone(m.mobile) === normalizePhone(toSave.mobile));
-        if (duplicateMobile) {
-          setToast('Another member already uses this mobile number.');
+        const duplicateMobileMember = changed('mobile')
+          ? members.find(m => m.memberId !== toSave.memberId && normalizePhone(m.mobile) === normalizePhone(toSave.mobile))
+          : null;
+        if (duplicateMobileMember) {
+          setDuplicateMobileConflict({
+            editedMemberName: toSave.name || '',
+            editedMemberPhone: toSave.mobile || '',
+            existingMemberName: duplicateMobileMember.name || '',
+            existingMemberPhone: duplicateMobileMember.mobile || '',
+            existingMemberStatus: duplicateMobileMember.status || '',
+          });
+          setToast('Duplicate mobile number found.');
           setTimeout(() => setToast(''), 2500);
-          return;
+          return false;
         }
-        const duplicateEmail = String(toSave.email || '').trim()
+        const duplicateEmail = changed('email') && String(toSave.email || '').trim()
           ? members.some(m => m.memberId !== toSave.memberId && String(m.email || '').trim().toLowerCase() === String(toSave.email || '').trim().toLowerCase())
           : false;
         if (duplicateEmail) {
           setToast('Another member already uses this Gmail ID.');
           setTimeout(() => setToast(''), 2500);
-          return;
+          return false;
         }
         const originalMemberId = editMember?.memberId || toSave.memberId;
-        const duplicateMemberId = members.some(m => m.memberId !== originalMemberId && String(m.memberId || '').trim() === String(toSave.memberId || '').trim());
+        const duplicateMemberId = changed('memberId') && members.some(m => m.memberId !== originalMemberId && String(m.memberId || '').trim() === String(toSave.memberId || '').trim());
         if (duplicateMemberId) {
           setToast('Member ID already exists. Please use a unique ID.');
           setTimeout(() => setToast(''), 2500);
-          return;
+          return false;
         }
         // Enforce status/hold-duration consistency.
         // If hold duration is set, status must be Hold.
@@ -1119,9 +1184,9 @@ Please pay by: ${formattedLastDate}`;
           toSave = { ...toSave, status: 'Hold' };
         }
         // If status is Hold, hold duration is mandatory.
-        if (toSave.status === 'Hold' && !String(toSave.holdDuration || '').trim()) {
+        if (toSave.status === 'Hold' && !String(toSave.holdDuration || '').trim() && (changed('status') || changed('holdDuration'))) {
           window.alert('Hold Duration is required when Status is Hold.');
-          return;
+          return false;
         }
         setMembers(prev => prev.map(m => {
           if (m.memberId === toSave.memberId) {
@@ -1131,10 +1196,26 @@ Please pay by: ${formattedLastDate}`;
           }
           return m;
         }));
-        setToast(`${toSave.name} has been updated successfully`);
+        // Keep status-trigger history aligned with latest member name/mobile for future sends.
+        if (beforeMember && (String(beforeMember.mobile || '') !== String(toSave.mobile || '') || String(beforeMember.name || '') !== String(toSave.name || ''))) {
+          setSmsEvents(prev => prev.map(ev => {
+            if (ev.memberId !== toSave.memberId) return ev;
+            const cleanPhone = String(toSave.mobile || '').replace(/\D/g, '');
+            const finalPhone = cleanPhone.length === 10 ? `91${cleanPhone}` : cleanPhone;
+            const waUrl = cleanPhone ? `https://api.whatsapp.com/send?phone=${finalPhone}&text=${encodeURIComponent(ev.message || '')}` : null;
+            return {
+              ...ev,
+              memberName: toSave.name || ev.memberName,
+              waUrl,
+            };
+          }));
+        }
+        const mobileChanged = Boolean(beforeMember) && String(beforeMember.mobile || '') !== String(toSave.mobile || '');
+        setToast(mobileChanged ? 'Mobile number updated and messaging links synced.' : `${toSave.name} has been updated successfully`);
         setTimeout(() => setToast(''), 2500);
         // Close the modal
         setEditMember(null);
+        return true;
       };
       const saveQuickFieldEdit = (nextValue) => {
         if (!quickFieldEdit) return;
@@ -1158,8 +1239,8 @@ Please pay by: ${formattedLastDate}`;
           updated.nextPaymentDate = iso(nextPay);
           updated.paymentBy = iso(addDays(nextPay, 7));
         }
-        saveEdit(updated);
-        setQuickFieldEdit(null);
+        const ok = saveEdit(updated);
+        if (ok) setQuickFieldEdit(null);
       };
 
       // Permanently remove a member from the system. This function is
@@ -1396,6 +1477,7 @@ Please pay by: ${formattedLastDate}`;
                     holdDurations: settings.holdDurations || [],
                     genders: settings.genders || [],
                   }}
+                  isOwner={user && user.id === 'owner'}
                 />
               )
             )}
@@ -1424,6 +1506,7 @@ Please pay by: ${formattedLastDate}`;
                   holdDurations: settings.holdDurations || [],
                   genders: settings.genders || [],
                 }}
+                isOwner={user && user.id === 'owner'}
               />
             )}
             {activeTab === 'Settings' && (
@@ -1569,6 +1652,33 @@ Please pay by: ${formattedLastDate}`;
                   >
                     Delete
                   </button>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {duplicateMobileConflict && (
+            <div className="fixed inset-0 z-[60] flex items-end sm:items-center justify-center bg-slate-900/55 p-2 sm:p-4">
+              <div className="w-full max-w-md rounded-t-3xl sm:rounded-3xl bg-white border border-slate-200 shadow-xl overflow-hidden">
+                <div className="flex items-center justify-between px-4 sm:px-5 py-4 border-b border-slate-200">
+                  <h3 className="text-base sm:text-lg font-semibold text-rose-700">Duplicate Mobile Number</h3>
+                  <button onClick={() => setDuplicateMobileConflict(null)} className="rounded-xl p-2 hover:bg-slate-100">✕</button>
+                </div>
+                <div className="p-4 sm:p-5 space-y-3 text-sm">
+                  <p className="text-slate-700">
+                    The mobile number you entered for <span className="font-semibold">{duplicateMobileConflict.editedMemberName || 'this member'}</span> is already used.
+                  </p>
+                  <div className="rounded-xl border border-amber-200 bg-amber-50 p-3">
+                    <div className="text-xs font-semibold uppercase tracking-wide text-amber-700 mb-2">Existing Member Using Same Number</div>
+                    <div className="space-y-1">
+                      <div><span className="text-slate-500">Name:</span> <span className="font-semibold text-slate-900">{duplicateMobileConflict.existingMemberName || '-'}</span></div>
+                      <div><span className="text-slate-500">Phone:</span> <span className="font-semibold text-slate-900">{duplicateMobileConflict.existingMemberPhone || '-'}</span></div>
+                      <div><span className="text-slate-500">Status:</span> <span className="font-semibold text-slate-900">{duplicateMobileConflict.existingMemberStatus || '-'}</span></div>
+                    </div>
+                  </div>
+                </div>
+                <div className="flex justify-end gap-2 px-4 sm:px-5 py-4 border-t border-slate-200">
+                  <button onClick={() => setDuplicateMobileConflict(null)} className="rounded-xl border border-slate-300 bg-white px-4 py-2 text-sm font-medium">OK</button>
                 </div>
               </div>
             </div>
@@ -2081,7 +2191,7 @@ function Sidebar({ user, active, onSelect, theme, setTheme, onLogout, onUndo, on
     }
 
     // ---- Members List (Dashboard list mode) ----
-    function MembersList({ title, list, onBack, onEdit, onStatusChange, holdOptions, logs, onWelcome, onWelcomeMail, onAddAttachment, onQuickFieldEdit, editOptions }) {
+function MembersList({ title, list, onBack, onEdit, onStatusChange, holdOptions, logs, onWelcome, onWelcomeMail, onAddAttachment, onQuickFieldEdit, editOptions, isOwner }) {
       const [openId, setOpenId] = React.useState(null);
       const [page, setPage] = React.useState(1);
       const pageSize = 10;
@@ -2125,6 +2235,7 @@ function Sidebar({ user, active, onSelect, theme, setTheme, onLogout, onUndo, on
                 selectable={false}
                 onQuickFieldEdit={onQuickFieldEdit}
                 editOptions={editOptions}
+                isOwner={isOwner}
               />
             ))}
             {(list || []).length > pageSize && (
@@ -2154,18 +2265,13 @@ function Sidebar({ user, active, onSelect, theme, setTheme, onLogout, onUndo, on
     }
 
     // ---- Member Row ----
-function MemberRow({ m, expanded, onToggle, onEdit, onStatusChange, holdOptions, onDelete, canDelete, onWelcome, onWelcomeMail, onAddAttachment, logs, selected, onSelectToggle, selectable, onQuickFieldEdit, editOptions }) {
+function MemberRow({ m, expanded, onToggle, onEdit, onStatusChange, holdOptions, onDelete, canDelete, onWelcome, onWelcomeMail, onAddAttachment, logs, selected, onSelectToggle, selectable, onQuickFieldEdit, editOptions, isOwner }) {
       const todayHighlight = fmt(m.billingDate) === fmt(new Date());
       // Determine if we can open WhatsApp welcome/payment reminder.
       // Active members with mobile number and billing date qualify.
       const canWelcome = m.mobile && String(m.mobile).trim();
-      const statusTemplate = m.status === 'Hold'
-        ? { key: 'hold', label: 'Hold SMS' }
-        : m.status === 'Deactivated'
-          ? { key: 'deactivate', label: 'Deactivate SMS' }
-          : m.status === 'Cancelled'
-            ? { key: 'fine', label: 'Fine SMS' }
-            : { key: 'welcome', label: 'Welcome SMS' };
+      const statusTemplate = primaryMessageActionForMember(m, isOwner);
+      const reminderSentText = m.reminderSentAt ? `Reminder sent on ${fmt(m.reminderSentAt)}` : '';
       const uploadDoc = async (e) => {
         const file = e.target.files?.[0];
         if (!file) return;
@@ -2199,6 +2305,7 @@ function MemberRow({ m, expanded, onToggle, onEdit, onStatusChange, holdOptions,
             canWelcome={canWelcome}
             statusTemplate={statusTemplate}
             todayHighlight={todayHighlight}
+            reminderSentText={reminderSentText}
           />
           <MemberRowMobileView
             m={m}
@@ -2217,6 +2324,8 @@ function MemberRow({ m, expanded, onToggle, onEdit, onStatusChange, holdOptions,
                   onWelcome={onWelcome}
                   canWelcome={canWelcome}
                   statusTemplate={statusTemplate}
+                  isOwner={isOwner}
+                  reminderSentText={reminderSentText}
                 />
                 <ExpandedActionsDesktopView
                   m={m}
@@ -2224,6 +2333,8 @@ function MemberRow({ m, expanded, onToggle, onEdit, onStatusChange, holdOptions,
                   onWelcome={onWelcome}
                   canWelcome={canWelcome}
                   statusTemplate={statusTemplate}
+                  isOwner={isOwner}
+                  reminderSentText={reminderSentText}
                 />
               <MemberDetails m={m} logs={logs} onQuickFieldEdit={onQuickFieldEdit} editOptions={editOptions} />
               <WhatsAppMessageTypesBlock
@@ -2246,7 +2357,7 @@ function MemberRow({ m, expanded, onToggle, onEdit, onStatusChange, holdOptions,
     }
 
     // Phase A split: desktop-specific member row presentation.
-    function MemberRowDesktopView({ m, selectable, selected, onSelectToggle, onToggle, onEdit, onWelcome, canWelcome, statusTemplate, todayHighlight }) {
+function MemberRowDesktopView({ m, selectable, selected, onSelectToggle, onToggle, onEdit, onWelcome, canWelcome, statusTemplate, todayHighlight, reminderSentText }) {
       return (
         <button onClick={onToggle} className="hidden lg:grid w-full grid-cols-12 items-center gap-4 px-2 py-3 text-left text-slate-700 hover:bg-slate-100">
           <div className="col-span-1 font-medium flex items-center gap-2 min-w-0">
@@ -2278,23 +2389,28 @@ function MemberRow({ m, expanded, onToggle, onEdit, onStatusChange, holdOptions,
               <span>✎</span>
               <span>Action</span>
             </button>
-            <button
-              onClick={(e) => {
-                e.stopPropagation();
-                onWelcome && onWelcome(m, statusTemplate.key);
-              }}
-              disabled={!canWelcome}
-              title={canWelcome ? `Open WhatsApp ${statusTemplate.label}` : 'Cannot open (missing mobile number)'}
-              className={cx(
-                'flex-shrink-0 whitespace-nowrap flex items-center gap-1 rounded-lg px-3 py-2 text-xs font-medium border',
-                canWelcome
-                  ? 'bg-blue-50 text-blue-700 border-blue-200 hover:bg-blue-100'
-                  : 'bg-slate-200 text-slate-500 border-slate-300 cursor-not-allowed'
+            <div className="flex flex-col items-start min-w-0">
+              <button
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onWelcome && onWelcome(m, statusTemplate.key);
+                }}
+                disabled={!canWelcome || statusTemplate.disabled}
+                title={statusTemplate.label === 'Reminder Sent' && reminderSentText ? reminderSentText : (canWelcome ? `Open WhatsApp ${statusTemplate.label}` : 'Cannot open (missing mobile number)')}
+                className={cx(
+                  'flex-shrink-0 whitespace-nowrap flex items-center gap-1 rounded-lg px-3 py-2 text-xs font-medium border',
+                  canWelcome && !statusTemplate.disabled
+                    ? 'bg-blue-50 text-blue-700 border-blue-200 hover:bg-blue-100'
+                    : 'bg-slate-200 text-slate-500 border-slate-300 cursor-not-allowed'
+                )}
+              >
+                <span>💬</span>
+                <span>{statusTemplate.label}</span>
+              </button>
+              {statusTemplate.label === 'Reminder Sent' && reminderSentText && (
+                <div className="mt-1 text-[10px] text-slate-500">{reminderSentText}</div>
               )}
-            >
-              <span>💬</span>
-              <span>{statusTemplate.label}</span>
-            </button>
+            </div>
           </div>
         </button>
       );
@@ -2333,7 +2449,7 @@ function MemberRow({ m, expanded, onToggle, onEdit, onStatusChange, holdOptions,
     }
 
     // Phase A.2 split: mobile-only quick action strip in expanded panel.
-    function ExpandedActionsMobileView({ m, onEdit, onWelcome, canWelcome, statusTemplate }) {
+    function ExpandedActionsMobileView({ m, onEdit, onWelcome, canWelcome, statusTemplate, reminderSentText }) {
       return (
         <div className="lg:hidden rounded-xl border border-slate-200 bg-slate-50 p-3 flex flex-wrap items-center gap-2">
           <button
@@ -2342,24 +2458,30 @@ function MemberRow({ m, expanded, onToggle, onEdit, onStatusChange, holdOptions,
           >
             Action
           </button>
-          <button
-            onClick={() => onWelcome && onWelcome(m, statusTemplate.key)}
-            disabled={!canWelcome}
-            className={cx(
-              'rounded-lg border px-3 py-2 text-xs font-medium',
-              canWelcome
-                ? 'bg-blue-50 text-blue-700 border-blue-200 hover:bg-blue-100'
-                : 'bg-slate-200 text-slate-500 border-slate-300 cursor-not-allowed'
+          <div className="flex flex-col items-start">
+            <button
+              onClick={() => onWelcome && onWelcome(m, statusTemplate.key)}
+              disabled={!canWelcome || statusTemplate.disabled}
+              title={statusTemplate.label === 'Reminder Sent' && reminderSentText ? reminderSentText : undefined}
+              className={cx(
+                'rounded-lg border px-3 py-2 text-xs font-medium',
+                canWelcome && !statusTemplate.disabled
+                  ? 'bg-blue-50 text-blue-700 border-blue-200 hover:bg-blue-100'
+                  : 'bg-slate-200 text-slate-500 border-slate-300 cursor-not-allowed'
+              )}
+            >
+              {statusTemplate.label}
+            </button>
+            {statusTemplate.label === 'Reminder Sent' && reminderSentText && (
+              <div className="mt-1 text-[10px] text-slate-500">{reminderSentText}</div>
             )}
-          >
-            {statusTemplate.label}
-          </button>
+          </div>
         </div>
       );
     }
 
     // Phase A.2 split: desktop-only quick action strip in expanded panel.
-    function ExpandedActionsDesktopView({ m, onEdit, onWelcome, canWelcome, statusTemplate }) {
+    function ExpandedActionsDesktopView({ m, onEdit, onWelcome, canWelcome, statusTemplate, reminderSentText }) {
       return (
         <div className="hidden lg:flex rounded-xl border border-slate-200 bg-slate-50 p-3 flex-wrap items-center gap-2">
           <button
@@ -2368,18 +2490,24 @@ function MemberRow({ m, expanded, onToggle, onEdit, onStatusChange, holdOptions,
           >
             Action
           </button>
-          <button
-            onClick={() => onWelcome && onWelcome(m, statusTemplate.key)}
-            disabled={!canWelcome}
-            className={cx(
-              'rounded-lg border px-3 py-2 text-xs font-medium',
-              canWelcome
-                ? 'bg-blue-50 text-blue-700 border-blue-200 hover:bg-blue-100'
-                : 'bg-slate-200 text-slate-500 border-slate-300 cursor-not-allowed'
+          <div className="flex flex-col items-start">
+            <button
+              onClick={() => onWelcome && onWelcome(m, statusTemplate.key)}
+              disabled={!canWelcome || statusTemplate.disabled}
+              title={statusTemplate.label === 'Reminder Sent' && reminderSentText ? reminderSentText : undefined}
+              className={cx(
+                'rounded-lg border px-3 py-2 text-xs font-medium',
+                canWelcome && !statusTemplate.disabled
+                  ? 'bg-blue-50 text-blue-700 border-blue-200 hover:bg-blue-100'
+                  : 'bg-slate-200 text-slate-500 border-slate-300 cursor-not-allowed'
+              )}
+            >
+              {statusTemplate.label}
+            </button>
+            {statusTemplate.label === 'Reminder Sent' && reminderSentText && (
+              <div className="mt-1 text-[10px] text-slate-500">{reminderSentText}</div>
             )}
-          >
-            {statusTemplate.label}
-          </button>
+          </div>
         </div>
       );
     }
@@ -2392,6 +2520,7 @@ function MemberRow({ m, expanded, onToggle, onEdit, onStatusChange, holdOptions,
         { key: 'deactivate', label: 'Deactivate SMS' },
         { key: 'hold', label: 'Hold SMS' },
         { key: 'welcome', label: 'Welcome SMS' },
+        { key: 'success', label: 'Success SMS' },
       ];
       return (
         <div className="rounded-xl border border-slate-200 bg-white p-3">
@@ -2666,7 +2795,7 @@ function QuickActions({ m, onStatusChange, holdOptions, canDelete, onDelete }) {
     }
 
     // ---- Dashboard View (Members grouped by status) ----
-function DashboardView({ members, onEdit, onStatusChange, holdOptions, logs, filters, filterOpen, setFilterOpen, anyFilterActive, canDelete, onDelete, billingMonthOptions, onWelcome, onWelcomeMail, onAddAttachment, onQuickFieldEdit, editOptions }) {
+function DashboardView({ members, onEdit, onStatusChange, holdOptions, logs, filters, filterOpen, setFilterOpen, anyFilterActive, canDelete, onDelete, billingMonthOptions, onWelcome, onWelcomeMail, onAddAttachment, onQuickFieldEdit, editOptions, isOwner }) {
       // Single expanded row across all statuses. Only one memberId may be expanded at a time.
       const [expandedId, setExpandedId] = React.useState(null);
       const [selectedIds, setSelectedIds] = React.useState([]);
@@ -2837,6 +2966,7 @@ function DashboardView({ members, onEdit, onStatusChange, holdOptions, logs, fil
                       onSelectToggle={toggleSelect}
                       onQuickFieldEdit={onQuickFieldEdit}
                       editOptions={editOptions}
+                      isOwner={isOwner}
                     />
                   ))}
                   {pageList.length === 0 && (
@@ -2936,7 +3066,49 @@ function EditMemberModal({ member, onClose, onSave, planOptions, statusOptions, 
           return String(a) !== String(b);
         });
       }, [edit, member]);
-      const isInvalid = Object.values(req).some(Boolean);
+      const changed = React.useMemo(() => ({
+        name: String(edit.name ?? '') !== String(member.name ?? ''),
+        mobile: String(edit.mobile ?? '') !== String(member.mobile ?? ''),
+        plan: String(edit.plan ?? '') !== String(member.plan ?? ''),
+        status: String(edit.status ?? '') !== String(member.status ?? ''),
+        billingDate: String(iso(edit.billingDate) ?? '') !== String(iso(member.billingDate) ?? ''),
+        amount: String(edit.amount ?? '') !== String(member.amount ?? ''),
+        email: String(edit.email ?? '') !== String(member.email ?? ''),
+        paymentMethod: String(edit.paymentMethod ?? '') !== String(member.paymentMethod ?? ''),
+        holdDuration: String(edit.holdDuration ?? '') !== String(member.holdDuration ?? ''),
+      }), [edit, member]);
+      const blockingReq = {
+        name: req.name && changed.name,
+        mobile: req.mobile && changed.mobile,
+        plan: req.plan && changed.plan,
+        status: req.status && changed.status,
+        billingDate: req.billingDate && changed.billingDate,
+        amount: req.amount && changed.amount,
+        email: req.email && changed.email,
+        paymentMethod: req.paymentMethod && changed.paymentMethod,
+        holdDuration: req.holdDuration && (changed.status || changed.holdDuration),
+      };
+      const legacyInvalidFields = React.useMemo(() => {
+        const labels = [];
+        if (req.mobile && !changed.mobile) labels.push('Mobile Number');
+        if (req.email && !changed.email) labels.push('Gmail');
+        if (req.amount && !changed.amount) labels.push('Amount');
+        if (req.paymentMethod && !changed.paymentMethod) labels.push('Payment Method');
+        if (req.name && !changed.name) labels.push('Name');
+        if (req.plan && !changed.plan) labels.push('Plan');
+        if (req.status && !changed.status) labels.push('Status');
+        if (req.billingDate && !changed.billingDate) labels.push('Billing Date');
+        return labels;
+      }, [req, changed]);
+      const fieldClass = (key) => cx(
+        'w-full rounded-xl border px-3 py-2 text-sm',
+        blockingReq[key] ? 'border-rose-300 bg-rose-50 text-rose-700' : req[key] ? 'border-amber-300 bg-amber-50 text-amber-800' : 'border-slate-300 bg-white'
+      );
+      const showLegacyFail = (key) => Boolean(req[key] && !blockingReq[key]);
+      const ValidationHint = ({ fieldKey }) => (
+        showLegacyFail(fieldKey) ? <p className="mt-1 text-[11px] text-amber-700">Validation Fail</p> : null
+      );
+      const isInvalid = Object.values(blockingReq).some(Boolean);
       const labelBase = 'text-sm font-medium';
       const ReqLabel = ({ children }) => (
         <span className="inline-flex items-center gap-1.5">
@@ -2952,6 +3124,11 @@ function EditMemberModal({ member, onClose, onSave, planOptions, statusOptions, 
               <button onClick={onClose} className="rounded-xl p-2 hover:bg-slate-200"><span>✕</span></button>
             </div>
             <div className="px-4 md:px-6 pb-4 max-h-[70vh] overflow-auto">
+              {legacyInvalidFields.length > 0 && (
+                <div className="mb-3 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
+                  <span className="font-semibold">Validation Fail:</span> {legacyInvalidFields.join(', ')}. Correct the value when possible. You can still update other fields.
+                </div>
+              )}
               <div className="mb-4 flex items-center gap-3">
                 <Avatar name={edit.name || member.name} photo={edit.photo} className="h-14 w-14" />
                 <label className="cursor-pointer rounded-xl border border-slate-300 px-3 py-2 text-sm hover:bg-slate-100">
@@ -2981,11 +3158,13 @@ function EditMemberModal({ member, onClose, onSave, planOptions, statusOptions, 
                 {/* Row 2: Name and Mobile */}
                 <div>
                   <label className={labelBase}><ReqLabel>Name</ReqLabel></label>
-                  <input value={edit.name} onChange={(e) => setEdit({ ...edit, name: e.target.value })} className={cx('w-full rounded-xl border px-3 py-2 text-sm', req.name ? 'border-rose-300 bg-rose-50 text-rose-700' : 'border-slate-300 bg-white')} />
+                  <input value={edit.name} onChange={(e) => setEdit({ ...edit, name: e.target.value })} className={fieldClass('name')} />
+                  <ValidationHint fieldKey="name" />
                 </div>
                 <div>
                   <label className={labelBase}><ReqLabel>Mobile Number</ReqLabel></label>
-                  <input value={edit.mobile} onChange={(e) => setEdit({ ...edit, mobile: e.target.value })} className={cx('w-full rounded-xl border px-3 py-2 text-sm', req.mobile ? 'border-rose-300 bg-rose-50 text-rose-700' : 'border-slate-300 bg-white')} />
+                  <input value={edit.mobile} onChange={(e) => setEdit({ ...edit, mobile: e.target.value })} className={fieldClass('mobile')} />
+                  <ValidationHint fieldKey="mobile" />
                 </div>
                 <div>
                   <label className="text-sm font-medium">Gmail</label>
@@ -2994,15 +3173,17 @@ function EditMemberModal({ member, onClose, onSave, planOptions, statusOptions, 
                     value={edit.email || ''}
                     onChange={(e) => setEdit({ ...edit, email: e.target.value })}
                     placeholder="example@gmail.com"
-                    className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm"
+                    className={fieldClass('email')}
                   />
+                  <ValidationHint fieldKey="email" />
                 </div>
                 {/* Row 3: Plan and Status */}
                 <div>
                   <label className={labelBase}><ReqLabel>Plan</ReqLabel></label>
-                  <select value={edit.plan} onChange={(e) => setEdit({ ...edit, plan: e.target.value })} className={cx('w-full rounded-xl border px-3 py-2 text-sm', req.plan ? 'border-rose-300 bg-rose-50 text-rose-700' : 'border-slate-300 bg-white')}>
+                  <select value={edit.plan} onChange={(e) => setEdit({ ...edit, plan: e.target.value })} className={fieldClass('plan')}>
                     {planOptions.map(p => <option key={p} value={p}>{p}</option>)}
                   </select>
+                  <ValidationHint fieldKey="plan" />
                 </div>
                 <div>
                   <label className={labelBase}><ReqLabel>Status</ReqLabel></label>
@@ -3017,10 +3198,11 @@ function EditMemberModal({ member, onClose, onSave, planOptions, statusOptions, 
                         holdDuration: nextStatus === 'Hold' ? prev.holdDuration : '',
                       }));
                     }}
-                    className={cx('w-full rounded-xl border px-3 py-2 text-sm', req.status ? 'border-rose-300 bg-rose-50 text-rose-700' : 'border-slate-300 bg-white')}
+                    className={fieldClass('status')}
                   >
                     {statusOptions.map(s => <option key={s} value={s}>{s}</option>)}
                   </select>
+                  <ValidationHint fieldKey="status" />
                   <p className="mt-1 text-xs text-slate-500">
                     Selecting a Hold Duration will automatically set Status to Hold.
                   </p>
@@ -3039,18 +3221,20 @@ function EditMemberModal({ member, onClose, onSave, planOptions, statusOptions, 
                         status: val ? 'Hold' : prev.status,
                       }));
                     }}
-                    className={cx('w-full rounded-xl border bg-white px-3 py-2 text-sm', req.holdDuration ? 'border-rose-300 bg-rose-50 text-rose-700' : 'border-slate-300')}
+                    className={fieldClass('holdDuration')}
                   >
                     <option value="">—</option>
                     {holdOptions.map(h => <option key={h} value={h}>{h}</option>)}
                   </select>
+                  <ValidationHint fieldKey="holdDuration" />
                   {req.holdDuration && (
                     <p className="mt-1 text-xs text-rose-600">Hold Duration is required when status is Hold.</p>
                   )}
                 </div>
                 <div>
                   <label className={labelBase}><ReqLabel>Billing Date</ReqLabel></label>
-                  <input type="date" value={iso(edit.billingDate)} onChange={(e) => setEdit({ ...edit, billingDate: e.target.value })} className={cx('w-full rounded-xl border px-3 py-2 text-sm', req.billingDate ? 'border-rose-300 bg-rose-50 text-rose-700' : 'border-slate-300 bg-white')} />
+                  <input type="date" value={iso(edit.billingDate)} onChange={(e) => setEdit({ ...edit, billingDate: e.target.value })} className={fieldClass('billingDate')} />
+                  <ValidationHint fieldKey="billingDate" />
                 </div>
                 {/* Row 5: Amount and Payment Method */}
                 <div>
@@ -3058,13 +3242,15 @@ function EditMemberModal({ member, onClose, onSave, planOptions, statusOptions, 
                   <input value={edit.amount ?? ''} onChange={(e) => {
                     const val = e.target.value;
                     if (/^\d*$/.test(val)) setEdit({ ...edit, amount: val });
-                  }} className={cx('w-full rounded-xl border px-3 py-2 text-sm', req.amount ? 'border-rose-300 bg-rose-50 text-rose-700' : 'border-slate-300 bg-white')} />
+                  }} className={fieldClass('amount')} />
+                  <ValidationHint fieldKey="amount" />
                 </div>
                 <div>
                   <label className={labelBase}><ReqLabel>Payment Method</ReqLabel></label>
-                  <select value={edit.paymentMethod || ''} onChange={(e) => setEdit({ ...edit, paymentMethod: e.target.value })} className={cx('w-full rounded-xl border px-3 py-2 text-sm', req.paymentMethod ? 'border-rose-300 bg-rose-50 text-rose-700' : 'border-slate-300 bg-white')}>
+                  <select value={edit.paymentMethod || ''} onChange={(e) => setEdit({ ...edit, paymentMethod: e.target.value })} className={fieldClass('paymentMethod')}>
                     {paymentOptions.map(pm => <option key={pm} value={pm}>{pm}</option>)}
                   </select>
+                  <ValidationHint fieldKey="paymentMethod" />
                 </div>
                 {/* Row 6: Next Payment Date and Payment By */}
                 <div>
@@ -3088,7 +3274,8 @@ function EditMemberModal({ member, onClose, onSave, planOptions, statusOptions, 
                 onClick={() => {
                   // Pass the current edit object back to the parent save handler. Do not
                   // update editMember state here; the parent will handle closing the modal.
-                  onSave(edit);
+                  const ok = onSave(edit);
+                  if (ok) onClose();
                 }}
                 disabled={isInvalid || !dirty}
                 className={cx(
@@ -4098,6 +4285,7 @@ function SettingsPage({ settings, updateSetting, members, storageInfo, onExport,
       const templateCards = [
         { key: 'reminder', title: 'Billing Reminder SMS', subtitle: 'SMS / WHATSAPP', tone: 'bg-amber-50 border-amber-200' },
         { key: 'monthReminder', title: 'Month-Based Reminder', subtitle: 'SMS / WHATSAPP', tone: 'bg-blue-50 border-blue-200' },
+        { key: 'success', title: 'Success SMS', subtitle: 'SMS / WHATSAPP', tone: 'bg-emerald-50 border-emerald-200' },
         { key: 'fine', title: 'Overdue / Fine SMS', subtitle: 'SMS / WHATSAPP', tone: 'bg-rose-50 border-rose-200' },
         { key: 'deactivate', title: 'Deactivate SMS', subtitle: 'SMS / WHATSAPP', tone: 'bg-pink-50 border-pink-200' },
         { key: 'hold', title: 'Hold SMS', subtitle: 'SMS / WHATSAPP', tone: 'bg-amber-50 border-amber-200' },
@@ -4106,6 +4294,7 @@ function SettingsPage({ settings, updateSetting, members, storageInfo, onExport,
       const smsTypes = [
         { key: 'reminder', label: 'Reminder' },
         { key: 'monthReminder', label: 'Month-Based Reminder' },
+        { key: 'success', label: 'Success SMS' },
         { key: 'fine', label: 'Fine SMS' },
         { key: 'deactivate', label: 'Deactivate SMS' },
         { key: 'hold', label: 'Hold SMS' },
