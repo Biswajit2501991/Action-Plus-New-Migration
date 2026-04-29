@@ -1,0 +1,97 @@
+openapi: 3.0.3
+info:
+  title: Gym Multi-Tenant API
+  version: 1.0.0
+servers:
+  - url: /api/v1
+security:
+  - bearerAuth: []
+paths:
+  /auth/login:
+    post:
+      summary: Login user
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [identifier, password]
+              properties:
+                identifier: { type: string, example: owner@actionplus.com }
+                password: { type: string, format: password }
+      responses:
+        '200': { description: OK }
+  /auth/me:
+    get:
+      summary: Current user profile + claims
+      responses:
+        '200': { description: OK }
+  /tenants/resolve:
+    get:
+      summary: Resolve tenant from host
+      parameters:
+        - in: query
+          name: host
+          required: true
+          schema: { type: string }
+      responses:
+        '200': { description: OK }
+  /branches:
+    get:
+      summary: List branches
+      responses:
+        '200': { description: OK }
+    post:
+      summary: Create branch
+      responses:
+        '201': { description: Created }
+  /invites:
+    post:
+      summary: Owner invites staff
+      responses:
+        '201': { description: Created }
+    get:
+      summary: List invites
+      responses:
+        '200': { description: OK }
+  /invites/accept:
+    post:
+      summary: Accept invite
+      security: []
+      responses:
+        '200': { description: Accepted }
+  /roles:
+    get:
+      summary: List roles
+      responses:
+        '200': { description: OK }
+    post:
+      summary: Create role
+      responses:
+        '201': { description: Created }
+  /roles/{roleId}/permissions:
+    put:
+      summary: Replace role permissions
+      parameters:
+        - in: path
+          name: roleId
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        '200': { description: Updated }
+  /settings:
+    get:
+      summary: Get tenant settings
+      responses:
+        '200': { description: OK }
+    patch:
+      summary: Patch tenant settings
+      responses:
+        '200': { description: Updated }
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT

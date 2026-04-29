@@ -13,6 +13,11 @@
   <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
   <!-- Include our app‑specific stylesheet (currently minimal; most styling uses Tailwind classes) -->
   <link rel="stylesheet" href="styles.css" />
+  <style>
+    html {
+      font-size: 13px;
+    }
+  </style>
 </head>
 <body class="bg-slate-100 text-slate-900">
   <!-- React mounts the application here -->
@@ -136,6 +141,50 @@
       if (member.status === 'Cancelled') return { key: 'fine', label: 'Fine SMS', disabled: false };
       return { key: 'welcome', label: 'Welcome SMS', disabled: false };
     };
+    const formatSmsSentAt = (value) => {
+      if (!value) return '';
+      const dt = new Date(value);
+      if (Number.isNaN(dt.getTime())) return '';
+      return `${fmt(dt)} ${dt.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`;
+    };
+    const getLastWhatsAppSendMeta = (member, templateKey) => {
+      if (!member) return null;
+      const direct = member.lastSmsSent && typeof member.lastSmsSent === 'object'
+        ? (templateKey ? member.lastSmsSent[templateKey] : null)
+        : null;
+      if (direct && (direct.sentAt || direct.ts)) {
+        return {
+          sentAt: direct.sentAt || direct.ts || '',
+          sentBy: direct.sentBy || direct.by || '',
+        };
+      }
+      const history = Array.isArray(member.messageHistory) ? member.messageHistory : [];
+      const entry = history.find((ev) => {
+        if (!ev || ev.channel !== 'whatsapp' || ev.status !== 'opened') return false;
+        if (!templateKey) return true;
+        return ev.templateKey === templateKey;
+      });
+      if (!entry) return null;
+      return {
+        sentAt: entry.sentAt || entry.ts || '',
+        sentBy: entry.sentBy || entry.by || '',
+      };
+    };
+    const getSmsSentInfoText = (member, templateKey) => {
+      const meta = getLastWhatsAppSendMeta(member, templateKey);
+      if (!meta || !meta.sentAt) return '';
+      const when = formatSmsSentAt(meta.sentAt);
+      if (!when) return '';
+      return meta.sentBy ? `Sent ${when} by ${meta.sentBy}` : `Sent ${when}`;
+    };
+    function SmsSendInfoChip({ text }) {
+      if (!text) return null;
+      return (
+        <div className="max-w-[230px] truncate rounded-md border border-amber-200 bg-amber-50 px-2 py-1 text-[10px] text-amber-800" title={text}>
+          {text}
+        </div>
+      );
+    }
     // Determine tone (colour) for a status
     const toneForStatus = (s) => {
       return s === 'Active' ? 'green'
@@ -1235,10 +1284,16 @@ Please pay by: ${formattedLastDate}`;
         const finalPhone = cleanPhone.length === 10 ? `91${cleanPhone}` : cleanPhone;
         const url = `https://api.whatsapp.com/send?phone=${finalPhone}&text=${encodeURIComponent(message)}`;
         safeOpenExternal(url);
+        const sentAt = new Date().toISOString();
+        const sentBy = user?.name || user?.id || 'Staff';
         setMembers(prev => prev.map(m => m.memberId === member.memberId ? {
           ...m,
-          reminderSentAt: resolvedKey === 'reminder' ? new Date().toISOString() : m.reminderSentAt,
-          messageHistory: [{ id: crypto.randomUUID(), channel: 'whatsapp', templateKey: resolvedKey, status: 'opened', ts: new Date().toISOString() }, ...(m.messageHistory || [])].slice(0, 50),
+          reminderSentAt: resolvedKey === 'reminder' ? sentAt : m.reminderSentAt,
+          lastSmsSent: {
+            ...(m.lastSmsSent || {}),
+            [resolvedKey]: { sentAt, sentBy },
+          },
+          messageHistory: [{ id: crypto.randomUUID(), channel: 'whatsapp', templateKey: resolvedKey, status: 'opened', ts: sentAt, sentAt, sentBy }, ...(m.messageHistory || [])].slice(0, 50),
         } : m));
         logEvent('welcome.whatsapp.opened', 'member', member.memberId, null, { templateKey: resolvedKey });
         setToast('WhatsApp message opened.');
@@ -1861,10 +1916,12 @@ Please pay by: ${formattedLastDate}`;
             {activeTab === 'WhatsApp SMS' && (
               <WhatsAppSmsPage
                 members={members}
+                setMembers={setMembers}
                 settings={settings}
                 updateSetting={updateSettingValue}
                 smsEvents={smsEvents}
                 logEvent={logEvent}
+                currentUser={user}
               />
             )}
             {activeTab === 'Finance' && (
@@ -2496,6 +2553,7 @@ function Sidebar({ user, active, onSelect, theme, setTheme, onLogout, onUndo, on
                             >
                               Send WhatsApp Reminder
                             </button>
+                            <SmsSendInfoChip text={getSmsSentInfoText(m, 'reminder')} />
                             <button
                               onClick={() => setExpandedOverdueId(prev => prev === m.memberId ? '' : m.memberId)}
                               className="rounded-full px-3 py-1 text-xs font-medium border border-slate-300 bg-white text-slate-700 hover:bg-slate-100"
@@ -2530,8 +2588,9 @@ function Sidebar({ user, active, onSelect, theme, setTheme, onLogout, onUndo, on
                     <div className="text-xs text-slate-500">ID: {m.memberId}</div>
                     <div className="text-xs text-slate-600 mt-1">Plan: {m.plan || '-'} | Amount: ${Number(m.amount || 0).toLocaleString()}</div>
                     <div className="text-xs text-slate-600">Overdue: {m.overdueDays} days</div>
-                    <div className="mt-2 flex gap-2 flex-wrap">
+                    <div className="mt-2 flex gap-2 flex-wrap items-center">
                       <button onClick={() => onWelcome && onWelcome(m, 'reminder')} className="rounded-full px-3 py-2 min-h-[44px] text-xs font-medium border border-emerald-200 bg-emerald-50 text-emerald-700">Send WhatsApp</button>
+                      <SmsSendInfoChip text={getSmsSentInfoText(m, 'reminder')} />
                       <button onClick={() => setExpandedOverdueId(prev => prev === m.memberId ? '' : m.memberId)} className="rounded-full px-3 py-2 min-h-[44px] text-xs font-medium border border-slate-300 bg-white text-slate-700">{expandedOverdueId === m.memberId ? 'Hide' : 'Details'}</button>
                     </div>
                     {expandedOverdueId === m.memberId && <div className="mt-2"><MemberDetails m={m} logs={[]} /></div>}
@@ -2630,7 +2689,7 @@ function MemberRow({ m, expanded, onToggle, onEdit, onStatusChange, holdOptions,
       // Active members with mobile number and billing date qualify.
       const canWelcome = m.mobile && String(m.mobile).trim();
       const statusTemplate = primaryMessageActionForMember(m, isOwner);
-      const reminderSentText = m.reminderSentAt ? `Reminder sent on ${fmt(m.reminderSentAt)}` : '';
+      const statusSentText = getSmsSentInfoText(m, statusTemplate.key);
       const uploadDoc = async (e) => {
         const file = e.target.files?.[0];
         if (!file) return;
@@ -2664,7 +2723,7 @@ function MemberRow({ m, expanded, onToggle, onEdit, onStatusChange, holdOptions,
             canWelcome={canWelcome}
             statusTemplate={statusTemplate}
             todayHighlight={todayHighlight}
-            reminderSentText={reminderSentText}
+            statusSentText={statusSentText}
           />
           <MemberRowMobileView
             m={m}
@@ -2684,7 +2743,7 @@ function MemberRow({ m, expanded, onToggle, onEdit, onStatusChange, holdOptions,
                   canWelcome={canWelcome}
                   statusTemplate={statusTemplate}
                   isOwner={isOwner}
-                  reminderSentText={reminderSentText}
+                  statusSentText={statusSentText}
                 />
                 <ExpandedActionsDesktopView
                   m={m}
@@ -2693,7 +2752,7 @@ function MemberRow({ m, expanded, onToggle, onEdit, onStatusChange, holdOptions,
                   canWelcome={canWelcome}
                   statusTemplate={statusTemplate}
                   isOwner={isOwner}
-                  reminderSentText={reminderSentText}
+                  statusSentText={statusSentText}
                 />
               <MemberDetails m={m} logs={logs} onQuickFieldEdit={onQuickFieldEdit} editOptions={editOptions} />
               <WhatsAppMessageTypesBlock
@@ -2716,7 +2775,7 @@ function MemberRow({ m, expanded, onToggle, onEdit, onStatusChange, holdOptions,
     }
 
     // Phase A split: desktop-specific member row presentation.
-function MemberRowDesktopView({ m, selectable, selected, onSelectToggle, onToggle, onEdit, onWelcome, canWelcome, statusTemplate, todayHighlight, reminderSentText }) {
+function MemberRowDesktopView({ m, selectable, selected, onSelectToggle, onToggle, onEdit, onWelcome, canWelcome, statusTemplate, todayHighlight, statusSentText }) {
       return (
         <button onClick={onToggle} className="hidden lg:grid w-full grid-cols-12 items-center gap-4 px-2 py-3 text-left text-slate-700 hover:bg-slate-100">
           <div className="col-span-1 font-medium flex items-center gap-2 min-w-0">
@@ -2748,14 +2807,14 @@ function MemberRowDesktopView({ m, selectable, selected, onSelectToggle, onToggl
               <span>✎</span>
               <span>Action</span>
             </button>
-            <div className="flex flex-col items-start min-w-0">
+            <div className="flex items-center gap-2 min-w-0">
               <button
                 onClick={(e) => {
                   e.stopPropagation();
                   onWelcome && onWelcome(m, statusTemplate.key);
                 }}
                 disabled={!canWelcome || statusTemplate.disabled}
-                title={statusTemplate.label === 'Reminder Sent' && reminderSentText ? reminderSentText : (canWelcome ? `Open WhatsApp ${statusTemplate.label}` : 'Cannot open (missing mobile number)')}
+                title={canWelcome ? `Open WhatsApp ${statusTemplate.label}` : 'Cannot open (missing mobile number)'}
                 className={cx(
                   'flex-shrink-0 whitespace-nowrap flex items-center gap-1 rounded-lg px-3 py-2 text-xs font-medium border',
                   canWelcome && !statusTemplate.disabled
@@ -2766,9 +2825,7 @@ function MemberRowDesktopView({ m, selectable, selected, onSelectToggle, onToggl
                 <span>💬</span>
                 <span>{statusTemplate.label}</span>
               </button>
-              {statusTemplate.label === 'Reminder Sent' && reminderSentText && (
-                <div className="mt-1 text-[10px] text-slate-500">{reminderSentText}</div>
-              )}
+              <SmsSendInfoChip text={statusSentText} />
             </div>
           </div>
         </button>
@@ -2808,7 +2865,7 @@ function MemberRowDesktopView({ m, selectable, selected, onSelectToggle, onToggl
     }
 
     // Phase A.2 split: mobile-only quick action strip in expanded panel.
-    function ExpandedActionsMobileView({ m, onEdit, onWelcome, canWelcome, statusTemplate, reminderSentText }) {
+    function ExpandedActionsMobileView({ m, onEdit, onWelcome, canWelcome, statusTemplate, statusSentText }) {
       return (
         <div className="lg:hidden rounded-xl border border-slate-200 bg-slate-50 p-3 flex flex-wrap items-center gap-2">
           <button
@@ -2817,11 +2874,10 @@ function MemberRowDesktopView({ m, selectable, selected, onSelectToggle, onToggl
           >
             Action
           </button>
-          <div className="flex flex-col items-start">
+          <div className="flex items-center gap-2">
             <button
               onClick={() => onWelcome && onWelcome(m, statusTemplate.key)}
               disabled={!canWelcome || statusTemplate.disabled}
-              title={statusTemplate.label === 'Reminder Sent' && reminderSentText ? reminderSentText : undefined}
               className={cx(
                 'rounded-lg border px-3 py-2 text-xs font-medium',
                 canWelcome && !statusTemplate.disabled
@@ -2831,16 +2887,14 @@ function MemberRowDesktopView({ m, selectable, selected, onSelectToggle, onToggl
             >
               {statusTemplate.label}
             </button>
-            {statusTemplate.label === 'Reminder Sent' && reminderSentText && (
-              <div className="mt-1 text-[10px] text-slate-500">{reminderSentText}</div>
-            )}
+            <SmsSendInfoChip text={statusSentText} />
           </div>
         </div>
       );
     }
 
     // Phase A.2 split: desktop-only quick action strip in expanded panel.
-    function ExpandedActionsDesktopView({ m, onEdit, onWelcome, canWelcome, statusTemplate, reminderSentText }) {
+    function ExpandedActionsDesktopView({ m, onEdit, onWelcome, canWelcome, statusTemplate, statusSentText }) {
       return (
         <div className="hidden lg:flex rounded-xl border border-slate-200 bg-slate-50 p-3 flex-wrap items-center gap-2">
           <button
@@ -2849,11 +2903,10 @@ function MemberRowDesktopView({ m, selectable, selected, onSelectToggle, onToggl
           >
             Action
           </button>
-          <div className="flex flex-col items-start">
+          <div className="flex items-center gap-2">
             <button
               onClick={() => onWelcome && onWelcome(m, statusTemplate.key)}
               disabled={!canWelcome || statusTemplate.disabled}
-              title={statusTemplate.label === 'Reminder Sent' && reminderSentText ? reminderSentText : undefined}
               className={cx(
                 'rounded-lg border px-3 py-2 text-xs font-medium',
                 canWelcome && !statusTemplate.disabled
@@ -2863,9 +2916,7 @@ function MemberRowDesktopView({ m, selectable, selected, onSelectToggle, onToggl
             >
               {statusTemplate.label}
             </button>
-            {statusTemplate.label === 'Reminder Sent' && reminderSentText && (
-              <div className="mt-1 text-[10px] text-slate-500">{reminderSentText}</div>
-            )}
+            <SmsSendInfoChip text={statusSentText} />
           </div>
         </div>
       );
@@ -2886,18 +2937,20 @@ function MemberRowDesktopView({ m, selectable, selected, onSelectToggle, onToggl
           <div className="text-xs font-semibold text-slate-600 mb-2">WhatsApp Message Types</div>
           <div className="flex flex-wrap gap-2">
             {types.map(t => (
-              <button
-                key={t.key}
-                onClick={() => onWelcome && onWelcome(m, t.key)}
-                disabled={!canWelcome}
-                className={cx(
-                  'rounded-lg border px-2.5 py-1 text-xs font-medium',
-                  t.key === statusTemplate.key ? 'border-blue-300 bg-blue-50 text-blue-700' : 'border-slate-300 bg-white text-slate-700 hover:bg-slate-100',
-                  !canWelcome && 'cursor-not-allowed bg-slate-100 text-slate-400'
-                )}
-              >
-                {t.label}
-              </button>
+              <div key={t.key} className="flex items-center gap-2">
+                <button
+                  onClick={() => onWelcome && onWelcome(m, t.key)}
+                  disabled={!canWelcome}
+                  className={cx(
+                    'rounded-lg border px-2.5 py-1 text-xs font-medium',
+                    t.key === statusTemplate.key ? 'border-blue-300 bg-blue-50 text-blue-700' : 'border-slate-300 bg-white text-slate-700 hover:bg-slate-100',
+                    !canWelcome && 'cursor-not-allowed bg-slate-100 text-slate-400'
+                  )}
+                >
+                  {t.label}
+                </button>
+                <SmsSendInfoChip text={getSmsSentInfoText(m, t.key)} />
+              </div>
             ))}
           </div>
         </div>
@@ -5133,7 +5186,7 @@ function SettingsPage({ settings, updateSetting, members, access, storageInfo, o
     }
 
     // ---- WhatsApp SMS Page ----
-    function WhatsAppSmsPage({ members, settings, updateSetting, smsEvents, logEvent }) {
+    function WhatsAppSmsPage({ members, setMembers, settings, updateSetting, smsEvents, logEvent, currentUser }) {
       const [ruleTab, setRuleTab] = React.useState('all');
       const [activeType, setActiveType] = React.useState('reminder');
       const [search, setSearch] = React.useState('');
@@ -5284,6 +5337,19 @@ function SettingsPage({ settings, updateSetting, members, access, storageInfo, o
         const finalPhone = cleanPhone.length === 10 ? `91${cleanPhone}` : cleanPhone;
         const url = `https://api.whatsapp.com/send?phone=${finalPhone}&text=${encodeURIComponent(message)}`;
         safeOpenExternal(url);
+        const sentAt = new Date().toISOString();
+        const sentBy = currentUser?.name || currentUser?.id || 'Staff';
+        if (setMembers) {
+          setMembers(prev => prev.map((m) => m.memberId === member.memberId ? {
+            ...m,
+            reminderSentAt: templateKey === 'reminder' ? sentAt : m.reminderSentAt,
+            lastSmsSent: {
+              ...(m.lastSmsSent || {}),
+              [templateKey]: { sentAt, sentBy },
+            },
+            messageHistory: [{ id: crypto.randomUUID(), channel: 'whatsapp', templateKey, status: 'opened', ts: sentAt, sentAt, sentBy }, ...(m.messageHistory || [])].slice(0, 50),
+          } : m));
+        }
         logEvent && logEvent('sms.send_now.opened', 'member', member.memberId || '', null, { templateKey, mobile: finalPhone });
       };
       return (
@@ -5386,7 +5452,10 @@ function SettingsPage({ settings, updateSetting, members, access, storageInfo, o
                       <td className="px-3 py-2">{m.status || '-'}</td>
                       <td className="px-3 py-2">{fmt(m.paymentBy || m.billingDate)}</td>
                       <td className="px-3 py-2">
-                        <button onClick={() => setPreview({ open: true, member: m, templateKey: activeType })} className="rounded-lg border border-emerald-300 bg-emerald-50 px-3 py-1 text-xs font-medium text-emerald-700 hover:bg-emerald-100">Send</button>
+                        <div className="flex items-center gap-2">
+                          <button onClick={() => setPreview({ open: true, member: m, templateKey: activeType })} className="rounded-lg border border-emerald-300 bg-emerald-50 px-3 py-1 text-xs font-medium text-emerald-700 hover:bg-emerald-100">Send</button>
+                          <SmsSendInfoChip text={getSmsSentInfoText(m, activeType)} />
+                        </div>
                       </td>
                     </tr>
                   ))}
@@ -5404,7 +5473,10 @@ function SettingsPage({ settings, updateSetting, members, access, storageInfo, o
                     </div>
                     <div className="text-xs text-slate-600">Mobile: {m.mobile || '-'}</div>
                     <div className="text-xs text-slate-600">Payment By: {fmt(m.paymentBy || m.billingDate)}</div>
-                    <button onClick={() => setPreview({ open: true, member: m, templateKey: activeType })} className="rounded-lg border border-emerald-300 bg-emerald-50 px-3 py-2 min-h-[44px] text-xs font-medium text-emerald-700 hover:bg-emerald-100">Send</button>
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <button onClick={() => setPreview({ open: true, member: m, templateKey: activeType })} className="rounded-lg border border-emerald-300 bg-emerald-50 px-3 py-2 min-h-[44px] text-xs font-medium text-emerald-700 hover:bg-emerald-100">Send</button>
+                      <SmsSendInfoChip text={getSmsSentInfoText(m, activeType)} />
+                    </div>
                   </div>
                 ))}
                 {rows.length === 0 && <div className="py-3 text-slate-500 text-sm text-center">No members match this SMS condition.</div>}

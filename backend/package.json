@@ -1,0 +1,19 @@
+{
+  "name": "action-plus-gym-backend",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "node --watch src/server.js",
+    "start": "node src/server.js",
+    "db:migrate": "node scripts/run-sql.js migrations/0001_init_multitenant.sql",
+    "db:seed": "node scripts/run-sql.js seeds/0001_seed_permissions.sql"
+  },
+  "dependencies": {
+    "bcryptjs": "^2.4.3",
+    "dotenv": "^16.4.7",
+    "express": "^4.21.2",
+    "jsonwebtoken": "^9.0.2",
+    "pg": "^8.13.1"
+  }
+}
