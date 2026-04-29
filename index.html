@@ -2219,8 +2219,9 @@ function MemberRow({ m, expanded, onToggle, onEdit, onStatusChange, holdOptions,
             </div>
           </button>
           {expanded && (
-            <div className="px-1 lg:px-2 pt-2 pb-4 space-y-3">
-              <div className="lg:hidden rounded-xl border border-slate-200 bg-white p-3 flex flex-wrap items-center gap-2">
+            <div className="px-1 lg:px-2 pt-2 pb-4">
+              <div className="rounded-2xl border border-slate-200 bg-white/95 shadow-sm p-3 sm:p-4 space-y-3">
+                <div className="lg:hidden rounded-xl border border-slate-200 bg-slate-50 p-3 flex flex-wrap items-center gap-2">
                 <button
                   onClick={() => onEdit(m)}
                   className="rounded-lg border border-indigo-300 bg-indigo-50 px-3 py-2 text-xs font-medium text-indigo-700 hover:bg-indigo-100"
@@ -2282,6 +2283,7 @@ function MemberRow({ m, expanded, onToggle, onEdit, onStatusChange, holdOptions,
                 </label>
               </div>
               <QuickActions m={m} onStatusChange={onStatusChange} holdOptions={holdOptions} canDelete={canDelete} onDelete={onDelete} />
+              </div>
             </div>
           )}
         </div>
@@ -2340,8 +2342,25 @@ function MemberRow({ m, expanded, onToggle, onEdit, onStatusChange, holdOptions,
         ['Payment Method', normal(m.paymentMethod)],
         ['Pay Month', normal(m.payMonth)],
       ];
+      const requiredLabels = new Set([
+        'Form #',
+        'ID',
+        'Name',
+        'DOB',
+        'Gender',
+        'Mobile',
+        'Address',
+        'Staff',
+        'Amount',
+        'Plan',
+        'Joining Date',
+        'Billing Date',
+        'Payment By',
+        'Status',
+        'Payment Method'
+      ]);
       return (
-        <div className="rounded-xl border border-slate-200 bg-slate-50 p-4 text-sm space-y-3">
+        <div className="rounded-xl border border-slate-200 bg-slate-50 p-3 sm:p-4 text-sm space-y-3">
           {Array.isArray(m.attachments) && m.attachments.length > 0 && (
             <div className="pb-2 border-b border-slate-200 space-y-1">
               <div className="text-xs font-semibold text-slate-600">Uploaded Documents</div>
@@ -2363,11 +2382,26 @@ function MemberRow({ m, expanded, onToggle, onEdit, onStatusChange, holdOptions,
               </div>
             </div>
           )}
-          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3">
+          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-2.5 sm:gap-3">
             {rows.map(([k, v]) => (
-              <div key={k} className="flex flex-col gap-1 min-w-0">
-                <span className="text-slate-500">{k}</span>
-                <span className="font-medium break-words">{String(v)}</span>
+              <div
+                key={k}
+                className={cx(
+                  'rounded-lg border px-2.5 py-2 min-w-0',
+                  requiredLabels.has(k) ? 'border-amber-200 bg-amber-50/40' : 'border-slate-200 bg-white'
+                )}
+              >
+                <div className="flex items-center gap-1.5">
+                  <div className={cx('text-[11px] uppercase tracking-wide', requiredLabels.has(k) ? 'text-amber-700 font-semibold' : 'text-slate-500')}>
+                    {k}
+                  </div>
+                  {requiredLabels.has(k) && (
+                    <span className="rounded-full border border-amber-300 bg-amber-100 px-1.5 py-0.5 text-[9px] font-semibold text-amber-700">
+                      REQUIRED
+                    </span>
+                  )}
+                </div>
+                <div className="mt-0.5 font-semibold text-slate-900 break-words">{String(v)}</div>
               </div>
             ))}
           </div>
@@ -2714,6 +2748,13 @@ function EditMemberModal({ member, onClose, onSave, planOptions, statusOptions, 
         });
       }, [edit, member]);
       const isInvalid = Object.values(req).some(Boolean);
+      const labelBase = 'text-sm font-medium';
+      const ReqLabel = ({ children }) => (
+        <span className="inline-flex items-center gap-1.5">
+          <span className="text-amber-700 font-semibold">{children}</span>
+          <span className="rounded-full border border-amber-300 bg-amber-100 px-1.5 py-0.5 text-[9px] font-semibold text-amber-700">REQUIRED</span>
+        </span>
+      );
       return (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 p-4">
           <div className="w-full max-w-3xl rounded-3xl bg-white shadow-xl max-h-[92vh] overflow-hidden">
@@ -2750,11 +2791,11 @@ function EditMemberModal({ member, onClose, onSave, planOptions, statusOptions, 
                 </div>
                 {/* Row 2: Name and Mobile */}
                 <div>
-                  <label className="text-sm font-medium">Name</label>
+                  <label className={labelBase}><ReqLabel>Name</ReqLabel></label>
                   <input value={edit.name} onChange={(e) => setEdit({ ...edit, name: e.target.value })} className={cx('w-full rounded-xl border px-3 py-2 text-sm', req.name ? 'border-rose-300 bg-rose-50 text-rose-700' : 'border-slate-300 bg-white')} />
                 </div>
                 <div>
-                  <label className="text-sm font-medium">Mobile Number</label>
+                  <label className={labelBase}><ReqLabel>Mobile Number</ReqLabel></label>
                   <input value={edit.mobile} onChange={(e) => setEdit({ ...edit, mobile: e.target.value })} className={cx('w-full rounded-xl border px-3 py-2 text-sm', req.mobile ? 'border-rose-300 bg-rose-50 text-rose-700' : 'border-slate-300 bg-white')} />
                 </div>
                 <div>
@@ -2769,13 +2810,13 @@ function EditMemberModal({ member, onClose, onSave, planOptions, statusOptions, 
                 </div>
                 {/* Row 3: Plan and Status */}
                 <div>
-                  <label className="text-sm font-medium">Plan</label>
+                  <label className={labelBase}><ReqLabel>Plan</ReqLabel></label>
                   <select value={edit.plan} onChange={(e) => setEdit({ ...edit, plan: e.target.value })} className={cx('w-full rounded-xl border px-3 py-2 text-sm', req.plan ? 'border-rose-300 bg-rose-50 text-rose-700' : 'border-slate-300 bg-white')}>
                     {planOptions.map(p => <option key={p} value={p}>{p}</option>)}
                   </select>
                 </div>
                 <div>
-                  <label className="text-sm font-medium">Status</label>
+                  <label className={labelBase}><ReqLabel>Status</ReqLabel></label>
                   <select
                     value={edit.status}
                     onChange={(e) => {
@@ -2819,19 +2860,19 @@ function EditMemberModal({ member, onClose, onSave, planOptions, statusOptions, 
                   )}
                 </div>
                 <div>
-                  <label className="text-sm font-medium">Billing Date</label>
+                  <label className={labelBase}><ReqLabel>Billing Date</ReqLabel></label>
                   <input type="date" value={iso(edit.billingDate)} onChange={(e) => setEdit({ ...edit, billingDate: e.target.value })} className={cx('w-full rounded-xl border px-3 py-2 text-sm', req.billingDate ? 'border-rose-300 bg-rose-50 text-rose-700' : 'border-slate-300 bg-white')} />
                 </div>
                 {/* Row 5: Amount and Payment Method */}
                 <div>
-                  <label className="text-sm font-medium">Amount (INR)</label>
+                  <label className={labelBase}><ReqLabel>Amount (INR)</ReqLabel></label>
                   <input value={edit.amount ?? ''} onChange={(e) => {
                     const val = e.target.value;
                     if (/^\d*$/.test(val)) setEdit({ ...edit, amount: val });
                   }} className={cx('w-full rounded-xl border px-3 py-2 text-sm', req.amount ? 'border-rose-300 bg-rose-50 text-rose-700' : 'border-slate-300 bg-white')} />
                 </div>
                 <div>
-                  <label className="text-sm font-medium">Payment Method</label>
+                  <label className={labelBase}><ReqLabel>Payment Method</ReqLabel></label>
                   <select value={edit.paymentMethod || ''} onChange={(e) => setEdit({ ...edit, paymentMethod: e.target.value })} className={cx('w-full rounded-xl border px-3 py-2 text-sm', req.paymentMethod ? 'border-rose-300 bg-rose-50 text-rose-700' : 'border-slate-300 bg-white')}>
                     {paymentOptions.map(pm => <option key={pm} value={pm}>{pm}</option>)}
                   </select>
