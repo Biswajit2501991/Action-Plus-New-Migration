@@ -102,6 +102,13 @@
       const dt = asUTC(d);
       return dt ? `${MONTHS[dt.getUTCMonth()]}-${dt.getUTCFullYear()}` : '';
     };
+    const nextPaymentDateFromBillingDate = (memberOrBillingDate) => {
+      const billingSource = (memberOrBillingDate && typeof memberOrBillingDate === 'object')
+        ? (memberOrBillingDate.billingDate || '')
+        : memberOrBillingDate;
+      const billing = asUTC(billingSource);
+      return billing ? iso(addMonths(billing, 1)) : '';
+    };
     const normalizePhone = (v) => String(v || '').replace(/\D/g, '');
     const isValidEmail = (v) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(v || '').trim());
     const isValidPhone = (v) => {
@@ -185,6 +192,14 @@
         </div>
       );
     }
+    const suggestionToneClasses = (templateKey) => {
+      if (templateKey === 'fine') return 'border-rose-300 bg-rose-50 text-rose-700 hover:bg-rose-100';
+      if (templateKey === 'reminder' || templateKey === 'monthReminder') return 'border-amber-300 bg-amber-50 text-amber-700 hover:bg-amber-100';
+      if (templateKey === 'hold') return 'border-orange-300 bg-orange-50 text-orange-700 hover:bg-orange-100';
+      if (templateKey === 'deactivate') return 'border-pink-300 bg-pink-50 text-pink-700 hover:bg-pink-100';
+      if (templateKey === 'welcome' || templateKey === 'success') return 'border-emerald-300 bg-emerald-50 text-emerald-700 hover:bg-emerald-100';
+      return 'border-blue-300 bg-blue-50 text-blue-700 hover:bg-blue-100';
+    };
     // Determine tone (colour) for a status
     const toneForStatus = (s) => {
       return s === 'Active' ? 'green'
@@ -1032,7 +1047,7 @@ Phone: +91-7047157510`;
           '[GymStartdate]': member.joiningDate ? fmt(member.joiningDate) : '',
           '[LastDate]': paymentBy ? fmt(paymentBy) : '',
           '[PaymentBy]': paymentBy ? fmt(paymentBy) : '',
-          '[NextPaymentDate]': paymentBy ? fmt(paymentBy) : '',
+          '[NextPaymentDate]': fmt(member.nextPaymentDate || nextPaymentDateFromBillingDate(member)) || '',
         };
         let out = template;
         Object.keys(replacements).forEach(key => {
@@ -1263,7 +1278,7 @@ Please pay by: ${formattedLastDate}`;
           '[HoldMonth]': member.holdDuration || '1 Month',
           '[TodaysDate]': fmt(new Date()),
           '[NextBillingDate]': billing ? fmt(addMonths(billing, 1)) : '',
-          '[NextPaymentDate]': paymentBy ? fmt(paymentBy) : '',
+          '[NextPaymentDate]': fmt(member.nextPaymentDate || nextPaymentDateFromBillingDate(member)) || '',
           '[ModeOfPayment]': member.paymentMethod || '',
           '[PaymentMethod]': member.paymentMethod || '',
         };
@@ -1315,7 +1330,7 @@ Please pay by: ${formattedLastDate}`;
           '[CustomerName]': member.name || '',
           '[CurrentPlan]': member.plan || '',
           '[GymStartdate]': fmt(member.joiningDate) || '',
-          '[NextPaymentDate]': fmt(member.paymentBy || member.billingDate) || '',
+          '[NextPaymentDate]': fmt(member.nextPaymentDate || nextPaymentDateFromBillingDate(member)) || '',
         };
         let body = tpl;
         Object.keys(rep).forEach((k) => { body = body.split(k).join(rep[k]); });
@@ -2629,10 +2644,11 @@ function MembersList({ title, list, onBack, onEdit, onStatusChange, holdOptions,
           <div className="rounded-3xl bg-white border border-slate-200 p-2 md:p-4 shadow-sm overflow-hidden">
             <div className="hidden lg:grid grid-cols-12 gap-4 px-3 py-2 text-sm font-semibold bg-blue-50 text-blue-700 border border-blue-100 rounded-2xl">
               <div className="col-span-1">ID</div>
-              <div className="col-span-3">Name</div>
+              <div className="col-span-2">Name</div>
               <div className="col-span-2">Plan</div>
               <div className="col-span-2">Billing Date</div>
-              <div className="col-span-4">Status / Action / Welcome</div>
+              <div className="col-span-2">Next Payment Date</div>
+              <div className="col-span-3">Status / Action / Welcome</div>
             </div>
             <div className="lg:hidden px-1 pb-2 text-xs text-slate-500">Tap a member card to view full details and actions.</div>
             {pageList.map(m => (
@@ -2792,13 +2808,14 @@ function MemberRowDesktopView({ m, selectable, selected, onSelectToggle, onToggl
             )}
             <span className="truncate">{m.memberId}</span>
           </div>
-          <div className={cx('col-span-3 flex items-center gap-2', todayHighlight && 'bg-amber-50 text-amber-800 font-semibold rounded-md px-2 py-1')}>
+          <div className={cx('col-span-2 flex items-center gap-2', todayHighlight && 'bg-amber-50 text-amber-800 font-semibold rounded-md px-2 py-1')}>
             <Avatar name={m.name} photo={m.photo} className="h-7 w-7" />
             <span className="truncate">{m.name}</span>
           </div>
           <div className="col-span-2 truncate">{m.plan}</div>
           <div className="col-span-2">{fmt(m.billingDate)}</div>
-          <div className="col-span-4 flex items-center gap-2 pr-2 overflow-hidden">
+          <div className="col-span-2">{fmt(m.nextPaymentDate || nextPaymentDateFromBillingDate(m)) || '-'}</div>
+          <div className="col-span-3 flex items-center gap-2 pr-2 overflow-hidden">
             <Badge tone={toneForStatus(m.status)} className="w-24 text-center flex-shrink-0">{shortStatus(m.status)}</Badge>
             <button
               onClick={(e) => { e.stopPropagation(); onEdit(m); }}
@@ -2854,6 +2871,7 @@ function MemberRowDesktopView({ m, selectable, selected, onSelectToggle, onToggl
                 <span className="font-semibold truncate">{m.name}</span>
               </div>
               <div className="text-xs text-slate-500 mt-1">Billing Date: {fmt(m.billingDate) || '-'}</div>
+              <div className="text-xs text-slate-500">Next Payment Date: {fmt(m.nextPaymentDate || nextPaymentDateFromBillingDate(m)) || '-'}</div>
             </div>
             <div className="flex flex-col items-end gap-1">
               <Badge tone={toneForStatus(m.status)} className="text-center flex-shrink-0">{shortStatus(m.status)}</Badge>
@@ -3023,6 +3041,7 @@ function MemberRowDesktopView({ m, selectable, selected, onSelectToggle, onToggl
         { label: 'Plan', key: 'plan', value: normal(m.plan), editable: quickEditableKeys.has('plan'), type: 'select', options: editOptions?.plans || [] },
         { label: 'Joining Date', key: 'joiningDate', value: fmt(m.joiningDate) || '—', editable: false, type: 'date', rawValue: iso(m.joiningDate) || '' },
         { label: 'Billing Date', key: 'billingDate', value: fmt(m.billingDate) || '—', editable: quickEditableKeys.has('billingDate'), type: 'date', rawValue: iso(m.billingDate) || '' },
+        { label: 'Next Payment Date', key: 'nextPaymentDate', value: fmt(m.nextPaymentDate || nextPaymentDateFromBillingDate(m)) || '—', editable: false },
         { label: 'Payment By', key: 'paymentBy', value: fmt(m.paymentBy) || '—', editable: false },
         { label: 'Status', key: 'status', value: normal(m.status), editable: quickEditableKeys.has('status'), type: 'select', options: editOptions?.statuses || [] },
         { label: 'Hold Duration', key: 'holdDuration', value: normal(m.holdDuration), editable: false, type: 'select', options: ['', ...(editOptions?.holdDurations || [])] },
@@ -3042,6 +3061,7 @@ function MemberRowDesktopView({ m, selectable, selected, onSelectToggle, onToggl
         'Plan',
         'Joining Date',
         'Billing Date',
+        'Next Payment Date',
         'Payment By',
         'Status',
         'Payment Method'
@@ -3366,10 +3386,11 @@ function DashboardView({ members, onEdit, onStatusChange, holdOptions, logs, fil
                 <div className="rounded-3xl bg-white p-4 shadow-sm">
                   <div className="hidden md:grid grid-cols-12 gap-4 px-3 py-2 text-sm font-semibold bg-blue-50 text-blue-700 border border-blue-100 rounded-2xl">
                     <div className="col-span-1">ID</div>
-                    <div className="col-span-3">Name</div>
+                    <div className="col-span-2">Name</div>
                     <div className="col-span-2">Plan</div>
                     <div className="col-span-2">Billing Date</div>
-                    <div className="col-span-4">Status / Action / Welcome</div>
+                    <div className="col-span-2">Next Payment Date</div>
+                    <div className="col-span-3">Status / Action / Welcome</div>
                   </div>
                   {pageList.map(m => (
                     <MemberRow
@@ -3784,6 +3805,7 @@ function EditMemberModal({ member, onClose, onSave, planOptions, statusOptions, 
         plan: '',
         joiningDate: iso(new Date()),
         billingDate: iso(addMonths(new Date(), 1)),
+        nextPaymentDate: iso(addMonths(addMonths(new Date(), 1), 1)),
         paymentBy: iso(addDays(addMonths(new Date(), 1), 7)),
         status: 'Active',
         paymentMethod: settings.paymentMethods[0],
@@ -3878,15 +3900,17 @@ function EditMemberModal({ member, onClose, onSave, planOptions, statusOptions, 
       React.useEffect(() => {
         if (form.joiningDate) {
           const bd = addMonths(form.joiningDate, 1);
+          const nextPay = addMonths(bd, 1);
           const pb = addDays(bd, 7);
-          setForm(f => ({ ...f, billingDate: iso(bd), paymentBy: iso(pb) }));
+          setForm(f => ({ ...f, billingDate: iso(bd), nextPaymentDate: iso(nextPay), paymentBy: iso(pb) }));
         }
       }, [form.joiningDate]);
       // Auto update paymentBy when billingDate changes
       React.useEffect(() => {
         if (form.billingDate) {
+          const nextPay = addMonths(form.billingDate, 1);
           const pb = addDays(form.billingDate, 7);
-          setForm(f => ({ ...f, paymentBy: iso(pb) }));
+          setForm(f => ({ ...f, nextPaymentDate: iso(nextPay), paymentBy: iso(pb) }));
         }
       }, [form.billingDate]);
       // Define which fields are mandatory for each step. We'll validate these before allowing the user
@@ -4091,7 +4115,7 @@ function EditMemberModal({ member, onClose, onSave, planOptions, statusOptions, 
           memberId,
           formNo: Number(form.formNo),
           amount: Number(form.amount || 0),
-          nextPaymentDate: undefined,
+          nextPaymentDate: form.nextPaymentDate || nextPaymentDateFromBillingDate(form.billingDate),
           payMonth
         };
         onSave(newMember);
@@ -4111,6 +4135,7 @@ function EditMemberModal({ member, onClose, onSave, planOptions, statusOptions, 
           plan: '',
           joiningDate: iso(new Date()),
           billingDate: iso(addMonths(new Date(), 1)),
+          nextPaymentDate: iso(addMonths(addMonths(new Date(), 1), 1)),
           paymentBy: iso(addDays(addMonths(new Date(), 1), 7)),
           status: 'Active',
           paymentMethod: settings.paymentMethods[0],
@@ -4203,6 +4228,7 @@ function EditMemberModal({ member, onClose, onSave, planOptions, statusOptions, 
                   </select></div>
                   <div><label className="text-sm font-medium">Joining Date{reqMark}</label><input id="add-member-joiningDate" type="date" value={form.joiningDate} onChange={(e) => setForm({ ...form, joiningDate: e.target.value })} className={reqCls(req2.joiningDate)} /></div>
                   <div><label className="text-sm font-medium">Billing Date{reqMark}</label><input id="add-member-billingDate" type="date" value={form.billingDate} onChange={(e) => setForm({ ...form, billingDate: e.target.value })} className={reqCls(req2.billingDate)} /></div>
+                  <div><label className="text-sm font-medium">Next Payment Date</label><input type="date" value={form.nextPaymentDate || nextPaymentDateFromBillingDate(form.billingDate)} readOnly className={readOnlyCls} /></div>
                   <div><label className="text-sm font-medium">Payment By</label><input type="date" value={form.paymentBy} readOnly className={readOnlyCls} /></div>
                   <div><label className="text-sm font-medium">Status{reqMark}</label><select id="add-member-status" value={form.status} onChange={(e) => setForm({ ...form, status: e.target.value })} className={reqCls(req2.status)}>
                     {settings.statuses.map(s => <option key={s} value={s}>{s}</option>)}
@@ -5237,7 +5263,7 @@ function SettingsPage({ settings, updateSetting, members, access, storageInfo, o
       }).length;
       const fineEligible = activeMembers.filter(m => {
         const due = asUTC(m.paymentBy || m.billingDate);
-        return due && due > today;
+        return due && due < today;
       }).length;
       const holdCount = members.filter(m => m.status === 'Hold').length;
       const deactiveCount = members.filter(m => m.status === 'Deactivated').length;
@@ -5246,17 +5272,14 @@ function SettingsPage({ settings, updateSetting, members, access, storageInfo, o
         return bd && bd.getUTCMonth() === today.getUTCMonth() && bd.getUTCFullYear() === today.getUTCFullYear();
       }).length;
       const membersByType = React.useMemo(() => ({
-        reminder: activeMembers.filter(m => {
-          const due = asUTC(m.paymentBy || m.billingDate);
-          return due && due >= today;
-        }),
+        reminder: activeMembers,
         monthReminder: activeMembers.filter(m => {
           const bd = asUTC(m.billingDate);
           return bd && bd.getUTCMonth() === today.getUTCMonth() && bd.getUTCFullYear() === today.getUTCFullYear();
         }),
         fine: activeMembers.filter(m => {
           const due = asUTC(m.paymentBy || m.billingDate);
-          return due && due > today;
+          return due && due < today;
         }),
         deactivate: members.filter(m => m.status === 'Deactivated'),
         hold: members.filter(m => m.status === 'Hold'),
@@ -5314,7 +5337,7 @@ function SettingsPage({ settings, updateSetting, members, access, storageInfo, o
           '[HoldMonth]': m.holdDuration || '1 Month',
           '[TodaysDate]': today ? fmt(today) : '',
           '[NextBillingDate]': billing ? fmt(addMonths(billing, 1)) : '',
-          '[NextPaymentDate]': paymentBy ? fmt(paymentBy) : '',
+          '[NextPaymentDate]': fmt(m.nextPaymentDate || nextPaymentDateFromBillingDate(m)) || '',
           '[ModeOfPayment]': m.paymentMethod || '',
         };
         let out = template || '';
@@ -5440,7 +5463,9 @@ function SettingsPage({ settings, updateSetting, members, access, storageInfo, o
                     <th className="px-3 py-2 text-left">Member</th>
                     <th className="px-3 py-2 text-left">Mobile</th>
                     <th className="px-3 py-2 text-left">Status</th>
+                    <th className="px-3 py-2 text-left">Next Payment Date</th>
                     <th className="px-3 py-2 text-left">Payment By</th>
+                    <th className="px-3 py-2 text-left">What Message To Send</th>
                     <th className="px-3 py-2 text-left">Action</th>
                   </tr>
                 </thead>
@@ -5450,7 +5475,32 @@ function SettingsPage({ settings, updateSetting, members, access, storageInfo, o
                       <td className="px-3 py-2">{m.name}</td>
                       <td className="px-3 py-2">{m.mobile || '-'}</td>
                       <td className="px-3 py-2">{m.status || '-'}</td>
+                      <td className="px-3 py-2">{fmt(m.nextPaymentDate || nextPaymentDateFromBillingDate(m)) || '-'}</td>
                       <td className="px-3 py-2">{fmt(m.paymentBy || m.billingDate)}</td>
+                      <td className="px-3 py-2">
+                        {(() => {
+                          const suggested = primaryMessageActionForMember(m, currentUser?.id === 'owner');
+                          const canSendSuggested = Boolean(String(m.mobile || '').trim()) && !suggested.disabled;
+                          return (
+                            <button
+                              onClick={() => {
+                                if (!canSendSuggested) return;
+                                setPreview({ open: true, member: m, templateKey: suggested.key });
+                              }}
+                              disabled={!canSendSuggested}
+                              title={`Suggested: ${suggested.label}`}
+                              className={cx(
+                                'rounded-lg border px-3 py-1 text-xs font-medium',
+                                canSendSuggested
+                                  ? suggestionToneClasses(suggested.key)
+                                  : 'border-slate-300 bg-slate-100 text-slate-500 cursor-not-allowed'
+                              )}
+                            >
+                              {suggested.label}
+                            </button>
+                          );
+                        })()}
+                      </td>
                       <td className="px-3 py-2">
                         <div className="flex items-center gap-2">
                           <button onClick={() => setPreview({ open: true, member: m, templateKey: activeType })} className="rounded-lg border border-emerald-300 bg-emerald-50 px-3 py-1 text-xs font-medium text-emerald-700 hover:bg-emerald-100">Send</button>
@@ -5460,7 +5510,7 @@ function SettingsPage({ settings, updateSetting, members, access, storageInfo, o
                     </tr>
                   ))}
                   {rows.length === 0 && (
-                    <tr><td colSpan={5} className="px-3 py-3 text-slate-500 text-center">No members match this SMS condition.</td></tr>
+                    <tr><td colSpan={7} className="px-3 py-3 text-slate-500 text-center">No members match this SMS condition.</td></tr>
                   )}
                 </tbody>
               </table>
@@ -5472,7 +5522,38 @@ function SettingsPage({ settings, updateSetting, members, access, storageInfo, o
                       <span className="text-xs rounded-full px-2 py-1 border border-slate-200 bg-slate-50 text-slate-700">{m.status || '-'}</span>
                     </div>
                     <div className="text-xs text-slate-600">Mobile: {m.mobile || '-'}</div>
+                    <div className="text-xs text-slate-600">Next Payment Date: {fmt(m.nextPaymentDate || nextPaymentDateFromBillingDate(m)) || '-'}</div>
                     <div className="text-xs text-slate-600">Payment By: {fmt(m.paymentBy || m.billingDate)}</div>
+                    <div className="text-xs text-slate-600">
+                      What Message To Send:{' '}
+                      {(() => {
+                        const suggested = primaryMessageActionForMember(m, currentUser?.id === 'owner');
+                        return suggested.label;
+                      })()}
+                    </div>
+                    <div>
+                      {(() => {
+                        const suggested = primaryMessageActionForMember(m, currentUser?.id === 'owner');
+                        const canSendSuggested = Boolean(String(m.mobile || '').trim()) && !suggested.disabled;
+                        return (
+                          <button
+                            onClick={() => {
+                              if (!canSendSuggested) return;
+                              setPreview({ open: true, member: m, templateKey: suggested.key });
+                            }}
+                            disabled={!canSendSuggested}
+                            className={cx(
+                              'rounded-lg border px-3 py-2 min-h-[44px] text-xs font-medium',
+                              canSendSuggested
+                                ? suggestionToneClasses(suggested.key)
+                                : 'border-slate-300 bg-slate-100 text-slate-500 cursor-not-allowed'
+                            )}
+                          >
+                            {suggested.label}
+                          </button>
+                        );
+                      })()}
+                    </div>
                     <div className="flex items-center gap-2 flex-wrap">
                       <button onClick={() => setPreview({ open: true, member: m, templateKey: activeType })} className="rounded-lg border border-emerald-300 bg-emerald-50 px-3 py-2 min-h-[44px] text-xs font-medium text-emerald-700 hover:bg-emerald-100">Send</button>
                       <SmsSendInfoChip text={getSmsSentInfoText(m, activeType)} />
