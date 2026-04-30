@@ -17,6 +17,13 @@
     html {
       font-size: 13px;
     }
+    @keyframes apgMobileDetailIn {
+      from { opacity: 0; transform: translateX(22px); }
+      to { opacity: 1; transform: translateX(0); }
+    }
+    .apg-mobile-detail-enter {
+      animation: apgMobileDetailIn 220ms ease-out;
+    }
   </style>
 </head>
 <body class="bg-slate-100 text-slate-900">
@@ -1649,8 +1656,14 @@ Please pay by: ${formattedLastDate}`;
         setActiveTab('Dashboard');
         setDashMode('summary');
       };
+      const mobilePrimaryTabs = [
+        { key: 'Dashboard', icon: '🏠' },
+        { key: 'Members', icon: '👥' },
+        { key: 'WhatsApp SMS', icon: '💬' },
+        { key: 'Settings', icon: '⚙️' },
+      ];
       return (
-        <div className="h-screen overflow-hidden flex bg-slate-100">
+        <div className="h-screen overflow-hidden flex bg-slate-100 md:bg-slate-100">
           {mobileMenuOpen && (
             <button
               onClick={() => setMobileMenuOpen(false)}
@@ -1658,14 +1671,11 @@ Please pay by: ${formattedLastDate}`;
               aria-label="Close navigation overlay"
             />
           )}
-          <div className="fixed top-0 inset-x-0 z-20 md:hidden bg-white border-b border-slate-200 px-2.5 py-2 flex items-center justify-between">
-            <button
-              onClick={() => setMobileMenuOpen(true)}
-              className="rounded-lg border border-slate-300 px-2.5 py-1.5 text-xs font-medium text-slate-700"
-            >
-              ☰ Menu
-            </button>
-            <div className="text-xs font-semibold text-slate-800 truncate max-w-[58%]">{activeTab}</div>
+          <div className="fixed top-0 left-1/2 -translate-x-1/2 w-full max-w-md z-20 md:hidden bg-white/95 backdrop-blur border-b border-slate-200 px-3 py-2.5 flex items-center justify-between">
+            <div className="min-w-0">
+              <div className="text-sm font-bold text-slate-900 truncate">{activeTab}</div>
+              <div className="text-[10px] font-semibold uppercase tracking-wide text-slate-400">Action Plus Gym</div>
+            </div>
             <div className="flex items-center gap-1.5">
               {user?.id === 'owner' && (
                 <div className="relative">
@@ -1674,12 +1684,12 @@ Please pay by: ${formattedLastDate}`;
                       e.stopPropagation();
                       setNotificationOpen(v => !v);
                     }}
-                    className="rounded-lg border border-slate-300 bg-white px-2 py-1.5 text-xs font-medium text-slate-700"
+                    className="relative rounded-xl border border-slate-300 bg-white px-2.5 py-1.5 text-xs font-semibold text-slate-700"
                     aria-label="Notifications"
                   >
                     🔔
                     {pendingLeaveCount > 0 && (
-                      <span className="ml-1 rounded-full bg-rose-600 px-1.5 py-0.5 text-[10px] font-semibold text-white">{pendingLeaveCount}</span>
+                      <span className="absolute -top-1 -right-1 rounded-full bg-rose-600 px-1.5 py-0.5 text-[9px] font-semibold text-white">{pendingLeaveCount}</span>
                     )}
                   </button>
                   {notificationOpen && (
@@ -1721,7 +1731,7 @@ Please pay by: ${formattedLastDate}`;
               )}
               <button
                 onClick={logout}
-                className="rounded-lg border border-rose-300 bg-rose-50 px-2.5 py-1.5 text-xs font-medium text-rose-700"
+                className="rounded-xl border border-rose-300 bg-rose-50 px-2.5 py-1.5 text-xs font-semibold text-rose-700"
               >
                 Logout
               </button>
@@ -1745,7 +1755,7 @@ Please pay by: ${formattedLastDate}`;
             mobileOpen={mobileMenuOpen}
             onCloseMobile={() => setMobileMenuOpen(false)}
           />
-          <main className="flex-1 overflow-y-auto pt-16 md:pt-0 pb-24 md:pb-0">
+          <main className="flex-1 overflow-y-auto pt-16 md:pt-0 pb-24 md:pb-0 md:max-w-none max-w-md w-full mx-auto bg-[#F8FAFC] md:bg-transparent">
             <div className="hidden md:block px-8 pt-6">
               <div className="rounded-2xl border border-slate-200 bg-white p-2 shadow-sm">
                 <div className="flex flex-wrap items-center justify-between gap-2">
@@ -1983,6 +1993,29 @@ Please pay by: ${formattedLastDate}`;
               />
             )}
           </main>
+          <nav className="md:hidden fixed bottom-0 left-1/2 -translate-x-1/2 w-full max-w-md z-30 border-t border-slate-200 bg-white/95 backdrop-blur px-3 pb-[max(0.6rem,env(safe-area-inset-bottom))] pt-2">
+            <div className="grid grid-cols-4 gap-1">
+              {mobilePrimaryTabs.map((tab) => {
+                const isActive = activeTab === tab.key;
+                return (
+                  <button
+                    key={tab.key}
+                    onClick={() => {
+                      setActiveTab(tab.key);
+                      if (tab.key === 'Dashboard') setDashMode('summary');
+                    }}
+                    className={cx(
+                      'flex flex-col items-center justify-center rounded-xl py-1.5 text-[10px] font-semibold transition',
+                      isActive ? 'bg-blue-50 text-blue-700' : 'text-slate-500'
+                    )}
+                  >
+                    <span className="text-base leading-none">{tab.icon}</span>
+                    <span className="mt-1 truncate max-w-[64px]">{tab.key === 'WhatsApp SMS' ? 'WhatsApp' : tab.key}</span>
+                  </button>
+                );
+              })}
+            </div>
+          </nav>
           {/* Edit Member Modal */}
           {editMember && (
             <EditMemberModal
@@ -2027,7 +2060,7 @@ Please pay by: ${formattedLastDate}`;
               onFocus={() => setAddMemberFabHover(true)}
               onBlur={() => setAddMemberFabHover(false)}
               className={cx(
-                'fixed bottom-6 right-6 flex items-center bg-blue-600 hover:bg-blue-700 text-white py-3 rounded-full shadow-lg z-40 transition-all',
+                'fixed right-6 flex items-center bg-blue-600 hover:bg-blue-700 text-white py-3 rounded-full shadow-lg z-40 transition-all bottom-24 md:bottom-6',
                 (showAddMemberLabel || addMemberFabHover) ? 'px-4 gap-2' : 'px-3 gap-0'
               )}
             >
@@ -2629,12 +2662,17 @@ function Sidebar({ user, active, onSelect, theme, setTheme, onLogout, onUndo, on
     // ---- Members List (Dashboard list mode) ----
 function MembersList({ title, list, onBack, onEdit, onStatusChange, holdOptions, logs, onWelcome, onWelcomeMail, onAddAttachment, onQuickFieldEdit, editOptions, isOwner }) {
       const [openId, setOpenId] = React.useState(null);
+      const [mobileDetailMemberId, setMobileDetailMemberId] = React.useState('');
       const [page, setPage] = React.useState(1);
       const pageSize = 10;
       const totalPages = Math.max(1, Math.ceil((list || []).length / pageSize));
       const safePage = page > totalPages ? 1 : page;
       const start = (safePage - 1) * pageSize;
       const pageList = (list || []).slice(start, start + pageSize);
+      const mobileDetailMember = React.useMemo(
+        () => (list || []).find((m) => m.memberId === mobileDetailMemberId) || null,
+        [list, mobileDetailMemberId]
+      );
       React.useEffect(() => {
         setPage(1);
       }, [list]);
@@ -2673,6 +2711,7 @@ function MembersList({ title, list, onBack, onEdit, onStatusChange, holdOptions,
                 onQuickFieldEdit={onQuickFieldEdit}
                 editOptions={editOptions}
                 isOwner={isOwner}
+                onOpenMobileDetail={(member) => setMobileDetailMemberId(member?.memberId || '')}
               />
             ))}
             {(list || []).length > pageSize && (
@@ -2697,12 +2736,25 @@ function MembersList({ title, list, onBack, onEdit, onStatusChange, holdOptions,
               </div>
             )}
           </div>
+          {mobileDetailMember && (
+            <MobileMemberDetailView
+              m={mobileDetailMember}
+              onBack={() => setMobileDetailMemberId('')}
+              onEdit={onEdit}
+              onWelcome={onWelcome}
+              onStatusChange={onStatusChange}
+              holdOptions={holdOptions}
+              canDelete={false}
+              onDelete={() => {}}
+              isOwner={isOwner}
+            />
+          )}
         </div>
       );
     }
 
     // ---- Member Row ----
-function MemberRow({ m, expanded, onToggle, onEdit, onStatusChange, holdOptions, onDelete, canDelete, onWelcome, onWelcomeMail, onAddAttachment, logs, selected, onSelectToggle, selectable, onQuickFieldEdit, editOptions, isOwner }) {
+function MemberRow({ m, expanded, onToggle, onEdit, onStatusChange, holdOptions, onDelete, canDelete, onWelcome, onWelcomeMail, onAddAttachment, logs, selected, onSelectToggle, selectable, onQuickFieldEdit, editOptions, isOwner, onOpenMobileDetail }) {
       const todayHighlight = fmt(m.billingDate) === fmt(new Date());
       // Determine if we can open WhatsApp welcome/payment reminder.
       // Active members with mobile number and billing date qualify.
@@ -2751,6 +2803,7 @@ function MemberRow({ m, expanded, onToggle, onEdit, onStatusChange, holdOptions,
             onSelectToggle={onSelectToggle}
             onToggle={onToggle}
             expanded={expanded}
+            onOpenMobileDetail={onOpenMobileDetail}
           />
           {expanded && (
             <div className="px-0 lg:px-2 pt-2 pb-4">
@@ -2853,9 +2906,18 @@ function MemberRowDesktopView({ m, selectable, selected, onSelectToggle, onToggl
     }
 
     // Phase A split: mobile-specific member row presentation.
-    function MemberRowMobileView({ m, selectable, selected, onSelectToggle, onToggle, expanded }) {
+    function MemberRowMobileView({ m, selectable, selected, onSelectToggle, onToggle, expanded, onOpenMobileDetail }) {
       return (
-        <button onClick={onToggle} className="lg:hidden w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-3 text-left text-slate-700">
+        <button
+          onClick={() => {
+            if (onOpenMobileDetail) {
+              onOpenMobileDetail(m);
+              return;
+            }
+            onToggle();
+          }}
+          className="lg:hidden w-full rounded-2xl border border-slate-200 bg-white px-3.5 py-3.5 text-left text-slate-700 shadow-sm active:scale-[0.99] transition"
+        >
           <div className="flex items-start justify-between gap-2">
             <div className="min-w-0">
               <div className="flex items-center gap-2">
@@ -2870,18 +2932,100 @@ function MemberRowDesktopView({ m, selectable, selected, onSelectToggle, onToggl
                     onClick={(e) => e.stopPropagation()}
                   />
                 )}
-                <Avatar name={m.name} photo={m.photo} className="h-7 w-7" />
-                <span className="font-semibold truncate">{m.name}</span>
+                <Avatar name={m.name} photo={m.photo} className="h-9 w-9 rounded-xl" />
+                <span className="font-semibold truncate text-slate-900">{m.name}</span>
               </div>
-              <div className="text-xs text-slate-500 mt-1">Billing Date: {fmt(m.billingDate) || '-'}</div>
-              <div className="text-xs text-slate-500">Next Payment Date: {fmt(m.nextPaymentDate || nextPaymentDateFromBillingDate(m)) || '-'}</div>
+              <div className="text-[11px] text-slate-500 mt-1">Billing Date: {fmt(m.billingDate) || '-'}</div>
+              <div className="text-[11px] text-slate-500">Next Payment Date: {fmt(m.nextPaymentDate || nextPaymentDateFromBillingDate(m)) || '-'}</div>
             </div>
             <div className="flex flex-col items-end gap-1">
               <Badge tone={toneForStatus(m.status)} className="text-center flex-shrink-0">{shortStatus(m.status)}</Badge>
-              <span className="text-[11px] text-slate-500">{expanded ? 'Hide details' : 'View details'}</span>
+              <span className="text-[10px] font-semibold text-slate-500">{onOpenMobileDetail ? 'Open profile' : (expanded ? 'Hide details' : 'View details')}</span>
             </div>
           </div>
         </button>
+      );
+    }
+    function MobileMemberDetailView({ m, onBack, onEdit, onWelcome, onStatusChange, holdOptions, canDelete, onDelete, isOwner }) {
+      const statusTemplate = primaryMessageActionForMember(m, isOwner);
+      const canWelcome = Boolean(String(m.mobile || '').trim()) && !statusTemplate.disabled;
+      const dueAmount = Number(m.amount || 0);
+      const detailRows = [
+        { key: 'joined', label: 'Joined Date', value: fmt(m.joiningDate) || '-', icon: '📅', tone: 'bg-blue-50 text-blue-600' },
+        { key: 'billing', label: 'Billing Date', value: fmt(m.billingDate) || '-', icon: '🧾', tone: 'bg-amber-50 text-amber-600' },
+        { key: 'nextPayment', label: 'Next Payment Date', value: fmt(m.nextPaymentDate || nextPaymentDateFromBillingDate(m)) || '-', icon: '⏭️', tone: 'bg-indigo-50 text-indigo-600' },
+        { key: 'paymentBy', label: 'Payment By', value: fmt(m.paymentBy) || '-', icon: '⏰', tone: 'bg-orange-50 text-orange-600' },
+        { key: 'amount', label: 'Current Balance', value: `₹${dueAmount.toLocaleString()}`, icon: '💳', tone: 'bg-emerald-50 text-emerald-600' },
+        { key: 'memberId', label: 'Member ID', value: m.memberId || '-', icon: '🆔', tone: 'bg-slate-100 text-slate-600' },
+      ];
+      return (
+        <div className="lg:hidden fixed inset-0 z-[70] bg-[#F8FAFC] overflow-y-auto apg-mobile-detail-enter">
+          <div className="sticky top-0 z-10 flex items-center justify-between border-b border-slate-200 bg-white/95 backdrop-blur px-4 py-3">
+            <button onClick={onBack} className="rounded-xl border border-slate-300 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700">← Back</button>
+            <div className="text-sm font-bold text-slate-900">Member Profile</div>
+            <button onClick={() => onEdit && onEdit(m)} className="rounded-xl border border-indigo-300 bg-indigo-50 px-3 py-1.5 text-xs font-semibold text-indigo-700">Edit</button>
+          </div>
+          <div className="p-4 space-y-4 pb-24">
+            <div className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
+              <div className="flex items-center gap-4">
+                <Avatar name={m.name} photo={m.photo} className="h-20 w-20 rounded-3xl border-4 border-white shadow-lg" />
+                <div className="min-w-0">
+                  <div className="text-xl font-bold text-slate-900 truncate">{m.name || '-'}</div>
+                  <div className="text-xs text-slate-500 truncate">{m.email || m.mobile || '-'}</div>
+                  <div className="mt-2 flex items-center gap-2">
+                    <Badge tone={toneForStatus(m.status)}>{m.status || '-'}</Badge>
+                    <span className="rounded-lg border border-blue-200 bg-blue-50 px-2 py-0.5 text-[10px] font-semibold text-blue-700">{m.plan || 'No Plan'}</span>
+                  </div>
+                </div>
+              </div>
+              <div className="mt-5 grid grid-cols-3 gap-2">
+                <button
+                  onClick={() => canWelcome && onWelcome && onWelcome(m, statusTemplate.key)}
+                  disabled={!canWelcome}
+                  className={cx('rounded-2xl px-2 py-3 text-[11px] font-semibold border', canWelcome ? 'border-blue-300 bg-blue-50 text-blue-700' : 'border-slate-300 bg-slate-100 text-slate-500')}
+                >
+                  {statusTemplate.label}
+                </button>
+                <button onClick={() => onEdit && onEdit(m)} className="rounded-2xl px-2 py-3 text-[11px] font-semibold border border-indigo-300 bg-indigo-50 text-indigo-700">Edit</button>
+                <button onClick={() => onStatusChange && onStatusChange(m.memberId, 'Active')} className="rounded-2xl px-2 py-3 text-[11px] font-semibold border border-emerald-300 bg-emerald-50 text-emerald-700">Activate</button>
+              </div>
+            </div>
+            <div className="rounded-3xl border border-slate-200 bg-white p-4 shadow-sm space-y-3">
+              <div className="text-xs font-semibold uppercase tracking-wide text-slate-400">Membership Details</div>
+              <div className="space-y-2">
+                {detailRows.map((row) => (
+                  <div key={row.key} className="flex items-center justify-between gap-3 rounded-2xl border border-slate-100 bg-slate-50/70 px-3 py-2.5">
+                    <div className="flex items-center gap-2 min-w-0">
+                      <div className={cx('grid h-8 w-8 place-items-center rounded-xl text-sm', row.tone)}>{row.icon}</div>
+                      <div className="min-w-0">
+                        <div className="text-[11px] font-semibold text-slate-500 uppercase tracking-wide">{row.label}</div>
+                        <div className="text-sm font-semibold text-slate-900 truncate">{row.value}</div>
+                      </div>
+                    </div>
+                  </div>
+                ))}
+                <div className="flex items-center justify-between gap-3 rounded-2xl border border-slate-100 bg-slate-50/70 px-3 py-2.5">
+                  <div className="flex items-center gap-2 min-w-0">
+                    <div className="grid h-8 w-8 place-items-center rounded-xl bg-purple-50 text-purple-600 text-sm">💼</div>
+                    <div className="min-w-0">
+                      <div className="text-[11px] font-semibold text-slate-500 uppercase tracking-wide">Payment Method</div>
+                      <div className="text-sm font-semibold text-slate-900 truncate">{m.paymentMethod || '-'}</div>
+                    </div>
+                  </div>
+                  <span className="rounded-lg border border-slate-200 bg-white px-2 py-0.5 text-[10px] font-semibold text-slate-600">{m.formNo || '-'}</span>
+                </div>
+              </div>
+            </div>
+            <div className="rounded-3xl border border-slate-200 bg-white p-4 shadow-sm">
+              <div className="text-xs font-semibold uppercase tracking-wide text-slate-400 mb-2">Quick Status</div>
+              <div className="flex flex-wrap gap-2">
+                {m.status !== 'Hold' && <button onClick={() => onStatusChange && onStatusChange(m.memberId, 'Hold', { holdDuration: holdOptions?.[0] || '1 Month' })} className="rounded-xl border border-amber-300 bg-amber-50 px-3 py-2 text-xs font-semibold text-amber-700">Hold</button>}
+                {m.status !== 'Deactivated' && <button onClick={() => onStatusChange && onStatusChange(m.memberId, 'Deactivated')} className="rounded-xl border border-pink-300 bg-pink-50 px-3 py-2 text-xs font-semibold text-pink-700">Deactivate</button>}
+                {canDelete && <button onClick={() => onDelete && onDelete(m)} className="rounded-xl border border-rose-300 bg-rose-50 px-3 py-2 text-xs font-semibold text-rose-700">Delete</button>}
+              </div>
+            </div>
+          </div>
+        </div>
       );
     }
 
@@ -3233,6 +3377,7 @@ function QuickActions({ m, onStatusChange, holdOptions, canDelete, onDelete }) {
 function DashboardView({ members, onEdit, onStatusChange, holdOptions, logs, filters, filterOpen, setFilterOpen, anyFilterActive, canDelete, onDelete, billingMonthOptions, onWelcome, onWelcomeMail, onAddAttachment, onQuickFieldEdit, editOptions, isOwner }) {
       // Single expanded row across all statuses. Only one memberId may be expanded at a time.
       const [expandedId, setExpandedId] = React.useState(null);
+      const [mobileDetailMemberId, setMobileDetailMemberId] = React.useState('');
       const [focusStatus, setFocusStatus] = React.useState('');
       const [selectedIds, setSelectedIds] = React.useState([]);
       const [visibleByStatus, setVisibleByStatus] = React.useState({ Active: 20, Hold: 20, Deactivated: 20, Cancelled: 20 });
@@ -3323,6 +3468,10 @@ function DashboardView({ members, onEdit, onStatusChange, holdOptions, logs, fil
         }).length;
       }, [members, applyFilters]);
       const winbackCount = grouped.Deactivated.length;
+      const mobileDetailMember = React.useMemo(
+        () => members.find((m) => m.memberId === mobileDetailMemberId) || null,
+        [members, mobileDetailMemberId]
+      );
       return (
         <div className="p-3 md:p-8 space-y-5">
           {/* Header row with Filter button */}
@@ -3416,6 +3565,7 @@ function DashboardView({ members, onEdit, onStatusChange, holdOptions, logs, fil
                       onQuickFieldEdit={onQuickFieldEdit}
                       editOptions={editOptions}
                       isOwner={isOwner}
+                      onOpenMobileDetail={(member) => setMobileDetailMemberId(member?.memberId || '')}
                     />
                   ))}
                   {pageList.length === 0 && (
@@ -3454,6 +3604,19 @@ function DashboardView({ members, onEdit, onStatusChange, holdOptions, logs, fil
               </div>
             );
           })}
+          {mobileDetailMember && (
+            <MobileMemberDetailView
+              m={mobileDetailMember}
+              onBack={() => setMobileDetailMemberId('')}
+              onEdit={onEdit}
+              onWelcome={onWelcome}
+              onStatusChange={onStatusChange}
+              holdOptions={holdOptions}
+              canDelete={canDelete}
+              onDelete={onDelete}
+              isOwner={isOwner}
+            />
+          )}
         </div>
       );
     }
