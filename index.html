@@ -116,6 +116,10 @@
       const billing = asUTC(billingSource);
       return billing ? iso(addMonths(billing, 1)) : '';
     };
+    const paymentByFromNextPaymentDate = (nextPaymentDateValue) => {
+      const nextPay = asUTC(nextPaymentDateValue);
+      return nextPay ? iso(addDays(nextPay, 7)) : '';
+    };
     const normalizePhone = (v) => String(v || '').replace(/\D/g, '');
     const isValidEmail = (v) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(v || '').trim());
     const isValidPhone = (v) => {
@@ -136,10 +140,17 @@
     const primaryMessageActionForMember = (member, isOwner = false) => {
       if (!member) return { key: 'welcome', label: 'Welcome SMS', disabled: false };
       const today = asUTC(new Date());
+      const joiningDate = asUTC(member.joiningDate);
       const billingDate = asUTC(member.billingDate);
       const paymentBy = asUTC(member.paymentBy || member.billingDate);
+      const sameJoinAndBillingDay = Boolean(
+        joiningDate && billingDate && iso(joiningDate) === iso(billingDate)
+      );
       if (member.status === 'Active') {
         if (paymentBy && today && paymentBy < today) return { key: 'fine', label: 'Fine SMS', disabled: false };
+        if (sameJoinAndBillingDay && billingDate && today && billingDate <= today) {
+          return { key: 'welcome', label: 'Welcome SMS', disabled: false };
+        }
         if (billingDate && today && billingDate <= today) {
           const reminderSent = Boolean(member.reminderSentAt);
           return {
@@ -147,6 +158,9 @@
             label: reminderSent ? 'Reminder Sent' : 'Reminder',
             disabled: reminderSent && !isOwner,
           };
+        }
+        if (joiningDate && today && joiningDate <= today) {
+          return { key: 'welcome', label: 'Welcome SMS', disabled: false };
         }
         return { key: 'welcome', label: 'Welcome SMS', disabled: false };
       }
@@ -1379,6 +1393,11 @@ Please pay by: ${formattedLastDate}`;
           staff: user?.name || toSave.staff || '',
           updatedBy: user?.name || user?.id || '',
         };
+        if (toSave.billingDate) {
+          const nextPay = nextPaymentDateFromBillingDate(toSave.billingDate);
+          toSave.nextPaymentDate = nextPay;
+          toSave.paymentBy = paymentByFromNextPaymentDate(nextPay);
+        }
         const beforeMember = members.find(m => m.memberId === toSave.memberId) || null;
         const changed = (key) => String((beforeMember?.[key] ?? '')) !== String((toSave?.[key] ?? ''));
         // Validate required fields
@@ -3977,9 +3996,9 @@ function EditMemberModal({ member, onClose, onSave, planOptions, statusOptions, 
         amount: '',
         plan: '',
         joiningDate: iso(new Date()),
-        billingDate: iso(addMonths(new Date(), 1)),
-        nextPaymentDate: iso(addMonths(addMonths(new Date(), 1), 1)),
-        paymentBy: iso(addDays(addMonths(new Date(), 1), 7)),
+        billingDate: iso(new Date()),
+        nextPaymentDate: iso(addMonths(new Date(), 1)),
+        paymentBy: paymentByFromNextPaymentDate(addMonths(new Date(), 1)),
         status: 'Active',
         paymentMethod: settings.paymentMethods[0],
         remark: '',
@@ -4072,9 +4091,11 @@ function EditMemberModal({ member, onClose, onSave, planOptions, statusOptions, 
       // Auto update billing and payment dates when joiningDate changes
       React.useEffect(() => {
         if (form.joiningDate) {
-          const bd = addMonths(form.joiningDate, 1);
+          const joinIso = iso(form.joiningDate);
+          const todayIso = iso(new Date());
+          const bd = joinIso === todayIso ? asUTC(new Date()) : addMonths(form.joiningDate, 1);
           const nextPay = addMonths(bd, 1);
-          const pb = addDays(bd, 7);
+          const pb = addDays(nextPay, 7);
           setForm(f => ({ ...f, billingDate: iso(bd), nextPaymentDate: iso(nextPay), paymentBy: iso(pb) }));
         }
       }, [form.joiningDate]);
@@ -4082,7 +4103,7 @@ function EditMemberModal({ member, onClose, onSave, planOptions, statusOptions, 
       React.useEffect(() => {
         if (form.billingDate) {
           const nextPay = addMonths(form.billingDate, 1);
-          const pb = addDays(form.billingDate, 7);
+          const pb = addDays(nextPay, 7);
           setForm(f => ({ ...f, nextPaymentDate: iso(nextPay), paymentBy: iso(pb) }));
         }
       }, [form.billingDate]);
@@ -4307,9 +4328,9 @@ function EditMemberModal({ member, onClose, onSave, planOptions, statusOptions, 
           amount: '',
           plan: '',
           joiningDate: iso(new Date()),
-          billingDate: iso(addMonths(new Date(), 1)),
-          nextPaymentDate: iso(addMonths(addMonths(new Date(), 1), 1)),
-          paymentBy: iso(addDays(addMonths(new Date(), 1), 7)),
+          billingDate: iso(new Date()),
+          nextPaymentDate: iso(addMonths(new Date(), 1)),
+          paymentBy: paymentByFromNextPaymentDate(addMonths(new Date(), 1)),
           status: 'Active',
           paymentMethod: settings.paymentMethods[0],
           remark: '',
@@ -5454,9 +5475,20 @@ function SettingsPage({ settings, updateSetting, members, access, storageInfo, o
           const due = asUTC(m.paymentBy || m.billingDate);
           return due && due < today;
         }),
+        success: members
+          .filter((m) => Boolean(getLastWhatsAppSendMeta(m, 'success')?.sentAt))
+          .sort((a, b) => {
+            const aTs = new Date(getLastWhatsAppSendMeta(a, 'success')?.sentAt || 0).getTime();
+            const bTs = new Date(getLastWhatsAppSendMeta(b, 'success')?.sentAt || 0).getTime();
+            return bTs - aTs;
+          }),
         deactivate: members.filter(m => m.status === 'Deactivated'),
         hold: members.filter(m => m.status === 'Hold'),
-        welcome: members.filter(m => m.status === 'Active'),
+        welcome: activeMembers.filter(m => {
+          const jd = asUTC(m.joiningDate);
+          const bd = asUTC(m.billingDate);
+          return Boolean(jd && bd && iso(jd) === iso(bd) && bd <= today);
+        }),
       }), [activeMembers, members, today]);
       const rows = React.useMemo(() => {
         const q = search.toLowerCase().trim();
@@ -5467,9 +5499,13 @@ function SettingsPage({ settings, updateSetting, members, access, storageInfo, o
           return hay.includes(q);
         });
       }, [membersByType, activeType, search]);
+      const isSuccessAuditTab = activeType === 'success';
+      const isOwnerUser = currentUser?.id === 'owner';
+      const canActInSuccessTab = !isSuccessAuditTab || isOwnerUser;
       const smsTypeCounts = React.useMemo(() => ({
         reminder: membersByType.reminder.length,
         monthReminder: membersByType.monthReminder.length,
+        success: membersByType.success.length,
         fine: membersByType.fine.length,
         deactivate: membersByType.deactivate.length,
         hold: membersByType.hold.length,
@@ -5653,15 +5689,16 @@ function SettingsPage({ settings, updateSetting, members, access, storageInfo, o
                       <td className="px-3 py-2">
                         {(() => {
                           const suggested = primaryMessageActionForMember(m, currentUser?.id === 'owner');
-                          const canSendSuggested = Boolean(String(m.mobile || '').trim()) && !suggested.disabled;
+                          const sentLabel = isSuccessAuditTab ? 'Success SMS Sent' : suggested.label;
+                          const canSendSuggested = Boolean(String(m.mobile || '').trim()) && !suggested.disabled && canActInSuccessTab;
                           return (
                             <button
                               onClick={() => {
                                 if (!canSendSuggested) return;
-                                setPreview({ open: true, member: m, templateKey: suggested.key });
+                                setPreview({ open: true, member: m, templateKey: isSuccessAuditTab ? 'success' : suggested.key });
                               }}
                               disabled={!canSendSuggested}
-                              title={`Suggested: ${suggested.label}`}
+                              title={isSuccessAuditTab ? 'Success SMS audit log entry' : `Suggested: ${suggested.label}`}
                               className={cx(
                                 'rounded-lg border px-3 py-1 text-xs font-medium',
                                 canSendSuggested
@@ -5669,14 +5706,28 @@ function SettingsPage({ settings, updateSetting, members, access, storageInfo, o
                                   : 'border-slate-300 bg-slate-100 text-slate-500 cursor-not-allowed'
                               )}
                             >
-                              {suggested.label}
+                              {sentLabel}
                             </button>
                           );
                         })()}
                       </td>
                       <td className="px-3 py-2">
                         <div className="flex items-center gap-2">
-                          <button onClick={() => setPreview({ open: true, member: m, templateKey: activeType })} className="rounded-lg border border-emerald-300 bg-emerald-50 px-3 py-1 text-xs font-medium text-emerald-700 hover:bg-emerald-100">Send</button>
+                          <button
+                            onClick={() => {
+                              if (!canActInSuccessTab) return;
+                              setPreview({ open: true, member: m, templateKey: activeType });
+                            }}
+                            disabled={!canActInSuccessTab}
+                            className={cx(
+                              'rounded-lg border px-3 py-1 text-xs font-medium',
+                              canActInSuccessTab
+                                ? 'border-emerald-300 bg-emerald-50 text-emerald-700 hover:bg-emerald-100'
+                                : 'border-slate-300 bg-slate-100 text-slate-500 cursor-not-allowed'
+                            )}
+                          >
+                            Send
+                          </button>
                           <SmsSendInfoChip text={getSmsSentInfoText(m, activeType)} />
                         </div>
                       </td>
@@ -5701,18 +5752,18 @@ function SettingsPage({ settings, updateSetting, members, access, storageInfo, o
                       What Message To Send:{' '}
                       {(() => {
                         const suggested = primaryMessageActionForMember(m, currentUser?.id === 'owner');
-                        return suggested.label;
+                        return isSuccessAuditTab ? 'Success SMS Sent' : suggested.label;
                       })()}
                     </div>
                     <div>
                       {(() => {
                         const suggested = primaryMessageActionForMember(m, currentUser?.id === 'owner');
-                        const canSendSuggested = Boolean(String(m.mobile || '').trim()) && !suggested.disabled;
+                        const canSendSuggested = Boolean(String(m.mobile || '').trim()) && !suggested.disabled && canActInSuccessTab;
                         return (
                           <button
                             onClick={() => {
                               if (!canSendSuggested) return;
-                              setPreview({ open: true, member: m, templateKey: suggested.key });
+                              setPreview({ open: true, member: m, templateKey: isSuccessAuditTab ? 'success' : suggested.key });
                             }}
                             disabled={!canSendSuggested}
                             className={cx(
@@ -5722,13 +5773,27 @@ function SettingsPage({ settings, updateSetting, members, access, storageInfo, o
                                 : 'border-slate-300 bg-slate-100 text-slate-500 cursor-not-allowed'
                             )}
                           >
-                            {suggested.label}
+                            {isSuccessAuditTab ? 'Success SMS Sent' : suggested.label}
                           </button>
                         );
                       })()}
                     </div>
                     <div className="flex items-center gap-2 flex-wrap">
-                      <button onClick={() => setPreview({ open: true, member: m, templateKey: activeType })} className="rounded-lg border border-emerald-300 bg-emerald-50 px-3 py-2 min-h-[44px] text-xs font-medium text-emerald-700 hover:bg-emerald-100">Send</button>
+                      <button
+                        onClick={() => {
+                          if (!canActInSuccessTab) return;
+                          setPreview({ open: true, member: m, templateKey: activeType });
+                        }}
+                        disabled={!canActInSuccessTab}
+                        className={cx(
+                          'rounded-lg border px-3 py-2 min-h-[44px] text-xs font-medium',
+                          canActInSuccessTab
+                            ? 'border-emerald-300 bg-emerald-50 text-emerald-700 hover:bg-emerald-100'
+                            : 'border-slate-300 bg-slate-100 text-slate-500 cursor-not-allowed'
+                        )}
+                      >
+                        Send
+                      </button>
                       <SmsSendInfoChip text={getSmsSentInfoText(m, activeType)} />
                     </div>
                   </div>
