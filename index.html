@@ -2770,6 +2770,8 @@ function MembersList({ title, list, onBack, onEdit, onStatusChange, holdOptions,
               canDelete={false}
               onDelete={() => {}}
               isOwner={isOwner}
+              onQuickFieldEdit={onQuickFieldEdit}
+              editOptions={editOptions}
             />
           )}
         </div>
@@ -2969,17 +2971,32 @@ function MemberRowDesktopView({ m, selectable, selected, onSelectToggle, onToggl
         </button>
       );
     }
-    function MobileMemberDetailView({ m, onBack, onEdit, onWelcome, onStatusChange, holdOptions, canDelete, onDelete, isOwner }) {
+    function MobileMemberDetailView({ m, onBack, onEdit, onWelcome, onStatusChange, holdOptions, canDelete, onDelete, isOwner, onQuickFieldEdit, editOptions }) {
       const statusTemplate = primaryMessageActionForMember(m, isOwner);
       const canWelcome = Boolean(String(m.mobile || '').trim()) && !statusTemplate.disabled;
       const dueAmount = Number(m.amount || 0);
+      const triggerQuickFieldEdit = (fieldKey, label, type = 'text', options = [], rawValue) => {
+        if (!onQuickFieldEdit) return;
+        onQuickFieldEdit({
+          memberId: m.memberId,
+          fieldKey,
+          label,
+          type,
+          value: rawValue !== undefined ? rawValue : (m[fieldKey] ?? ''),
+          options,
+        });
+      };
       const detailRows = [
-        { key: 'joined', label: 'Joined Date', value: fmt(m.joiningDate) || '-', icon: '📅', tone: 'bg-blue-50 text-blue-600' },
-        { key: 'billing', label: 'Billing Date', value: fmt(m.billingDate) || '-', icon: '🧾', tone: 'bg-amber-50 text-amber-600' },
-        { key: 'nextPayment', label: 'Next Payment Date', value: fmt(m.nextPaymentDate || nextPaymentDateFromBillingDate(m)) || '-', icon: '⏭️', tone: 'bg-indigo-50 text-indigo-600' },
-        { key: 'paymentBy', label: 'Payment By', value: fmt(m.paymentBy) || '-', icon: '⏰', tone: 'bg-orange-50 text-orange-600' },
-        { key: 'amount', label: 'Current Balance', value: `₹${dueAmount.toLocaleString()}`, icon: '💳', tone: 'bg-emerald-50 text-emerald-600' },
-        { key: 'memberId', label: 'Member ID', value: m.memberId || '-', icon: '🆔', tone: 'bg-slate-100 text-slate-600' },
+        { key: 'name', label: 'Name', value: m.name || '-', icon: '👤', tone: 'bg-indigo-50 text-indigo-600', editable: true, type: 'text' },
+        { key: 'mobile', label: 'Mobile', value: m.mobile || '-', icon: '📱', tone: 'bg-blue-50 text-blue-600', editable: true, type: 'tel' },
+        { key: 'joined', label: 'Joined Date', value: fmt(m.joiningDate) || '-', icon: '📅', tone: 'bg-blue-50 text-blue-600', editable: false },
+        { key: 'billingDate', label: 'Billing Date', value: fmt(m.billingDate) || '-', icon: '🧾', tone: 'bg-amber-50 text-amber-600', editable: true, type: 'date', rawValue: iso(m.billingDate) || '' },
+        { key: 'nextPayment', label: 'Next Payment Date', value: fmt(m.nextPaymentDate || nextPaymentDateFromBillingDate(m)) || '-', icon: '⏭️', tone: 'bg-indigo-50 text-indigo-600', editable: false },
+        { key: 'paymentBy', label: 'Payment By', value: fmt(m.paymentBy) || '-', icon: '⏰', tone: 'bg-orange-50 text-orange-600', editable: false },
+        { key: 'amount', label: 'Current Balance', value: `₹${dueAmount.toLocaleString()}`, icon: '💳', tone: 'bg-emerald-50 text-emerald-600', editable: true, type: 'number', rawValue: String(m.amount ?? '') },
+        { key: 'status', label: 'Status', value: m.status || '-', icon: '✅', tone: 'bg-emerald-50 text-emerald-600', editable: true, type: 'select', options: editOptions?.statuses || [] },
+        { key: 'plan', label: 'Plan', value: m.plan || '-', icon: '📦', tone: 'bg-cyan-50 text-cyan-600', editable: true, type: 'select', options: editOptions?.plans || [] },
+        { key: 'memberId', label: 'Member ID', value: m.memberId || '-', icon: '🆔', tone: 'bg-slate-100 text-slate-600', editable: false },
       ];
       return (
         <div className="lg:hidden fixed inset-0 z-[70] bg-[#F8FAFC] overflow-y-auto apg-mobile-detail-enter">
@@ -3025,6 +3042,14 @@ function MemberRowDesktopView({ m, selectable, selected, onSelectToggle, onToggl
                         <div className="text-sm font-semibold text-slate-900 truncate">{row.value}</div>
                       </div>
                     </div>
+                    {row.editable && (
+                      <button
+                        onClick={() => triggerQuickFieldEdit(row.key, row.label, row.type || 'text', row.options || [], row.rawValue)}
+                        className="rounded-lg border border-blue-200 bg-white px-2 py-1 text-[10px] font-semibold text-blue-700"
+                      >
+                        Edit
+                      </button>
+                    )}
                   </div>
                 ))}
                 <div className="flex items-center justify-between gap-3 rounded-2xl border border-slate-100 bg-slate-50/70 px-3 py-2.5">
@@ -3035,7 +3060,15 @@ function MemberRowDesktopView({ m, selectable, selected, onSelectToggle, onToggl
                       <div className="text-sm font-semibold text-slate-900 truncate">{m.paymentMethod || '-'}</div>
                     </div>
                   </div>
-                  <span className="rounded-lg border border-slate-200 bg-white px-2 py-0.5 text-[10px] font-semibold text-slate-600">{m.formNo || '-'}</span>
+                  <div className="flex items-center gap-1.5">
+                    <button
+                      onClick={() => triggerQuickFieldEdit('paymentMethod', 'Payment Method', 'select', editOptions?.paymentMethods || [])}
+                      className="rounded-lg border border-blue-200 bg-white px-2 py-1 text-[10px] font-semibold text-blue-700"
+                    >
+                      Edit
+                    </button>
+                    <span className="rounded-lg border border-slate-200 bg-white px-2 py-0.5 text-[10px] font-semibold text-slate-600">{m.formNo || '-'}</span>
+                  </div>
                 </div>
               </div>
             </div>
@@ -3641,6 +3674,8 @@ function DashboardView({ members, onEdit, onStatusChange, holdOptions, logs, fil
               canDelete={canDelete}
               onDelete={onDelete}
               isOwner={isOwner}
+              onQuickFieldEdit={onQuickFieldEdit}
+              editOptions={editOptions}
             />
           )}
         </div>
