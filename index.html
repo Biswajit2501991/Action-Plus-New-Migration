@@ -2489,17 +2489,20 @@ function Sidebar({ user, active, onSelect, theme, setTheme, onLogout, onUndo, on
                   </div>
                 </div>
               </div>
-              <div className="h-44 flex items-end gap-3">
+              <div className="h-52 overflow-hidden">
+                <div className="h-full flex items-end gap-3">
                 {monthTrend.map(x => {
-                  const h = Math.max(12, Math.round((x.total / maxTrend) * 150));
+                  // Keep headroom for amount/month labels so bars never overlap header text.
+                  const h = Math.max(10, Math.round((x.total / maxTrend) * 112));
                   return (
-                    <div key={x.label} className="flex-1 flex flex-col items-center gap-1">
+                    <div key={x.label} className="flex-1 h-full flex flex-col justify-end items-center gap-1 min-w-0">
                       <div className="text-[11px] text-slate-500">${x.total.toLocaleString()}</div>
                       <div className="w-full rounded-t-lg bg-blue-400/80" style={{ height: `${h}px` }} />
                       <div className="text-xs text-slate-700">{x.label}</div>
                     </div>
                   );
                 })}
+                </div>
               </div>
             </div>
             )}
@@ -2522,11 +2525,11 @@ function Sidebar({ user, active, onSelect, theme, setTheme, onLogout, onUndo, on
           {canViewRevenueTrend && showTrendHistory && historicalTrend.length > 0 && (
             <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
               <div className="text-base font-semibold text-slate-800 mb-3">Expanded Revenue Trend (Older Months)</div>
-              <div className="h-40 flex items-end gap-2 overflow-x-auto">
+              <div className="h-44 flex items-end gap-2 overflow-x-auto overflow-y-hidden">
                 {historicalTrend.map(x => {
-                  const h = Math.max(10, Math.round((x.total / maxHistoricalTrend) * 130));
+                  const h = Math.max(8, Math.round((x.total / maxHistoricalTrend) * 96));
                   return (
-                    <div key={x.label} className="w-16 shrink-0 flex flex-col items-center gap-1">
+                    <div key={x.label} className="w-16 h-full shrink-0 flex flex-col justify-end items-center gap-1">
                       <div className="text-[10px] text-slate-500">${x.total.toLocaleString()}</div>
                       <div className="w-full rounded-t-lg bg-blue-300/80" style={{ height: `${h}px` }} />
                       <div className="text-[11px] text-slate-700">{x.label}</div>
