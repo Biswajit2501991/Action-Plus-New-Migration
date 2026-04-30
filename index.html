@@ -221,6 +221,15 @@
       if (templateKey === 'welcome' || templateKey === 'success') return 'border-emerald-300 bg-emerald-50 text-emerald-700 hover:bg-emerald-100';
       return 'border-blue-300 bg-blue-50 text-blue-700 hover:bg-blue-100';
     };
+    const useIsMobile = () => {
+      const [isMobile, setIsMobile] = React.useState(() => window.innerWidth < 768);
+      React.useEffect(() => {
+        const onResize = () => setIsMobile(window.innerWidth < 768);
+        window.addEventListener('resize', onResize);
+        return () => window.removeEventListener('resize', onResize);
+      }, []);
+      return isMobile;
+    };
     // Determine tone (colour) for a status
     const toneForStatus = (s) => {
       return s === 'Active' ? 'green'
@@ -1677,10 +1686,11 @@ Please pay by: ${formattedLastDate}`;
         setDashMode('summary');
       };
       const mobilePrimaryTabs = [
-        { key: 'Dashboard', icon: '🏠' },
-        { key: 'Members', icon: '👥' },
-        { key: 'WhatsApp SMS', icon: '💬' },
-        { key: 'Settings', icon: '⚙️' },
+        { key: 'Dashboard', label: 'Dashboard', icon: '🏠' },
+        { key: 'Members', label: 'Members', icon: '👥' },
+        { key: 'Finance', label: 'Billing', icon: '💳' },
+        { key: 'Attendance', label: 'Attendance', icon: '🗓️' },
+        { key: 'More', label: 'More', icon: '⋯' },
       ];
       return (
         <div className="h-screen overflow-hidden flex bg-slate-100 md:bg-slate-100">
@@ -1692,9 +1702,16 @@ Please pay by: ${formattedLastDate}`;
             />
           )}
           <div className="fixed top-0 inset-x-0 w-full z-20 md:hidden bg-white/95 backdrop-blur border-b border-slate-200 px-4 py-3 flex items-center justify-between">
-            <div className="min-w-0 pr-2">
+            <div className="flex items-center gap-2 min-w-0 pr-2">
+              <button
+                onClick={() => setMobileMenuOpen(true)}
+                className="rounded-xl border border-slate-300 bg-white px-2.5 py-1.5 text-xs font-semibold text-slate-700"
+                aria-label="Open navigation menu"
+              >
+                ☰
+              </button>
               <div className="text-[15px] leading-tight font-bold text-slate-900 truncate">{activeTab}</div>
-              <div className="text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-400">Action Plus Gym</div>
+              <div className="hidden text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-400 sm:block">Action Plus Gym</div>
             </div>
             <div className="flex items-center gap-1.5">
               {user?.id === 'owner' && (
@@ -2014,13 +2031,18 @@ Please pay by: ${formattedLastDate}`;
             )}
           </main>
           <nav className="md:hidden fixed bottom-0 inset-x-0 w-full z-30 border-t border-slate-200 bg-white/95 backdrop-blur px-4 pb-[max(0.65rem,env(safe-area-inset-bottom))] pt-2.5 shadow-[0_-6px_24px_rgba(15,23,42,0.08)]">
-            <div className="grid grid-cols-4 gap-1.5">
+            <div className="grid grid-cols-5 gap-1.5">
               {mobilePrimaryTabs.map((tab) => {
-                const isActive = activeTab === tab.key;
+                const isMoreActive = tab.key === 'More' && !['Dashboard', 'Members', 'Finance', 'Attendance'].includes(activeTab);
+                const isActive = activeTab === tab.key || isMoreActive;
                 return (
                   <button
                     key={tab.key}
                     onClick={() => {
+                      if (tab.key === 'More') {
+                        setMobileMenuOpen(true);
+                        return;
+                      }
                       setActiveTab(tab.key);
                       if (tab.key === 'Dashboard') setDashMode('summary');
                     }}
@@ -2030,7 +2052,7 @@ Please pay by: ${formattedLastDate}`;
                     )}
                   >
                     <span className="text-base leading-none">{tab.icon}</span>
-                    <span className="mt-1 truncate max-w-[64px]">{tab.key === 'WhatsApp SMS' ? 'WhatsApp' : tab.key}</span>
+                    <span className="mt-1 truncate max-w-[64px]">{tab.label}</span>
                   </button>
                 );
               })}
@@ -2455,6 +2477,80 @@ function Sidebar({ user, active, onSelect, theme, setTheme, onLogout, onUndo, on
       ];
       const canViewRevenueMonthly = access?.dashboard?.viewRevenueMonthly !== false;
       const canViewRevenueTrend = access?.dashboard?.viewRevenueTrend !== false;
+      const isMobile = useIsMobile();
+      if (isMobile) {
+        const recentMembers = members.slice(0, 6);
+        const insightExpiring = members.filter((m) => {
+          const due = asUTC(m.paymentBy || m.billingDate);
+          if (!due) return false;
+          const diff = Math.ceil((due - today) / (1000 * 60 * 60 * 24));
+          return diff === 1;
+        }).length;
+        const insightOverdue = overdueList.length;
+        const insightJoinedToday = members.filter((m) => iso(m.joiningDate) === iso(today)).length;
+        return (
+          <div className="p-4 space-y-4">
+            <div className="flex items-center gap-2 overflow-x-auto pb-1">
+              {[
+                { key: 'All', onClick: () => onSearch('', 'all') },
+                { key: 'Active', onClick: () => onSelectStatus('Active') },
+                { key: 'Hold', onClick: () => onSelectStatus('Hold') },
+                { key: 'Risk', onClick: () => onSelectStatus('Active') },
+                { key: 'Win-back', onClick: () => onSelectStatus('Deactivated') },
+              ].map((x, idx) => (
+                <button key={x.key} onClick={x.onClick} className={cx('shrink-0 rounded-full px-4 py-2 text-xs font-semibold border', idx === 0 ? 'bg-blue-600 text-white border-blue-600' : 'bg-white text-slate-600 border-slate-200')}>
+                  {x.key}
+                </button>
+              ))}
+            </div>
+            <div className="flex items-center justify-between">
+              <div className="text-base font-semibold text-slate-900">Quick Actions</div>
+              <button onClick={() => setFiltersOpen(v => !v)} className="text-xs font-semibold text-blue-600">View All</button>
+            </div>
+            <div className="grid grid-cols-3 gap-2">
+              <button onClick={onAddNew} className="rounded-2xl border border-blue-200 bg-blue-50 p-3 text-xs font-semibold text-blue-700">Add Member</button>
+              <button className="rounded-2xl border border-emerald-200 bg-emerald-50 p-3 text-xs font-semibold text-emerald-700">Scan QR</button>
+              <button onClick={() => { const target = overdueList[0]; if (target) onWelcome && onWelcome(target, 'reminder'); }} className="rounded-2xl border border-violet-200 bg-violet-50 p-3 text-xs font-semibold text-violet-700">Send Reminder</button>
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <button onClick={() => onSelectStatus('Active')} className="rounded-2xl border border-emerald-200 bg-emerald-50 p-4 text-left"><div className="text-xs font-semibold text-emerald-700">Active Members</div><div className="mt-2 text-3xl font-bold text-emerald-800">{counts.Active}</div></button>
+              <button onClick={() => onSelectStatus('Hold')} className="rounded-2xl border border-amber-200 bg-amber-50 p-4 text-left"><div className="text-xs font-semibold text-amber-700">Hold Members</div><div className="mt-2 text-3xl font-bold text-amber-800">{counts.Hold}</div></button>
+              <button onClick={() => onSelectStatus('Active')} className="rounded-2xl border border-rose-200 bg-rose-50 p-4 text-left"><div className="text-xs font-semibold text-rose-700">Risk Alert</div><div className="mt-2 text-3xl font-bold text-rose-800">{overdueList.length}</div></button>
+              <button onClick={() => onSelectStatus('Deactivated')} className="rounded-2xl border border-pink-200 bg-pink-50 p-4 text-left"><div className="text-xs font-semibold text-pink-700">Win-back Opportunity</div><div className="mt-2 text-3xl font-bold text-pink-800">{counts.Deactivated}</div></button>
+            </div>
+            <div className="rounded-2xl border border-blue-100 bg-blue-50 p-4">
+              <div className="text-sm font-semibold text-blue-700">Today&apos;s Insights</div>
+              <ul className="mt-2 space-y-1 text-xs text-slate-700">
+                <li>{insightExpiring} memberships expiring tomorrow</li>
+                <li>{insightOverdue} payments overdue</li>
+                <li>{insightJoinedToday} new members joined today</li>
+              </ul>
+            </div>
+            <div>
+              <div className="mb-2 flex items-center justify-between">
+                <div className="text-base font-semibold text-slate-900">Recent Members</div>
+                <button onClick={() => onSelectStatus('Active')} className="text-xs font-semibold text-blue-600">View All</button>
+              </div>
+              <div className="space-y-2">
+                {recentMembers.map((m) => (
+                  <button key={m.memberId} onClick={() => onOpenMember && onOpenMember(m.memberId)} className="w-full rounded-2xl border border-slate-200 bg-white px-3 py-2.5 text-left shadow-sm">
+                    <div className="flex items-center justify-between gap-2">
+                      <div className="flex items-center gap-2 min-w-0">
+                        <Avatar name={m.name} photo={m.photo} className="h-9 w-9 rounded-xl" />
+                        <div className="min-w-0">
+                          <div className="truncate text-sm font-semibold text-slate-900">{m.name}</div>
+                          <div className="truncate text-[11px] text-slate-500">{m.mobile || '-'}</div>
+                        </div>
+                      </div>
+                      <Badge tone={toneForStatus(m.status)}>{m.status || '-'}</Badge>
+                    </div>
+                  </button>
+                ))}
+              </div>
+            </div>
+          </div>
+        );
+      }
       return (
         <div className="p-3 md:p-8 space-y-5">
           <div className="space-y-3">
@@ -3008,7 +3104,7 @@ function MemberRowDesktopView({ m, selectable, selected, onSelectToggle, onToggl
             <button onClick={() => onEdit && onEdit(m)} className="rounded-xl border border-indigo-300 bg-indigo-50 px-3 py-1.5 text-xs font-semibold text-indigo-700">Edit</button>
           </div>
           <div className="p-4 space-y-4 pb-24">
-            <div className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
+            <div className="rounded-[28px] border border-slate-200 bg-gradient-to-br from-white to-blue-50 p-5 shadow-sm">
               <div className="flex items-center gap-4">
                 <Avatar name={m.name} photo={m.photo} className="h-20 w-20 rounded-3xl border-4 border-white shadow-lg" />
                 <div className="min-w-0">
@@ -3020,17 +3116,19 @@ function MemberRowDesktopView({ m, selectable, selected, onSelectToggle, onToggl
                   </div>
                 </div>
               </div>
-              <div className="mt-5 grid grid-cols-3 gap-2">
+              <div className="mt-5 grid grid-cols-4 gap-2">
                 <button
                   onClick={() => canWelcome && onWelcome && onWelcome(m, statusTemplate.key)}
                   disabled={!canWelcome}
                   className={cx('rounded-2xl px-2 py-3 text-[11px] font-semibold border', canWelcome ? 'border-blue-300 bg-blue-50 text-blue-700' : 'border-slate-300 bg-slate-100 text-slate-500')}
                 >
-                  {statusTemplate.label}
+                  💬
                 </button>
                 <button onClick={() => onEdit && onEdit(m)} className="rounded-2xl px-2 py-3 text-[11px] font-semibold border border-indigo-300 bg-indigo-50 text-indigo-700">Edit</button>
                 <button onClick={() => onStatusChange && onStatusChange(m.memberId, 'Active')} className="rounded-2xl px-2 py-3 text-[11px] font-semibold border border-emerald-300 bg-emerald-50 text-emerald-700">Activate</button>
+                <button onClick={onBack} className="rounded-2xl px-2 py-3 text-[11px] font-semibold border border-slate-300 bg-white text-slate-700">Close</button>
               </div>
+              <div className="mt-2 text-[11px] text-slate-500">{statusTemplate.label}</div>
             </div>
             <div className="rounded-3xl border border-slate-200 bg-white p-4 shadow-sm space-y-3">
               <div className="text-xs font-semibold uppercase tracking-wide text-slate-400">Membership Details</div>
@@ -3526,10 +3624,85 @@ function DashboardView({ members, onEdit, onStatusChange, holdOptions, logs, fil
         }).length;
       }, [members, applyFilters]);
       const winbackCount = grouped.Deactivated.length;
+      const isMobile = useIsMobile();
       const mobileDetailMember = React.useMemo(
         () => members.find((m) => m.memberId === mobileDetailMemberId) || null,
         [members, mobileDetailMemberId]
       );
+      if (isMobile) {
+        const mobileList = applyFilters(members);
+        return (
+          <div className="p-4 space-y-3">
+            <div className="flex items-center justify-between">
+              <h1 className="text-xl font-semibold text-slate-900">Members</h1>
+              <button onClick={() => setFilterOpen(true)} className="rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm font-semibold text-slate-700">⌕</button>
+            </div>
+            <div className="flex gap-2 overflow-x-auto pb-1">
+              {[
+                { key: '', label: 'All' },
+                { key: 'Active', label: 'Active' },
+                { key: 'Hold', label: 'Hold' },
+                { key: 'Risk', label: 'Risk' },
+                { key: 'Deactivated', label: 'Win-back' },
+              ].map((x) => (
+                <button
+                  key={x.label}
+                  onClick={() => setFocusStatus(x.key === 'Risk' ? 'Active' : x.key)}
+                  className={cx('shrink-0 rounded-full px-4 py-2 text-xs font-semibold border', (focusStatus || '') === (x.key === 'Risk' ? 'Active' : x.key) ? 'bg-blue-600 text-white border-blue-600' : 'bg-white text-slate-600 border-slate-200')}
+                >
+                  {x.label}
+                </button>
+              ))}
+            </div>
+            <div className="space-y-2">
+              {mobileList.filter((m) => {
+                if (!focusStatus) return true;
+                if (focusStatus === 'Active') return m.status === 'Active';
+                return m.status === focusStatus;
+              }).map((m) => (
+                <MemberRow
+                  key={m.memberId}
+                  m={m}
+                  expanded={false}
+                  onToggle={() => {}}
+                  onEdit={() => onEdit(m)}
+                  onStatusChange={onStatusChange}
+                  holdOptions={holdOptions}
+                  canDelete={canDelete}
+                  onDelete={onDelete}
+                  onWelcome={onWelcome}
+                  onWelcomeMail={onWelcomeMail}
+                  onAddAttachment={onAddAttachment}
+                  logs={logs}
+                  selectable={false}
+                  onQuickFieldEdit={onQuickFieldEdit}
+                  editOptions={editOptions}
+                  isOwner={isOwner}
+                  onOpenMobileDetail={(member) => setMobileDetailMemberId(member?.memberId || '')}
+                />
+              ))}
+            </div>
+            {mobileDetailMember && (
+              <MobileMemberDetailView
+                m={mobileDetailMember}
+                onBack={() => setMobileDetailMemberId('')}
+                onEdit={(member) => {
+                  setMobileDetailMemberId('');
+                  onEdit && onEdit(member);
+                }}
+                onWelcome={onWelcome}
+                onStatusChange={onStatusChange}
+                holdOptions={holdOptions}
+                canDelete={canDelete}
+                onDelete={onDelete}
+                isOwner={isOwner}
+                onQuickFieldEdit={onQuickFieldEdit}
+                editOptions={editOptions}
+              />
+            )}
+          </div>
+        );
+      }
       return (
         <div className="p-3 md:p-8 space-y-5">
           {/* Header row with Filter button */}
@@ -6116,6 +6289,77 @@ function SettingsPage({ settings, updateSetting, members, access, storageInfo, o
       const canFinanceTrend = access?.finance?.viewRevenueTrend4Months !== false;
       const canFinancePlan = access?.finance?.viewPlanPopularity !== false;
       const canFinanceTransactions = access?.finance?.viewTransactionsAutoMembers !== false;
+      const isMobile = useIsMobile();
+      if (isMobile) {
+        const upcoming = filteredTransactions.filter((t) => t.status !== 'pending').slice(0, 5);
+        const overdue = filteredTransactions.filter((t) => t.status === 'pending').slice(0, 5);
+        return (
+          <div className="p-4 space-y-4 bg-[#F8FAFC]">
+            <div className="text-xl font-semibold text-slate-900">Billing & Payments</div>
+            <div className="grid grid-cols-2 gap-3">
+              <div className="rounded-2xl border border-blue-200 bg-blue-50 p-4">
+                <div className="text-xs font-semibold text-blue-700">Total Revenue</div>
+                <div className="mt-2 text-2xl font-bold text-blue-900">₹{revenue.toLocaleString()}</div>
+                <div className="text-xs text-blue-700">This Month</div>
+              </div>
+              <div className="rounded-2xl border border-rose-200 bg-rose-50 p-4">
+                <div className="text-xs font-semibold text-rose-700">Pending Amount</div>
+                <div className="mt-2 text-2xl font-bold text-rose-900">₹{pendingAmount.toLocaleString()}</div>
+                <div className="text-xs text-rose-700">From {pendingRows.length} Members</div>
+              </div>
+            </div>
+            <div className="flex gap-2 overflow-x-auto pb-1">
+              {['All', 'Paid', 'Pending', 'Overdue'].map((x, idx) => (
+                <button key={x} className={cx('shrink-0 rounded-full px-4 py-2 text-xs font-semibold border', idx === 0 ? 'bg-blue-600 text-white border-blue-600' : 'bg-white text-slate-600 border-slate-200')}>{x}</button>
+              ))}
+            </div>
+            <div className="rounded-2xl border border-blue-100 bg-white p-3">
+              <div className="mb-2 flex items-center justify-between">
+                <div className="text-sm font-semibold text-slate-800">Upcoming Payments</div>
+              </div>
+              <div className="space-y-2">
+                {upcoming.map((t) => (
+                  <div key={`u-${t.id}`} className="flex items-center justify-between rounded-xl border border-slate-100 bg-slate-50 px-3 py-2">
+                    <div className="min-w-0">
+                      <div className="truncate text-sm font-semibold text-slate-900">{t.memberName}</div>
+                      <div className="text-[11px] text-slate-500">{t.plan}</div>
+                    </div>
+                    <div className="text-sm font-semibold text-slate-900">₹{Number(t.amount || 0).toLocaleString()}</div>
+                  </div>
+                ))}
+              </div>
+            </div>
+            <div className="rounded-2xl border border-rose-100 bg-white p-3">
+              <div className="mb-2 flex items-center justify-between">
+                <div className="text-sm font-semibold text-rose-700">Overdue Payments</div>
+              </div>
+              <div className="space-y-2">
+                {overdue.map((t) => (
+                  <div key={`o-${t.id}`} className="flex items-center justify-between rounded-xl border border-rose-100 bg-rose-50 px-3 py-2">
+                    <div className="min-w-0">
+                      <div className="truncate text-sm font-semibold text-slate-900">{t.memberName}</div>
+                      <div className="text-[11px] text-rose-600">Overdue</div>
+                    </div>
+                    <div className="text-sm font-semibold text-rose-700">₹{Number(t.amount || 0).toLocaleString()}</div>
+                  </div>
+                ))}
+              </div>
+            </div>
+            <div className="rounded-2xl border border-slate-200 bg-white p-4">
+              <div className="flex items-center justify-between">
+                <div className="text-lg font-semibold text-slate-900">Analytics</div>
+                <div className="rounded-lg border border-slate-200 bg-white px-2 py-1 text-xs text-slate-600">This Month</div>
+              </div>
+              <div className="mt-3 grid grid-cols-2 gap-3">
+                <div className="rounded-xl border border-slate-200 p-3"><div className="text-xs text-slate-500">Total Members</div><div className="text-2xl font-bold text-slate-900">{members.length}</div></div>
+                <div className="rounded-xl border border-slate-200 p-3"><div className="text-xs text-slate-500">Active Members</div><div className="text-2xl font-bold text-slate-900">{members.filter(m => m.status === 'Active').length}</div></div>
+                <div className="rounded-xl border border-slate-200 p-3"><div className="text-xs text-slate-500">New Members</div><div className="text-2xl font-bold text-slate-900">{members.filter(m => iso(m.joiningDate) === iso(new Date())).length}</div></div>
+                <div className="rounded-xl border border-slate-200 p-3"><div className="text-xs text-slate-500">Churned Members</div><div className="text-2xl font-bold text-slate-900">{members.filter(m => m.status === 'Deactivated').length}</div></div>
+              </div>
+            </div>
+          </div>
+        );
+      }
       return (
         <div className="p-3 md:p-8 space-y-5 bg-slate-100">
           <div className="flex items-center justify-between gap-3 flex-wrap">
