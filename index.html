@@ -506,7 +506,7 @@ We’re thrilled to welcome you to the Action Plus Gym and Fitness Club family. 
 Here are your membership details:
 - Current Plan: [CurrentPlan]
 - Gym Start Date: [GymStartdate]
-- Next Payment Due: [NextPaymentDate]
+- Next Payment Date: [NextPaymentDate]
 
 Let’s work together to help you achieve your health and fitness goals. We're here to support and motivate you every step of the way!
 
@@ -1339,7 +1339,8 @@ Please pay by: ${formattedLastDate}`;
           '[GymStartdate]': fmt(member.joiningDate) || '',
           '[NextPaymentDate]': fmt(member.nextPaymentDate || nextPaymentDateFromBillingDate(member)) || '',
         };
-        let body = tpl;
+        // Keep older saved templates aligned with current wording.
+        let body = String(tpl || '').replace(/Next Payment Due:/g, 'Next Payment Date:');
         Object.keys(rep).forEach((k) => { body = body.split(k).join(rep[k]); });
         const url = `https://mail.google.com/mail/?view=cm&fs=1&to=${encodeURIComponent(member.email)}&cc=${encodeURIComponent('gymactionplus@gmail.com')}&su=${encodeURIComponent('Action Plus Gym - Registration Confirmation Mail.')}&body=${encodeURIComponent(body)}`;
         safeOpenExternal(url);
@@ -1671,10 +1672,10 @@ Please pay by: ${formattedLastDate}`;
               aria-label="Close navigation overlay"
             />
           )}
-          <div className="fixed top-0 left-1/2 -translate-x-1/2 w-full max-w-md z-20 md:hidden bg-white/95 backdrop-blur border-b border-slate-200 px-3 py-2.5 flex items-center justify-between">
-            <div className="min-w-0">
-              <div className="text-sm font-bold text-slate-900 truncate">{activeTab}</div>
-              <div className="text-[10px] font-semibold uppercase tracking-wide text-slate-400">Action Plus Gym</div>
+          <div className="fixed top-0 inset-x-0 w-full z-20 md:hidden bg-white/95 backdrop-blur border-b border-slate-200 px-4 py-3 flex items-center justify-between">
+            <div className="min-w-0 pr-2">
+              <div className="text-[15px] leading-tight font-bold text-slate-900 truncate">{activeTab}</div>
+              <div className="text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-400">Action Plus Gym</div>
             </div>
             <div className="flex items-center gap-1.5">
               {user?.id === 'owner' && (
@@ -1755,7 +1756,7 @@ Please pay by: ${formattedLastDate}`;
             mobileOpen={mobileMenuOpen}
             onCloseMobile={() => setMobileMenuOpen(false)}
           />
-          <main className="flex-1 overflow-y-auto pt-16 md:pt-0 pb-24 md:pb-0 md:max-w-none max-w-md w-full mx-auto bg-[#F8FAFC] md:bg-transparent">
+          <main className="flex-1 overflow-y-auto pt-[68px] md:pt-0 pb-28 md:pb-0 w-full bg-[#F8FAFC] md:bg-transparent">
             <div className="hidden md:block px-8 pt-6">
               <div className="rounded-2xl border border-slate-200 bg-white p-2 shadow-sm">
                 <div className="flex flex-wrap items-center justify-between gap-2">
@@ -1993,8 +1994,8 @@ Please pay by: ${formattedLastDate}`;
               />
             )}
           </main>
-          <nav className="md:hidden fixed bottom-0 left-1/2 -translate-x-1/2 w-full max-w-md z-30 border-t border-slate-200 bg-white/95 backdrop-blur px-3 pb-[max(0.6rem,env(safe-area-inset-bottom))] pt-2">
-            <div className="grid grid-cols-4 gap-1">
+          <nav className="md:hidden fixed bottom-0 inset-x-0 w-full z-30 border-t border-slate-200 bg-white/95 backdrop-blur px-4 pb-[max(0.65rem,env(safe-area-inset-bottom))] pt-2.5 shadow-[0_-6px_24px_rgba(15,23,42,0.08)]">
+            <div className="grid grid-cols-4 gap-1.5">
               {mobilePrimaryTabs.map((tab) => {
                 const isActive = activeTab === tab.key;
                 return (
@@ -2005,7 +2006,7 @@ Please pay by: ${formattedLastDate}`;
                       if (tab.key === 'Dashboard') setDashMode('summary');
                     }}
                     className={cx(
-                      'flex flex-col items-center justify-center rounded-xl py-1.5 text-[10px] font-semibold transition',
+                      'flex flex-col items-center justify-center rounded-xl py-1.5 text-[11px] font-semibold transition',
                       isActive ? 'bg-blue-50 text-blue-700' : 'text-slate-500'
                     )}
                   >
@@ -2060,7 +2061,7 @@ Please pay by: ${formattedLastDate}`;
               onFocus={() => setAddMemberFabHover(true)}
               onBlur={() => setAddMemberFabHover(false)}
               className={cx(
-                'fixed right-6 flex items-center bg-blue-600 hover:bg-blue-700 text-white py-3 rounded-full shadow-lg z-40 transition-all bottom-24 md:bottom-6',
+                'fixed right-4 md:right-6 flex items-center bg-blue-600 hover:bg-blue-700 text-white py-3 rounded-full shadow-lg z-40 transition-all bottom-24 md:bottom-6',
                 (showAddMemberLabel || addMemberFabHover) ? 'px-4 gap-2' : 'px-3 gap-0'
               )}
             >
@@ -2740,7 +2741,10 @@ function MembersList({ title, list, onBack, onEdit, onStatusChange, holdOptions,
             <MobileMemberDetailView
               m={mobileDetailMember}
               onBack={() => setMobileDetailMemberId('')}
-              onEdit={onEdit}
+              onEdit={(member) => {
+                setMobileDetailMemberId('');
+                onEdit && onEdit(member);
+              }}
               onWelcome={onWelcome}
               onStatusChange={onStatusChange}
               holdOptions={holdOptions}
@@ -3608,7 +3612,10 @@ function DashboardView({ members, onEdit, onStatusChange, holdOptions, logs, fil
             <MobileMemberDetailView
               m={mobileDetailMember}
               onBack={() => setMobileDetailMemberId('')}
-              onEdit={onEdit}
+              onEdit={(member) => {
+                setMobileDetailMemberId('');
+                onEdit && onEdit(member);
+              }}
               onWelcome={onWelcome}
               onStatusChange={onStatusChange}
               holdOptions={holdOptions}
@@ -4485,7 +4492,7 @@ function EditMemberModal({ member, onClose, onSave, planOptions, statusOptions, 
             </div>
             <div className={cx(
               'sticky bottom-0 z-10 bg-white border-t border-slate-200 flex flex-col-reverse sm:flex-row justify-end gap-3 px-4 sm:px-6 py-4 pb-[max(1rem,env(safe-area-inset-bottom))]',
-              hideFooterOnMobile ? 'hidden sm:flex' : ''
+              (hideFooterOnMobile && step !== 5) ? 'hidden sm:flex' : ''
             )}>
               {step === 5 ? (
                 <>
