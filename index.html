@@ -120,6 +120,18 @@
       const nextPay = asUTC(nextPaymentDateValue);
       return nextPay ? iso(addDays(nextPay, 7)) : '';
     };
+    // Final payment deadline for retention / overdue checks (Next Payment Date + 7 days),
+    // falling back to stored paymentBy then billing date for legacy rows.
+    const retentionPaymentDeadline = (m) => {
+      if (!m) return null;
+      const nextIso = m.nextPaymentDate || nextPaymentDateFromBillingDate(m);
+      if (nextIso) {
+        const byIso = paymentByFromNextPaymentDate(nextIso);
+        const d = asUTC(byIso);
+        if (d) return d;
+      }
+      return asUTC(m.paymentBy) || asUTC(m.billingDate);
+    };
     const normalizePhone = (v) => String(v || '').replace(/\D/g, '');
     const isValidEmail = (v) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(v || '').trim());
     const isValidPhone = (v) => {
@@ -133,7 +145,7 @@
     };
     // Determine the primary WhatsApp action button for a member in real time.
     // For Active members:
-    // - paymentBy < today => Fine SMS
+    // - canonical payment deadline (next payment + 7, else stored dates) < today => Fine SMS
     // - billingDate <= today => Reminder (becomes "Reminder Sent" once used)
     // - otherwise => Welcome SMS
     // For other statuses, keep status-based mapping.
@@ -142,7 +154,8 @@
       const today = asUTC(new Date());
       const joiningDate = asUTC(member.joiningDate);
       const billingDate = asUTC(member.billingDate);
-      const paymentBy = asUTC(member.paymentBy || member.billingDate);
+      // Use same canonical deadline as dashboard "retention overdue" (next payment + 7), then fallbacks.
+      const paymentBy = retentionPaymentDeadline(member);
       const sameJoinAndBillingDay = Boolean(
         joiningDate && billingDate && iso(joiningDate) === iso(billingDate)
       );
@@ -328,7 +341,7 @@ This is a friendly reminder that your next payment is due on *[BillingDate]* for
 📸 *Please share the payment screenshot once done for our reference.*
 
 *Kindly clear your payment within one week of the billing date*.
-The last date for payment is *[LastDate].*
+The last date for payment is *[PaymentBy].*
 After this, a fine of ₹100 will be added to your billing cycle.
 
 At Action Plus Gym & Fitness Club, we are committed to making your fitness journey inspiring and rewarding.
@@ -341,16 +354,30 @@ Action Plus Gym & Fitness Club
 🌐 www.actionplusgym.com
 📞 +91-7047157510`,
       monthReminder: `Hi *[CustomerName]*, this is your month-based reminder for *[PLAN]*. Your billing month is *[BillingDate]*.`,
-      fine: `🏋️ *Fine SMS Notice* 🏋️
+      fine: `🏋️ *NOTICE*: *Account Overdue*🏋️
 
-Hello *[CustomerName]*,
+Hello *[CustomerName]!*
 
-Your payment date is beyond today for *[PLAN]*.
-Billing Date: *[BillingDate]*
-Payment By: *[LastDate]*
-Amount: *[Amount]*
+We hope you're enjoying your workouts at Action Plus Gym & Fitness Club.
 
-Please clear dues to avoid additional charges.`,
+This is a reminder that your payment was due on *[PaymentBy].*
+
+A fine of ₹100 has been added as payment was not received within one week of the due date.
+
+Your current outstanding balance is now *₹[Amount] + ₹100 = ₹[Total Amount].*
+
+*Important:*
+If we do not receive an update within one week, your account will be deactivated.
+Post deactivation, you will need to complete a full re-admission process to continue your workouts at Action Plus Gym.
+
+For any queries, feel free to contact us:
+
+📧 Email: gymactionplus@gmail.com
+🌐 Website: www.actionplusgym.com
+📞 Phone: +91-7047157510
+
+Stay Fit, Stay Strong!
+Action Plus Gym & Fitness Club`,
       deactivate: `🏋️ NOTICE: Account Deactivated 🏋️
 
 Hey [CustomerName]!
@@ -456,7 +483,7 @@ Thank you for the recent payment that you have made.
 
 For the amount of INR [Amount] on [TodaysDate].
 
-Your next billing cycle would be on *[NextBillingDate].*
+Your next payment date would be on *[NextPaymentDate].*
 
 *Mode of Payment* : *[PaymentMethod]*
 
@@ -1065,13 +1092,15 @@ Phone: +91-7047157510`;
       const renderSmsTemplate = (template, member) => {
         if (!template) return '';
         const billing = asUTC(member.billingDate);
-        const paymentBy = asUTC(member.paymentBy || member.billingDate);
+        const paymentBy = retentionPaymentDeadline(member);
+        const totalAmountWithFine = Number(member.amount || 0) + 100;
         const replacements = {
           '[Name]': member.name || '',
           '[CustomerName]': member.name || '',
           '[PLAN]': member.plan || '',
           '[CurrentPlan]': member.plan || '',
-          '[Amount]': `${Number(member.amount || 0)}/-`,
+          '[Amount]': `${Number(member.amount || 0)}`,
+          '[Total Amount]': `${totalAmountWithFine}`,
           '[BillingDate]': billing ? fmt(billing) : '',
           '[DATE]': billing ? fmt(billing) : '',
           '[GymStartdate]': member.joiningDate ? fmt(member.joiningDate) : '',
@@ -1250,7 +1279,7 @@ Phone: +91-7047157510`;
         if (!m.billingDate) return null;
 
         const billingDt = asUTC(m.billingDate);
-        const lastDt = addDays(billingDt, 7);
+        const lastDt = retentionPaymentDeadline(m);
         const formattedBillingDate = fmt(billingDt);
         const formattedLastDate = fmt(lastDt);
 
@@ -1292,7 +1321,8 @@ Please pay by: ${formattedLastDate}`;
           ...(settings.smsTemplates || {}),
         };
         const billing = asUTC(member.billingDate);
-        const paymentBy = asUTC(member.paymentBy || member.billingDate);
+        const paymentBy = retentionPaymentDeadline(member);
+        const totalAmountWithFine = Number(member.amount || 0) + 100;
         const replacements = {
           '[Name]': member.name || '',
           '[CustomerName]': member.name || '',
@@ -1304,6 +1334,7 @@ Please pay by: ${formattedLastDate}`;
           '[GymStartdate]': member.joiningDate ? fmt(member.joiningDate) : '',
           '[LastDate]': paymentBy ? fmt(paymentBy) : '',
           '[PaymentBy]': paymentBy ? fmt(paymentBy) : '',
+          '[Total Amount]': `${totalAmountWithFine}`,
           '[HoldDate]': fmt(new Date()),
           '[HoldMonth]': member.holdDuration || '1 Month',
           '[TodaysDate]': fmt(new Date()),
@@ -1874,6 +1905,7 @@ Please pay by: ${formattedLastDate}`;
                 <DashboardSummary
                   members={members}
                   access={normalizeAccess(user?.access)}
+                  isOwner={user?.id === 'owner'}
                   onSelectStatus={(s) => {
                     setDashFilter(s);
                     setDashMode('list');
@@ -2359,7 +2391,7 @@ function Sidebar({ user, active, onSelect, theme, setTheme, onLogout, onUndo, on
     }
 
     // ---- Dashboard Summary Component ----
-    function DashboardSummary({ members, access, onSelectStatus, onAddNew, onSearch, onOpenMember, onWelcome }) {
+    function DashboardSummary({ members, access, isOwner = false, onSelectStatus, onAddNew, onSearch, onOpenMember, onWelcome }) {
       const counts = React.useMemo(() => {
         return {
           Active: members.filter(m => m.status === 'Active').length,
@@ -2374,6 +2406,7 @@ function Sidebar({ user, active, onSelect, theme, setTheme, onLogout, onUndo, on
       const [showTrendHistory, setShowTrendHistory] = React.useState(false);
       const [expandedOverdueId, setExpandedOverdueId] = React.useState('');
       const today = new Date();
+      const todayKey = iso(new Date());
       const monthlyRevenue = members
         .filter(m => {
           const bd = asUTC(m.billingDate);
@@ -2398,20 +2431,23 @@ function Sidebar({ user, active, onSelect, theme, setTheme, onLogout, onUndo, on
         return Math.round(((current - prev) / prev) * 100);
       }, [members, today]);
       const overdueList = React.useMemo(() => {
+        const todayUtc = asUTC(todayKey);
         return members
           .filter(m => {
             if (m.status !== 'Active') return false;
-            const due = asUTC(m.paymentBy || m.billingDate);
-            if (!due || Number.isNaN(due.getTime())) return false;
-            return due < today;
+            const deadline = retentionPaymentDeadline(m);
+            if (!deadline || Number.isNaN(deadline.getTime()) || !todayUtc) return false;
+            return deadline < todayUtc;
           })
           .map(m => {
-            const due = asUTC(m.paymentBy || m.billingDate);
-            const days = due ? Math.max(1, Math.floor((today - due) / (1000 * 60 * 60 * 24))) : 0;
+            const deadline = retentionPaymentDeadline(m);
+            const days = deadline && todayUtc
+              ? Math.max(1, Math.floor((todayUtc.getTime() - deadline.getTime()) / (1000 * 60 * 60 * 24)))
+              : 0;
             return { ...m, overdueDays: days };
           })
           .sort((a, b) => b.overdueDays - a.overdueDays);
-      }, [members, today]);
+      }, [members, todayKey]);
       const allMonthTrend = React.useMemo(() => {
         const dates = members.map(m => asUTC(m.billingDate)).filter(Boolean);
         const start = dates.length
@@ -2510,7 +2546,18 @@ function Sidebar({ user, active, onSelect, theme, setTheme, onLogout, onUndo, on
             <div className="grid grid-cols-3 gap-2">
               <button onClick={onAddNew} className="rounded-2xl border border-blue-200 bg-blue-50 p-3 text-xs font-semibold text-blue-700">Add Member</button>
               <button className="rounded-2xl border border-emerald-200 bg-emerald-50 p-3 text-xs font-semibold text-emerald-700">Scan QR</button>
-              <button onClick={() => { const target = overdueList[0]; if (target) onWelcome && onWelcome(target, 'reminder'); }} className="rounded-2xl border border-violet-200 bg-violet-50 p-3 text-xs font-semibold text-violet-700">Send Reminder</button>
+              <button
+                type="button"
+                onClick={() => {
+                  const target = overdueList[0];
+                  if (!target || !onWelcome) return;
+                  const a = primaryMessageActionForMember(target, isOwner);
+                  onWelcome(target, a.key);
+                }}
+                className="rounded-2xl border border-violet-200 bg-violet-50 p-3 text-xs font-semibold text-violet-700"
+              >
+                Quick WhatsApp
+              </button>
             </div>
             <div className="grid grid-cols-2 gap-3">
               <button onClick={() => onSelectStatus('Active')} className="rounded-2xl border border-emerald-200 bg-emerald-50 p-4 text-left"><div className="text-xs font-semibold text-emerald-700">Active Members</div><div className="mt-2 text-3xl font-bold text-emerald-800">{counts.Active}</div></button>
@@ -2714,13 +2761,26 @@ function Sidebar({ user, active, onSelect, theme, setTheme, onLogout, onUndo, on
                         <td className="px-3 py-2 whitespace-nowrap">{m.overdueDays}</td>
                         <td className="px-3 py-2 whitespace-nowrap">
                           <div className="flex items-center gap-2">
-                            <button
-                              onClick={() => onWelcome && onWelcome(m, 'reminder')}
-                              className="rounded-full px-3 py-1 text-xs font-medium border border-emerald-200 bg-emerald-50 text-emerald-700 hover:bg-emerald-100"
-                            >
-                              Send WhatsApp Reminder
-                            </button>
-                            <SmsSendInfoChip text={getSmsSentInfoText(m, 'reminder')} />
+                            {(() => {
+                              const action = primaryMessageActionForMember(m, isOwner);
+                              const canSend = Boolean(String(m.mobile || '').trim()) && !action.disabled;
+                              return (
+                                <>
+                                  <button
+                                    type="button"
+                                    onClick={() => canSend && onWelcome && onWelcome(m, action.key)}
+                                    disabled={!canSend}
+                                    className={cx(
+                                      'rounded-full px-3 py-1 text-xs font-medium border',
+                                      canSend ? suggestionToneClasses(action.key) : 'border-slate-300 bg-slate-100 text-slate-500 cursor-not-allowed'
+                                    )}
+                                  >
+                                    {action.label}
+                                  </button>
+                                  <SmsSendInfoChip text={getSmsSentInfoText(m, action.key)} />
+                                </>
+                              );
+                            })()}
                             <button
                               onClick={() => setExpandedOverdueId(prev => prev === m.memberId ? '' : m.memberId)}
                               className="rounded-full px-3 py-1 text-xs font-medium border border-slate-300 bg-white text-slate-700 hover:bg-slate-100"
@@ -2756,8 +2816,26 @@ function Sidebar({ user, active, onSelect, theme, setTheme, onLogout, onUndo, on
                     <div className="text-xs text-slate-600 mt-1">Plan: {m.plan || '-'} | Amount: ${Number(m.amount || 0).toLocaleString()}</div>
                     <div className="text-xs text-slate-600">Overdue: {m.overdueDays} days</div>
                     <div className="mt-2 flex gap-2 flex-wrap items-center">
-                      <button onClick={() => onWelcome && onWelcome(m, 'reminder')} className="rounded-full px-3 py-2 min-h-[44px] text-xs font-medium border border-emerald-200 bg-emerald-50 text-emerald-700">Send WhatsApp</button>
-                      <SmsSendInfoChip text={getSmsSentInfoText(m, 'reminder')} />
+                      {(() => {
+                        const action = primaryMessageActionForMember(m, isOwner);
+                        const canSend = Boolean(String(m.mobile || '').trim()) && !action.disabled;
+                        return (
+                          <>
+                            <button
+                              type="button"
+                              onClick={() => canSend && onWelcome && onWelcome(m, action.key)}
+                              disabled={!canSend}
+                              className={cx(
+                                'rounded-full px-3 py-2 min-h-[44px] text-xs font-medium border',
+                                canSend ? suggestionToneClasses(action.key) : 'border-slate-300 bg-slate-100 text-slate-500 cursor-not-allowed'
+                              )}
+                            >
+                              {action.label}
+                            </button>
+                            <SmsSendInfoChip text={getSmsSentInfoText(m, action.key)} />
+                          </>
+                        );
+                      })()}
                       <button onClick={() => setExpandedOverdueId(prev => prev === m.memberId ? '' : m.memberId)} className="rounded-full px-3 py-2 min-h-[44px] text-xs font-medium border border-slate-300 bg-white text-slate-700">{expandedOverdueId === m.memberId ? 'Hide' : 'Details'}</button>
                     </div>
                     {expandedOverdueId === m.memberId && <div className="mt-2"><MemberDetails m={m} logs={[]} /></div>}
@@ -5621,6 +5699,7 @@ function SettingsPage({ settings, updateSetting, members, access, storageInfo, o
       const [activeType, setActiveType] = React.useState('reminder');
       const [search, setSearch] = React.useState('');
       const [expandedTemplates, setExpandedTemplates] = React.useState({});
+      const [templateEditor, setTemplateEditor] = React.useState({ open: false, key: '', value: '' });
       const messageCenterRef = React.useRef(null);
       const [preview, setPreview] = React.useState({ open: false, member: null, templateKey: '' });
       const VARIABLE_KEYS = ['[CustomerName]','[PLAN]','[CurrentPlan]','[Amount]','[BillingDate]','[PaymentBy]','[GymStartdate]','[NextPaymentDate]'];
@@ -5629,6 +5708,23 @@ function SettingsPage({ settings, updateSetting, members, access, storageInfo, o
         updateSetting('smsTemplates', { ...SMS_TEMPLATE_DEFAULTS });
         updateSetting('smsTemplatePresetVersion', '2026-04-27');
       }, [settings.smsTemplatePresetVersion]);
+      React.useEffect(() => {
+        const existing = settings.smsTemplates || {};
+        const normalized = {};
+        let changed = false;
+        Object.keys(existing).forEach((k) => {
+          const raw = String(existing[k] || '');
+          const next = raw
+            .replaceAll('[NextBillingDate]', '[NextPaymentDate]')
+            .replaceAll('*[LastDate]*', '*[PaymentBy]*')
+            .replaceAll('[LastDate]', '[PaymentBy]');
+          normalized[k] = next;
+          if (next !== raw) changed = true;
+        });
+        if (changed) {
+          updateSetting('smsTemplates', { ...existing, ...normalized });
+        }
+      }, [settings.smsTemplates]);
       const templates = settings.smsTemplatePresetVersion === '2026-04-27'
         ? { ...SMS_TEMPLATE_DEFAULTS, ...(settings.smsTemplates || {}) }
         : { ...SMS_TEMPLATE_DEFAULTS };
@@ -5733,14 +5829,13 @@ function SettingsPage({ settings, updateSetting, members, access, storageInfo, o
       const shownRules = rules.filter(r => ruleTab === 'all' ? true : ruleTab === 'status' ? r.type === 'status' : r.type === 'billing');
       const editTemplate = (key) => {
         const curr = templates[key] || '';
-        const next = window.prompt(`Edit template: ${key}`, curr);
-        if (next === null) return;
-        updateSetting('smsTemplates', { ...templates, [key]: next });
+        setTemplateEditor({ open: true, key, value: curr });
       };
       const renderSms = (template, m) => {
         if (!m) return '';
         const billing = asUTC(m.billingDate);
-        const paymentBy = asUTC(m.paymentBy || m.billingDate);
+        const paymentBy = retentionPaymentDeadline(m);
+        const totalAmountWithFine = Number(m.amount || 0) + 100;
         const replacements = {
           '[Name]': m.name || '',
           '[CustomerName]': m.name || '',
@@ -5752,6 +5847,7 @@ function SettingsPage({ settings, updateSetting, members, access, storageInfo, o
           '[GymStartdate]': m.joiningDate ? fmt(m.joiningDate) : '',
           '[LastDate]': paymentBy ? fmt(paymentBy) : '',
           '[PaymentBy]': paymentBy ? fmt(paymentBy) : '',
+          '[Total Amount]': `${totalAmountWithFine}`,
           '[HoldDate]': today ? fmt(today) : '',
           '[HoldMonth]': m.holdDuration || '1 Month',
           '[TodaysDate]': today ? fmt(today) : '',
@@ -6128,6 +6224,44 @@ function SettingsPage({ settings, updateSetting, members, access, storageInfo, o
               </div>
             </div>
           </div>
+          {templateEditor.open && (
+            <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 p-4">
+              <div className="w-full max-w-3xl rounded-2xl bg-white p-4 shadow-xl space-y-3">
+                <div className="flex items-center justify-between">
+                  <div className="text-lg font-semibold">Edit template: {templateEditor.key}</div>
+                  <button
+                    onClick={() => setTemplateEditor({ open: false, key: '', value: '' })}
+                    className="rounded-lg px-2 py-1 hover:bg-slate-100"
+                  >
+                    ✕
+                  </button>
+                </div>
+                <div className="text-xs text-slate-500">You can scroll and edit the full message here.</div>
+                <textarea
+                  value={templateEditor.value}
+                  onChange={(e) => setTemplateEditor((prev) => ({ ...prev, value: e.target.value }))}
+                  className="h-[48vh] w-full rounded-xl border border-slate-300 bg-white p-3 text-sm leading-6 font-medium text-slate-800 focus:outline-none focus:ring-2 focus:ring-blue-300"
+                />
+                <div className="flex justify-end gap-2">
+                  <button
+                    onClick={() => setTemplateEditor({ open: false, key: '', value: '' })}
+                    className="rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    onClick={() => {
+                      updateSetting('smsTemplates', { ...templates, [templateEditor.key]: templateEditor.value });
+                      setTemplateEditor({ open: false, key: '', value: '' });
+                    }}
+                    className="rounded-full bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700"
+                  >
+                    Save
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
           {preview.open && (
             <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 p-4">
               <div className="w-full max-w-xl rounded-2xl bg-white p-4 shadow-xl space-y-3">
