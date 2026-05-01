@@ -116,20 +116,18 @@
       const billing = asUTC(billingSource);
       return billing ? iso(addMonths(billing, 1)) : '';
     };
-    const paymentByFromNextPaymentDate = (nextPaymentDateValue) => {
-      const nextPay = asUTC(nextPaymentDateValue);
-      return nextPay ? iso(addDays(nextPay, 7)) : '';
+    const paymentByFromBillingDate = (billingDateValue) => {
+      const billing = asUTC(billingDateValue);
+      return billing ? iso(addDays(billing, 7)) : '';
     };
-    // Final payment deadline for retention / overdue checks (Next Payment Date + 7 days),
+    // Final payment deadline for retention / overdue checks (Billing Date + 7 days),
     // falling back to stored paymentBy then billing date for legacy rows.
     const retentionPaymentDeadline = (m) => {
       if (!m) return null;
-      const nextIso = m.nextPaymentDate || nextPaymentDateFromBillingDate(m);
-      if (nextIso) {
-        const byIso = paymentByFromNextPaymentDate(nextIso);
-        const d = asUTC(byIso);
-        if (d) return d;
-      }
+      const billingIso = m.billingDate || '';
+      const byIso = paymentByFromBillingDate(billingIso);
+      const d = asUTC(byIso);
+      if (d) return d;
       return asUTC(m.paymentBy) || asUTC(m.billingDate);
     };
     const normalizePhone = (v) => String(v || '').replace(/\D/g, '');
@@ -145,7 +143,7 @@
     };
     // Determine the primary WhatsApp action button for a member in real time.
     // For Active members:
-    // - canonical payment deadline (next payment + 7, else stored dates) < today => Fine SMS
+    // - canonical payment deadline (billing + 7, else stored dates) < today => Fine SMS
     // - billingDate <= today => Reminder (becomes "Reminder Sent" once used)
     // - otherwise => Welcome SMS
     // For other statuses, keep status-based mapping.
@@ -154,7 +152,7 @@
       const today = asUTC(new Date());
       const joiningDate = asUTC(member.joiningDate);
       const billingDate = asUTC(member.billingDate);
-      // Use same canonical deadline as dashboard "retention overdue" (next payment + 7), then fallbacks.
+      // Use same canonical deadline as dashboard "retention overdue" (billing + 7), then fallbacks.
       const paymentBy = retentionPaymentDeadline(member);
       const sameJoinAndBillingDay = Boolean(
         joiningDate && billingDate && iso(joiningDate) === iso(billingDate)
@@ -719,6 +717,19 @@ Phone: +91-7047157510`;
           return [];
         }
       });
+      // Keep legacy records aligned with current rule: Payment By = Billing Date + 7 days.
+      React.useEffect(() => {
+        let changed = false;
+        const normalized = (members || []).map((m) => {
+          if (!m || !m.billingDate) return m;
+          const derived = paymentByFromBillingDate(m.billingDate);
+          if (!derived) return m;
+          if (String(m.paymentBy || '') === String(derived)) return m;
+          changed = true;
+          return { ...m, paymentBy: derived };
+        });
+        if (changed) setMembers(normalized);
+      }, [members]);
       const [settings, setSettings] = React.useState(() => {
         try {
           const saved = localStorage.getItem(STORAGE_KEYS.settings);
@@ -1436,7 +1447,7 @@ Please pay by: ${formattedLastDate}`;
         if (toSave.billingDate) {
           const nextPay = nextPaymentDateFromBillingDate(toSave.billingDate);
           toSave.nextPaymentDate = nextPay;
-          toSave.paymentBy = paymentByFromNextPaymentDate(nextPay);
+          toSave.paymentBy = paymentByFromBillingDate(toSave.billingDate);
         }
         const beforeMember = members.find(m => m.memberId === toSave.memberId) || null;
         const changed = (key) => String((beforeMember?.[key] ?? '')) !== String((toSave?.[key] ?? ''));
@@ -1543,7 +1554,7 @@ Please pay by: ${formattedLastDate}`;
         if (quickFieldEdit.fieldKey === 'billingDate' && nextValue) {
           const nextPay = addMonths(nextValue, 1);
           updated.nextPaymentDate = iso(nextPay);
-          updated.paymentBy = iso(addDays(nextPay, 7));
+          updated.paymentBy = iso(addDays(nextValue, 7));
         }
         const ok = saveEdit(updated);
         if (ok) setQuickFieldEdit(null);
@@ -2517,7 +2528,7 @@ function Sidebar({ user, active, onSelect, theme, setTheme, onLogout, onUndo, on
       if (isMobile) {
         const recentMembers = members.slice(0, 6);
         const insightExpiring = members.filter((m) => {
-          const due = asUTC(m.paymentBy || m.billingDate);
+          const due = retentionPaymentDeadline(m);
           if (!due) return false;
           const diff = Math.ceil((due - today) / (1000 * 60 * 60 * 24));
           return diff === 1;
@@ -3168,7 +3179,7 @@ function MemberRowDesktopView({ m, selectable, selected, onSelectToggle, onToggl
         { key: 'joined', label: 'Joined Date', value: fmt(m.joiningDate) || '-', icon: '📅', tone: 'bg-blue-50 text-blue-600', editable: false },
         { key: 'billingDate', label: 'Billing Date', value: fmt(m.billingDate) || '-', icon: '🧾', tone: 'bg-amber-50 text-amber-600', editable: true, type: 'date', rawValue: iso(m.billingDate) || '' },
         { key: 'nextPayment', label: 'Next Payment Date', value: fmt(m.nextPaymentDate || nextPaymentDateFromBillingDate(m)) || '-', icon: '⏭️', tone: 'bg-indigo-50 text-indigo-600', editable: false },
-        { key: 'paymentBy', label: 'Payment By', value: fmt(m.paymentBy) || '-', icon: '⏰', tone: 'bg-orange-50 text-orange-600', editable: false },
+        { key: 'paymentBy', label: 'Payment By', value: fmt(retentionPaymentDeadline(m) || m.billingDate) || '-', icon: '⏰', tone: 'bg-orange-50 text-orange-600', editable: false },
         { key: 'amount', label: 'Current Balance', value: `₹${dueAmount.toLocaleString()}`, icon: '💳', tone: 'bg-emerald-50 text-emerald-600', editable: true, type: 'number', rawValue: String(m.amount ?? '') },
         { key: 'status', label: 'Status', value: m.status || '-', icon: '✅', tone: 'bg-emerald-50 text-emerald-600', editable: true, type: 'select', options: editOptions?.statuses || [] },
         { key: 'plan', label: 'Plan', value: m.plan || '-', icon: '📦', tone: 'bg-cyan-50 text-cyan-600', editable: true, type: 'select', options: editOptions?.plans || [] },
@@ -3423,7 +3434,7 @@ function MemberRowDesktopView({ m, selectable, selected, onSelectToggle, onToggl
         { label: 'Joining Date', key: 'joiningDate', value: fmt(m.joiningDate) || '—', editable: false, type: 'date', rawValue: iso(m.joiningDate) || '' },
         { label: 'Billing Date', key: 'billingDate', value: fmt(m.billingDate) || '—', editable: quickEditableKeys.has('billingDate'), type: 'date', rawValue: iso(m.billingDate) || '' },
         { label: 'Next Payment Date', key: 'nextPaymentDate', value: fmt(m.nextPaymentDate || nextPaymentDateFromBillingDate(m)) || '—', editable: false },
-        { label: 'Payment By', key: 'paymentBy', value: fmt(m.paymentBy) || '—', editable: false },
+        { label: 'Payment By', key: 'paymentBy', value: fmt(retentionPaymentDeadline(m) || m.billingDate) || '—', editable: false },
         { label: 'Status', key: 'status', value: normal(m.status), editable: quickEditableKeys.has('status'), type: 'select', options: editOptions?.statuses || [] },
         { label: 'Hold Duration', key: 'holdDuration', value: normal(m.holdDuration), editable: false, type: 'select', options: ['', ...(editOptions?.holdDurations || [])] },
         { label: 'Payment Method', key: 'paymentMethod', value: normal(m.paymentMethod), editable: quickEditableKeys.has('paymentMethod'), type: 'select', options: editOptions?.paymentMethods || [] },
@@ -3697,7 +3708,7 @@ function DashboardView({ members, onEdit, onStatusChange, holdOptions, logs, fil
         const today = new Date();
         return applyFilters(members).filter(m => {
           if (m.status !== 'Active') return false;
-          const due = asUTC(m.paymentBy || m.billingDate);
+          const due = retentionPaymentDeadline(m);
           return due && due < today;
         }).length;
       }, [members, applyFilters]);
@@ -3942,7 +3953,7 @@ function EditMemberModal({ member, onClose, onSave, planOptions, statusOptions, 
       React.useEffect(() => {
         if (edit.billingDate) {
           const nextPay = addMonths(edit.billingDate, 1);
-          const payBy = addDays(nextPay, 7);
+          const payBy = addDays(edit.billingDate, 7);
           setEdit(e => ({ ...e, nextPaymentDate: iso(nextPay), paymentBy: iso(payBy) }));
         }
       }, [edit.billingDate]);
@@ -4185,7 +4196,7 @@ function EditMemberModal({ member, onClose, onSave, planOptions, statusOptions, 
                 </div>
                 <div>
                   <label className="text-sm font-medium">Payment By</label>
-                  <input readOnly value={fmt(edit.paymentBy)} className="w-full rounded-xl border border-slate-200 bg-slate-100 px-3 py-2 text-sm text-slate-500" />
+                  <input readOnly value={fmt(paymentByFromBillingDate(edit.billingDate) || edit.paymentBy)} className="w-full rounded-xl border border-slate-200 bg-slate-100 px-3 py-2 text-sm text-slate-500" />
                 </div>
                 {/* Row 7: Staff */}
                 <div>
@@ -4286,7 +4297,7 @@ function EditMemberModal({ member, onClose, onSave, planOptions, statusOptions, 
         joiningDate: iso(new Date()),
         billingDate: iso(new Date()),
         nextPaymentDate: iso(addMonths(new Date(), 1)),
-        paymentBy: paymentByFromNextPaymentDate(addMonths(new Date(), 1)),
+        paymentBy: paymentByFromBillingDate(new Date()),
         status: 'Active',
         paymentMethod: settings.paymentMethods[0],
         remark: '',
@@ -4383,7 +4394,7 @@ function EditMemberModal({ member, onClose, onSave, planOptions, statusOptions, 
           const todayIso = iso(new Date());
           const bd = joinIso === todayIso ? asUTC(new Date()) : addMonths(form.joiningDate, 1);
           const nextPay = addMonths(bd, 1);
-          const pb = addDays(nextPay, 7);
+          const pb = addDays(bd, 7);
           setForm(f => ({ ...f, billingDate: iso(bd), nextPaymentDate: iso(nextPay), paymentBy: iso(pb) }));
         }
       }, [form.joiningDate]);
@@ -4391,7 +4402,7 @@ function EditMemberModal({ member, onClose, onSave, planOptions, statusOptions, 
       React.useEffect(() => {
         if (form.billingDate) {
           const nextPay = addMonths(form.billingDate, 1);
-          const pb = addDays(nextPay, 7);
+          const pb = addDays(form.billingDate, 7);
           setForm(f => ({ ...f, nextPaymentDate: iso(nextPay), paymentBy: iso(pb) }));
         }
       }, [form.billingDate]);
@@ -4618,7 +4629,7 @@ function EditMemberModal({ member, onClose, onSave, planOptions, statusOptions, 
           joiningDate: iso(new Date()),
           billingDate: iso(new Date()),
           nextPaymentDate: iso(addMonths(new Date(), 1)),
-          paymentBy: paymentByFromNextPaymentDate(addMonths(new Date(), 1)),
+          paymentBy: paymentByFromBillingDate(new Date()),
           status: 'Active',
           paymentMethod: settings.paymentMethods[0],
           remark: '',
@@ -4711,7 +4722,7 @@ function EditMemberModal({ member, onClose, onSave, planOptions, statusOptions, 
                   <div><label className="text-sm font-medium">Joining Date{reqMark}</label><input id="add-member-joiningDate" type="date" value={form.joiningDate} onChange={(e) => setForm({ ...form, joiningDate: e.target.value })} className={reqCls(req2.joiningDate)} /></div>
                   <div><label className="text-sm font-medium">Billing Date{reqMark}</label><input id="add-member-billingDate" type="date" value={form.billingDate} onChange={(e) => setForm({ ...form, billingDate: e.target.value })} className={reqCls(req2.billingDate)} /></div>
                   <div><label className="text-sm font-medium">Next Payment Date</label><input type="date" value={form.nextPaymentDate || nextPaymentDateFromBillingDate(form.billingDate)} readOnly className={readOnlyCls} /></div>
-                  <div><label className="text-sm font-medium">Payment By</label><input type="date" value={form.paymentBy} readOnly className={readOnlyCls} /></div>
+                  <div><label className="text-sm font-medium">Payment By</label><input type="date" value={form.paymentBy || paymentByFromBillingDate(form.billingDate)} readOnly className={readOnlyCls} /></div>
                   <div><label className="text-sm font-medium">Status{reqMark}</label><select id="add-member-status" value={form.status} onChange={(e) => setForm({ ...form, status: e.target.value })} className={reqCls(req2.status)}>
                     {settings.statuses.map(s => <option key={s} value={s}>{s}</option>)}
                   </select></div>
@@ -5750,19 +5761,19 @@ function SettingsPage({ settings, updateSetting, members, access, storageInfo, o
       const today = new Date();
       const activeMembers = members.filter(m => m.status === 'Active');
       const billingD5 = activeMembers.filter(m => {
-        const due = asUTC(m.paymentBy || m.billingDate);
+        const due = retentionPaymentDeadline(m);
         if (!due) return false;
         const diff = Math.ceil((due - today) / (1000 * 60 * 60 * 24));
         return diff === 5;
       }).length;
       const billingD3 = activeMembers.filter(m => {
-        const due = asUTC(m.paymentBy || m.billingDate);
+        const due = retentionPaymentDeadline(m);
         if (!due) return false;
         const diff = Math.ceil((due - today) / (1000 * 60 * 60 * 24));
         return diff === 3;
       }).length;
       const fineEligible = activeMembers.filter(m => {
-        const due = asUTC(m.paymentBy || m.billingDate);
+        const due = retentionPaymentDeadline(m);
         return due && due < today;
       }).length;
       const holdCount = members.filter(m => m.status === 'Hold').length;
@@ -5778,7 +5789,7 @@ function SettingsPage({ settings, updateSetting, members, access, storageInfo, o
           return bd && bd.getUTCMonth() === today.getUTCMonth() && bd.getUTCFullYear() === today.getUTCFullYear();
         }),
         fine: activeMembers.filter(m => {
-          const due = asUTC(m.paymentBy || m.billingDate);
+          const due = retentionPaymentDeadline(m);
           return due && due < today;
         }),
         success: members
@@ -5991,7 +6002,7 @@ function SettingsPage({ settings, updateSetting, members, access, storageInfo, o
                       <td className="px-3 py-2">{m.mobile || '-'}</td>
                       <td className="px-3 py-2">{m.status || '-'}</td>
                       <td className="px-3 py-2">{fmt(m.nextPaymentDate || nextPaymentDateFromBillingDate(m)) || '-'}</td>
-                      <td className="px-3 py-2">{fmt(m.paymentBy || m.billingDate)}</td>
+                      <td className="px-3 py-2">{fmt(retentionPaymentDeadline(m) || m.billingDate)}</td>
                       <td className="px-3 py-2">
                         {(() => {
                           const suggested = primaryMessageActionForMember(m, currentUser?.id === 'owner');
@@ -6053,7 +6064,7 @@ function SettingsPage({ settings, updateSetting, members, access, storageInfo, o
                     </div>
                     <div className="text-xs text-slate-600">Mobile: {m.mobile || '-'}</div>
                     <div className="text-xs text-slate-600">Next Payment Date: {fmt(m.nextPaymentDate || nextPaymentDateFromBillingDate(m)) || '-'}</div>
-                    <div className="text-xs text-slate-600">Payment By: {fmt(m.paymentBy || m.billingDate)}</div>
+                    <div className="text-xs text-slate-600">Payment By: {fmt(retentionPaymentDeadline(m) || m.billingDate)}</div>
                     <div className="text-xs text-slate-600">
                       What Message To Send:{' '}
                       {(() => {
@@ -6302,7 +6313,7 @@ function SettingsPage({ settings, updateSetting, members, access, storageInfo, o
         return members
           .filter(m => m.billingDate)
           .map(m => {
-            const due = asUTC(m.paymentBy || m.billingDate);
+            const due = retentionPaymentDeadline(m);
             const pending = m.status === 'Active' && due && due < today;
             return {
               id: m.memberId || crypto.randomUUID(),
