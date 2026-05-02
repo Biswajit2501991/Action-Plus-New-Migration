@@ -5758,40 +5758,37 @@ function SettingsPage({ settings, updateSetting, members, access, storageInfo, o
         { key: 'welcome', label: 'Welcome SMS' },
         { key: 'templates', label: 'WhatsApp Template' },
       ];
-      const today = new Date();
+      const todayKey = iso(new Date());
+      const todayUtc = asUTC(todayKey);
       const activeMembers = members.filter(m => m.status === 'Active');
+      const isOwnerForSmsTab = currentUser?.id === 'owner';
+      const primaryTemplateKeyForTab = (m) => primaryMessageActionForMember(m, isOwnerForSmsTab).key;
       const billingD5 = activeMembers.filter(m => {
         const due = retentionPaymentDeadline(m);
-        if (!due) return false;
-        const diff = Math.ceil((due - today) / (1000 * 60 * 60 * 24));
+        if (!due || !todayUtc) return false;
+        const diff = Math.ceil((due.getTime() - todayUtc.getTime()) / (1000 * 60 * 60 * 24));
         return diff === 5;
       }).length;
       const billingD3 = activeMembers.filter(m => {
         const due = retentionPaymentDeadline(m);
-        if (!due) return false;
-        const diff = Math.ceil((due - today) / (1000 * 60 * 60 * 24));
+        if (!due || !todayUtc) return false;
+        const diff = Math.ceil((due.getTime() - todayUtc.getTime()) / (1000 * 60 * 60 * 24));
         return diff === 3;
       }).length;
-      const fineEligible = activeMembers.filter(m => {
-        const due = retentionPaymentDeadline(m);
-        return due && due < today;
-      }).length;
+      const fineEligible = activeMembers.filter(m => primaryTemplateKeyForTab(m) === 'fine').length;
       const holdCount = members.filter(m => m.status === 'Hold').length;
       const deactiveCount = members.filter(m => m.status === 'Deactivated').length;
       const monthlyCount = activeMembers.filter(m => {
         const bd = asUTC(m.billingDate);
-        return bd && bd.getUTCMonth() === today.getUTCMonth() && bd.getUTCFullYear() === today.getUTCFullYear();
+        return bd && todayUtc && bd.getUTCMonth() === todayUtc.getUTCMonth() && bd.getUTCFullYear() === todayUtc.getUTCFullYear();
       }).length;
       const membersByType = React.useMemo(() => ({
-        reminder: activeMembers,
+        reminder: activeMembers.filter((m) => primaryMessageActionForMember(m, isOwnerForSmsTab).key === 'reminder'),
         monthReminder: activeMembers.filter(m => {
           const bd = asUTC(m.billingDate);
-          return bd && bd.getUTCMonth() === today.getUTCMonth() && bd.getUTCFullYear() === today.getUTCFullYear();
+          return bd && todayUtc && bd.getUTCMonth() === todayUtc.getUTCMonth() && bd.getUTCFullYear() === todayUtc.getUTCFullYear();
         }),
-        fine: activeMembers.filter(m => {
-          const due = retentionPaymentDeadline(m);
-          return due && due < today;
-        }),
+        fine: activeMembers.filter((m) => primaryMessageActionForMember(m, isOwnerForSmsTab).key === 'fine'),
         success: members
           .filter((m) => Boolean(getLastWhatsAppSendMeta(m, 'success')?.sentAt))
           .sort((a, b) => {
@@ -5804,9 +5801,9 @@ function SettingsPage({ settings, updateSetting, members, access, storageInfo, o
         welcome: activeMembers.filter(m => {
           const jd = asUTC(m.joiningDate);
           const bd = asUTC(m.billingDate);
-          return Boolean(jd && bd && iso(jd) === iso(bd) && bd <= today);
+          return Boolean(jd && bd && todayUtc && iso(jd) === iso(bd) && bd <= todayUtc);
         }),
-      }), [activeMembers, members, today]);
+      }), [activeMembers, members, todayKey, currentUser?.id]);
       const rows = React.useMemo(() => {
         const q = search.toLowerCase().trim();
         const base = membersByType[activeType] || [];
@@ -5859,9 +5856,9 @@ function SettingsPage({ settings, updateSetting, members, access, storageInfo, o
           '[LastDate]': paymentBy ? fmt(paymentBy) : '',
           '[PaymentBy]': paymentBy ? fmt(paymentBy) : '',
           '[Total Amount]': `${totalAmountWithFine}`,
-          '[HoldDate]': today ? fmt(today) : '',
+          '[HoldDate]': fmt(new Date()),
           '[HoldMonth]': m.holdDuration || '1 Month',
-          '[TodaysDate]': today ? fmt(today) : '',
+          '[TodaysDate]': fmt(new Date()),
           '[NextBillingDate]': billing ? fmt(addMonths(billing, 1)) : '',
           '[NextPaymentDate]': fmt(m.nextPaymentDate || nextPaymentDateFromBillingDate(m)) || '',
           '[ModeOfPayment]': m.paymentMethod || '',
