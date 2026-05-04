@@ -770,6 +770,26 @@ Phone: +91-7047157510`;
       paymentMethods: ['Google Pay','Cash','Phone Pay','Cash + Google Pay','Cash + Phone Pay','Paytm','Cash + Paytm'],
       holdDurations: ['1 Month','2 Months','3 Months','4 Months','5 Months','6 Months'],
       genders: ['Male','Female','Cannot disclose'],
+      exerciseTypes: [
+        'Back',
+        'Back + Biceps',
+        'Chest',
+        'Chest + Triceps',
+        'Legs',
+        'Cardio + Back',
+        'Chest + Cardio',
+        'Chest + Back + Triceps',
+        'Freehand + Cardio',
+        'Yoga + Cardio',
+        'Yoga',
+        'Running',
+        'Running + Cycling',
+        'Rest day',
+        'Shoulder',
+        'Shoulder + Biceps',
+        'Shoulder + Legs',
+        'Biceps+Triceps+Forearms',
+      ],
       staff: [ { id:'Bis', name:'Bis', email:'bis@example.com', avatar:null }, { id:'Raja', name:'Raja', email:'raja@example.com', avatar:null } ],
       roleTemplates: [...DEFAULT_ROLE_TEMPLATES],
       smsTemplates: { ...SMS_TEMPLATE_DEFAULTS },
@@ -933,10 +953,13 @@ Phone: +91-7047157510`;
         (async () => {
           try {
             await backendJson('/health');
-            const [remoteUsers, remoteMembers, remoteSettings] = await Promise.all([
+            const [remoteUsers, remoteMembers, remoteSettings, remoteLogs, remoteFinance, remoteSmsEvents] = await Promise.all([
               backendJson('/users').catch(() => []),
               backendJson('/members').catch(() => []),
               backendJson('/settings').catch(() => ({})),
+              backendJson('/logs').catch(() => []),
+              backendJson('/finance').catch(() => []),
+              backendJson('/sms-events').catch(() => []),
             ]);
             if (!alive) return;
             await clearQueuedSnapshots().catch(() => {});
@@ -945,9 +968,14 @@ Phone: +91-7047157510`;
             if (Array.isArray(remoteUsers) && remoteUsers.length > 0) setUsers(remoteUsers);
             if (Array.isArray(remoteMembers) && remoteMembers.length > 0) setMembers(remoteMembers);
             if (remoteSettings && typeof remoteSettings === 'object' && Object.keys(remoteSettings).length > 0) setSettings(remoteSettings);
+            if (Array.isArray(remoteLogs) && remoteLogs.length > 0) setLogs(remoteLogs);
+            if (Array.isArray(remoteFinance) && remoteFinance.length > 0) setFinanceTransactions(remoteFinance);
+            if (Array.isArray(remoteSmsEvents) && remoteSmsEvents.length > 0) setSmsEvents(remoteSmsEvents);
+            setBackendHydrated(true);
           } catch {
             if (!alive) return;
             setDataSyncMode('local');
+            setBackendHydrated(false);
           } finally {
             if (alive) setSyncRuntimeReady(true);
           }
@@ -1006,6 +1034,7 @@ Phone: +91-7047157510`;
       const [availableBackups, setAvailableBackups] = React.useState([]);
       const [offlineQueueCount, setOfflineQueueCount] = React.useState(0);
       const [syncRuntimeReady, setSyncRuntimeReady] = React.useState(false);
+      const [backendHydrated, setBackendHydrated] = React.useState(false);
       const showStorageWarning = () => {
         const now = Date.now();
         // Rate limit warning to avoid repeated toasts during batched writes.
@@ -1154,6 +1183,18 @@ Phone: +91-7047157510`;
                 await backendJson('/settings/bulk', { method: 'PUT', body: JSON.stringify({ settings: row.payload || {} }) });
                 await deleteQueuedSnapshot('settings');
                 setOfflineQueueCount((c) => Math.max(0, c - 1));
+              } else if (row.entity === 'logs') {
+                await backendJson('/logs/bulk', { method: 'PUT', body: JSON.stringify({ logs: row.payload || [] }) });
+                await deleteQueuedSnapshot('logs');
+                setOfflineQueueCount((c) => Math.max(0, c - 1));
+              } else if (row.entity === 'finance') {
+                await backendJson('/finance/bulk', { method: 'PUT', body: JSON.stringify({ finance: row.payload || [] }) });
+                await deleteQueuedSnapshot('finance');
+                setOfflineQueueCount((c) => Math.max(0, c - 1));
+              } else if (row.entity === 'smsEvents') {
+                await backendJson('/sms-events/bulk', { method: 'PUT', body: JSON.stringify({ smsEvents: row.payload || [] }) });
+                await deleteQueuedSnapshot('smsEvents');
+                setOfflineQueueCount((c) => Math.max(0, c - 1));
               }
             }
           } catch {}
@@ -1167,6 +1208,7 @@ Phone: +91-7047157510`;
       }, [dataSyncMode]);
       React.useEffect(() => {
         if (!syncRuntimeReady) return;
+        if (dataSyncMode === 'backend' && !backendHydrated) return;
         if (dataSyncMode === 'backend') {
           backendJson('/members/bulk', {
             method: 'PUT',
@@ -1176,9 +1218,10 @@ Phone: +91-7047157510`;
         }
         safeSetItemJSON(STORAGE_KEYS.members, members);
         queueSyncSnapshot('members', members).then(() => setOfflineQueueCount((c) => c + 1)).catch(() => {});
-      }, [members, dataSyncMode, syncRuntimeReady]);
+      }, [members, dataSyncMode, syncRuntimeReady, backendHydrated]);
       React.useEffect(() => {
         if (!syncRuntimeReady) return;
+        if (dataSyncMode === 'backend' && !backendHydrated) return;
         if (dataSyncMode === 'backend') {
           backendJson('/settings/bulk', {
             method: 'PUT',
@@ -1188,24 +1231,52 @@ Phone: +91-7047157510`;
         }
         safeSetItemJSON(STORAGE_KEYS.settings, settings);
         queueSyncSnapshot('settings', settings).then(() => setOfflineQueueCount((c) => c + 1)).catch(() => {});
-      }, [settings, dataSyncMode, syncRuntimeReady]);
+      }, [settings, dataSyncMode, syncRuntimeReady, backendHydrated]);
       React.useEffect(() => {
-        if (dataSyncMode === 'backend') return;
+        if (!syncRuntimeReady) return;
+        if (dataSyncMode === 'backend' && !backendHydrated) return;
+        if (dataSyncMode === 'backend') {
+          backendJson('/logs/bulk', {
+            method: 'PUT',
+            body: JSON.stringify({ logs }),
+          }).catch(() => queueSyncSnapshot('logs', logs).then(() => setOfflineQueueCount((c) => c + 1)).catch(() => {}));
+          return;
+        }
         safeSetItemJSON(STORAGE_KEYS.logs, logs);
-      }, [logs, dataSyncMode]);
+        queueSyncSnapshot('logs', logs).then(() => setOfflineQueueCount((c) => c + 1)).catch(() => {});
+      }, [logs, dataSyncMode, syncRuntimeReady, backendHydrated]);
       React.useEffect(() => {
-        if (dataSyncMode === 'backend') return;
+        if (!syncRuntimeReady) return;
+        if (dataSyncMode === 'backend' && !backendHydrated) return;
+        if (dataSyncMode === 'backend') {
+          backendJson('/finance/bulk', {
+            method: 'PUT',
+            body: JSON.stringify({ finance: financeTransactions }),
+          }).catch(() => queueSyncSnapshot('finance', financeTransactions).then(() => setOfflineQueueCount((c) => c + 1)).catch(() => {}));
+          return;
+        }
         safeSetItemJSON(STORAGE_KEYS.finance, financeTransactions);
-      }, [financeTransactions, dataSyncMode]);
+        queueSyncSnapshot('finance', financeTransactions).then(() => setOfflineQueueCount((c) => c + 1)).catch(() => {});
+      }, [financeTransactions, dataSyncMode, syncRuntimeReady, backendHydrated]);
       React.useEffect(() => {
-        if (dataSyncMode === 'backend') return;
+        if (!syncRuntimeReady) return;
+        if (dataSyncMode === 'backend' && !backendHydrated) return;
+        if (dataSyncMode === 'backend') {
+          backendJson('/sms-events/bulk', {
+            method: 'PUT',
+            body: JSON.stringify({ smsEvents }),
+          }).catch(() => queueSyncSnapshot('smsEvents', smsEvents).then(() => setOfflineQueueCount((c) => c + 1)).catch(() => {}));
+          return;
+        }
         safeSetItemJSON(STORAGE_KEYS.smsEvents, smsEvents);
-      }, [smsEvents, dataSyncMode]);
+        queueSyncSnapshot('smsEvents', smsEvents).then(() => setOfflineQueueCount((c) => c + 1)).catch(() => {});
+      }, [smsEvents, dataSyncMode, syncRuntimeReady, backendHydrated]);
 
       // Persist users to localStorage whenever they change. This ensures that newly added
       // staff or updated roles survive page reloads.
       React.useEffect(() => {
         if (!syncRuntimeReady) return;
+        if (dataSyncMode === 'backend' && !backendHydrated) return;
         if (dataSyncMode === 'backend') {
           backendJson('/users/bulk', {
             method: 'PUT',
@@ -1215,7 +1286,7 @@ Phone: +91-7047157510`;
         }
         safeSetItemJSON(STORAGE_KEYS.users, users);
         queueSyncSnapshot('users', users).then(() => setOfflineQueueCount((c) => c + 1)).catch(() => {});
-      }, [users, dataSyncMode, syncRuntimeReady]);
+      }, [users, dataSyncMode, syncRuntimeReady, backendHydrated]);
       React.useEffect(() => {
         if (financeSeeded || financeTransactions.length > 0 || members.length === 0) return;
         const seeded = members
@@ -2076,16 +2147,6 @@ Please pay by: ${formattedLastDate}`;
                 {syncBadgeLabel}
               </span>
               {user?.id === 'owner' && (
-                <span className={cx(
-                  'hidden rounded-full border px-2 py-1 text-[10px] font-semibold sm:inline-flex',
-                  offlineQueueCount > 0
-                    ? 'border-amber-300 bg-amber-50 text-amber-700'
-                    : 'border-slate-300 bg-slate-50 text-slate-600'
-                )}>
-                  Offline queue: {offlineQueueCount} pending {offlineQueueCount === 1 ? 'change' : 'changes'}
-                </span>
-              )}
-              {user?.id === 'owner' && (
                 <div className="relative">
                   <button
                     onClick={(e) => {
@@ -2190,25 +2251,6 @@ Please pay by: ${formattedLastDate}`;
                     <span className={cx('rounded-full border px-3 py-1.5 text-xs font-semibold', syncBadgeTone)}>
                       {syncBadgeLabel}
                     </span>
-                    {user?.id === 'owner' && (
-                      <span className={cx(
-                        'rounded-full border px-3 py-1.5 text-xs font-semibold',
-                        offlineQueueCount > 0
-                          ? 'border-amber-300 bg-amber-50 text-amber-700'
-                          : 'border-slate-300 bg-slate-50 text-slate-600'
-                      )}>
-                        Offline queue: {offlineQueueCount} pending {offlineQueueCount === 1 ? 'change' : 'changes'}
-                      </span>
-                    )}
-                  {user?.id === 'owner' && activeTab === 'Dashboard' && (
-                    <button
-                      onClick={resetDataToOwnerBaseline}
-                      className="rounded-full border border-rose-300 bg-rose-50 px-3 py-1.5 text-xs font-semibold text-rose-700 hover:bg-rose-100"
-                      title="Clear all operational data and reset to Owner-only baseline"
-                    >
-                      Reset Fresh Start
-                    </button>
-                  )}
                   {user?.id === 'owner' && (
                     <div className="relative">
                       <button
@@ -2358,9 +2400,12 @@ Please pay by: ${formattedLastDate}`;
                 storageInfo={storageInfo}
                 backendStorageInfo={backendStorageInfo}
                 dataSyncMode={dataSyncMode}
+                offlineQueueCount={offlineQueueCount}
+                canResetFreshStart={user?.id === 'owner'}
                 availableBackups={availableBackups}
                 onExport={exportData}
                 onImport={importData}
+                onResetFreshStart={resetDataToOwnerBaseline}
                 onRestoreFromBackup={async (fileName) => {
                   if (!fileName || dataSyncMode !== 'backend') return;
                   const ok = window.confirm(`Restore backend data from backup "${fileName}"?`);
@@ -2370,14 +2415,20 @@ Please pay by: ${formattedLastDate}`;
                       method: 'POST',
                       body: JSON.stringify({ fileName }),
                     });
-                    const [remoteUsers, remoteMembers, remoteSettings] = await Promise.all([
+                    const [remoteUsers, remoteMembers, remoteSettings, remoteLogs, remoteFinance, remoteSmsEvents] = await Promise.all([
                       backendJson('/users').catch(() => []),
                       backendJson('/members').catch(() => []),
                       backendJson('/settings').catch(() => ({})),
+                      backendJson('/logs').catch(() => []),
+                      backendJson('/finance').catch(() => []),
+                      backendJson('/sms-events').catch(() => []),
                     ]);
                     if (Array.isArray(remoteUsers)) setUsers(remoteUsers);
                     if (Array.isArray(remoteMembers)) setMembers(remoteMembers);
                     if (remoteSettings && typeof remoteSettings === 'object') setSettings(remoteSettings);
+                    if (Array.isArray(remoteLogs)) setLogs(remoteLogs);
+                    if (Array.isArray(remoteFinance)) setFinanceTransactions(remoteFinance);
+                    if (Array.isArray(remoteSmsEvents)) setSmsEvents(remoteSmsEvents);
                     setToast(`Restored from ${fileName}`);
                     setTimeout(() => setToast(''), 2500);
                   } catch {
@@ -5269,10 +5320,16 @@ function PTClientsPage({ members, users, settings, updateSetting, currentUser })
       const PT_TABS = ['PT Workout', 'Workout Plan', 'Diet Plan', 'Chat Trainer', 'Today Sessions', 'Weight Progress'];
       const [activeSubTab, setActiveSubTab] = React.useState('PT Workout');
       const ptProfiles = settings.ptClientProfiles || {};
+      const focusOptions = Array.isArray(settings.exerciseTypes) && settings.exerciseTypes.length
+        ? settings.exerciseTypes
+        : buildDefaultSettings().exerciseTypes;
       const [selectedMemberId, setSelectedMemberId] = React.useState('');
       const [chatDraft, setChatDraft] = React.useState('');
       const [sessionDraft, setSessionDraft] = React.useState({ date: iso(new Date()), time: '07:00', status: 'Scheduled', note: '' });
       const [weightDraft, setWeightDraft] = React.useState({ date: iso(new Date()), weight: '' });
+      const [workoutDate, setWorkoutDate] = React.useState(iso(new Date()));
+      const [focusPage, setFocusPage] = React.useState(1);
+      const FOCUS_PER_PAGE = 10;
       const trainers = (users || []).filter(u => !u.blocked && (u.id === 'trainer' || (u.sections || []).includes('PT Clients')));
       const ptMembers = React.useMemo(() => {
         const active = (members || []).filter(m => String(m.status || '') === 'Active');
@@ -5289,6 +5346,16 @@ function PTClientsPage({ members, users, settings, updateSetting, currentUser })
       }, [ptMembers, selectedMemberId]);
       const selectedMember = ptMembers.find(m => m.memberId === selectedMemberId) || null;
       const profile = selectedMember ? (ptProfiles[selectedMember.memberId] || {}) : {};
+      const focusByDate = profile.focusByDate || {};
+      const monthDate = asUTC(workoutDate || new Date()) || asUTC(new Date());
+      const monthStart = new Date(Date.UTC(monthDate.getUTCFullYear(), monthDate.getUTCMonth(), 1));
+      const monthEnd = new Date(Date.UTC(monthDate.getUTCFullYear(), monthDate.getUTCMonth() + 1, 0));
+      const daysInMonth = monthEnd.getUTCDate();
+      const focusPages = Math.max(1, Math.ceil(focusOptions.length / FOCUS_PER_PAGE));
+      const focusPageItems = focusOptions.slice((focusPage - 1) * FOCUS_PER_PAGE, focusPage * FOCUS_PER_PAGE);
+      React.useEffect(() => {
+        if (focusPage > focusPages) setFocusPage(focusPages);
+      }, [focusPage, focusPages]);
       const persistProfile = (memberId, patch) => {
         if (!memberId) return;
         const prevAll = settings.ptClientProfiles || {};
@@ -5296,6 +5363,27 @@ function PTClientsPage({ members, users, settings, updateSetting, currentUser })
         const nextAll = { ...prevAll, [memberId]: { ...prevProfile, ...patch, updatedAt: new Date().toISOString(), updatedBy: currentUser?.name || currentUser?.id || '' } };
         updateSetting('ptClientProfiles', nextAll);
       };
+      const setFocusForDate = (focus) => {
+        if (!selectedMember) return;
+        const key = iso(workoutDate || new Date());
+        const nextMap = { ...(profile.focusByDate || {}) };
+        if (!focus) delete nextMap[key];
+        else nextMap[key] = focus;
+        persistProfile(selectedMember.memberId, {
+          focusByDate: nextMap,
+          focusArea: nextMap[key] || profile.focusArea || '',
+        });
+      };
+      const monthEntries = Array.from({ length: daysInMonth }, (_, i) => {
+        const day = i + 1;
+        const dt = new Date(Date.UTC(monthDate.getUTCFullYear(), monthDate.getUTCMonth(), day));
+        const key = iso(dt);
+        const isSunday = dt.getUTCDay() === 0;
+        const hasFocus = Boolean((focusByDate || {})[key]);
+        return { day, key, isSunday, hasFocus, focus: (focusByDate || {})[key] || '' };
+      });
+      const ptDaysDone = monthEntries.filter((d) => !d.isSunday && d.hasFocus).length;
+      const selectedDateFocus = focusByDate[iso(workoutDate || new Date())] || '';
       const addChatMessage = () => {
         if (!selectedMember || !chatDraft.trim()) return;
         const next = [{ id: crypto.randomUUID(), by: currentUser?.name || 'Staff', text: chatDraft.trim(), ts: new Date().toISOString() }, ...((profile.chat || []))].slice(0, 100);
@@ -5356,21 +5444,91 @@ function PTClientsPage({ members, users, settings, updateSetting, currentUser })
                   <span className="font-semibold">{selectedMember.name}</span> • {selectedMember.plan} • Billing: {fmt(selectedMember.billingDate)}
                 </div>
                 {activeSubTab === 'PT Workout' && (
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                    <div>
-                      <label className="text-sm font-medium">Assigned Trainer</label>
-                      <select value={profile.trainerId || ''} onChange={(e) => persistProfile(selectedMember.memberId, { trainerId: e.target.value })} className="mt-1 w-full rounded-xl border border-slate-300 px-3 py-2 text-sm">
-                        <option value="">Select trainer</option>
-                        {trainers.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
-                      </select>
+                  <div className="space-y-4">
+                    <div className="rounded-xl border border-slate-200 bg-slate-50 p-3">
+                      <h3 className="text-sm font-semibold text-slate-900 mb-2">Client Settings: Workout Plan</h3>
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-2 text-sm">
+                        <div><span className="text-slate-500">Client Name:</span> <span className="font-medium">{selectedMember.name}</span></div>
+                        <div><span className="text-slate-500">Plan Type:</span> <span className="font-medium">Personal Training (PT) - Custom</span></div>
+                        <div><span className="text-slate-500">Payment Status:</span> <span className="font-medium">Active (Renewal: {fmt(selectedMember.billingDate)})</span></div>
+                        <div><span className="text-slate-500">Primary Focus:</span> <span className="font-medium">{selectedDateFocus || 'Not set'}</span></div>
+                      </div>
+                    </div>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                      <div>
+                        <label className="text-sm font-medium">Workout Date</label>
+                        <input type="date" value={workoutDate} onChange={(e) => setWorkoutDate(e.target.value)} className="mt-1 w-full rounded-xl border border-slate-300 px-3 py-2 text-sm" />
+                      </div>
+                      <div>
+                        <label className="text-sm font-medium">Assigned Trainer</label>
+                        <select value={profile.trainerId || ''} onChange={(e) => persistProfile(selectedMember.memberId, { trainerId: e.target.value })} className="mt-1 w-full rounded-xl border border-slate-300 px-3 py-2 text-sm">
+                          <option value="">Select trainer</option>
+                          {trainers.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
+                        </select>
+                      </div>
+                    </div>
+                    <div className="rounded-xl border border-slate-200 p-3 space-y-3">
+                      <div className="text-sm font-semibold text-slate-900">Primary Focus Selection</div>
+                      <div className="text-xs text-slate-500">Select the focus for the scheduled session. Showing first 10 items.</div>
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+                        {focusPageItems.map((opt) => {
+                          const active = selectedDateFocus === opt;
+                          return (
+                            <button
+                              key={opt}
+                              type="button"
+                              onClick={() => setFocusForDate(opt)}
+                              className={cx(
+                                'rounded-xl border px-3 py-2 text-left text-sm',
+                                active ? 'border-blue-600 bg-blue-50 text-blue-700' : 'border-slate-300 bg-white text-slate-700 hover:bg-slate-50'
+                              )}
+                            >
+                              {opt}
+                            </button>
+                          );
+                        })}
+                      </div>
+                      <div className="flex items-center gap-2 text-xs text-slate-600">
+                        <button onClick={() => setFocusPage((p) => Math.max(1, p - 1))} disabled={focusPage <= 1} className="rounded border border-slate-300 px-2 py-1 disabled:opacity-50">Prev</button>
+                        <span>Pagination: [{focusPage}] / {focusPages}</span>
+                        <button onClick={() => setFocusPage((p) => Math.min(focusPages, p + 1))} disabled={focusPage >= focusPages} className="rounded border border-slate-300 px-2 py-1 disabled:opacity-50">Next &gt;</button>
+                        <button onClick={() => setFocusForDate('')} className="ml-2 rounded border border-rose-300 bg-rose-50 px-2 py-1 text-rose-700">Clear for date</button>
+                      </div>
                     </div>
                     <div>
-                      <label className="text-sm font-medium">Primary Focus</label>
-                      <input value={profile.focusArea || ''} onChange={(e) => persistProfile(selectedMember.memberId, { focusArea: e.target.value })} placeholder="Fat loss / Strength / Rehab" className="mt-1 w-full rounded-xl border border-slate-300 px-3 py-2 text-sm" />
-                    </div>
-                    <div className="md:col-span-2">
                       <label className="text-sm font-medium">PT Workout Notes</label>
                       <textarea rows={4} value={profile.ptWorkoutNotes || ''} onChange={(e) => persistProfile(selectedMember.memberId, { ptWorkoutNotes: e.target.value })} className="mt-1 w-full rounded-xl border border-slate-300 px-3 py-2 text-sm" />
+                    </div>
+                    <div className="rounded-xl border border-slate-200 bg-white p-3">
+                      <div className="flex flex-wrap items-center justify-between gap-2 mb-2">
+                        <h4 className="text-sm font-semibold text-slate-900">Workout Scheduler & Calendar</h4>
+                        <div className="text-xs text-slate-600">Total PT days this month: <span className="font-semibold">{ptDaysDone}</span></div>
+                      </div>
+                      <div className="grid grid-cols-7 gap-2 text-center text-xs text-slate-500 mb-2">
+                        {['Sun','Mon','Tue','Wed','Thu','Fri','Sat'].map((d) => <div key={d} className="font-semibold">{d}</div>)}
+                      </div>
+                      <div className="grid grid-cols-7 gap-2">
+                        {monthEntries.map((entry) => (
+                          <button
+                            key={entry.key}
+                            type="button"
+                            onClick={() => setWorkoutDate(entry.key)}
+                            className={cx(
+                              'rounded-lg border px-2 py-2 text-xs',
+                              entry.isSunday
+                                ? 'border-slate-200 bg-slate-100 text-slate-500'
+                                : entry.hasFocus
+                                  ? 'border-emerald-300 bg-emerald-50 text-emerald-700'
+                                  : 'border-rose-300 bg-rose-50 text-rose-700',
+                              iso(workoutDate) === entry.key ? 'ring-2 ring-blue-500' : ''
+                            )}
+                            title={entry.focus ? `${entry.key}: ${entry.focus}` : `${entry.key}: No focus assigned`}
+                          >
+                            <div className="font-semibold">{entry.day}</div>
+                            <div className="mt-1 truncate">{entry.focus || (entry.isSunday ? 'Sun' : '—')}</div>
+                          </button>
+                        ))}
+                      </div>
                     </div>
                   </div>
                 )}
@@ -5701,10 +5859,21 @@ function AttendancePage({ users, settings, updateSetting, currentUser }) {
       };
 
     // ---- Settings Page ----
-function SettingsPage({ settings, updateSetting, members, access, storageInfo, backendStorageInfo, dataSyncMode, availableBackups = [], onExport, onImport, onRestoreFromBackup }) {
+function SettingsPage({ settings, updateSetting, members, access, storageInfo, backendStorageInfo, dataSyncMode, offlineQueueCount = 0, canResetFreshStart = false, availableBackups = [], onExport, onImport, onResetFreshStart, onRestoreFromBackup }) {
       const [newValues, setNewValues] = React.useState({ plans: '', statuses: '', paymentMethods: '', holdDurations: '', genders: '' });
       const importRef = React.useRef(null);
       const [selectedBackup, setSelectedBackup] = React.useState('');
+      const [backupPage, setBackupPage] = React.useState(1);
+      const BACKUPS_PER_PAGE = 12;
+      const backupPages = Math.max(1, Math.ceil((availableBackups || []).length / BACKUPS_PER_PAGE));
+      const pagedBackups = React.useMemo(() => {
+        const list = Array.isArray(availableBackups) ? availableBackups : [];
+        const start = (backupPage - 1) * BACKUPS_PER_PAGE;
+        return list.slice(start, start + BACKUPS_PER_PAGE);
+      }, [availableBackups, backupPage]);
+      React.useEffect(() => {
+        if (backupPage > backupPages) setBackupPage(backupPages);
+      }, [backupPage, backupPages]);
       const [moduleDiag, setModuleDiag] = React.useState(() => {
         const logs = window.__APG_MODULE_TELEMETRY || [];
         if (!logs.length) return { status: 'ready', text: 'ready' };
@@ -5739,11 +5908,12 @@ function SettingsPage({ settings, updateSetting, members, access, storageInfo, b
       const handleAdd = (key) => {
         const val = newValues[key].trim();
         if (!val) return;
-        if (settings[key].includes(val)) {
+        const currentValues = Array.isArray(settings[key]) ? settings[key] : [];
+        if (currentValues.includes(val)) {
           setNewValues(v => ({ ...v, [key]: '' }));
           return;
         }
-        updateSetting(key, [...settings[key], val]);
+        updateSetting(key, [...currentValues, val]);
         setNewValues(v => ({ ...v, [key]: '' }));
       };
       const removeOpt = (key, val) => {
@@ -5752,7 +5922,8 @@ function SettingsPage({ settings, updateSetting, members, access, storageInfo, b
         if (key === 'statuses' && members.some(m => m.status === val)) return;
         if (key === 'holdDurations' && members.some(m => m.holdDuration === val)) return;
         if (key === 'paymentMethods' && members.some(m => m.paymentMethod === val)) return;
-        updateSetting(key, settings[key].filter(x => x !== val));
+        const currentValues = Array.isArray(settings[key]) ? settings[key] : [];
+        updateSetting(key, currentValues.filter(x => x !== val));
       };
       const settingsAccess = normalizeAccess(access).settings;
       const settingItems = [
@@ -5761,6 +5932,7 @@ function SettingsPage({ settings, updateSetting, members, access, storageInfo, b
         { key: 'paymentMethods', label: 'Payment Methods', allowed: settingsAccess.managePaymentMethods },
         { key: 'holdDurations', label: 'Hold Durations', allowed: settingsAccess.manageHoldDurations },
         { key: 'genders', label: 'Genders', allowed: settingsAccess.manageGenders },
+        { key: 'exerciseTypes', label: 'Exercise Types (PT Focus)', allowed: settingsAccess.managePlans },
       ].filter(x => x.allowed);
       return (
         <div className="p-3 md:p-8 space-y-6">
@@ -5780,20 +5952,80 @@ function SettingsPage({ settings, updateSetting, members, access, storageInfo, b
               Module Loader: {moduleDiag.text}
             </span>
           </div>
-          <div className="rounded-3xl bg-white border border-slate-200 p-4 shadow-sm space-y-2">
+          <div className="rounded-3xl bg-white border border-slate-200 p-4 shadow-sm space-y-4">
             <h3 className="text-lg font-semibold">{dataSyncMode === 'backend' ? 'Disk Usage (Backend)' : 'Storage Diagnostics'}</h3>
             {dataSyncMode === 'backend' ? (
-              <>
-                <div className="text-sm text-slate-700">
-                  SQLite DB: <span className="font-medium">{(Number(backendStorageInfo?.dbBytes || 0) / (1024 * 1024)).toFixed(2)} MB</span>
+              <div className="grid grid-cols-1 gap-3 lg:grid-cols-2">
+                <div className="rounded-2xl border border-slate-200 bg-slate-50 p-3 space-y-1">
+                  <div className="text-sm text-slate-700">
+                    SQLite DB: <span className="font-medium">{(Number(backendStorageInfo?.dbBytes || 0) / (1024 * 1024)).toFixed(2)} MB</span>
+                  </div>
+                  <div className="text-sm text-slate-700">
+                    Backups: <span className="font-medium">{(Number(backendStorageInfo?.backupsBytes || 0) / (1024 * 1024)).toFixed(2)} MB</span> ({Number(backendStorageInfo?.backupFileCount || 0)} files)
+                  </div>
+                  <div className="text-sm text-slate-700">
+                    Total disk used: <span className="font-medium">{(Number(backendStorageInfo?.totalBytes || 0) / (1024 * 1024)).toFixed(2)} MB</span>
+                  </div>
+                  <div className={cx(
+                    'text-sm font-medium',
+                    Number(offlineQueueCount || 0) > 0 ? 'text-amber-700' : 'text-slate-700'
+                  )}>
+                    Offline queue: {Number(offlineQueueCount || 0)} pending {Number(offlineQueueCount || 0) === 1 ? 'change' : 'changes'}
+                  </div>
                 </div>
-                <div className="text-sm text-slate-700">
-                  Backups: <span className="font-medium">{(Number(backendStorageInfo?.backupsBytes || 0) / (1024 * 1024)).toFixed(2)} MB</span> ({Number(backendStorageInfo?.backupFileCount || 0)} files)
+                <div className="rounded-2xl border border-slate-200 bg-white p-3 space-y-2">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <button onClick={onExport} className="rounded-full px-3 py-2 text-sm font-medium bg-blue-600 hover:bg-blue-700 text-white">Export Data</button>
+                    <button onClick={() => importRef.current && importRef.current.click()} className="rounded-xl px-3 py-2 text-sm font-medium border border-slate-300 bg-white hover:bg-slate-100">Import Data</button>
+                    {canResetFreshStart && (
+                      <button
+                        onClick={onResetFreshStart}
+                        className="rounded-xl px-3 py-2 text-sm font-medium border border-rose-300 bg-rose-50 text-rose-700 hover:bg-rose-100"
+                        title="Clear selected datasets and reset owner baseline"
+                      >
+                        Reset Fresh Start
+                      </button>
+                    )}
+                  </div>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <select
+                      value={selectedBackup}
+                      onChange={(e) => setSelectedBackup(e.target.value)}
+                      className="min-w-[260px] rounded-xl border border-slate-300 bg-white px-2.5 py-2 text-sm"
+                    >
+                      <option value="">Select backup…</option>
+                      {pagedBackups.map((name) => (
+                        <option key={name} value={name}>{name}</option>
+                      ))}
+                    </select>
+                    <button
+                      onClick={() => onRestoreFromBackup && onRestoreFromBackup(selectedBackup)}
+                      disabled={!selectedBackup}
+                      className="rounded-xl px-3 py-2 text-sm font-medium border border-amber-300 bg-amber-50 text-amber-700 hover:bg-amber-100 disabled:opacity-50"
+                    >
+                      Restore Backup
+                    </button>
+                  </div>
+                  <div className="flex items-center gap-2 text-xs text-slate-600">
+                    <button
+                      onClick={() => setBackupPage((p) => Math.max(1, p - 1))}
+                      disabled={backupPage <= 1}
+                      className="rounded border border-slate-300 px-2 py-1 disabled:opacity-50"
+                    >
+                      Prev
+                    </button>
+                    <span>Page {backupPage} / {backupPages}</span>
+                    <button
+                      onClick={() => setBackupPage((p) => Math.min(backupPages, p + 1))}
+                      disabled={backupPage >= backupPages}
+                      className="rounded border border-slate-300 px-2 py-1 disabled:opacity-50"
+                    >
+                      Next
+                    </button>
+                    <span>({Array.isArray(availableBackups) ? availableBackups.length : 0} backups)</span>
+                  </div>
                 </div>
-                <div className="text-sm text-slate-700">
-                  Total disk used: <span className="font-medium">{(Number(backendStorageInfo?.totalBytes || 0) / (1024 * 1024)).toFixed(2)} MB</span>
-                </div>
-              </>
+              </div>
             ) : (
               <>
                 <div className="text-sm text-slate-700">
@@ -5804,7 +6036,7 @@ function SettingsPage({ settings, updateSetting, members, access, storageInfo, b
                 </div>
               </>
             )}
-            <div className="pt-2 flex items-center gap-2">
+            <div className={cx('pt-2 items-center gap-2', dataSyncMode === 'backend' ? 'hidden' : 'flex')}>
               <button onClick={onExport} className="rounded-full px-3 py-2 text-sm font-medium bg-blue-600 hover:bg-blue-700 text-white">Export Data</button>
               <button onClick={() => importRef.current && importRef.current.click()} className="rounded-xl px-3 py-2 text-sm font-medium border border-slate-300 bg-white hover:bg-slate-100">Import Data</button>
               {dataSyncMode === 'backend' && (
@@ -5850,7 +6082,7 @@ function SettingsPage({ settings, updateSetting, members, access, storageInfo, b
             <div key={key} className="rounded-3xl bg-white p-4 shadow-sm space-y-3">
               <h3 className="text-lg font-semibold">{label}</h3>
               <div className="flex flex-wrap gap-2">
-                {settings[key].map(val => (
+                {(Array.isArray(settings[key]) ? settings[key] : []).map(val => (
                   <span key={val} className="inline-flex items-center gap-2 bg-blue-50 text-blue-700 border border-blue-200 rounded-full px-3 py-1 text-sm">
                     {val}
                     <button onClick={() => removeOpt(key, val)} className="text-xs text-red-500 ml-1">✕</button>

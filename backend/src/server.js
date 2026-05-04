@@ -307,6 +307,36 @@ app.put('/api/settings/bulk', async (req, res) => {
   res.json({ ok: true });
 });
 
+app.get('/api/logs', async (_req, res) => {
+  const logs = await readJsonCollection('apg.logs', []);
+  res.json(logs);
+});
+
+app.put('/api/logs/bulk', async (req, res) => {
+  await writeJsonCollection('apg.logs', req.body?.logs || []);
+  res.json({ ok: true });
+});
+
+app.get('/api/finance', async (_req, res) => {
+  const finance = await readJsonCollection('apg.finance', []);
+  res.json(finance);
+});
+
+app.put('/api/finance/bulk', async (req, res) => {
+  await writeJsonCollection('apg.finance', req.body?.finance || []);
+  res.json({ ok: true });
+});
+
+app.get('/api/sms-events', async (_req, res) => {
+  const events = await readJsonCollection('apg.sms.events', []);
+  res.json(events);
+});
+
+app.put('/api/sms-events/bulk', async (req, res) => {
+  await writeJsonCollection('apg.sms.events', req.body?.smsEvents || []);
+  res.json({ ok: true });
+});
+
 app.get('/api/storage', async (_req, res) => {
   const data = await computeStorageUsage();
   res.json(data);
