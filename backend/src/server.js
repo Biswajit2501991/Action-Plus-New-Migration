@@ -1,7 +1,9 @@
 import express from 'express';
 import bcrypt from 'bcryptjs';
 import crypto from 'node:crypto';
+import fs from 'node:fs/promises';
 import jwt from 'jsonwebtoken';
+import path from 'node:path';
 import { env } from './config/env.js';
 import { query, withTransaction } from './db/adapter.js';
 import { requireAuth } from './middleware/requireAuth.js';
@@ -9,6 +11,13 @@ import { resolveTenant, requirePermission } from './middleware/resolveTenant.js'
 
 const app = express();
 app.use(express.json({ limit: '1mb' }));
+app.use((req, res, next) => {
+  res.setHeader('Access-Control-Allow-Origin', '*');
+  res.setHeader('Access-Control-Allow-Methods', 'GET,POST,PUT,PATCH,DELETE,OPTIONS');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
+  if (req.method === 'OPTIONS') return res.status(204).end();
+  return next();
+});
 
 function normalizeHost(rawHost) {
   return (rawHost || '').toLowerCase().split(',')[0].trim().replace(/:\d+$/, '');
@@ -92,6 +101,80 @@ function signAuthToken({ tenantId, userId, roles, permissions }) {
   });
 }
 
+const DB_FILE_PATH = path.resolve(process.cwd(), env.DATABASE_PATH);
+const DB_BACKUP_DIR = path.resolve(path.dirname(DB_FILE_PATH), 'backups');
+const MAX_DB_BACKUPS = Number(process.env.DB_BACKUP_MAX_FILES || 120);
+let backupQueue = Promise.resolve();
+
+function makeBackupFilename(reason = 'autosave') {
+  const stamp = new Date().toISOString().replace(/[:.]/g, '-');
+  const safeReason = String(reason || 'autosave').replace(/[^a-z0-9_-]/gi, '_').toLowerCase();
+  return `app-${safeReason}-${stamp}.db`;
+}
+
+async function trimOldBackups() {
+  try {
+    const entries = await fs.readdir(DB_BACKUP_DIR, { withFileTypes: true });
+    const files = entries
+      .filter((entry) => entry.isFile() && entry.name.endsWith('.db'))
+      .map((entry) => entry.name)
+      .sort();
+    if (files.length <= MAX_DB_BACKUPS) return;
+    const removeCount = files.length - MAX_DB_BACKUPS;
+    const toRemove = files.slice(0, removeCount);
+    await Promise.all(toRemove.map((name) => fs.unlink(path.join(DB_BACKUP_DIR, name)).catch(() => {})));
+  } catch {
+    // Ignore cleanup errors so requests are never blocked by backup retention.
+  }
+}
+
+async function createDatabaseBackup(reason = 'autosave') {
+  await fs.mkdir(DB_BACKUP_DIR, { recursive: true });
+  const target = path.join(DB_BACKUP_DIR, makeBackupFilename(reason));
+  await fs.copyFile(DB_FILE_PATH, target);
+  await trimOldBackups();
+}
+
+function queueDatabaseBackup(reason) {
+  backupQueue = backupQueue
+    .then(() => createDatabaseBackup(reason))
+    .catch((err) => {
+      // eslint-disable-next-line no-console
+      console.warn('DB backup warning:', err?.message || err);
+    });
+}
+
+async function computeStorageUsage() {
+  const payload = {
+    dbBytes: 0,
+    backupsBytes: 0,
+    backupFileCount: 0,
+    totalBytes: 0,
+  };
+  try {
+    const stat = await fs.stat(DB_FILE_PATH);
+    payload.dbBytes = Number(stat.size || 0);
+  } catch {}
+  try {
+    const entries = await fs.readdir(DB_BACKUP_DIR, { withFileTypes: true });
+    const backupFiles = entries.filter((entry) => entry.isFile() && entry.name.endsWith('.db'));
+    payload.backupFileCount = backupFiles.length;
+    const sizes = await Promise.all(
+      backupFiles.map(async (entry) => {
+        try {
+          const stat = await fs.stat(path.join(DB_BACKUP_DIR, entry.name));
+          return Number(stat.size || 0);
+        } catch {
+          return 0;
+        }
+      }),
+    );
+    payload.backupsBytes = sizes.reduce((sum, n) => sum + n, 0);
+  } catch {}
+  payload.totalBytes = payload.dbBytes + payload.backupsBytes;
+  return payload;
+}
+
 async function readJsonCollection(key, fallback = []) {
   const result = await query(
     `select value_json
@@ -119,6 +202,36 @@ async function writeJsonCollection(key, value) {
          updated_at = CURRENT_TIMESTAMP`,
     [key, payload],
   );
+  queueDatabaseBackup(key);
+}
+
+async function readJsonValue(key, fallback = null) {
+  const result = await query(
+    `select value_json
+     from app_kv
+     where key = $1
+     limit 1`,
+    [key],
+  );
+  if (!result.rowCount) return fallback;
+  try {
+    return JSON.parse(result.rows[0].value_json || 'null');
+  } catch {
+    return fallback;
+  }
+}
+
+async function writeJsonValue(key, value) {
+  const payload = JSON.stringify(value);
+  await query(
+    `insert into app_kv (key, value_json, updated_at)
+     values ($1, $2, CURRENT_TIMESTAMP)
+     on conflict(key) do update
+     set value_json = excluded.value_json,
+         updated_at = CURRENT_TIMESTAMP`,
+    [key, payload],
+  );
+  queueDatabaseBackup(key);
 }
 
 app.get('/api/v1/health', (_req, res) => {
@@ -146,6 +259,21 @@ app.get('/api/users', async (_req, res) => {
 app.put('/api/users/bulk', async (req, res) => {
   await writeJsonCollection('apg.users', req.body?.users || []);
   res.json({ ok: true });
+});
+
+app.get('/api/settings', async (_req, res) => {
+  const settings = await readJsonValue('apg.settings', null);
+  res.json(settings || {});
+});
+
+app.put('/api/settings/bulk', async (req, res) => {
+  await writeJsonValue('apg.settings', req.body?.settings || {});
+  res.json({ ok: true });
+});
+
+app.get('/api/storage', async (_req, res) => {
+  const data = await computeStorageUsage();
+  res.json(data);
 });
 
 app.post('/api/v1/auth/login', async (req, res) => {

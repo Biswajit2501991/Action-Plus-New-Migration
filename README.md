@@ -52,6 +52,28 @@ Tip: In the app header, check the `Backend Sync` badge. `Connected` means SQLite
 - **Port already in use**: change `FRONTEND_PORT` or `BACKEND_PORT` in `.env`, then restart `npm run dev:all`.
 - **Backend not connected**: confirm backend is running on `http://localhost:4000/api/health` and `API_BASE_URL` in `.env` matches it.
 
+## Desktop-style Launch (Double Click)
+
+On macOS, you can double-click `start.command` from the project folder. It will:
+
+1. Install missing dependencies (`npm install` in root and `backend/`).
+2. Run DB migration + seed.
+3. Start backend + frontend.
+4. Open the app in your browser automatically.
+
+Notes:
+- Keep the terminal window open while using the app.
+- Internet is needed on first run (to download npm packages).
+
+### Restore Database from Backup
+
+From `backend/`:
+
+- Restore latest backup:
+  - `npm run db:restore`
+- Restore specific backup file:
+  - `npm run db:restore -- app-apg_members-2026-05-04T10-12-00-000Z.db`
+
 ## Notes
 
 * This project uses Tailwind via its CDN script rather than a compiled CSS build.  If you want to customise the look beyond the default classes, add styles to `styles.css`.
