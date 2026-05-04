@@ -628,6 +628,68 @@ Phone: +91-7047157510`;
       if (!res.ok) throw new Error(`backend-${res.status}`);
       return res.json();
     };
+    const APG_SYNC_DB = 'apg-sync-v1';
+    const APG_SYNC_STORE = 'pending';
+    const openSyncDb = () => new Promise((resolve, reject) => {
+      try {
+        const req = indexedDB.open(APG_SYNC_DB, 1);
+        req.onupgradeneeded = () => {
+          const db = req.result;
+          if (!db.objectStoreNames.contains(APG_SYNC_STORE)) {
+            db.createObjectStore(APG_SYNC_STORE, { keyPath: 'entity' });
+          }
+        };
+        req.onsuccess = () => resolve(req.result);
+        req.onerror = () => reject(req.error || new Error('sync-db-open-failed'));
+      } catch (e) {
+        reject(e);
+      }
+    });
+    const queueSyncSnapshot = async (entity, payload) => {
+      const db = await openSyncDb();
+      await new Promise((resolve, reject) => {
+        const tx = db.transaction(APG_SYNC_STORE, 'readwrite');
+        tx.objectStore(APG_SYNC_STORE).put({ entity, payload, updatedAt: Date.now() });
+        tx.oncomplete = () => resolve();
+        tx.onerror = () => reject(tx.error || new Error('sync-db-put-failed'));
+      });
+      db.close();
+    };
+    const getQueuedSnapshots = async () => {
+      const db = await openSyncDb();
+      const rows = await new Promise((resolve, reject) => {
+        const tx = db.transaction(APG_SYNC_STORE, 'readonly');
+        const req = tx.objectStore(APG_SYNC_STORE).getAll();
+        req.onsuccess = () => resolve(req.result || []);
+        req.onerror = () => reject(req.error || new Error('sync-db-read-failed'));
+      });
+      db.close();
+      return rows;
+    };
+    const deleteQueuedSnapshot = async (entity) => {
+      const db = await openSyncDb();
+      await new Promise((resolve, reject) => {
+        const tx = db.transaction(APG_SYNC_STORE, 'readwrite');
+        tx.objectStore(APG_SYNC_STORE).delete(entity);
+        tx.oncomplete = () => resolve();
+        tx.onerror = () => reject(tx.error || new Error('sync-db-delete-failed'));
+      });
+      db.close();
+    };
+    const clearQueuedSnapshots = async () => {
+      const db = await openSyncDb();
+      await new Promise((resolve, reject) => {
+        const tx = db.transaction(APG_SYNC_STORE, 'readwrite');
+        tx.objectStore(APG_SYNC_STORE).clear();
+        tx.oncomplete = () => resolve();
+        tx.onerror = () => reject(tx.error || new Error('sync-db-clear-failed'));
+      });
+      db.close();
+    };
+    const getQueuedSnapshotCount = async () => {
+      const rows = await getQueuedSnapshots();
+      return Array.isArray(rows) ? rows.length : 0;
+    };
 
     const loadImageDataUrl = (file) => new Promise((resolve, reject) => {
       const reader = new FileReader();
@@ -877,6 +939,8 @@ Phone: +91-7047157510`;
               backendJson('/settings').catch(() => ({})),
             ]);
             if (!alive) return;
+            await clearQueuedSnapshots().catch(() => {});
+            setOfflineQueueCount(0);
             setDataSyncMode('backend');
             if (Array.isArray(remoteUsers) && remoteUsers.length > 0) setUsers(remoteUsers);
             if (Array.isArray(remoteMembers) && remoteMembers.length > 0) setMembers(remoteMembers);
@@ -884,6 +948,8 @@ Phone: +91-7047157510`;
           } catch {
             if (!alive) return;
             setDataSyncMode('local');
+          } finally {
+            if (alive) setSyncRuntimeReady(true);
           }
         })();
         return () => {
@@ -937,6 +1003,9 @@ Phone: +91-7047157510`;
       const storageWarningAtRef = React.useRef(0);
       const [storageInfo, setStorageInfo] = React.useState({ usageBytes: getStorageUsageBytes(), lastError: '', lastKey: '', lastAt: '' });
       const [backendStorageInfo, setBackendStorageInfo] = React.useState({ dbBytes: 0, backupsBytes: 0, backupFileCount: 0, totalBytes: 0 });
+      const [availableBackups, setAvailableBackups] = React.useState([]);
+      const [offlineQueueCount, setOfflineQueueCount] = React.useState(0);
+      const [syncRuntimeReady, setSyncRuntimeReady] = React.useState(false);
       const showStorageWarning = () => {
         const now = Date.now();
         // Rate limit warning to avoid repeated toasts during batched writes.
@@ -1037,31 +1106,89 @@ Phone: +91-7047157510`;
         };
         pullStorage();
         const timer = setInterval(pullStorage, 30000);
+        backendJson('/backups')
+          .then((payload) => {
+            if (!alive) return;
+            setAvailableBackups(Array.isArray(payload?.backups) ? payload.backups : []);
+          })
+          .catch(() => {});
         return () => {
           alive = false;
           clearInterval(timer);
         };
       }, [dataSyncMode]);
       React.useEffect(() => {
+        let alive = true;
+        const refreshQueueCount = () => {
+          getQueuedSnapshotCount()
+            .then((count) => {
+              if (!alive) return;
+              setOfflineQueueCount(Number(count || 0));
+            })
+            .catch(() => {});
+        };
+        refreshQueueCount();
+        const timer = setInterval(refreshQueueCount, 3000);
+        return () => {
+          alive = false;
+          clearInterval(timer);
+        };
+      }, []);
+      React.useEffect(() => {
+        if (dataSyncMode !== 'backend') return;
+        let alive = true;
+        const flush = async () => {
+          try {
+            const rows = await getQueuedSnapshots();
+            for (const row of rows) {
+              if (!alive || !row?.entity) continue;
+              if (row.entity === 'members') {
+                await backendJson('/members/bulk', { method: 'PUT', body: JSON.stringify({ members: row.payload || [] }) });
+                await deleteQueuedSnapshot('members');
+                setOfflineQueueCount((c) => Math.max(0, c - 1));
+              } else if (row.entity === 'users') {
+                await backendJson('/users/bulk', { method: 'PUT', body: JSON.stringify({ users: row.payload || [] }) });
+                await deleteQueuedSnapshot('users');
+                setOfflineQueueCount((c) => Math.max(0, c - 1));
+              } else if (row.entity === 'settings') {
+                await backendJson('/settings/bulk', { method: 'PUT', body: JSON.stringify({ settings: row.payload || {} }) });
+                await deleteQueuedSnapshot('settings');
+                setOfflineQueueCount((c) => Math.max(0, c - 1));
+              }
+            }
+          } catch {}
+        };
+        flush();
+        const timer = setInterval(flush, 10000);
+        return () => {
+          alive = false;
+          clearInterval(timer);
+        };
+      }, [dataSyncMode]);
+      React.useEffect(() => {
+        if (!syncRuntimeReady) return;
         if (dataSyncMode === 'backend') {
           backendJson('/members/bulk', {
             method: 'PUT',
             body: JSON.stringify({ members }),
-          }).catch(() => {});
+          }).catch(() => queueSyncSnapshot('members', members).then(() => setOfflineQueueCount((c) => c + 1)).catch(() => {}));
           return;
         }
         safeSetItemJSON(STORAGE_KEYS.members, members);
-      }, [members, dataSyncMode]);
+        queueSyncSnapshot('members', members).then(() => setOfflineQueueCount((c) => c + 1)).catch(() => {});
+      }, [members, dataSyncMode, syncRuntimeReady]);
       React.useEffect(() => {
+        if (!syncRuntimeReady) return;
         if (dataSyncMode === 'backend') {
           backendJson('/settings/bulk', {
             method: 'PUT',
             body: JSON.stringify({ settings }),
-          }).catch(() => {});
+          }).catch(() => queueSyncSnapshot('settings', settings).then(() => setOfflineQueueCount((c) => c + 1)).catch(() => {}));
           return;
         }
         safeSetItemJSON(STORAGE_KEYS.settings, settings);
-      }, [settings, dataSyncMode]);
+        queueSyncSnapshot('settings', settings).then(() => setOfflineQueueCount((c) => c + 1)).catch(() => {});
+      }, [settings, dataSyncMode, syncRuntimeReady]);
       React.useEffect(() => {
         if (dataSyncMode === 'backend') return;
         safeSetItemJSON(STORAGE_KEYS.logs, logs);
@@ -1078,15 +1205,17 @@ Phone: +91-7047157510`;
       // Persist users to localStorage whenever they change. This ensures that newly added
       // staff or updated roles survive page reloads.
       React.useEffect(() => {
+        if (!syncRuntimeReady) return;
         if (dataSyncMode === 'backend') {
           backendJson('/users/bulk', {
             method: 'PUT',
             body: JSON.stringify({ users }),
-          }).catch(() => {});
+          }).catch(() => queueSyncSnapshot('users', users).then(() => setOfflineQueueCount((c) => c + 1)).catch(() => {}));
           return;
         }
         safeSetItemJSON(STORAGE_KEYS.users, users);
-      }, [users, dataSyncMode]);
+        queueSyncSnapshot('users', users).then(() => setOfflineQueueCount((c) => c + 1)).catch(() => {});
+      }, [users, dataSyncMode, syncRuntimeReady]);
       React.useEffect(() => {
         if (financeSeeded || financeTransactions.length > 0 || members.length === 0) return;
         const seeded = members
@@ -1947,6 +2076,16 @@ Please pay by: ${formattedLastDate}`;
                 {syncBadgeLabel}
               </span>
               {user?.id === 'owner' && (
+                <span className={cx(
+                  'hidden rounded-full border px-2 py-1 text-[10px] font-semibold sm:inline-flex',
+                  offlineQueueCount > 0
+                    ? 'border-amber-300 bg-amber-50 text-amber-700'
+                    : 'border-slate-300 bg-slate-50 text-slate-600'
+                )}>
+                  Offline queue: {offlineQueueCount} pending {offlineQueueCount === 1 ? 'change' : 'changes'}
+                </span>
+              )}
+              {user?.id === 'owner' && (
                 <div className="relative">
                   <button
                     onClick={(e) => {
@@ -2051,6 +2190,16 @@ Please pay by: ${formattedLastDate}`;
                     <span className={cx('rounded-full border px-3 py-1.5 text-xs font-semibold', syncBadgeTone)}>
                       {syncBadgeLabel}
                     </span>
+                    {user?.id === 'owner' && (
+                      <span className={cx(
+                        'rounded-full border px-3 py-1.5 text-xs font-semibold',
+                        offlineQueueCount > 0
+                          ? 'border-amber-300 bg-amber-50 text-amber-700'
+                          : 'border-slate-300 bg-slate-50 text-slate-600'
+                      )}>
+                        Offline queue: {offlineQueueCount} pending {offlineQueueCount === 1 ? 'change' : 'changes'}
+                      </span>
+                    )}
                   {user?.id === 'owner' && activeTab === 'Dashboard' && (
                     <button
                       onClick={resetDataToOwnerBaseline}
@@ -2209,8 +2358,33 @@ Please pay by: ${formattedLastDate}`;
                 storageInfo={storageInfo}
                 backendStorageInfo={backendStorageInfo}
                 dataSyncMode={dataSyncMode}
+                availableBackups={availableBackups}
                 onExport={exportData}
                 onImport={importData}
+                onRestoreFromBackup={async (fileName) => {
+                  if (!fileName || dataSyncMode !== 'backend') return;
+                  const ok = window.confirm(`Restore backend data from backup "${fileName}"?`);
+                  if (!ok) return;
+                  try {
+                    await backendJson('/backups/restore', {
+                      method: 'POST',
+                      body: JSON.stringify({ fileName }),
+                    });
+                    const [remoteUsers, remoteMembers, remoteSettings] = await Promise.all([
+                      backendJson('/users').catch(() => []),
+                      backendJson('/members').catch(() => []),
+                      backendJson('/settings').catch(() => ({})),
+                    ]);
+                    if (Array.isArray(remoteUsers)) setUsers(remoteUsers);
+                    if (Array.isArray(remoteMembers)) setMembers(remoteMembers);
+                    if (remoteSettings && typeof remoteSettings === 'object') setSettings(remoteSettings);
+                    setToast(`Restored from ${fileName}`);
+                    setTimeout(() => setToast(''), 2500);
+                  } catch {
+                    setToast('Backup restore failed');
+                    setTimeout(() => setToast(''), 2500);
+                  }
+                }}
               />
             )}
             {activeTab === 'Logs' && (
@@ -5527,9 +5701,10 @@ function AttendancePage({ users, settings, updateSetting, currentUser }) {
       };
 
     // ---- Settings Page ----
-function SettingsPage({ settings, updateSetting, members, access, storageInfo, backendStorageInfo, dataSyncMode, onExport, onImport }) {
+function SettingsPage({ settings, updateSetting, members, access, storageInfo, backendStorageInfo, dataSyncMode, availableBackups = [], onExport, onImport, onRestoreFromBackup }) {
       const [newValues, setNewValues] = React.useState({ plans: '', statuses: '', paymentMethods: '', holdDurations: '', genders: '' });
       const importRef = React.useRef(null);
+      const [selectedBackup, setSelectedBackup] = React.useState('');
       const [moduleDiag, setModuleDiag] = React.useState(() => {
         const logs = window.__APG_MODULE_TELEMETRY || [];
         if (!logs.length) return { status: 'ready', text: 'ready' };
@@ -5632,6 +5807,27 @@ function SettingsPage({ settings, updateSetting, members, access, storageInfo, b
             <div className="pt-2 flex items-center gap-2">
               <button onClick={onExport} className="rounded-full px-3 py-2 text-sm font-medium bg-blue-600 hover:bg-blue-700 text-white">Export Data</button>
               <button onClick={() => importRef.current && importRef.current.click()} className="rounded-xl px-3 py-2 text-sm font-medium border border-slate-300 bg-white hover:bg-slate-100">Import Data</button>
+              {dataSyncMode === 'backend' && (
+                <>
+                  <select
+                    value={selectedBackup}
+                    onChange={(e) => setSelectedBackup(e.target.value)}
+                    className="rounded-xl border border-slate-300 bg-white px-2.5 py-2 text-sm"
+                  >
+                    <option value="">Select backup…</option>
+                    {availableBackups.map((name) => (
+                      <option key={name} value={name}>{name}</option>
+                    ))}
+                  </select>
+                  <button
+                    onClick={() => onRestoreFromBackup && onRestoreFromBackup(selectedBackup)}
+                    disabled={!selectedBackup}
+                    className="rounded-xl px-3 py-2 text-sm font-medium border border-amber-300 bg-amber-50 text-amber-700 hover:bg-amber-100 disabled:opacity-50"
+                  >
+                    Restore Backup
+                  </button>
+                </>
+              )}
               <input
                 ref={importRef}
                 type="file"

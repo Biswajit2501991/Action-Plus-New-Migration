@@ -1,5 +1,6 @@
 import express from 'express';
 import bcrypt from 'bcryptjs';
+import Database from 'better-sqlite3';
 import crypto from 'node:crypto';
 import fs from 'node:fs/promises';
 import jwt from 'jsonwebtoken';
@@ -175,6 +176,41 @@ async function computeStorageUsage() {
   return payload;
 }
 
+async function listBackupNames() {
+  try {
+    const entries = await fs.readdir(DB_BACKUP_DIR, { withFileTypes: true });
+    return entries
+      .filter((entry) => entry.isFile() && entry.name.endsWith('.db'))
+      .map((entry) => entry.name)
+      .sort()
+      .reverse();
+  } catch {
+    return [];
+  }
+}
+
+async function restoreFromBackupFileName(fileName = '') {
+  const name = String(fileName || '').trim();
+  if (!name || name.includes('/') || name.includes('\\')) throw new Error('invalid-backup-name');
+  const sourcePath = path.join(DB_BACKUP_DIR, name);
+  const backupDb = new Database(sourcePath, { readonly: true });
+  try {
+    const rows = backupDb.prepare('select key, value_json from app_kv').all();
+    for (const row of rows) {
+      await query(
+        `insert into app_kv (key, value_json, updated_at)
+         values ($1, $2, CURRENT_TIMESTAMP)
+         on conflict(key) do update
+         set value_json = excluded.value_json,
+             updated_at = CURRENT_TIMESTAMP`,
+        [row.key, row.value_json],
+      );
+    }
+  } finally {
+    backupDb.close();
+  }
+}
+
 async function readJsonCollection(key, fallback = []) {
   const result = await query(
     `select value_json
@@ -274,6 +310,23 @@ app.put('/api/settings/bulk', async (req, res) => {
 app.get('/api/storage', async (_req, res) => {
   const data = await computeStorageUsage();
   res.json(data);
+});
+
+app.get('/api/backups', async (_req, res) => {
+  const backups = await listBackupNames();
+  res.json({ backups });
+});
+
+app.post('/api/backups/restore', async (req, res) => {
+  const fileName = req.body?.fileName || '';
+  if (!fileName) return res.status(400).json({ error: 'file-required' });
+  try {
+    await restoreFromBackupFileName(fileName);
+    queueDatabaseBackup('manual-restore');
+    return res.json({ ok: true, fileName });
+  } catch (error) {
+    return res.status(400).json({ error: 'restore-failed', message: String(error?.message || error) });
+  }
 });
 
 app.post('/api/v1/auth/login', async (req, res) => {
