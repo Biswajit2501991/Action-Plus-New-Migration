@@ -4,13 +4,13 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Action Plus Gym Manager</title>
-  <!-- Tailwind CSS for styling. Using CDN so no build step is required. -->
-  <script src="https://cdn.tailwindcss.com"></script>
-  <!-- React and ReactDOM from UMD builds -->
-  <script src="https://unpkg.com/react@18/umd/react.development.js"></script>
-  <script src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
-  <!-- Babel Standalone to compile JSX in the browser. -->
-  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+  <!-- Local vendor bundles for offline operation (no CDN dependencies). -->
+  <script src="./vendor/tailwindcss-cdn.js"></script>
+  <!-- React and ReactDOM UMD bundles served from local files -->
+  <script src="./vendor/react.development.js"></script>
+  <script src="./vendor/react-dom.development.js"></script>
+  <!-- Babel Standalone served locally for in-browser JSX compilation -->
+  <script src="./vendor/babel.min.js"></script>
   <!-- Include our app‑specific stylesheet (currently minimal; most styling uses Tailwind classes) -->
   <link rel="stylesheet" href="styles.css" />
   <style>
