@@ -18,6 +18,17 @@ function tokenHash(rawToken) {
   return crypto.createHash('sha256').update(rawToken).digest('hex');
 }
 
+function parseBranchIds(rawValue) {
+  if (Array.isArray(rawValue)) return rawValue.filter(Boolean);
+  if (typeof rawValue !== 'string' || !rawValue.trim()) return [];
+  try {
+    const parsed = JSON.parse(rawValue);
+    return Array.isArray(parsed) ? parsed.filter(Boolean) : [];
+  } catch {
+    return [];
+  }
+}
+
 async function resolveTenantIdForLogin(req, identifier) {
   const host = normalizeHost(req.headers['x-forwarded-host'] || req.headers.host);
   if (host && host !== 'localhost' && host !== '127.0.0.1') {
@@ -81,8 +92,60 @@ function signAuthToken({ tenantId, userId, roles, permissions }) {
   });
 }
 
+async function readJsonCollection(key, fallback = []) {
+  const result = await query(
+    `select value_json
+     from app_kv
+     where key = $1
+     limit 1`,
+    [key],
+  );
+  if (!result.rowCount) return fallback;
+  try {
+    const parsed = JSON.parse(result.rows[0].value_json || '[]');
+    return Array.isArray(parsed) ? parsed : fallback;
+  } catch {
+    return fallback;
+  }
+}
+
+async function writeJsonCollection(key, value) {
+  const payload = JSON.stringify(Array.isArray(value) ? value : []);
+  await query(
+    `insert into app_kv (key, value_json, updated_at)
+     values ($1, $2, CURRENT_TIMESTAMP)
+     on conflict(key) do update
+     set value_json = excluded.value_json,
+         updated_at = CURRENT_TIMESTAMP`,
+    [key, payload],
+  );
+}
+
 app.get('/api/v1/health', (_req, res) => {
   res.json({ ok: true, service: 'gym-backend', env: env.NODE_ENV });
+});
+app.get('/api/health', (_req, res) => {
+  res.json({ ok: true, service: 'gym-backend', env: env.NODE_ENV });
+});
+
+app.get('/api/members', async (_req, res) => {
+  const members = await readJsonCollection('apg.members', []);
+  res.json(members);
+});
+
+app.put('/api/members/bulk', async (req, res) => {
+  await writeJsonCollection('apg.members', req.body?.members || []);
+  res.json({ ok: true });
+});
+
+app.get('/api/users', async (_req, res) => {
+  const users = await readJsonCollection('apg.users', []);
+  res.json(users);
+});
+
+app.put('/api/users/bulk', async (req, res) => {
+  await writeJsonCollection('apg.users', req.body?.users || []);
+  res.json({ ok: true });
 });
 
 app.post('/api/v1/auth/login', async (req, res) => {
@@ -218,12 +281,15 @@ app.post('/api/v1/invites/accept', async (req, res) => {
       [userId, invite.role_id],
     );
 
-    await client.query(
-      `insert into user_branches (user_id, branch_id)
-       select $1, unnest($2::uuid[])
-       on conflict (user_id, branch_id) do nothing`,
-      [userId, invite.branch_ids || []],
-    );
+    const branchIds = parseBranchIds(invite.branch_ids);
+    for (const branchId of branchIds) {
+      await client.query(
+        `insert into user_branches (user_id, branch_id)
+         values ($1, $2)
+         on conflict (user_id, branch_id) do nothing`,
+        [userId, branchId],
+      );
+    }
 
     await client.query(`update invites set accepted_at = now() where id = $1`, [invite.id]);
 

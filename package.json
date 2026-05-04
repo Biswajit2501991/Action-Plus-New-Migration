@@ -4,6 +4,8 @@
   "private": true,
   "type": "module",
   "scripts": {
+    "dev:all": "node scripts/dev-all.mjs",
+    "dev:web": "node scripts/dev-frontend.mjs",
     "test": "vitest run",
     "test:watch": "vitest"
   },

@@ -36,6 +36,7 @@
       window.setTimeout(resolve, 3000);
     });
   </script>
+  <script src="/app.env.js"></script>
   <script type="module" src="./src/runtime/registerApgModules.js"></script>
   <!-- Application Code. Babel will compile this JSX on the fly. -->
   <script type="text/babel" data-presets="react">
@@ -589,6 +590,9 @@ Phone: +91-7047157510`;
       theme: 'apg.theme',
       addMemberDraft: 'apg.addMemberDraft',
     };
+    const BACKEND_API_BASE_URL = (window.__APG_ENV__ && window.__APG_ENV__.API_BASE_URL)
+      ? String(window.__APG_ENV__.API_BASE_URL)
+      : 'http://localhost:4000/api';
     const STORAGE_SOFT_LIMIT_BYTES = 4.5 * 1024 * 1024; // ~4.5MB budget
     const MAX_IMPORT_FILE_BYTES = 5 * 1024 * 1024; // 5MB guardrail for backup imports
     const MAX_IMAGE_FILE_BYTES = 10 * 1024 * 1024; // 10MB input guard
@@ -607,6 +611,14 @@ Phone: +91-7047157510`;
       } catch {
         return 0;
       }
+    };
+    const backendJson = async (path, init = {}) => {
+      const res = await fetch(`${BACKEND_API_BASE_URL}${path}`, {
+        headers: { 'Content-Type': 'application/json', ...(init.headers || {}) },
+        ...init,
+      });
+      if (!res.ok) throw new Error(`backend-${res.status}`);
+      return res.json();
     };
 
     const loadImageDataUrl = (file) => new Promise((resolve, reject) => {
@@ -686,6 +698,17 @@ Phone: +91-7047157510`;
     // ---- App Component ----
     function GymApp() {
       const [user, setUser] = React.useState(null);
+      const [dataSyncMode, setDataSyncMode] = React.useState('checking');
+      const syncBadgeTone = dataSyncMode === 'backend'
+        ? 'border-emerald-300 bg-emerald-50 text-emerald-700'
+        : dataSyncMode === 'local'
+          ? 'border-amber-300 bg-amber-50 text-amber-700'
+          : 'border-slate-300 bg-slate-50 text-slate-600';
+      const syncBadgeLabel = dataSyncMode === 'backend'
+        ? 'Backend Sync: Connected'
+        : dataSyncMode === 'local'
+          ? 'Backend Sync: Local only'
+          : 'Backend Sync: Checking...';
 
       // Users state: stores login credentials and the list of sections each user can access.
       // On first run it initialises with default accounts. Subsequent modifications are
@@ -811,6 +834,29 @@ Phone: +91-7047157510`;
           return changed ? next : prev;
         });
       }, [normalizeSectionsForUser]);
+      // Prefer backend as source of truth when available.
+      React.useEffect(() => {
+        let alive = true;
+        (async () => {
+          try {
+            await backendJson('/health');
+            const [remoteUsers, remoteMembers] = await Promise.all([
+              backendJson('/users').catch(() => []),
+              backendJson('/members').catch(() => []),
+            ]);
+            if (!alive) return;
+            setDataSyncMode('backend');
+            if (Array.isArray(remoteUsers) && remoteUsers.length > 0) setUsers(remoteUsers);
+            if (Array.isArray(remoteMembers) && remoteMembers.length > 0) setMembers(remoteMembers);
+          } catch {
+            if (!alive) return;
+            setDataSyncMode('local');
+          }
+        })();
+        return () => {
+          alive = false;
+        };
+      }, []);
       // Keep role templates aligned with latest app sections for future staff setup.
       React.useEffect(() => {
         const templates = Array.isArray(settings.roleTemplates) ? settings.roleTemplates : [];
@@ -932,7 +978,12 @@ Phone: +91-7047157510`;
       }, [theme]);
       React.useEffect(() => {
         safeSetItemJSON(STORAGE_KEYS.members, members);
-      }, [members]);
+        if (dataSyncMode !== 'backend') return;
+        backendJson('/members/bulk', {
+          method: 'PUT',
+          body: JSON.stringify({ members }),
+        }).catch(() => {});
+      }, [members, dataSyncMode]);
       React.useEffect(() => {
         safeSetItemJSON(STORAGE_KEYS.settings, settings);
       }, [settings]);
@@ -950,7 +1001,12 @@ Phone: +91-7047157510`;
       // staff or updated roles survive page reloads.
       React.useEffect(() => {
         safeSetItemJSON(STORAGE_KEYS.users, users);
-      }, [users]);
+        if (dataSyncMode !== 'backend') return;
+        backendJson('/users/bulk', {
+          method: 'PUT',
+          body: JSON.stringify({ users }),
+        }).catch(() => {});
+      }, [users, dataSyncMode]);
       React.useEffect(() => {
         if (financeSeeded || financeTransactions.length > 0 || members.length === 0) return;
         const seeded = members
@@ -1756,6 +1812,9 @@ Please pay by: ${formattedLastDate}`;
               <div className="hidden text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-400 sm:block">Action Plus Gym</div>
             </div>
             <div className="flex items-center gap-1.5">
+              <span className={cx('hidden rounded-full border px-2 py-1 text-[10px] font-semibold sm:inline-flex', syncBadgeTone)}>
+                {syncBadgeLabel}
+              </span>
               {user?.id === 'owner' && (
                 <div className="relative">
                   <button
@@ -1857,6 +1916,10 @@ Please pay by: ${formattedLastDate}`;
                       </button>
                     ))}
                   </div>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span className={cx('rounded-full border px-3 py-1.5 text-xs font-semibold', syncBadgeTone)}>
+                      {syncBadgeLabel}
+                    </span>
                   {user?.id === 'owner' && (
                     <div className="relative">
                       <button
@@ -1908,6 +1971,7 @@ Please pay by: ${formattedLastDate}`;
                       )}
                     </div>
                   )}
+                  </div>
                 </div>
               </div>
             </div>

@@ -10,15 +10,16 @@ This folder contains the Phase 1 implementation pack for multi-tenant onboarding
 ## Suggested stack
 
 - Node.js 20+
-- PostgreSQL 14+
+- SQLite 3 (local file DB via `better-sqlite3`)
 - Express (or Fastify/Nest, if preferred)
 
 ## Next steps
 
-1. Create DB and run `migrations/0001_init_multitenant.sql`
-2. Run `seeds/0001_seed_permissions.sql`
-3. Implement route handlers using `openapi/openapi.yaml`
-4. Wire middleware from `src/middleware/` into your server entry
+1. Set `DATABASE_PATH` (optional). Default is `backend/data/app.db`
+2. Run `npm install`
+3. Run `npm run db:migrate`
+4. Run `npm run db:seed`
+5. Start backend with `npm run dev`
 
 ## Notes
 

@@ -23,6 +23,35 @@ This project is a simple client‑side application for managing gym memberships.
 
 That’s it!  You can now manage gym members, explore the dashboard, adjust settings and view logs.  All data will persist locally in your browser.
 
+## Quick Start (Full Local Stack)
+
+For new users who want frontend + local SQLite backend:
+
+1. Install Node.js 20+.
+2. In project root, install dependencies:
+   - `npm install`
+   - `cd backend && npm install && cd ..`
+3. Create env files:
+   - `cp .env.example .env`
+   - `cp backend/.env.example backend/.env`
+4. Initialize local database:
+   - `cd backend`
+   - `mkdir -p data`
+   - `npm run db:migrate`
+   - `npm run db:seed`
+   - `cd ..`
+5. Start both services together:
+   - `npm run dev:all`
+6. Open the app:
+   - `http://127.0.0.1:5500/index.html` (or your `FRONTEND_PORT` from `.env`)
+
+Tip: In the app header, check the `Backend Sync` badge. `Connected` means SQLite sync is active.
+
+### Quick Troubleshooting
+
+- **Port already in use**: change `FRONTEND_PORT` or `BACKEND_PORT` in `.env`, then restart `npm run dev:all`.
+- **Backend not connected**: confirm backend is running on `http://localhost:4000/api/health` and `API_BASE_URL` in `.env` matches it.
+
 ## Notes
 
 * This project uses Tailwind via its CDN script rather than a compiled CSS build.  If you want to customise the look beyond the default classes, add styles to `styles.css`.

@@ -1,35 +1,54 @@
-import pg from 'pg';
+import fs from 'node:fs';
+import path from 'node:path';
+import Database from 'better-sqlite3';
 
-const { Pool } = pg;
+const databasePath = process.env.DATABASE_PATH || path.resolve(process.cwd(), 'data', 'app.db');
+fs.mkdirSync(path.dirname(databasePath), { recursive: true });
 
-const connectionString = process.env.DATABASE_URL;
+export const db = new Database(databasePath);
+db.pragma('foreign_keys = ON');
 
-if (!connectionString) {
-  throw new Error('DATABASE_URL is required');
+function normalizeSql(text) {
+  // Keep common PG syntax compatible with SQLite.
+  return String(text || '')
+    .replace(/\$\d+/g, '?')
+    .replace(/\bnow\(\)/gi, 'CURRENT_TIMESTAMP');
 }
 
-const sslEnabled = process.env.PGSSLMODE === 'require';
+function mapResult(statement, params = []) {
+  const sql = normalizeSql(statement);
+  const trimmed = sql.trim().toLowerCase();
+  if (trimmed.startsWith('select') || trimmed.startsWith('with') || trimmed.includes(' returning ')) {
+    const stmt = db.prepare(sql);
+    if (trimmed.includes(' returning ')) {
+      const row = stmt.get(...params);
+      const rows = row ? [row] : [];
+      return { rows, rowCount: rows.length };
+    }
+    const rows = stmt.all(...params);
+    return { rows, rowCount: rows.length };
+  }
 
-export const pool = new Pool({
-  connectionString,
-  ssl: sslEnabled ? { rejectUnauthorized: false } : undefined,
-});
+  const stmt = db.prepare(sql);
+  const info = stmt.run(...params);
+  return { rows: [], rowCount: info.changes || 0 };
+}
 
 export async function query(text, params = []) {
-  return pool.query(text, params);
+  return mapResult(text, params);
 }
 
 export async function withTransaction(work) {
-  const client = await pool.connect();
+  const client = {
+    query: (text, params = []) => mapResult(text, params),
+  };
+  db.exec('BEGIN');
   try {
-    await client.query('BEGIN');
-    const result = await work(client);
-    await client.query('COMMIT');
-    return result;
+    const out = await work(client);
+    db.exec('COMMIT');
+    return out;
   } catch (error) {
-    await client.query('ROLLBACK');
+    db.exec('ROLLBACK');
     throw error;
-  } finally {
-    client.release();
   }
 }
