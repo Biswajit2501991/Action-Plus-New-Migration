@@ -770,6 +770,7 @@ Phone: +91-7047157510`;
       paymentMethods: ['Google Pay','Cash','Phone Pay','Cash + Google Pay','Cash + Phone Pay','Paytm','Cash + Paytm'],
       holdDurations: ['1 Month','2 Months','3 Months','4 Months','5 Months','6 Months'],
       genders: ['Male','Female','Cannot disclose'],
+      expenseCategories: ['Rent', 'Salary', 'Electricity', 'Maintenance', 'Equipment', 'Marketing', 'Misc'],
       exerciseTypes: [
         'Back',
         'Back + Biceps',
@@ -793,6 +794,7 @@ Phone: +91-7047157510`;
       staff: [ { id:'Bis', name:'Bis', email:'bis@example.com', avatar:null }, { id:'Raja', name:'Raja', email:'raja@example.com', avatar:null } ],
       roleTemplates: [...DEFAULT_ROLE_TEMPLATES],
       smsTemplates: { ...SMS_TEMPLATE_DEFAULTS },
+      financeUseEstimatedExpense: true,
       medicalQuestionnaireTemplate: MEDICAL_QUESTIONNAIRE_TEMPLATE_DEFAULT,
       acknowledgementTemplate: ACKNOWLEDGEMENT_TEMPLATE_DEFAULT,
       acknowledgementUnder18Template: ACKNOWLEDGEMENT_UNDER18_TEMPLATE_DEFAULT,
@@ -2465,6 +2467,9 @@ Please pay by: ${formattedLastDate}`;
                 members={members}
                 settings={settings}
                 logs={logs}
+                financeTransactions={financeTransactions}
+                setFinanceTransactions={setFinanceTransactions}
+                updateSetting={updateSettingValue}
                 access={normalizeAccess(user?.access)}
               />
             )}
@@ -5405,6 +5410,33 @@ function PTClientsPage({ members, users, settings, updateSetting, currentUser })
         persistProfile(selectedMember.memberId, { weightLogs: next });
         setWeightDraft(v => ({ ...v, weight: '' }));
       };
+      const addDietAttachments = async (files) => {
+        if (!selectedMember || !files?.length) return;
+        const valid = Array.from(files).filter((file) => file.size <= MAX_IMAGE_FILE_BYTES);
+        const entries = await Promise.all(valid.map(async (file) => {
+          try {
+            const raw = await loadImageDataUrl(file);
+            const compressed = file.type.startsWith('image/') ? await downscaleImageDataUrl(raw) : raw;
+            return {
+              id: crypto.randomUUID(),
+              name: file.name,
+              mime: file.type || 'application/octet-stream',
+              size: file.size,
+              dataUrl: compressed,
+              uploadedAt: new Date().toISOString(),
+            };
+          } catch {
+            return null;
+          }
+        }));
+        const next = [...(profile.dietAttachments || []), ...entries.filter(Boolean)].slice(-60);
+        persistProfile(selectedMember.memberId, { dietAttachments: next });
+      };
+      const removeDietAttachment = (id) => {
+        if (!selectedMember || !id) return;
+        const next = (profile.dietAttachments || []).filter((item) => item.id !== id);
+        persistProfile(selectedMember.memberId, { dietAttachments: next });
+      };
       const sessionsToday = (profile.sessions || []).filter(s => iso(s.date) === iso(new Date()));
       const weightLogs = (profile.weightLogs || []).slice().sort((a, b) => String(a.date || '').localeCompare(String(b.date || '')));
       const firstWeight = weightLogs[0]?.weight ?? null;
@@ -5544,6 +5576,48 @@ function PTClientsPage({ members, users, settings, updateSetting, currentUser })
                     <div><label className="text-sm font-medium">Protein (g)</label><input value={profile.protein || ''} onChange={(e) => persistProfile(selectedMember.memberId, { protein: e.target.value })} className="mt-1 w-full rounded-xl border border-slate-300 px-3 py-2 text-sm" /></div>
                     <div><label className="text-sm font-medium">Water (L)</label><input value={profile.water || ''} onChange={(e) => persistProfile(selectedMember.memberId, { water: e.target.value })} className="mt-1 w-full rounded-xl border border-slate-300 px-3 py-2 text-sm" /></div>
                     <div className="md:col-span-3"><label className="text-sm font-medium">Diet Plan Details</label><textarea rows={5} value={profile.dietPlan || ''} onChange={(e) => persistProfile(selectedMember.memberId, { dietPlan: e.target.value })} className="mt-1 w-full rounded-xl border border-slate-300 px-3 py-2 text-sm" /></div>
+                    <div className="md:col-span-3 rounded-xl border border-slate-200 bg-slate-50 p-3 space-y-3">
+                      <div className="flex flex-wrap items-center justify-between gap-2">
+                        <div>
+                          <div className="text-sm font-semibold text-slate-900">Diet Plan Documents</div>
+                          <div className="text-xs text-slate-500">Upload paper diet-plan photos/files (max 10MB each).</div>
+                        </div>
+                        <label className="cursor-pointer rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-100">
+                          <input
+                            type="file"
+                            accept="image/*,.pdf"
+                            capture="environment"
+                            multiple
+                            className="hidden"
+                            onChange={(e) => {
+                              const files = e.target.files;
+                              addDietAttachments(files);
+                              e.target.value = '';
+                            }}
+                          />
+                          Add Document
+                        </label>
+                      </div>
+                      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">
+                        {(profile.dietAttachments || []).map((doc) => (
+                          <div key={doc.id} className="rounded-lg border border-slate-200 bg-white p-2 space-y-2">
+                            {String(doc.mime || '').startsWith('image/') ? (
+                              <img src={doc.dataUrl} alt={doc.name || 'Diet attachment'} className="h-28 w-full rounded object-cover border border-slate-200" />
+                            ) : (
+                              <div className="h-28 w-full rounded border border-slate-200 bg-slate-100 flex items-center justify-center text-xs text-slate-600">Document</div>
+                            )}
+                            <div className="text-xs text-slate-700 truncate" title={doc.name}>{doc.name}</div>
+                            <div className="flex items-center gap-2">
+                              <a href={doc.dataUrl} target="_blank" rel="noreferrer" className="rounded border border-blue-300 bg-blue-50 px-2 py-1 text-[11px] font-semibold text-blue-700">Open</a>
+                              <button type="button" onClick={() => removeDietAttachment(doc.id)} className="rounded border border-rose-300 bg-rose-50 px-2 py-1 text-[11px] font-semibold text-rose-700">Remove</button>
+                            </div>
+                          </div>
+                        ))}
+                        {(!profile.dietAttachments || profile.dietAttachments.length === 0) && (
+                          <div className="text-sm text-slate-500">No documents uploaded yet.</div>
+                        )}
+                      </div>
+                    </div>
                   </div>
                 )}
                 {activeSubTab === 'Chat Trainer' && (
@@ -5930,6 +6004,7 @@ function SettingsPage({ settings, updateSetting, members, access, storageInfo, b
         { key: 'plans', label: 'Plans', allowed: settingsAccess.managePlans },
         { key: 'statuses', label: 'Statuses', allowed: settingsAccess.manageStatuses },
         { key: 'paymentMethods', label: 'Payment Methods', allowed: settingsAccess.managePaymentMethods },
+        { key: 'expenseCategories', label: 'Expense Categories', allowed: settingsAccess.managePaymentMethods },
         { key: 'holdDurations', label: 'Hold Durations', allowed: settingsAccess.manageHoldDurations },
         { key: 'genders', label: 'Genders', allowed: settingsAccess.manageGenders },
         { key: 'exerciseTypes', label: 'Exercise Types (PT Focus)', allowed: settingsAccess.managePlans },
@@ -6985,27 +7060,36 @@ function SettingsPage({ settings, updateSetting, members, access, storageInfo, b
     }
 
     // ---- Finance Page ----
-    function FinancePage({ members, settings, logs, access }) {
+    function FinancePage({ members, settings, logs, financeTransactions = [], setFinanceTransactions, updateSetting, access }) {
       const [query, setQuery] = React.useState('');
       const [appliedQuery, setAppliedQuery] = React.useState('');
       const [showFilter, setShowFilter] = React.useState(false);
       const [planFilter, setPlanFilter] = React.useState('');
       const [methodFilter, setMethodFilter] = React.useState('');
       const [statusFilter, setStatusFilter] = React.useState('');
+      const [typeFilter, setTypeFilter] = React.useState('');
       const [fromDate, setFromDate] = React.useState('');
       const [toDate, setToDate] = React.useState('');
       const [page, setPage] = React.useState(1);
       const [expandedId, setExpandedId] = React.useState('');
+      const [showExpenseForm, setShowExpenseForm] = React.useState(false);
+      const expenseCategories = Array.isArray(settings?.expenseCategories) && settings.expenseCategories.length
+        ? settings.expenseCategories
+        : ['General'];
+      const [expenseDraft, setExpenseDraft] = React.useState({ date: iso(new Date()), amount: '', category: expenseCategories[0] || 'General', note: '' });
+      const useEstimatedExpense = settings?.financeUseEstimatedExpense !== false;
       const today = new Date();
 
-      const transactions = React.useMemo(() => {
-        return members
+      const autoIncomeTransactions = React.useMemo(() => {
+        return (members || [])
           .filter(m => m.billingDate)
           .map(m => {
             const due = retentionPaymentDeadline(m);
             const pending = m.status === 'Active' && due && due < today;
             return {
-              id: m.memberId || crypto.randomUUID(),
+              id: `auto-${m.memberId || crypto.randomUUID()}`,
+              type: 'income',
+              source: 'members',
               memberId: m.memberId || '',
               memberName: m.name || '',
               date: iso(m.billingDate),
@@ -7018,35 +7102,117 @@ function SettingsPage({ settings, updateSetting, members, access, storageInfo, b
           })
           .sort((a, b) => new Date(b.date || 0) - new Date(a.date || 0));
       }, [members, today]);
+      const manualFinanceRows = React.useMemo(() => {
+        return (Array.isArray(financeTransactions) ? financeTransactions : []).map((t) => ({
+          id: t.id || `manual-${crypto.randomUUID()}`,
+          type: t.type === 'expense' ? 'expense' : 'income',
+          source: t.source || 'manual',
+          memberId: t.memberId || '',
+          memberName: t.memberName || (t.type === 'expense' ? (t.category || 'Expense') : ''),
+          date: t.date || iso(new Date()),
+          plan: t.plan || (t.type === 'expense' ? 'Expense' : ''),
+          method: t.method || 'Cash',
+          amount: Number(t.amount || 0),
+          status: t.status || (t.type === 'expense' ? 'posted' : 'paid'),
+          memberStatus: t.memberStatus || '',
+          note: t.note || '',
+          category: t.category || '',
+        }));
+      }, [financeTransactions]);
+      const transactions = React.useMemo(() => {
+        return [...autoIncomeTransactions, ...manualFinanceRows]
+          .sort((a, b) => new Date(b.date || 0) - new Date(a.date || 0));
+      }, [autoIncomeTransactions, manualFinanceRows]);
 
-      const searchTokens = React.useMemo(() => {
-        return appliedQuery.toLowerCase().trim().split(/\s+/).filter(Boolean);
-      }, [appliedQuery]);
+      const queryNeedle = React.useMemo(() => appliedQuery.toLowerCase().trim(), [appliedQuery]);
 
       const filteredTransactions = React.useMemo(() => {
         return transactions.filter(t => {
           if (planFilter && t.plan !== planFilter) return false;
           if (methodFilter && t.method !== methodFilter) return false;
           if (statusFilter && t.status !== statusFilter) return false;
+          if (typeFilter && t.type !== typeFilter) return false;
           if (fromDate && String(t.date || '') < fromDate) return false;
           if (toDate && String(t.date || '') > toDate) return false;
-          if (searchTokens.length) {
+          if (queryNeedle) {
             const hay = [t.memberName, t.memberId, t.plan, t.method, t.memberStatus, t.status].join(' ').toLowerCase();
-            if (!searchTokens.every(tok => hay.includes(tok))) return false;
+            if (!hay.includes(queryNeedle)) return false;
           }
           return true;
         });
-      }, [transactions, planFilter, methodFilter, statusFilter, fromDate, toDate, searchTokens]);
+      }, [transactions, planFilter, methodFilter, statusFilter, typeFilter, fromDate, toDate, queryNeedle]);
 
       React.useEffect(() => {
         setPage(1);
-      }, [appliedQuery, planFilter, methodFilter, statusFilter, fromDate, toDate, members.length]);
+      }, [appliedQuery, planFilter, methodFilter, statusFilter, typeFilter, fromDate, toDate, members.length, financeTransactions.length]);
+      React.useEffect(() => {
+        setExpenseDraft((prev) => {
+          if (expenseCategories.includes(prev.category)) return prev;
+          return { ...prev, category: expenseCategories[0] || 'General' };
+        });
+      }, [expenseCategories]);
 
-      const revenue = filteredTransactions.reduce((sum, t) => sum + Number(t.amount || 0), 0);
-      const pendingRows = filteredTransactions.filter(t => t.status === 'pending');
+      const incomeRows = filteredTransactions.filter((t) => t.type !== 'expense');
+      const revenue = incomeRows.reduce((sum, t) => sum + Number(t.amount || 0), 0);
+      const pendingRows = incomeRows.filter(t => t.status === 'pending');
       const pendingAmount = pendingRows.reduce((sum, t) => sum + Number(t.amount || 0), 0);
-      const expense = Math.round(revenue * 0.26);
+      const actualExpense = filteredTransactions
+        .filter((t) => t.type === 'expense')
+        .reduce((sum, t) => sum + Number(t.amount || 0), 0);
+      const estimatedExpense = Math.round(revenue * 0.26);
+      const expense = useEstimatedExpense ? estimatedExpense : actualExpense;
       const profit = revenue - expense;
+      const addExpenseRow = () => {
+        const amount = Number(expenseDraft.amount || 0);
+        if (!amount || amount <= 0) return;
+        const nextRow = {
+          id: crypto.randomUUID(),
+          type: 'expense',
+          source: 'manual',
+          date: expenseDraft.date || iso(new Date()),
+          amount,
+          category: expenseDraft.category || 'General',
+          note: expenseDraft.note || '',
+          status: 'posted',
+          method: 'Cash',
+          memberName: expenseDraft.category || 'Expense',
+          plan: 'Expense',
+        };
+        const current = Array.isArray(financeTransactions) ? financeTransactions : [];
+        if (typeof setFinanceTransactions === 'function') setFinanceTransactions([nextRow, ...current]);
+        setExpenseDraft({ date: iso(new Date()), amount: '', category: expenseCategories[0] || 'General', note: '' });
+        setShowExpenseForm(false);
+      };
+      const exportFinanceCsv = () => {
+        const rows = filteredTransactions || [];
+        const esc = (v) => {
+          const text = String(v ?? '');
+          if (text.includes('"') || text.includes(',') || text.includes('\n')) return `"${text.replaceAll('"', '""')}"`;
+          return text;
+        };
+        const header = ['Date','Type','Member Name','Member ID','Plan/Category','Method','Status','Amount','Note'];
+        const lines = [
+          header.join(','),
+          ...rows.map((r) => [
+            r.date || '',
+            r.type || '',
+            r.memberName || '',
+            r.memberId || '',
+            (r.type === 'expense' ? (r.category || r.plan || '') : (r.plan || '')),
+            r.method || '',
+            r.status || '',
+            Number(r.amount || 0),
+            r.note || '',
+          ].map(esc).join(',')),
+        ];
+        const blob = new Blob([lines.join('\n')], { type: 'text/csv;charset=utf-8' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `finance-ledger-${iso(new Date())}.csv`;
+        a.click();
+        URL.revokeObjectURL(url);
+      };
 
       const monthTotals = React.useMemo(() => {
         const months = [];
@@ -7125,8 +7291,8 @@ function SettingsPage({ settings, updateSetting, members, access, storageInfo, b
       const canFinanceTransactions = access?.finance?.viewTransactionsAutoMembers !== false;
       const isMobile = useIsMobile();
       if (isMobile) {
-        const upcoming = filteredTransactions.filter((t) => t.status !== 'pending').slice(0, 5);
-        const overdue = filteredTransactions.filter((t) => t.status === 'pending').slice(0, 5);
+        const upcoming = incomeRows.filter((t) => t.status !== 'pending').slice(0, 5);
+        const overdue = incomeRows.filter((t) => t.status === 'pending').slice(0, 5);
         return (
           <div className="p-4 space-y-4 bg-[#F8FAFC]">
             <div className="text-xl font-semibold text-slate-900">Billing & Payments</div>
@@ -7207,8 +7373,60 @@ function SettingsPage({ settings, updateSetting, members, access, storageInfo, b
               />
               <button onClick={() => setAppliedQuery(query)} className="rounded-full bg-blue-600 text-white px-4 py-2 min-h-[44px] text-sm font-medium hover:bg-blue-700">Search</button>
               <button onClick={() => setShowFilter(v => !v)} className="rounded-full border border-slate-300 bg-white px-4 py-2 min-h-[44px] text-sm font-medium text-slate-700">Filter</button>
+              <button onClick={() => setShowExpenseForm(v => !v)} className="rounded-full border border-rose-300 bg-rose-50 px-4 py-2 min-h-[44px] text-sm font-medium text-rose-700">{showExpenseForm ? 'Close Expense' : 'Add Expense'}</button>
+              <button onClick={exportFinanceCsv} className="rounded-full border border-emerald-300 bg-emerald-50 px-4 py-2 min-h-[44px] text-sm font-medium text-emerald-700">Export CSV</button>
             </div>
           </div>
+          <div className="rounded-2xl border border-slate-200 bg-white p-3 shadow-sm flex flex-wrap items-center gap-2">
+            <span className="text-sm text-slate-600">Transaction type:</span>
+            {[
+              { key: '', label: 'All' },
+              { key: 'income', label: 'Income' },
+              { key: 'expense', label: 'Expense only' },
+            ].map((opt) => (
+              <button
+                key={opt.key || 'all'}
+                onClick={() => setTypeFilter(opt.key)}
+                className={cx(
+                  'rounded-full border px-3 py-1.5 text-xs font-semibold',
+                  typeFilter === opt.key
+                    ? 'border-blue-500 bg-blue-50 text-blue-700'
+                    : 'border-slate-300 bg-white text-slate-600'
+                )}
+              >
+                {opt.label}
+              </button>
+            ))}
+          </div>
+          <div className="rounded-2xl border border-slate-200 bg-white p-3 shadow-sm flex flex-wrap items-center gap-2">
+            <span className="text-sm text-slate-600">Expense mode:</span>
+            <button
+              onClick={() => typeof updateSetting === 'function' && updateSetting('financeUseEstimatedExpense', false)}
+              className={cx('rounded-full border px-3 py-1.5 text-xs font-semibold', !useEstimatedExpense ? 'border-rose-400 bg-rose-50 text-rose-700' : 'border-slate-300 bg-white text-slate-600')}
+            >
+              Actual rows
+            </button>
+            <button
+              onClick={() => typeof updateSetting === 'function' && updateSetting('financeUseEstimatedExpense', true)}
+              className={cx('rounded-full border px-3 py-1.5 text-xs font-semibold', useEstimatedExpense ? 'border-amber-400 bg-amber-50 text-amber-700' : 'border-slate-300 bg-white text-slate-600')}
+            >
+              Estimated 26% fallback
+            </button>
+          </div>
+          {showExpenseForm && (
+            <div className="rounded-2xl border border-rose-200 bg-white p-4 shadow-sm grid grid-cols-1 md:grid-cols-5 gap-3">
+              <div><label className="text-xs text-slate-500">Date</label><input type="date" value={expenseDraft.date} onChange={(e) => setExpenseDraft(v => ({ ...v, date: e.target.value }))} className="mt-1 w-full rounded-xl border border-slate-300 px-3 py-2 text-sm" /></div>
+              <div>
+                <label className="text-xs text-slate-500">Category</label>
+                <select value={expenseDraft.category} onChange={(e) => setExpenseDraft(v => ({ ...v, category: e.target.value }))} className="mt-1 w-full rounded-xl border border-slate-300 px-3 py-2 text-sm">
+                  {expenseCategories.map((cat) => <option key={cat} value={cat}>{cat}</option>)}
+                </select>
+              </div>
+              <div><label className="text-xs text-slate-500">Amount</label><input type="number" min="0" value={expenseDraft.amount} onChange={(e) => setExpenseDraft(v => ({ ...v, amount: e.target.value }))} className="mt-1 w-full rounded-xl border border-slate-300 px-3 py-2 text-sm" /></div>
+              <div className="md:col-span-2"><label className="text-xs text-slate-500">Note</label><input value={expenseDraft.note} onChange={(e) => setExpenseDraft(v => ({ ...v, note: e.target.value }))} className="mt-1 w-full rounded-xl border border-slate-300 px-3 py-2 text-sm" placeholder="Optional note" /></div>
+              <div className="md:col-span-5 flex justify-end"><button onClick={addExpenseRow} className="rounded-full bg-rose-600 px-4 py-2 text-sm font-medium text-white hover:bg-rose-700">Save Expense</button></div>
+            </div>
+          )}
 
           {showFilter && (
             <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm grid grid-cols-1 md:grid-cols-3 xl:grid-cols-5 gap-3">
@@ -7224,6 +7442,7 @@ function SettingsPage({ settings, updateSetting, members, access, storageInfo, b
                 <option value="">All Payment Status</option>
                 <option value="paid">Paid</option>
                 <option value="pending">Pending</option>
+                <option value="posted">Posted (Expense)</option>
               </select>
               <input type="date" value={fromDate} onChange={(e) => setFromDate(e.target.value)} className="rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm" />
               <div className="flex gap-2">
@@ -7249,7 +7468,7 @@ function SettingsPage({ settings, updateSetting, members, access, storageInfo, b
             <div className={cardBase}>
               <div className="text-sm text-slate-500">Expenses</div>
               <div className="mt-1 text-3xl font-bold text-rose-700">${expense.toLocaleString()}</div>
-              <div className="text-sm text-rose-700">Estimated (26%)</div>
+              <div className="text-sm text-rose-700">{useEstimatedExpense ? 'Estimated (26%)' : 'Actual expense rows'}</div>
             </div>
             <div className={cardBase}>
               <div className="text-sm text-slate-500">Profit</div>
@@ -7299,7 +7518,7 @@ function SettingsPage({ settings, updateSetting, members, access, storageInfo, b
           {canFinanceTransactions && (
           <div className={cardBase}>
             <div className="flex items-center justify-between mb-3">
-              <h2 className="text-lg font-semibold text-slate-900">Transactions (Auto from Members)</h2>
+              <h2 className="text-lg font-semibold text-slate-900">Transactions (Income + Expenses)</h2>
               <div className="text-xs text-slate-500">Expand a row to see latest 10 logs</div>
             </div>
             <div className="overflow-x-auto">
