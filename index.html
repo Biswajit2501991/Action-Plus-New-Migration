@@ -6127,6 +6127,91 @@ function EditMemberModal({ member, onClose, onSave, planOptions, statusOptions, 
           acknowledgementDone,
         };
       }, [req1, req2, req3, req5, form.medicalAnswers, form.medicalSkipped]);
+      const clearSection = (section) => {
+        if (section === 'member') {
+          setForm((prev) => ({
+            ...prev,
+            formNo: canEditFormNo ? '' : prev.formNo,
+            name: '',
+            email: '',
+            dob: '',
+            gender: '',
+            mobile: '',
+            address: '',
+          }));
+          return;
+        }
+        if (section === 'membership') {
+          const join = iso(new Date());
+          const bill = join;
+          setForm((prev) => ({
+            ...prev,
+            staff: staffName || '',
+            amount: '',
+            plan: '',
+            joiningDate: join,
+            billingDate: bill,
+            nextPaymentDate: iso(addMonths(bill, 1)),
+            paymentBy: paymentByFromBillingDate(bill),
+            status: 'Active',
+            holdDuration: '',
+          }));
+          return;
+        }
+        if (section === 'payment') {
+          setForm((prev) => ({
+            ...prev,
+            paymentMethod: settings.paymentMethods?.[0] || '',
+            photo: '',
+            attachments: [],
+            remark: '',
+          }));
+          return;
+        }
+        if (section === 'medical') {
+          setForm((prev) => ({
+            ...prev,
+            medicalSkipped: false,
+            medicalAnswers: {
+              heartDisease: '',
+              cardiovascularCondition: '',
+              bloodPressure: '',
+              arthritis: '',
+              goutFamilyHistory: '',
+              otherCondition: '',
+              injuries: { knees: false, lowerBack: false, neckShoulders: false, hipsPelvis: false, flexibility: false, other: '' },
+              pregnant: 'No',
+              pregnantWeeks: '',
+              physicalActivity: '',
+              surgeryHistory: '',
+              smoking: '',
+              medication: '',
+              extraInfo: '',
+            },
+          }));
+          return;
+        }
+        if (section === 'ack') {
+          setForm((prev) => ({
+            ...prev,
+            ackAccepted: false,
+            ackSignature: '',
+            ackDate: iso(new Date()),
+            parentGuardianName: '',
+            parentGuardianDob: '',
+            parentGuardianSignature: '',
+          }));
+        }
+      };
+      const currentSectionKey = step === 1
+        ? 'member'
+        : step === 2
+          ? 'membership'
+          : step === 3
+            ? 'payment'
+            : step === 4
+              ? 'medical'
+              : 'ack';
       const missingSummary = React.useMemo(() => {
         const lines = [];
         if (req1.formNo) lines.push('Form Number');
@@ -6387,14 +6472,23 @@ function EditMemberModal({ member, onClose, onSave, planOptions, statusOptions, 
               </div>
               <div className="mt-2 text-xs text-slate-500"><span className="text-rose-600 font-semibold">*</span> Required fields</div>
               <div className="mt-3">
-                <div className="text-sm font-semibold text-slate-700 mb-2">Each Section Details</div>
+                <div className="mb-2 flex items-center justify-between gap-2">
+                  <div className="text-sm font-semibold text-slate-700">Each Section Details</div>
+                  <button
+                    type="button"
+                    onClick={() => clearSection(currentSectionKey)}
+                    className="rounded-full border border-slate-300 bg-white px-3 py-1 text-xs font-semibold text-slate-600 hover:bg-slate-100"
+                  >
+                    Clear
+                  </button>
+                </div>
                 <div className="flex flex-wrap items-center gap-3">
                   {[
-                    { key: 'm1', label: 'Member Details', done: sectionCompletion.memberDetailsDone },
-                    { key: 'm2', label: 'Membership Details', done: sectionCompletion.membershipDetailsDone },
-                    { key: 'm3', label: 'Payment Details', done: sectionCompletion.paymentDetailsDone },
-                    { key: 'm4', label: 'Medical Details', done: sectionCompletion.medicalDone },
-                    { key: 'm5', label: 'Acknowledgement', done: sectionCompletion.acknowledgementDone },
+                    { key: 'm1', section: 'member', label: 'Member Details', done: sectionCompletion.memberDetailsDone },
+                    { key: 'm2', section: 'membership', label: 'Membership Details', done: sectionCompletion.membershipDetailsDone },
+                    { key: 'm3', section: 'payment', label: 'Payment Details', done: sectionCompletion.paymentDetailsDone },
+                    { key: 'm4', section: 'medical', label: 'Medical Details', done: sectionCompletion.medicalDone },
+                    { key: 'm5', section: 'ack', label: 'Acknowledgement', done: sectionCompletion.acknowledgementDone },
                   ].map((item) => (
                     <div key={item.key} className="flex items-center gap-2">
                       <div className={cx(
