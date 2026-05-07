@@ -74,9 +74,74 @@
     }
     html.dark .bg-white { background-color: #0f172a !important; }
     html.dark .bg-slate-50, html.dark .bg-slate-100 { background-color: #111b2e !important; }
+    html.dark .bg-blue-50, html.dark .bg-blue-100 { background-color: #12233a !important; }
+    html.dark .bg-emerald-50, html.dark .bg-emerald-100 { background-color: #10251f !important; }
+    html.dark .bg-amber-50, html.dark .bg-amber-100 { background-color: #2a2111 !important; }
+    html.dark .bg-rose-50, html.dark .bg-rose-100 { background-color: #2b1820 !important; }
+    html.dark .bg-pink-50, html.dark .bg-pink-100 { background-color: #281826 !important; }
+    html.dark .bg-indigo-50, html.dark .bg-indigo-100 { background-color: #1b2038 !important; }
+    html.dark .bg-violet-50, html.dark .bg-violet-100 { background-color: #221d3a !important; }
     html.dark .text-slate-900, html.dark .text-slate-800, html.dark .text-slate-700 { color: #e2e8f0 !important; }
     html.dark .text-slate-600, html.dark .text-slate-500, html.dark .text-slate-400 { color: #94a3b8 !important; }
     html.dark .border-slate-200, html.dark .border-slate-300 { border-color: #243247 !important; }
+    html.dark .border-blue-100, html.dark .border-blue-200, html.dark .border-blue-300 { border-color: #274264 !important; }
+    html.dark .border-emerald-200, html.dark .border-emerald-300 { border-color: #245041 !important; }
+    html.dark .border-amber-200, html.dark .border-amber-300 { border-color: #5b4a25 !important; }
+    html.dark .border-rose-200, html.dark .border-rose-300 { border-color: #5e3140 !important; }
+    html.dark .border-pink-200, html.dark .border-pink-300 { border-color: #5f385f !important; }
+    html.dark .border-indigo-200, html.dark .border-indigo-300 { border-color: #3b4c7e !important; }
+    html.dark .text-blue-700, html.dark .text-blue-800 { color: #93c5fd !important; }
+    html.dark .text-emerald-700, html.dark .text-emerald-800 { color: #86efac !important; }
+    html.dark .text-amber-700, html.dark .text-amber-800 { color: #fcd34d !important; }
+    html.dark .text-rose-700, html.dark .text-rose-800 { color: #fda4af !important; }
+    html.dark .text-pink-700, html.dark .text-pink-800 { color: #f9a8d4 !important; }
+    html.dark .text-indigo-700, html.dark .text-indigo-800 { color: #a5b4fc !important; }
+    html.dark .text-violet-700, html.dark .text-violet-800 { color: #c4b5fd !important; }
+    html.dark [class*="hover:bg-white"]:hover,
+    html.dark [class*="hover:bg-slate-50"]:hover,
+    html.dark [class*="hover:bg-slate-100"]:hover,
+    html.dark [class*="hover:bg-blue-50"]:hover,
+    html.dark [class*="hover:bg-blue-100"]:hover {
+      background-color: #1a2d49 !important;
+      color: #e2e8f0 !important;
+    }
+    html.dark [class*="hover:bg-emerald-100"]:hover,
+    html.dark [class*="hover:bg-amber-100"]:hover,
+    html.dark [class*="hover:bg-rose-100"]:hover,
+    html.dark [class*="hover:bg-pink-100"]:hover,
+    html.dark [class*="hover:bg-indigo-100"]:hover {
+      filter: brightness(1.15);
+    }
+    html.dark .apg-members-list-shell {
+      background: #0f172a !important;
+      border-color: #243247 !important;
+    }
+    html.dark .apg-members-list-head {
+      background: #13233b !important;
+      color: #93c5fd !important;
+      border-color: #1d3557 !important;
+    }
+    html.dark .apg-member-row-wrap {
+      background: #0f172a !important;
+      border-color: #223248 !important;
+    }
+    html.dark .apg-member-row-desktop:hover,
+    html.dark .apg-member-row-mobile:hover {
+      background: #16253d !important;
+    }
+    html.dark .apg-member-row-mobile {
+      background: #0f172a !important;
+      border-color: #223248 !important;
+      color: #e2e8f0 !important;
+    }
+    html.dark .apg-dark-row-hover:hover {
+      background: #16253d !important;
+    }
+    html.dark .apg-dark-btn-hover:hover {
+      background: #1a2d49 !important;
+      color: #e2e8f0 !important;
+      border-color: #2b4261 !important;
+    }
     @keyframes apgMobileDetailIn {
       from { opacity: 0; transform: translateX(22px); }
       to { opacity: 1; transform: translateX(0); }
@@ -2490,6 +2555,7 @@ Please pay by: ${formattedLastDate}`;
       const toggleTheme = () => {
         setTheme(prev => prev === 'light' ? 'dark' : prev === 'dark' ? 'system' : 'light');
       };
+      const themeModeLabel = theme === 'system' ? 'Auto' : theme === 'dark' ? 'Dark' : 'Light';
 
       // If no user, show login screen
       if (!user) {
@@ -2592,6 +2658,13 @@ Please pay by: ${formattedLastDate}`;
               <div className="hidden text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-400 sm:block">Action Plus Gym</div>
             </div>
             <div className="flex items-center gap-1.5">
+              <button
+                onClick={toggleTheme}
+                className="rounded-xl border border-slate-300 bg-white px-2.5 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-100"
+                title={`Theme: ${themeModeLabel} (click to cycle Auto/Dark/Light)`}
+              >
+                {themeModeLabel}
+              </button>
               <div className="hidden sm:block">
                 <SyncStatusDot mode={dataSyncMode} label={syncBadgeLabel} />
               </div>
@@ -2697,6 +2770,13 @@ Please pay by: ${formattedLastDate}`;
                     ))}
                   </div>
                   <div className="flex flex-wrap items-center gap-2">
+                    <button
+                      onClick={toggleTheme}
+                      className="rounded-full border border-slate-300 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-100"
+                      title={`Theme: ${themeModeLabel} (click to cycle Auto/Dark/Light)`}
+                    >
+                      {themeModeLabel}
+                    </button>
                     <SyncStatusDot mode={dataSyncMode} label={syncBadgeLabel} />
                   {user?.id === 'owner' && (
                     <div className="relative">
@@ -3786,7 +3866,7 @@ function Sidebar({ user, active, onSelect, theme, setTheme, onLogout, onUndo, on
                 <tbody>
                   {overdueList.slice(0, 10).map(m => (
                     <React.Fragment key={m.memberId}>
-                      <tr className="border-b border-slate-200 hover:bg-slate-50">
+                      <tr className="apg-dark-row-hover border-b border-slate-200 hover:bg-slate-50">
                         <td className="px-3 py-2 whitespace-nowrap">{m.name}</td>
                         <td className="px-3 py-2 whitespace-nowrap">{m.memberId}</td>
                         <td className="px-3 py-2 whitespace-nowrap">{m.plan || '-'}</td>
@@ -3816,7 +3896,7 @@ function Sidebar({ user, active, onSelect, theme, setTheme, onLogout, onUndo, on
                             })()}
                             <button
                               onClick={() => setExpandedOverdueId(prev => prev === m.memberId ? '' : m.memberId)}
-                              className="rounded-full px-3 py-1 text-xs font-medium border border-slate-300 bg-white text-slate-700 hover:bg-slate-100"
+                              className="apg-dark-btn-hover rounded-full px-3 py-1 text-xs font-medium border border-slate-300 bg-white text-slate-700 hover:bg-slate-100"
                             >
                               {expandedOverdueId === m.memberId ? 'Hide Details' : 'View Details'}
                             </button>
@@ -3843,7 +3923,7 @@ function Sidebar({ user, active, onSelect, theme, setTheme, onLogout, onUndo, on
               </table>
               <div className="md:hidden space-y-3">
                 {overdueList.slice(0, 10).map(m => (
-                  <div key={`mob-${m.memberId}`} className="rounded-xl border border-slate-200 bg-white p-3">
+                  <div key={`mob-${m.memberId}`} className="apg-dark-row-hover rounded-xl border border-slate-200 bg-white p-3">
                     <div className="font-semibold text-slate-900">{m.name}</div>
                     <div className="text-xs text-slate-500">ID: {m.memberId}</div>
                     <div className="text-xs text-slate-600 mt-1">Plan: {m.plan || '-'} | Amount: ${Number(m.amount || 0).toLocaleString()}</div>
@@ -3869,7 +3949,7 @@ function Sidebar({ user, active, onSelect, theme, setTheme, onLogout, onUndo, on
                           </>
                         );
                       })()}
-                      <button onClick={() => setExpandedOverdueId(prev => prev === m.memberId ? '' : m.memberId)} className="rounded-full px-3 py-2 min-h-[44px] text-xs font-medium border border-slate-300 bg-white text-slate-700">{expandedOverdueId === m.memberId ? 'Hide' : 'Details'}</button>
+                      <button onClick={() => setExpandedOverdueId(prev => prev === m.memberId ? '' : m.memberId)} className="apg-dark-btn-hover rounded-full px-3 py-2 min-h-[44px] text-xs font-medium border border-slate-300 bg-white text-slate-700">{expandedOverdueId === m.memberId ? 'Hide' : 'Details'}</button>
                     </div>
                     {expandedOverdueId === m.memberId && <div className="mt-2"><MemberDetails m={m} logs={[]} /></div>}
                   </div>
@@ -3915,8 +3995,8 @@ function MembersList({ title, list, onBack, onEdit, onStatusChange, holdOptions,
             <button onClick={onBack} className="p-2 rounded-xl hover:bg-slate-200"><span className="text-xl">←</span></button>
             <h1 className="text-xl md:text-2xl font-semibold text-slate-900">{title} ({list.length})</h1>
           </div>
-          <div className="rounded-3xl bg-white border border-slate-200 p-2 md:p-4 shadow-sm overflow-hidden">
-            <div className="hidden lg:grid grid-cols-12 gap-4 px-3 py-2 text-sm font-semibold bg-blue-50 text-blue-700 border border-blue-100 rounded-2xl">
+          <div className="apg-members-list-shell rounded-3xl bg-white border border-slate-200 p-2 md:p-4 shadow-sm overflow-hidden">
+            <div className="apg-members-list-head hidden lg:grid grid-cols-12 gap-4 px-3 py-2 text-sm font-semibold bg-blue-50 text-blue-700 border border-blue-100 rounded-2xl">
               <div className="col-span-1">ID</div>
               <div className="col-span-2">Name</div>
               <div className="col-span-2">Plan</div>
@@ -4023,7 +4103,7 @@ function MemberRow({ m, expanded, onToggle, onEdit, onStatusChange, holdOptions,
         reader.readAsDataURL(file);
       };
       return (
-        <div className="border-b border-slate-200 last:border-none md:odd:bg-slate-50 md:even:bg-white py-1 md:py-0">
+        <div className="apg-member-row-wrap border-b border-slate-200 last:border-none md:odd:bg-slate-50 md:even:bg-white py-1 md:py-0">
           <MemberRowDesktopView
             m={m}
             selectable={selectable}
@@ -4093,7 +4173,7 @@ function MemberRow({ m, expanded, onToggle, onEdit, onStatusChange, holdOptions,
     // Phase A split: desktop-specific member row presentation.
 function MemberRowDesktopView({ m, selectable, selected, onSelectToggle, onToggle, onEdit, onWelcome, canWelcome, statusTemplate, todayHighlight, statusSentText, canEdit = true }) {
       return (
-        <button onClick={onToggle} className="hidden lg:grid w-full grid-cols-12 items-center gap-4 px-2 py-3 text-left text-slate-700 hover:bg-slate-100">
+        <button onClick={onToggle} className="apg-member-row-desktop hidden lg:grid w-full grid-cols-12 items-center gap-4 px-2 py-3 text-left text-slate-700 hover:bg-slate-100">
           <div className="col-span-1 font-medium flex items-center gap-2 min-w-0">
             {selectable && (
               <input
@@ -4164,7 +4244,7 @@ function MemberRowDesktopView({ m, selectable, selected, onSelectToggle, onToggl
             }
             onToggle();
           }}
-          className="lg:hidden w-full rounded-2xl border border-slate-200 bg-white px-3.5 py-3.5 text-left text-slate-700 shadow-sm active:scale-[0.99] transition"
+          className="apg-member-row-mobile lg:hidden w-full rounded-2xl border border-slate-200 bg-white px-3.5 py-3.5 text-left text-slate-700 shadow-sm active:scale-[0.99] transition"
         >
           <div className="flex items-start justify-between gap-2">
             <div className="min-w-0">
