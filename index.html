@@ -883,6 +883,7 @@ Phone: +91-7047157510`;
     const STORAGE_KEYS = {
       users: 'apg.users',
       members: 'apg.members',
+      visitors: 'apg.visitors',
       settings: 'apg.settings',
       logs: 'apg.logs',
       finance: 'apg.finance',
@@ -1164,6 +1165,14 @@ Phone: +91-7047157510`;
       const [members, setMembers] = React.useState(() => {
         try {
           const saved = localStorage.getItem(STORAGE_KEYS.members);
+          return saved ? JSON.parse(saved) : [];
+        } catch {
+          return [];
+        }
+      });
+      const [visitors, setVisitors] = React.useState(() => {
+        try {
+          const saved = localStorage.getItem(STORAGE_KEYS.visitors);
           return saved ? JSON.parse(saved) : [];
         } catch {
           return [];
@@ -1523,6 +1532,9 @@ Phone: +91-7047157510`;
         queueSyncSnapshot('members', members).then(() => setOfflineQueueCount((c) => c + 1)).catch(() => {});
       }, [members, dataSyncMode, syncRuntimeReady, backendHydrated]);
       React.useEffect(() => {
+        safeSetItemJSON(STORAGE_KEYS.visitors, visitors);
+      }, [visitors]);
+      React.useEffect(() => {
         if (!syncRuntimeReady) return;
         if (dataSyncMode === 'backend' && !backendHydrated) return;
         if (dataSyncMode === 'backend') {
@@ -1654,6 +1666,11 @@ Phone: +91-7047157510`;
       const [editMember, setEditMember] = React.useState(null);
       const [quickFieldEdit, setQuickFieldEdit] = React.useState(null);
       const [addOpen, setAddOpen] = React.useState(false);
+      const [addTypeOpen, setAddTypeOpen] = React.useState(false);
+      const [visitorFormOpen, setVisitorFormOpen] = React.useState(false);
+      const [visitorEdit, setVisitorEdit] = React.useState(null);
+      const [prefillVisitor, setPrefillVisitor] = React.useState(null);
+      const [membersView, setMembersView] = React.useState('all');
       const [toast, setToast] = React.useState('');
       const [undoToast, setUndoToast] = React.useState(null);
       const undoToastTimerRef = React.useRef(null);
@@ -2273,10 +2290,74 @@ Please pay by: ${formattedLastDate}`;
         };
         setMembers(prev => [memberWithAudit, ...prev]);
         logEvent('member.created', 'member', memberWithAudit.memberId, null, memberWithAudit);
+        if (prefillVisitor?.id) {
+          setVisitors((prev) => prev.map((v) => (v.id === prefillVisitor.id
+            ? { ...v, status: 'Converted', convertedAt: new Date().toISOString(), convertedMemberId: memberWithAudit.memberId }
+            : v)));
+          setPrefillVisitor(null);
+        }
         rememberMemberDefaults(memberWithAudit);
         showMemberUndoToast('Member added — Undo', previousMembers);
         setToast(`${memberWithAudit.name} has been saved successfully`);
         setTimeout(() => setToast(''), 2500);
+      };
+      const openAddSelector = () => {
+        setAddTypeOpen(true);
+      };
+      const saveVisitor = (payload) => {
+        if (!payload) return false;
+        const nowIso = new Date().toISOString();
+        const id = payload.id || `V-${String(Date.now()).slice(-8)}`;
+        const next = {
+          id,
+          fullName: String(payload.fullName || '').trim(),
+          email: String(payload.email || '').trim(),
+          dob: payload.dob || '',
+          mobile: String(payload.mobile || '').trim(),
+          gender: payload.gender || '',
+          status: payload.status || 'New',
+          addedAt: payload.addedAt || nowIso,
+          updatedAt: nowIso,
+          convertedAt: payload.convertedAt || '',
+          convertedMemberId: payload.convertedMemberId || '',
+        };
+        if (!next.fullName || !next.email || !next.dob || !next.mobile || !next.gender) {
+          setToast('Please complete all visitor required fields.');
+          setTimeout(() => setToast(''), 2200);
+          return false;
+        }
+        if (!isValidEmail(next.email)) {
+          setToast('Please enter a valid visitor Gmail address.');
+          setTimeout(() => setToast(''), 2200);
+          return false;
+        }
+        if (!isValidPhone(next.mobile)) {
+          setToast('Please enter a valid visitor mobile number.');
+          setTimeout(() => setToast(''), 2200);
+          return false;
+        }
+        setVisitors((prev) => {
+          const exists = prev.some((v) => v.id === id);
+          if (exists) return prev.map((v) => (v.id === id ? next : v));
+          return [next, ...prev];
+        });
+        logEvent(payload.id ? 'visitor.updated' : 'visitor.created', 'visitor', id, payload.id ? payload : null, next);
+        setToast(payload.id ? 'Visitor updated.' : 'Visitor saved.');
+        setTimeout(() => setToast(''), 1800);
+        return true;
+      };
+      const deleteVisitor = (visitorId) => {
+        if (!visitorId) return;
+        const target = visitors.find((v) => v.id === visitorId) || null;
+        setVisitors((prev) => prev.filter((v) => v.id !== visitorId));
+        logEvent('visitor.deleted', 'visitor', visitorId, target, null);
+      };
+      const convertVisitorToMember = (visitor) => {
+        if (!visitor) return;
+        setPrefillVisitor(visitor);
+        setAddOpen(true);
+        setActiveTab('Members');
+        setMembersView('all');
       };
       const csvHeaderAliases = React.useMemo(() => ({
         formNo: ['formnumber', 'formno'],
@@ -2458,6 +2539,7 @@ Please pay by: ${formattedLastDate}`;
             version: '1.0',
             exportedAt: new Date().toISOString(),
             members,
+            visitors,
             users,
             settings,
             logs,
@@ -2491,6 +2573,7 @@ Please pay by: ${formattedLastDate}`;
             throw new Error('invalid-schema');
           }
           setMembers(parsed.members);
+          setVisitors(Array.isArray(parsed.visitors) ? parsed.visitors : []);
           setUsers(parsed.users);
           setLogs(parsed.logs);
           setSettings(parsed.settings);
@@ -2734,6 +2817,7 @@ Please pay by: ${formattedLastDate}`;
             onSelect={(tab) => {
               setActiveTab(tab);
               if (tab === 'Dashboard') setDashMode('summary');
+              if (tab === 'Members') setMembersView('all');
               setMobileMenuOpen(false);
             }}
             theme={theme}
@@ -2745,6 +2829,8 @@ Please pay by: ${formattedLastDate}`;
             canRedo={historyState.canRedo}
             mobileOpen={mobileMenuOpen}
             onCloseMobile={() => setMobileMenuOpen(false)}
+            membersView={membersView}
+            setMembersView={setMembersView}
           />
           <main className="flex-1 overflow-y-auto pt-[68px] md:pt-0 pb-28 md:pb-0 w-full bg-[#F8FAFC] md:bg-transparent">
             <div className="hidden md:block px-8 pt-6">
@@ -2757,6 +2843,7 @@ Please pay by: ${formattedLastDate}`;
                         onClick={() => {
                           setActiveTab(tab);
                           if (tab === 'Dashboard') setDashMode('summary');
+                          if (tab === 'Members') setMembersView('all');
                         }}
                         className={cx(
                           'rounded-full px-3 py-1.5 text-xs font-semibold border transition-colors',
@@ -2844,7 +2931,7 @@ Please pay by: ${formattedLastDate}`;
                     setDashMode('list');
                     setDashSearch('');
                   }}
-                  onAddNew={canAddMembers ? () => setAddOpen(true) : null}
+                  onAddNew={canAddMembers ? () => openAddSelector() : null}
                   onSearch={(q, f) => {
                     setDashSearch(q.trim());
                     setDashField(f);
@@ -2883,34 +2970,46 @@ Please pay by: ${formattedLastDate}`;
               )
             )}
             {activeTab === 'Members' && (
-              canViewMembers ? <DashboardView
-                members={members}
-                onEdit={canEditMembers ? (m) => setEditMember(m) : null}
-                onStatusChange={canEditMembers ? quickStatus : null}
-                holdOptions={settings.holdDurations}
-                logs={logs}
-                filters={filters}
-                billingMonthOptions={billingMonthOptions}
-                filterOpen={filterOpen}
-                setFilterOpen={setFilterOpen}
-                anyFilterActive={anyFilterActive}
-                canDelete={canDeleteMembers}
-                onDelete={canDeleteMembers ? (m) => setDeleteCandidate(m) : null}
-                onWelcome={sendWelcomeEmail}
-                onWelcomeMail={sendWelcomeGmail}
-                onAddAttachment={addMemberAttachment}
-                onQuickFieldEdit={(payload) => setQuickFieldEdit(payload)}
-                editOptions={{
-                  plans: settings.plans || [],
-                  statuses: settings.statuses || [],
-                  paymentMethods: settings.paymentMethods || [],
-                  holdDurations: settings.holdDurations || [],
-                  genders: settings.genders || [],
-                }}
-                isOwner={user && user.id === 'owner'}
-                canEdit={canEditMembers}
-                onImportCsv={openCsvImportDialog}
-              /> : (
+              canViewMembers ? (
+                membersView === 'visitors' ? (
+                  <VisitorsPage
+                    visitors={visitors}
+                    onAddVisitor={() => { setVisitorEdit(null); setVisitorFormOpen(true); }}
+                    onEditVisitor={(v) => { setVisitorEdit(v); setVisitorFormOpen(true); }}
+                    onDeleteVisitor={deleteVisitor}
+                    onConvertVisitor={convertVisitorToMember}
+                  />
+                ) : (
+                  <DashboardView
+                    members={members}
+                    onEdit={canEditMembers ? (m) => setEditMember(m) : null}
+                    onStatusChange={canEditMembers ? quickStatus : null}
+                    holdOptions={settings.holdDurations}
+                    logs={logs}
+                    filters={filters}
+                    billingMonthOptions={billingMonthOptions}
+                    filterOpen={filterOpen}
+                    setFilterOpen={setFilterOpen}
+                    anyFilterActive={anyFilterActive}
+                    canDelete={canDeleteMembers}
+                    onDelete={canDeleteMembers ? (m) => setDeleteCandidate(m) : null}
+                    onWelcome={sendWelcomeEmail}
+                    onWelcomeMail={sendWelcomeGmail}
+                    onAddAttachment={addMemberAttachment}
+                    onQuickFieldEdit={(payload) => setQuickFieldEdit(payload)}
+                    editOptions={{
+                      plans: settings.plans || [],
+                      statuses: settings.statuses || [],
+                      paymentMethods: settings.paymentMethods || [],
+                      holdDurations: settings.holdDurations || [],
+                      genders: settings.genders || [],
+                    }}
+                    isOwner={user && user.id === 'owner'}
+                    canEdit={canEditMembers}
+                    onImportCsv={openCsvImportDialog}
+                  />
+                )
+              ) : (
                 <div className="p-3 md:p-8">
                   <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4 text-sm text-slate-600">
                     Members view access is disabled for this staff profile.
@@ -3061,6 +3160,7 @@ Please pay by: ${formattedLastDate}`;
                       }
                       setActiveTab(tab.key);
                       if (tab.key === 'Dashboard') setDashMode('summary');
+                      if (tab.key === 'Members') setMembersView('all');
                     }}
                     className={cx(
                       'flex flex-col items-center justify-center rounded-xl py-1.5 text-[11px] font-semibold transition',
@@ -3099,13 +3199,43 @@ Please pay by: ${formattedLastDate}`;
           {addOpen && canAddMembers && (
             <AddMemberWizard
               open={addOpen}
-              onClose={() => setAddOpen(false)}
+              onClose={() => { setAddOpen(false); setPrefillVisitor(null); }}
               onSave={addMember}
               settings={settings}
               staffName={user.name}
               members={members}
               canEditFormNo={user && user.id === 'owner'}
               smartDefaults={lastMemberDefaults}
+              prefillData={prefillVisitor}
+            />
+          )}
+          {addTypeOpen && (
+            <AddTypeModal
+              onClose={() => setAddTypeOpen(false)}
+              onSelectVisitor={() => {
+                setAddTypeOpen(false);
+                setVisitorEdit(null);
+                setVisitorFormOpen(true);
+              }}
+              onSelectMember={() => {
+                setAddTypeOpen(false);
+                setPrefillVisitor(null);
+                setAddOpen(true);
+              }}
+            />
+          )}
+          {visitorFormOpen && (
+            <VisitorFormModal
+              visitor={visitorEdit}
+              settings={settings}
+              onClose={() => { setVisitorFormOpen(false); setVisitorEdit(null); }}
+              onSave={(payload) => {
+                const ok = saveVisitor(payload);
+                if (ok) {
+                  setVisitorFormOpen(false);
+                  setVisitorEdit(null);
+                }
+              }}
             />
           )}
           <input
@@ -3220,9 +3350,9 @@ Please pay by: ${formattedLastDate}`;
           )}
 
           {/* Global Add Member Floating Button */}
-          {user && user.sections && user.sections.includes('Members') && canAddMembers && !addOpen && !editMember && (
+          {user && user.sections && user.sections.includes('Members') && canAddMembers && !addOpen && !addTypeOpen && !visitorFormOpen && !editMember && (
             <button
-              onClick={() => setAddOpen(true)}
+              onClick={openAddSelector}
               onMouseEnter={() => setAddMemberFabHover(true)}
               onMouseLeave={() => setAddMemberFabHover(false)}
               onFocus={() => setAddMemberFabHover(true)}
@@ -3389,7 +3519,7 @@ Please pay by: ${formattedLastDate}`;
     }
 
     // ---- Sidebar Component ----
-function Sidebar({ user, active, onSelect, theme, setTheme, onLogout, onUndo, onRedo, canUndo, canRedo, mobileOpen, onCloseMobile }) {
+function Sidebar({ user, active, onSelect, theme, setTheme, onLogout, onUndo, onRedo, canUndo, canRedo, mobileOpen, onCloseMobile, membersView = 'all', setMembersView }) {
       // Nav items with icon mapping (emoji). Could be replaced with SVG icons.
       const NAV = [
         { key: 'Dashboard', label: 'Dashboard', icon: '🏠' },
@@ -3408,6 +3538,7 @@ function Sidebar({ user, active, onSelect, theme, setTheme, onLogout, onUndo, on
       // include the Support page. If no user or sections are provided, show all pages.
       const allowedSections = user && user.sections ? user.sections : ALL_SECTIONS;
       const navItems = NAV.filter(item => allowedSections.includes(item.key) || item.key === 'Support');
+      const [membersExpanded, setMembersExpanded] = React.useState(true);
       return (
         <aside className={cx(
           'w-72 bg-gradient-to-b from-blue-600 to-blue-500 text-white flex flex-col h-screen overflow-hidden',
@@ -3429,22 +3560,72 @@ function Sidebar({ user, active, onSelect, theme, setTheme, onLogout, onUndo, on
             <div className="text-white/80 text-sm">{user.email}</div>
           </div>
           <nav className="flex-1 px-2 space-y-1 overflow-y-auto">
-            {navItems.map(item => (
-              <button
-                key={item.key}
-                onClick={() => {
-                  onSelect(item.key);
-                  onCloseMobile && onCloseMobile();
-                }}
-                className={cx(
-                  'w-full flex items-center justify-start text-left gap-3 rounded-xl px-4 py-2 font-medium',
-                  active === item.key ? 'bg-white/20' : 'hover:bg-white/10'
-                )}
-              >
-                <span>{item.icon}</span>
-                <span>{item.label}</span>
-              </button>
-            ))}
+            {navItems.map(item => {
+              if (item.key === 'Members') {
+                return (
+                  <div key={item.key} className="space-y-1">
+                    <button
+                      onClick={() => {
+                        onSelect('Members');
+                        setMembersView && setMembersView('all');
+                        setMembersExpanded((v) => !v);
+                        onCloseMobile && onCloseMobile();
+                      }}
+                      className={cx(
+                        'w-full flex items-center justify-between text-left rounded-xl px-4 py-2 font-medium',
+                        active === 'Members' ? 'bg-white/20' : 'hover:bg-white/10'
+                      )}
+                    >
+                      <span className="flex items-center gap-3">
+                        <span>{item.icon}</span>
+                        <span>{item.label}</span>
+                      </span>
+                      <span className="text-xs">{membersExpanded ? '▾' : '▸'}</span>
+                    </button>
+                    {membersExpanded && (
+                      <div className="ml-8 mr-2 space-y-1">
+                        <button
+                          onClick={() => {
+                            onSelect('Members');
+                            setMembersView && setMembersView('all');
+                            onCloseMobile && onCloseMobile();
+                          }}
+                          className={cx('w-full rounded-lg px-3 py-1.5 text-left text-sm', active === 'Members' && membersView === 'all' ? 'bg-white/20' : 'hover:bg-white/10')}
+                        >
+                          All Members
+                        </button>
+                        <button
+                          onClick={() => {
+                            onSelect('Members');
+                            setMembersView && setMembersView('visitors');
+                            onCloseMobile && onCloseMobile();
+                          }}
+                          className={cx('w-full rounded-lg px-3 py-1.5 text-left text-sm', active === 'Members' && membersView === 'visitors' ? 'bg-white/20' : 'hover:bg-white/10')}
+                        >
+                          Visitors
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                );
+              }
+              return (
+                <button
+                  key={item.key}
+                  onClick={() => {
+                    onSelect(item.key);
+                    onCloseMobile && onCloseMobile();
+                  }}
+                  className={cx(
+                    'w-full flex items-center justify-start text-left gap-3 rounded-xl px-4 py-2 font-medium',
+                    active === item.key ? 'bg-white/20' : 'hover:bg-white/10'
+                  )}
+                >
+                  <span>{item.icon}</span>
+                  <span>{item.label}</span>
+                </button>
+              );
+            })}
           </nav>
           <div className="p-4 mt-auto space-y-3">
             <div className="rounded-2xl bg-white/10 p-3">
@@ -5599,19 +5780,186 @@ function EditMemberModal({ member, onClose, onSave, planOptions, statusOptions, 
       );
     }
 
+    function AddTypeModal({ onClose, onSelectVisitor, onSelectMember }) {
+      return (
+        <div className="fixed inset-0 z-[95] flex items-center justify-center bg-slate-900/50 p-4">
+          <div className="w-full max-w-md rounded-3xl border border-slate-200 bg-white p-5 shadow-xl">
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-lg font-semibold text-slate-900">Add New</h3>
+              <button onClick={onClose} className="rounded-xl p-2 hover:bg-slate-100">✕</button>
+            </div>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <button onClick={onSelectVisitor} className="rounded-2xl border border-emerald-300 bg-emerald-50 p-4 text-left hover:bg-emerald-100">
+                <div className="text-sm font-semibold text-emerald-800">Visitor</div>
+                <div className="mt-1 text-xs text-emerald-700">Quick lead registration form</div>
+              </button>
+              <button onClick={onSelectMember} className="rounded-2xl border border-blue-300 bg-blue-50 p-4 text-left hover:bg-blue-100">
+                <div className="text-sm font-semibold text-blue-800">Member</div>
+                <div className="mt-1 text-xs text-blue-700">Existing full admission flow</div>
+              </button>
+            </div>
+          </div>
+        </div>
+      );
+    }
+
+    function VisitorFormModal({ visitor, settings, onClose, onSave }) {
+      const [form, setForm] = React.useState(() => ({
+        id: visitor?.id || '',
+        fullName: visitor?.fullName || '',
+        email: visitor?.email || '',
+        dob: visitor?.dob || '',
+        mobile: visitor?.mobile || '',
+        gender: visitor?.gender || '',
+        status: visitor?.status || 'New',
+        addedAt: visitor?.addedAt || '',
+      }));
+      const [touched, setTouched] = React.useState({});
+      const errors = React.useMemo(() => ({
+        fullName: !String(form.fullName || '').trim() ? 'Full Name is required.' : '',
+        email: !String(form.email || '').trim()
+          ? 'Gmail Address is required.'
+          : (!isValidEmail(form.email) ? 'Enter a valid Gmail Address.' : ''),
+        dob: !String(form.dob || '').trim() ? 'Date of Birth is required.' : '',
+        mobile: !String(form.mobile || '').trim()
+          ? 'Mobile Number is required.'
+          : (!isValidPhone(form.mobile) ? 'Enter a valid mobile number.' : ''),
+        gender: !String(form.gender || '').trim() ? 'Gender is required.' : '',
+      }), [form]);
+      const visitorDetailsComplete = React.useMemo(() => Object.values(errors).every((v) => !v), [errors]);
+      const showErr = (key) => Boolean(touched[key] && errors[key]);
+      const inputCls = (key) => cx(
+        'w-full rounded-xl border bg-white px-3 py-2 text-sm',
+        showErr(key) ? 'border-rose-300 bg-rose-50 text-rose-700' : 'border-slate-300'
+      );
+      const submit = () => {
+        const hasErrors = Object.values(errors).some(Boolean);
+        if (hasErrors) {
+          setTouched({ fullName: true, email: true, dob: true, mobile: true, gender: true });
+          return;
+        }
+        onSave(form);
+      };
+      return (
+        <div className="fixed inset-0 z-[95] flex items-center justify-center bg-slate-900/50 p-4">
+          <div className="w-full max-w-xl rounded-3xl border border-slate-200 bg-white shadow-xl">
+            <div className="flex items-center justify-between px-5 py-4 border-b border-slate-200">
+              <h3 className="text-lg font-semibold text-slate-900">{visitor ? 'Edit Visitor' : 'Add Visitor'}</h3>
+              <button onClick={onClose} className="rounded-xl p-2 hover:bg-slate-100">✕</button>
+            </div>
+            <div className="px-5 pt-4">
+              <div className="flex items-center gap-3">
+                <div className={cx(
+                  'h-8 w-8 rounded-full grid place-items-center text-sm font-bold border',
+                  visitorDetailsComplete ? 'bg-emerald-100 border-emerald-300 text-emerald-700' : 'bg-slate-100 border-slate-300 text-slate-500'
+                )}>
+                  {visitorDetailsComplete ? '✓' : '○'}
+                </div>
+                <div className="text-xl font-semibold text-slate-700">Visitor Details</div>
+              </div>
+            </div>
+            <div className="p-5 grid grid-cols-1 md:grid-cols-2 gap-3">
+              <div className="md:col-span-2">
+                <label className="text-sm font-medium">Full Name*</label>
+                <input value={form.fullName} onBlur={() => setTouched((p) => ({ ...p, fullName: true }))} onChange={(e) => setForm((p) => ({ ...p, fullName: e.target.value }))} className={inputCls('fullName')} />
+                {showErr('fullName') && <div className="mt-1 text-xs text-rose-600">{errors.fullName}</div>}
+              </div>
+              <div>
+                <label className="text-sm font-medium">Gmail Address*</label>
+                <input type="email" value={form.email} onBlur={() => setTouched((p) => ({ ...p, email: true }))} onChange={(e) => setForm((p) => ({ ...p, email: e.target.value }))} className={inputCls('email')} />
+                {showErr('email') && <div className="mt-1 text-xs text-rose-600">{errors.email}</div>}
+              </div>
+              <div>
+                <label className="text-sm font-medium">Date of Birth*</label>
+                <input type="date" value={form.dob} onBlur={() => setTouched((p) => ({ ...p, dob: true }))} onChange={(e) => setForm((p) => ({ ...p, dob: e.target.value }))} className={inputCls('dob')} />
+                {showErr('dob') && <div className="mt-1 text-xs text-rose-600">{errors.dob}</div>}
+              </div>
+              <div>
+                <label className="text-sm font-medium">Mobile Number*</label>
+                <input inputMode="numeric" value={form.mobile} onBlur={() => setTouched((p) => ({ ...p, mobile: true }))} onChange={(e) => setForm((p) => ({ ...p, mobile: e.target.value }))} className={inputCls('mobile')} />
+                {showErr('mobile') && <div className="mt-1 text-xs text-rose-600">{errors.mobile}</div>}
+              </div>
+              <div>
+                <label className="text-sm font-medium">Gender*</label>
+                <select value={form.gender} onBlur={() => setTouched((p) => ({ ...p, gender: true }))} onChange={(e) => setForm((p) => ({ ...p, gender: e.target.value }))} className={inputCls('gender')}><option value="">Select</option>{(settings?.genders || ['Male', 'Female', 'Other']).map((g) => <option key={g} value={g}>{g}</option>)}</select>
+                {showErr('gender') && <div className="mt-1 text-xs text-rose-600">{errors.gender}</div>}
+              </div>
+            </div>
+            <div className="px-5 py-4 border-t border-slate-200 flex justify-end gap-2">
+              <button onClick={onClose} className="rounded-xl border border-slate-300 bg-white px-4 py-2 text-sm font-medium">Cancel</button>
+              <button onClick={submit} className="rounded-full bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700">Save Visitor</button>
+            </div>
+          </div>
+        </div>
+      );
+    }
+
+    function VisitorsPage({ visitors, onAddVisitor, onEditVisitor, onDeleteVisitor, onConvertVisitor }) {
+      const [selected, setSelected] = React.useState(null);
+      const rows = visitors || [];
+      return (
+        <div className="p-3 md:p-8 space-y-4">
+          <div className="flex items-center justify-between gap-2">
+            <h1 className="text-2xl font-semibold text-slate-900">Visitors</h1>
+            <button onClick={onAddVisitor} className="rounded-full bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700">Add Visitor</button>
+          </div>
+          <div className="rounded-2xl border border-slate-200 bg-white overflow-x-auto">
+            <table className="min-w-full text-sm">
+              <thead><tr className="bg-blue-50 text-blue-700">
+                <th className="px-3 py-2 text-left">Visitor ID</th><th className="px-3 py-2 text-left">Full Name</th><th className="px-3 py-2 text-left">Mobile</th><th className="px-3 py-2 text-left">Gmail</th><th className="px-3 py-2 text-left">Gender</th><th className="px-3 py-2 text-left">Date Added</th><th className="px-3 py-2 text-left">Status</th><th className="px-3 py-2 text-left">Actions</th>
+              </tr></thead>
+              <tbody>
+                {rows.map((v) => (
+                  <tr key={v.id} className="border-b border-slate-200 hover:bg-slate-50">
+                    <td className="px-3 py-2">{v.id}</td><td className="px-3 py-2">{v.fullName}</td><td className="px-3 py-2">{v.mobile}</td><td className="px-3 py-2">{v.email}</td><td className="px-3 py-2">{v.gender}</td><td className="px-3 py-2">{fmt(v.addedAt)}</td><td className="px-3 py-2">{v.status || 'New'}</td>
+                    <td className="px-3 py-2"><div className="flex items-center gap-2 flex-wrap">
+                      <button onClick={() => setSelected(v)} className="rounded-full border border-slate-300 bg-white px-2.5 py-1 text-xs">View</button>
+                      <button onClick={() => onEditVisitor(v)} className="rounded-full border border-indigo-300 bg-indigo-50 px-2.5 py-1 text-xs text-indigo-700">Edit</button>
+                      <button onClick={() => onDeleteVisitor(v.id)} className="rounded-full border border-rose-300 bg-rose-50 px-2.5 py-1 text-xs text-rose-700">Delete</button>
+                      <button disabled={v.status === 'Converted'} onClick={() => onConvertVisitor(v)} className={cx('rounded-full border px-2.5 py-1 text-xs', v.status === 'Converted' ? 'border-slate-300 bg-slate-100 text-slate-500 cursor-not-allowed' : 'border-emerald-300 bg-emerald-50 text-emerald-700')}>Convert to Member</button>
+                    </div></td>
+                  </tr>
+                ))}
+                {rows.length === 0 && <tr><td colSpan={8} className="px-3 py-4 text-center text-slate-500">No visitor records yet.</td></tr>}
+              </tbody>
+            </table>
+          </div>
+          {selected && (
+            <div className="rounded-2xl border border-slate-200 bg-white p-4">
+              <div className="flex items-center justify-between gap-2">
+                <div className="text-sm font-semibold text-slate-800">Visitor Details</div>
+                <button onClick={() => setSelected(null)} className="rounded-lg px-2 py-1 text-xs border border-slate-300">Close</button>
+              </div>
+              <div className="mt-3 grid grid-cols-1 md:grid-cols-2 gap-2 text-sm">
+                <div><span className="text-slate-500">Name:</span> {selected.fullName}</div>
+                <div><span className="text-slate-500">Mobile:</span> {selected.mobile}</div>
+                <div><span className="text-slate-500">Gmail:</span> {selected.email}</div>
+                <div><span className="text-slate-500">DOB:</span> {fmt(selected.dob) || '-'}</div>
+                <div><span className="text-slate-500">Gender:</span> {selected.gender || '-'}</div>
+                <div><span className="text-slate-500">Status:</span> {selected.status || 'New'}</div>
+              </div>
+              <div className="mt-3">
+                <button disabled={selected.status === 'Converted'} onClick={() => onConvertVisitor(selected)} className={cx('rounded-full border px-3 py-1.5 text-xs font-semibold', selected.status === 'Converted' ? 'border-slate-300 bg-slate-100 text-slate-500 cursor-not-allowed' : 'border-emerald-300 bg-emerald-50 text-emerald-700')}>Convert to Member</button>
+              </div>
+            </div>
+          )}
+        </div>
+      );
+    }
+
     // ---- Add Member Wizard ----
-    function AddMemberWizard({ open, onClose, onSave, settings, staffName, members, canEditFormNo, smartDefaults = {} }) {
+    function AddMemberWizard({ open, onClose, onSave, settings, staffName, members, canEditFormNo, smartDefaults = {}, prefillData = null }) {
       const defaultJoiningDate = smartDefaults.joiningDate || iso(new Date());
       const defaultBillingDate = smartDefaults.billingDate || iso(new Date());
       const [step, setStep] = React.useState(1);
       const [hideFooterOnMobile, setHideFooterOnMobile] = React.useState(false);
       const [form, setForm] = React.useState({
         formNo: '',
-        name: '',
-        email: '',
-        dob: '',
-        gender: '',
-        mobile: '',
+        name: prefillData?.fullName || '',
+        email: prefillData?.email || '',
+        dob: prefillData?.dob || '',
+        gender: prefillData?.gender || '',
+        mobile: prefillData?.mobile || '',
         address: '',
         staff: staffName || '',
         amount: smartDefaults.amount || '',
@@ -5758,6 +6106,27 @@ function EditMemberModal({ member, onClose, onSave, planOptions, statusOptions, 
         parentGuardianName: isMinor && !String(form.parentGuardianName || '').trim(),
         parentGuardianSignature: isMinor && !String(form.parentGuardianSignature || '').trim(),
       };
+      const sectionCompletion = React.useMemo(() => {
+        const memberDetailsDone = !Object.values(req1).some(Boolean);
+        const membershipDetailsDone = !Object.values(req2).some(Boolean);
+        const paymentDetailsDone = !Object.values(req3).some(Boolean);
+        const hasMedicalInput = MEDICAL_YES_NO_FIELDS.some(([k]) => String(form.medicalAnswers?.[k] || '').trim())
+          || String(form.medicalAnswers?.extraInfo || '').trim()
+          || String(form.medicalAnswers?.pregnantWeeks || '').trim()
+          || String(form.medicalAnswers?.physicalActivity || '').trim()
+          || String(form.medicalAnswers?.surgeryHistory || '').trim()
+          || String(form.medicalAnswers?.smoking || '').trim()
+          || String(form.medicalAnswers?.medication || '').trim();
+        const medicalDone = Boolean(form.medicalSkipped || hasMedicalInput);
+        const acknowledgementDone = !Object.values(req5).some(Boolean);
+        return {
+          memberDetailsDone,
+          membershipDetailsDone,
+          paymentDetailsDone,
+          medicalDone,
+          acknowledgementDone,
+        };
+      }, [req1, req2, req3, req5, form.medicalAnswers, form.medicalSkipped]);
       const missingSummary = React.useMemo(() => {
         const lines = [];
         if (req1.formNo) lines.push('Form Number');
@@ -5993,6 +6362,17 @@ function EditMemberModal({ member, onClose, onSave, planOptions, statusOptions, 
           paymentMethod: prev.paymentMethod || smartDefaults.paymentMethod || settings.paymentMethods[0],
         }));
       }, [open, smartDefaults, settings.paymentMethods]);
+      React.useEffect(() => {
+        if (!open || !prefillData) return;
+        setForm((prev) => ({
+          ...prev,
+          name: prefillData.fullName || prev.name || '',
+          email: prefillData.email || prev.email || '',
+          dob: prefillData.dob || prev.dob || '',
+          mobile: prefillData.mobile || prev.mobile || '',
+          gender: prefillData.gender || prev.gender || '',
+        }));
+      }, [open, prefillData]);
       if (!open) return null;
       return (
         <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-slate-900/50 p-2 sm:p-4 overflow-y-auto">
@@ -6006,8 +6386,33 @@ function EditMemberModal({ member, onClose, onSave, planOptions, statusOptions, 
                 <div className="h-full bg-blue-600 transition-all" style={{ width: `${(step / 5) * 100}%` }} />
               </div>
               <div className="mt-2 text-xs text-slate-500"><span className="text-rose-600 font-semibold">*</span> Required fields</div>
+              <div className="mt-3">
+                <div className="text-sm font-semibold text-slate-700 mb-2">Each Section Details</div>
+                <div className="flex flex-wrap items-center gap-3">
+                  {[
+                    { key: 'm1', label: 'Member Details', done: sectionCompletion.memberDetailsDone },
+                    { key: 'm2', label: 'Membership Details', done: sectionCompletion.membershipDetailsDone },
+                    { key: 'm3', label: 'Payment Details', done: sectionCompletion.paymentDetailsDone },
+                    { key: 'm4', label: 'Medical Details', done: sectionCompletion.medicalDone },
+                    { key: 'm5', label: 'Acknowledgement', done: sectionCompletion.acknowledgementDone },
+                  ].map((item) => (
+                    <div key={item.key} className="flex items-center gap-2">
+                      <div className={cx(
+                        'h-6 w-6 rounded-full border grid place-items-center text-xs font-bold',
+                        item.done ? 'border-emerald-300 bg-emerald-100 text-emerald-700' : 'border-slate-300 bg-slate-100 text-slate-500'
+                      )}>
+                        {item.done ? '✓' : '○'}
+                      </div>
+                      <span className={cx('text-xs font-medium', item.done ? 'text-emerald-700' : 'text-slate-600')}>{item.label}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
             </div>
-            <div className="px-4 sm:px-6 pb-36 sm:pb-6 max-h-[calc(95dvh-170px)] sm:max-h-[70vh] overflow-auto">
+            <div className={cx(
+              'px-4 sm:px-6 max-h-[calc(95dvh-170px)] sm:max-h-[70vh] overflow-auto',
+              (step === 4 || step === 5) ? 'pb-52 sm:pb-24' : 'pb-36 sm:pb-6'
+            )}>
               {warn && <div className="mb-3 rounded-xl bg-amber-50 text-amber-800 border border-amber-200 px-3 py-2 text-sm">{warn}</div>}
               {step === 5 && missingSummary.length > 0 && (
                 <div className="mb-3 rounded-xl bg-rose-50 text-rose-800 border border-rose-200 px-3 py-2 text-sm">
