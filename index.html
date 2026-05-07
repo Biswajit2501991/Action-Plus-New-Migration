@@ -1587,10 +1587,10 @@ Phone: +91-7047157510`;
           return null;
         }
       };
-      const logEvent = (action, entityType, entityId, beforeObj, afterObj) => {
+      const logEvent = (action, entityType, entityId, beforeObj, afterObj, actorOverride = '') => {
         const entry = {
           id: crypto.randomUUID(),
-          actor: user?.name || 'Unknown',
+          actor: actorOverride || user?.name || 'Unknown',
           action,
           entityType,
           entityId,
@@ -1720,7 +1720,7 @@ Phone: +91-7047157510`;
         const rec = users.find(u => u.id === id);
         if (rec && rec.password === pw) {
           if (rec.blocked) {
-            logEvent('auth.login.blocked', 'user', id, null, { id, blocked: true });
+            logEvent('auth.login.blocked', 'user', id, null, { id, blocked: true }, rec.name || id);
             setToast('This staff account is blocked. Contact owner.');
             setTimeout(() => setToast(''), 2500);
             return false;
@@ -1729,7 +1729,7 @@ Phone: +91-7047157510`;
           setUser({ ...rec, access: normalizeAccess(rec.access) });
           setActiveTab('Dashboard');
           setDashMode('summary');
-          logEvent('auth.login', 'user', id, null, { id });
+          logEvent('auth.login', 'user', id, null, { id }, rec.name || id);
           return true;
         }
         // Fallback to legacy demo users for backward compatibility
@@ -1745,7 +1745,7 @@ Phone: +91-7047157510`;
           });
           setActiveTab('Dashboard');
           setDashMode('summary');
-          logEvent('auth.login', 'user', id, null, { id });
+          logEvent('auth.login', 'user', id, null, { id }, legacy.name || id);
           return true;
         }
         return false;
@@ -2385,7 +2385,7 @@ Please pay by: ${formattedLastDate}`;
 
       // Logout handler clears the current user and resets navigation state.
       const logout = () => {
-        logEvent('auth.logout', 'user', user?.id || '', { id: user?.id }, null);
+        logEvent('auth.logout', 'user', user?.id || '', { id: user?.id }, null, user?.name || user?.id || '');
         setUser(null);
         setNotificationOpen(false);
         setActiveTab('Dashboard');
@@ -2469,9 +2469,9 @@ Please pay by: ${formattedLastDate}`;
               <div className="hidden text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-400 sm:block">Action Plus Gym</div>
             </div>
             <div className="flex items-center gap-1.5">
-              <span className={cx('hidden rounded-full border px-2 py-1 text-[10px] font-semibold sm:inline-flex', syncBadgeTone)}>
-                {syncBadgeLabel}
-              </span>
+              <div className="hidden sm:block">
+                <SyncStatusDot mode={dataSyncMode} label={syncBadgeLabel} />
+              </div>
               {user?.id === 'owner' && (
                 <div className="relative">
                   <button
@@ -2574,9 +2574,7 @@ Please pay by: ${formattedLastDate}`;
                     ))}
                   </div>
                   <div className="flex flex-wrap items-center gap-2">
-                    <span className={cx('rounded-full border px-3 py-1.5 text-xs font-semibold', syncBadgeTone)}>
-                      {syncBadgeLabel}
-                    </span>
+                    <SyncStatusDot mode={dataSyncMode} label={syncBadgeLabel} />
                   {user?.id === 'owner' && (
                     <div className="relative">
                       <button
@@ -4323,6 +4321,34 @@ function MemberRowDesktopView({ m, selectable, selected, onSelectToggle, onToggl
       };
       return (
         <span className={cx('inline-flex items-center justify-center border rounded-lg px-2.5 py-1 text-xs font-medium', tones[tone], className)}>{children}</span>
+      );
+    }
+    function SyncStatusDot({ mode, label }) {
+      const [open, setOpen] = React.useState(false);
+      const dotTone = mode === 'backend'
+        ? 'bg-emerald-500 border-emerald-300 shadow-emerald-200'
+        : mode === 'local'
+          ? 'bg-rose-500 border-rose-300 shadow-rose-200'
+          : 'bg-amber-400 border-amber-300 shadow-amber-200';
+      return (
+        <div
+          className="relative"
+          onMouseEnter={() => setOpen(true)}
+          onMouseLeave={() => setOpen(false)}
+        >
+          <button
+            type="button"
+            onClick={() => setOpen((v) => !v)}
+            title={label}
+            aria-label={label}
+            className={cx('h-7 w-7 rounded-full border-2 shadow-sm transition-all duration-150 hover:scale-105', dotTone)}
+          />
+          {open && (
+            <div className="absolute right-0 top-9 z-[60] whitespace-nowrap rounded-lg border border-slate-200 bg-white px-2 py-1 text-xs font-semibold text-slate-700 shadow-lg">
+              {label}
+            </div>
+          )}
+        </div>
       );
     }
 
@@ -6935,6 +6961,43 @@ function SettingsPage({ settings, updateSetting, members, access, storageInfo, b
       const safePage = page > totalPages ? 1 : page;
       const start = (safePage - 1) * pageSize;
       const pageRows = filtered.slice(start, start + pageSize);
+      const flattenForDiff = React.useCallback((value, prefix = '', out = {}) => {
+        if (value === null || value === undefined) return out;
+        if (Array.isArray(value)) {
+          value.forEach((item, idx) => {
+            const k = prefix ? `${prefix}[${idx}]` : `[${idx}]`;
+            if (item && typeof item === 'object') flattenForDiff(item, k, out);
+            else out[k] = item;
+          });
+          return out;
+        }
+        if (typeof value === 'object') {
+          Object.keys(value).forEach((k) => {
+            const next = prefix ? `${prefix}.${k}` : k;
+            const v = value[k];
+            if (v && typeof v === 'object') flattenForDiff(v, next, out);
+            else out[next] = v;
+          });
+          return out;
+        }
+        out[prefix || 'value'] = value;
+        return out;
+      }, []);
+      const getChangedFields = React.useCallback((entry) => {
+        const beforeFlat = flattenForDiff(entry?.before || {});
+        const afterFlat = flattenForDiff(entry?.after || {});
+        const keys = Array.from(new Set([...Object.keys(beforeFlat), ...Object.keys(afterFlat)]));
+        return keys
+          .filter((k) => JSON.stringify(beforeFlat[k]) !== JSON.stringify(afterFlat[k]))
+          .map((k) => ({ key: k, before: beforeFlat[k], after: afterFlat[k] }));
+      }, [flattenForDiff]);
+      const prettyDiffValue = (v) => {
+        if (v === undefined) return '—';
+        if (v === null) return 'null';
+        if (typeof v === 'string') return v || '""';
+        if (typeof v === 'object') return JSON.stringify(v);
+        return String(v);
+      };
       const alertCount = React.useMemo(() => {
         return filtered.filter(l => String(l.action || '').includes('deleted') || String(l.action || '').includes('blocked')).length;
       }, [filtered]);
@@ -7027,11 +7090,35 @@ function SettingsPage({ settings, updateSetting, members, access, storageInfo, b
                       </td>
                       <td className="px-3 py-2 whitespace-nowrap">{l.entityType}</td>
                       <td className="px-3 py-2 whitespace-nowrap">{l.entityId}</td>
-                      <td className="px-3 py-2 text-xs max-w-xs truncate">{l.after ? Object.keys(l.after).join(', ') : ''}</td>
+                      <td className="px-3 py-2 text-xs max-w-xs truncate">
+                        {(() => {
+                          const changes = getChangedFields(l);
+                          if (!changes.length) return l.after ? Object.keys(l.after).join(', ') : '';
+                          return `${changes.length} changed: ${changes.slice(0, 3).map(c => c.key).join(', ')}${changes.length > 3 ? '…' : ''}`;
+                        })()}
+                      </td>
                     </tr>
                     {expandedId === l.id && (
                       <tr className="bg-slate-50 border-b border-slate-200">
                         <td colSpan={6} className="px-3 py-2">
+                          {(() => {
+                            const changes = getChangedFields(l);
+                            if (!changes.length) return null;
+                            return (
+                              <div className="mb-2 rounded-xl border border-emerald-200 bg-emerald-50 p-2">
+                                <div className="text-xs font-semibold text-emerald-700 mb-1">Changed Fields ({changes.length})</div>
+                                <div className="max-h-44 overflow-auto text-xs">
+                                  {changes.map((c) => (
+                                    <div key={`${l.id}-${c.key}`} className="grid grid-cols-1 md:grid-cols-3 gap-1 border-b border-emerald-100 py-1 last:border-b-0">
+                                      <div className="font-semibold text-emerald-800">{c.key}</div>
+                                      <div className="text-rose-700">before: {prettyDiffValue(c.before)}</div>
+                                      <div className="text-emerald-700">after: {prettyDiffValue(c.after)}</div>
+                                    </div>
+                                  ))}
+                                </div>
+                              </div>
+                            );
+                          })()}
                           <div className="grid grid-cols-1 md:grid-cols-2 gap-2 text-xs">
                             <div className="rounded-xl bg-slate-900 text-slate-100 p-2 overflow-auto">
                               <div className="text-slate-300 mb-1">before</div>
@@ -7055,6 +7142,26 @@ function SettingsPage({ settings, updateSetting, members, access, storageInfo, b
             <div className="md:hidden divide-y divide-slate-200">
               {pageRows.map(l => (
                 <div key={l.id} className="p-3">
+                  {(() => {
+                    const changes = getChangedFields(l);
+                    if (!changes.length) return null;
+                    return (
+                      <div className="mb-2 rounded-lg border border-emerald-200 bg-emerald-50 p-2 text-xs">
+                        <div className="font-semibold text-emerald-700 mb-1">Changed ({changes.length})</div>
+                        <div className="space-y-1 max-h-28 overflow-auto">
+                          {changes.map((c) => (
+                            <div key={`${l.id}-m-${c.key}`} className="truncate">
+                              <span className="font-semibold text-emerald-800">{c.key}</span>
+                              <span className="text-slate-500">: </span>
+                              <span className="text-rose-700">{prettyDiffValue(c.before)}</span>
+                              <span className="text-slate-500"> → </span>
+                              <span className="text-emerald-700">{prettyDiffValue(c.after)}</span>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    );
+                  })()}
                   <div className="flex items-center justify-between gap-2">
                     <div className="font-medium text-slate-900 truncate">{l.actor || 'Unknown'}</div>
                     <span className="inline-flex rounded-full bg-blue-100 px-2 py-0.5 text-xs font-semibold text-blue-700">{l.action}</span>
