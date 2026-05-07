@@ -64,6 +64,7 @@ On macOS, you can double-click `start.command` from the project folder. It will:
 Notes:
 - Keep the terminal window open while using the app.
 - Internet is needed on first run (to download npm packages).
+- If app icon does not update in Finder after icon changes, run one-time: `npm run icon:refresh`
 
 ### Restore Database from Backup
 

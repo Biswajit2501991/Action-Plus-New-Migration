@@ -137,6 +137,69 @@
       const p = normalizePhone(v);
       return p.length >= 10 && p.length <= 15;
     };
+    const normalizeCsvHeader = (v) => String(v || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+    const readCsvCells = (line) => {
+      const out = [];
+      let cur = '';
+      let inQuotes = false;
+      for (let i = 0; i < line.length; i += 1) {
+        const ch = line[i];
+        if (ch === '"') {
+          if (inQuotes && line[i + 1] === '"') {
+            cur += '"';
+            i += 1;
+          } else {
+            inQuotes = !inQuotes;
+          }
+          continue;
+        }
+        if (ch === ',' && !inQuotes) {
+          out.push(cur.trim());
+          cur = '';
+          continue;
+        }
+        cur += ch;
+      }
+      out.push(cur.trim());
+      return out;
+    };
+    const parseCsvText = (text) => {
+      const lines = String(text || '').replace(/\r/g, '').split('\n').map((l) => l.trim()).filter(Boolean);
+      if (!lines.length) return { headers: [], rows: [] };
+      const headers = readCsvCells(lines[0]);
+      const rows = lines.slice(1).map((line) => {
+        const cells = readCsvCells(line);
+        const row = {};
+        headers.forEach((h, idx) => { row[h] = cells[idx] ?? ''; });
+        return row;
+      });
+      return { headers, rows };
+    };
+    const parseFlexibleDateToIso = (raw) => {
+      const value = String(raw || '').trim();
+      if (!value) return '';
+      if (/^(nil|na|n\/a|-|null|undefined)$/i.test(value)) return '';
+      const monthMap = { jan: 0, feb: 1, mar: 2, apr: 3, may: 4, jun: 5, jul: 6, aug: 7, sep: 8, oct: 9, nov: 10, dec: 11 };
+      let m = value.match(/^(\d{4})-(\d{1,2})-(\d{1,2})$/);
+      if (m) return iso(new Date(Date.UTC(Number(m[1]), Number(m[2]) - 1, Number(m[3]))));
+      m = value.match(/^(\d{1,2})[\/-]([A-Za-z]{3,})[\/-](\d{2,4})$/);
+      if (m) {
+        const day = Number(m[1]);
+        const mon = monthMap[String(m[2]).slice(0, 3).toLowerCase()];
+        const yearRaw = Number(m[3]);
+        const year = yearRaw < 100 ? (2000 + yearRaw) : yearRaw;
+        if (Number.isFinite(mon)) return iso(new Date(Date.UTC(year, mon, day)));
+      }
+      m = value.match(/^(\d{1,2})[\/-](\d{1,2})[\/-](\d{2,4})$/);
+      if (m) {
+        const day = Number(m[1]);
+        const mon = Number(m[2]) - 1;
+        const yearRaw = Number(m[3]);
+        const year = yearRaw < 100 ? (2000 + yearRaw) : yearRaw;
+        return iso(new Date(Date.UTC(year, mon, day)));
+      }
+      return iso(value);
+    };
     // Shorten status text for fixed width badges
     const shortStatus = (s) => {
       if (!s) return '';
@@ -149,7 +212,7 @@
     // - otherwise => Welcome SMS
     // For other statuses, keep status-based mapping.
     const primaryMessageActionForMember = (member, isOwner = false) => {
-      if (!member) return { key: 'welcome', label: 'Welcome SMS', disabled: false };
+      if (!member) return { key: 'none', label: '', disabled: true };
       const today = asUTC(new Date());
       const joiningDate = asUTC(member.joiningDate);
       const billingDate = asUTC(member.billingDate);
@@ -171,15 +234,15 @@
             disabled: reminderSent && !isOwner,
           };
         }
-        if (joiningDate && today && joiningDate <= today) {
+        if (joiningDate && today && iso(joiningDate) === iso(today)) {
           return { key: 'welcome', label: 'Welcome SMS', disabled: false };
         }
-        return { key: 'welcome', label: 'Welcome SMS', disabled: false };
+        return { key: 'none', label: '', disabled: true };
       }
       if (member.status === 'Hold') return { key: 'hold', label: 'Hold SMS', disabled: false };
       if (member.status === 'Deactivated') return { key: 'deactivate', label: 'Deactivate SMS', disabled: false };
       if (member.status === 'Cancelled') return { key: 'fine', label: 'Fine SMS', disabled: false };
-      return { key: 'welcome', label: 'Welcome SMS', disabled: false };
+      return { key: 'none', label: '', disabled: true };
     };
     const formatSmsSentAt = (value) => {
       if (!value) return '';
@@ -258,8 +321,11 @@
     const INLINE_ALL_SECTIONS = ['Dashboard','Members','PT Clients','WhatsApp SMS','Finance','Staff','Attendance','Leave Tracker','Settings','Logs','Support'];
     const ALL_SECTIONS = extractedPermissions?.ALL_SECTIONS || INLINE_ALL_SECTIONS;
     const DASHBOARD_CHILD_PERMISSIONS = extractedPermissions?.DASHBOARD_CHILD_PERMISSIONS || [
+      { key: 'viewDashboardCore', label: 'Active / Hold / Deactivated / Cancelled + Filter + Add New Member' },
+      { key: 'viewOverdueRetentionAlerts', label: 'Overdue Payments and Retention Alerts' },
       { key: 'viewRevenueMonthly', label: 'Total Revenue (Monthly)' },
-      { key: 'viewRevenueTrend', label: 'Revenue and Membership Trends' },
+      { key: 'viewRevenueTrend', label: 'Revenue' },
+      { key: 'viewMembershipTrends', label: 'Membership Trends' },
     ];
     const SETTINGS_CHILD_PERMISSIONS = [
       { key: 'managePlans', label: 'Plans' },
@@ -268,10 +334,41 @@
       { key: 'manageHoldDurations', label: 'Hold Durations' },
       { key: 'manageGenders', label: 'Genders' },
     ];
+    const WHATSAPP_CHILD_PERMISSIONS = [
+      { key: 'viewReminder', label: 'Reminder' },
+      { key: 'viewMonthReminder', label: 'Month-Based Reminder' },
+      { key: 'viewSuccess', label: 'Success SMS' },
+      { key: 'viewFine', label: 'Fine SMS' },
+      { key: 'viewDeactivate', label: 'Deactivate SMS' },
+      { key: 'viewHold', label: 'Hold SMS' },
+      { key: 'viewWelcome', label: 'Welcome SMS' },
+      { key: 'viewTemplates', label: 'WhatsApp Template' },
+    ];
+    const LEAVE_CHILD_PERMISSIONS = [
+      { key: 'viewCreateLeaveRequest', label: 'Create Leave Request' },
+      { key: 'viewLeaveRequests', label: 'Leave Requests (with approve/reject if eligible)' },
+      { key: 'viewAnnualLeaveBalance', label: 'Annual Leave Balance' },
+      { key: 'viewLeaveHistory', label: 'Leave History (Last 2 Years)' },
+    ];
+    const MEMBERS_CHILD_PERMISSIONS = [
+      { key: 'viewMembers', label: 'View Members' },
+      { key: 'addMembers', label: 'Add Members' },
+      { key: 'editMembers', label: 'Edit Members' },
+      { key: 'deleteMembers', label: 'Delete Members' },
+    ];
+    const PT_CLIENTS_CHILD_PERMISSIONS = [
+      { key: 'viewPtClients', label: 'View PT Clients' },
+      { key: 'editPtPlan', label: 'Edit PT Plan' },
+      { key: 'editPtWorkout', label: 'Edit PT Workout' },
+      { key: 'uploadDietDocuments', label: 'Upload Diet Documents' },
+    ];
     const INLINE_DEFAULT_ACCESS = {
       dashboard: {
+        viewDashboardCore: true,
+        viewOverdueRetentionAlerts: true,
         viewRevenueMonthly: true,
         viewRevenueTrend: true,
+        viewMembershipTrends: true,
       },
       finance: {
         viewRevenueAutoMembers: true,
@@ -286,12 +383,43 @@
         manageHoldDurations: true,
         manageGenders: true,
       },
+      whatsapp: {
+        viewReminder: true,
+        viewMonthReminder: true,
+        viewSuccess: true,
+        viewFine: true,
+        viewDeactivate: true,
+        viewHold: true,
+        viewWelcome: true,
+        viewTemplates: true,
+      },
+      leave: {
+        viewCreateLeaveRequest: true,
+        viewLeaveRequests: true,
+        viewAnnualLeaveBalance: true,
+        viewLeaveHistory: true,
+      },
+      members: {
+        viewMembers: true,
+        addMembers: true,
+        editMembers: true,
+        deleteMembers: true,
+      },
+      ptClients: {
+        viewPtClients: true,
+        editPtPlan: true,
+        editPtWorkout: true,
+        uploadDietDocuments: true,
+      },
     };
     const DEFAULT_ACCESS = extractedPermissions?.DEFAULT_ACCESS || INLINE_DEFAULT_ACCESS;
     const normalizeAccess = extractedPermissions?.normalizeAccess || ((access) => ({
       dashboard: {
+        viewDashboardCore: access?.dashboard?.viewDashboardCore !== false,
+        viewOverdueRetentionAlerts: access?.dashboard?.viewOverdueRetentionAlerts !== false,
         viewRevenueMonthly: access?.dashboard?.viewRevenueMonthly !== false,
         viewRevenueTrend: access?.dashboard?.viewRevenueTrend !== false,
+        viewMembershipTrends: access?.dashboard?.viewMembershipTrends !== false,
       },
       finance: {
         viewRevenueAutoMembers: access?.finance?.viewRevenueAutoMembers !== false,
@@ -305,6 +433,34 @@
         managePaymentMethods: access?.settings?.managePaymentMethods !== false,
         manageHoldDurations: access?.settings?.manageHoldDurations !== false,
         manageGenders: access?.settings?.manageGenders !== false,
+      },
+      whatsapp: {
+        viewReminder: access?.whatsapp?.viewReminder !== false,
+        viewMonthReminder: access?.whatsapp?.viewMonthReminder !== false,
+        viewSuccess: access?.whatsapp?.viewSuccess !== false,
+        viewFine: access?.whatsapp?.viewFine !== false,
+        viewDeactivate: access?.whatsapp?.viewDeactivate !== false,
+        viewHold: access?.whatsapp?.viewHold !== false,
+        viewWelcome: access?.whatsapp?.viewWelcome !== false,
+        viewTemplates: access?.whatsapp?.viewTemplates !== false,
+      },
+      leave: {
+        viewCreateLeaveRequest: access?.leave?.viewCreateLeaveRequest !== false,
+        viewLeaveRequests: access?.leave?.viewLeaveRequests !== false,
+        viewAnnualLeaveBalance: access?.leave?.viewAnnualLeaveBalance !== false,
+        viewLeaveHistory: access?.leave?.viewLeaveHistory !== false,
+      },
+      members: {
+        viewMembers: access?.members?.viewMembers !== false,
+        addMembers: access?.members?.addMembers !== false,
+        editMembers: access?.members?.editMembers !== false,
+        deleteMembers: access?.members?.deleteMembers !== false,
+      },
+      ptClients: {
+        viewPtClients: access?.ptClients?.viewPtClients !== false,
+        editPtPlan: access?.ptClients?.editPtPlan !== false,
+        editPtWorkout: access?.ptClients?.editPtWorkout !== false,
+        uploadDietDocuments: access?.ptClients?.uploadDietDocuments !== false,
       },
     }));
     const DEFAULT_ROLE_TEMPLATES = [
@@ -1366,6 +1522,8 @@ Phone: +91-7047157510`;
       // members (see canDelete prop passed to QuickActions below).
       const [deleteCandidate, setDeleteCandidate] = React.useState(null);
       const [duplicateMobileConflict, setDuplicateMobileConflict] = React.useState(null);
+      const [csvImportState, setCsvImportState] = React.useState({ open: false, fileName: '', rows: [], summary: { added: 0, updated: 0, skipped: 0 } });
+      const csvImportInputRef = React.useRef(null);
       const leaveNotifications = React.useMemo(() => {
         if (!(user && user.id === 'owner')) return [];
         const reqs = Array.isArray(settings?.leaveRequests) ? settings.leaveRequests : [];
@@ -1399,7 +1557,9 @@ Phone: +91-7047157510`;
       }, [user]);
 
       React.useEffect(() => {
-        const fabVisible = user && user.sections && user.sections.includes('Members') && !addOpen && !editMember;
+        const derivedMembersAccess = normalizeAccess(user?.access).members;
+        const canAdd = derivedMembersAccess?.addMembers !== false;
+        const fabVisible = user && user.sections && user.sections.includes('Members') && canAdd && !addOpen && !editMember;
         if (!fabVisible) return;
         setShowAddMemberLabel(true);
         const timer = setTimeout(() => setShowAddMemberLabel(false), 5000);
@@ -1601,6 +1761,7 @@ Phone: +91-7047157510`;
 
       // Status change handler (quick actions)
       const quickStatus = (memberId, nextStatus, opts = {}) => {
+        if (!canEditMembers) return;
         setMembers(prev => prev.map(m => {
           if (m.memberId === memberId) {
             const before = { ...m };
@@ -1755,6 +1916,7 @@ Please pay by: ${formattedLastDate}`;
         } : m));
       };
       const addMemberAttachment = (memberId, attachment) => {
+        if (!canEditMembers) return;
         if (!memberId || !attachment) return;
         setMembers(prev => prev.map(m => {
           if (m.memberId !== memberId) return m;
@@ -1774,6 +1936,7 @@ Please pay by: ${formattedLastDate}`;
       // the bug where plan changes were not persisted because the editMember
       // state had not yet updated when onSave() was called.
       const saveEdit = (updated) => {
+        if (!canEditMembers) return false;
         // Determine which member object we should save. If a member is passed
         // explicitly from the EditMemberModal then use it; otherwise fall back
         // to the current editMember state for backwards compatibility.
@@ -1875,7 +2038,9 @@ Please pay by: ${formattedLastDate}`;
         return true;
       };
       const saveQuickFieldEdit = (nextValue) => {
+        if (!canEditMembers) return;
         if (!quickFieldEdit) return;
+        if (quickFieldEdit.fieldKey === 'joiningDate' && !isOwnerUser) return;
         const target = members.find((m) => m.memberId === quickFieldEdit.memberId);
         if (!target) return;
         let updated = { ...target, [quickFieldEdit.fieldKey]: nextValue };
@@ -1904,6 +2069,7 @@ Please pay by: ${formattedLastDate}`;
       // invoked after the user confirms deletion in the modal. It logs
       // the deletion and updates local state/storage accordingly.
       const deleteMember = (memberId) => {
+        if (!canDeleteMembers) return;
         setMembers(prev => prev.filter(m => m.memberId !== memberId));
         // Remove any open details rows or pages referencing this member
         // No need to adjust pagination here; DashboardView recalculates
@@ -1913,6 +2079,7 @@ Please pay by: ${formattedLastDate}`;
 
       // Save new member from wizard
       const addMember = (m) => {
+        if (!canAddMembers) return;
         const memberWithAudit = {
           ...m,
           staff: user?.name || m.staff || '',
@@ -1922,6 +2089,157 @@ Please pay by: ${formattedLastDate}`;
         logEvent('member.created', 'member', memberWithAudit.memberId, null, memberWithAudit);
         setToast(`${memberWithAudit.name} has been saved successfully`);
         setTimeout(() => setToast(''), 2500);
+      };
+      const csvHeaderAliases = React.useMemo(() => ({
+        formNo: ['formnumber', 'formno'],
+        memberId: ['id', 'memberid'],
+        name: ['name', 'fullname', 'customername'],
+        gender: ['gender', 'sex'],
+        dob: ['dateofbirth', 'dob', 'birthdate'],
+        email: ['gmailid', 'email', 'gmail'],
+        phone: ['mobileno', 'mobile', 'phoneno', 'phone'],
+        plan: ['membershipplans', 'membershipplan', 'plan'],
+        amount: ['monthlyamount', 'amount'],
+        status: ['status'],
+        holdDuration: ['holdformonths', 'holdduration'],
+        joiningDate: ['dateofjoining', 'joiningdate'],
+        billingDate: ['paymentdate', 'billingdate'],
+      }), []);
+      const extractCsvField = React.useCallback((row, key) => {
+        const aliases = csvHeaderAliases[key] || [];
+        const entries = Object.entries(row || {});
+        for (const alias of aliases) {
+          const match = entries.find(([k]) => normalizeCsvHeader(k) === alias);
+          if (match) return String(match[1] ?? '').trim();
+        }
+        return '';
+      }, [csvHeaderAliases]);
+      const toImportedMember = React.useCallback((row, idx) => {
+        const name = extractCsvField(row, 'name');
+        const mobileRaw = extractCsvField(row, 'phone');
+        const mobile = normalizePhone(mobileRaw);
+        if (!name || !mobile) return { ok: false, reason: 'Missing required Name or Mobile' };
+        const rawMemberId = extractCsvField(row, 'memberId');
+        const rawFormNo = extractCsvField(row, 'formNo');
+        const numericFormNo = Number(String(rawFormNo || '').replace(/\D/g, ''));
+        const defaultFormNo = Number.isFinite(numericFormNo) && numericFormNo > 0 ? numericFormNo : (members.length + idx + 1);
+        const yearSuffix = String(new Date().getFullYear()).slice(-2);
+        const memberId = rawMemberId || `APG-${String(defaultFormNo).padStart(3, '0')}/${yearSuffix}`;
+        const joiningDate = parseFlexibleDateToIso(extractCsvField(row, 'joiningDate')) || iso(new Date());
+        const billingDate = parseFlexibleDateToIso(extractCsvField(row, 'billingDate')) || joiningDate;
+        const amount = Number(String(extractCsvField(row, 'amount') || '0').replace(/[^0-9.-]/g, '')) || 0;
+        const incomingStatus = String(extractCsvField(row, 'status') || '').trim().toLowerCase();
+        const statusMap = { active: 'Active', hold: 'Hold', deactivated: 'Deactivated', cancelled: 'Cancelled' };
+        const status = statusMap[incomingStatus] || 'Active';
+        const holdRaw = extractCsvField(row, 'holdDuration');
+        const holdDuration = /month/i.test(holdRaw) ? holdRaw : '';
+        return {
+          ok: true,
+          member: {
+            formNo: defaultFormNo,
+            memberId,
+            name,
+            gender: extractCsvField(row, 'gender') || '',
+            dob: parseFlexibleDateToIso(extractCsvField(row, 'dob')) || '',
+            email: extractCsvField(row, 'email') || '',
+            mobile,
+            address: '',
+            staff: user?.name || '',
+            amount,
+            plan: extractCsvField(row, 'plan') || (settings.plans?.[0] || 'Basic Plan'),
+            joiningDate,
+            billingDate,
+            nextPaymentDate: nextPaymentDateFromBillingDate(billingDate),
+            paymentBy: paymentByFromBillingDate(billingDate),
+            status,
+            holdDuration: status === 'Hold' ? holdDuration : '',
+            paymentMethod: settings.paymentMethods?.[0] || 'Cash',
+            remark: 'Imported via CSV',
+            photo: '',
+            attachments: [],
+            payMonth: payMonthLabel(addMonths(billingDate, 1)),
+            updatedBy: user?.name || user?.id || '',
+          },
+        };
+      }, [extractCsvField, members.length, settings.plans, settings.paymentMethods, user]);
+      const openCsvImportDialog = () => {
+        if (!canViewMembers || (!canAddMembers && !canEditMembers)) {
+          setToast('CSV import requires Members access.');
+          setTimeout(() => setToast(''), 2200);
+          return;
+        }
+        if (!csvImportInputRef.current) return;
+        csvImportInputRef.current.value = '';
+        csvImportInputRef.current.click();
+      };
+      const handleCsvImportFile = async (file) => {
+        if (!file) return;
+        try {
+          const text = await file.text();
+          const parsed = parseCsvText(text);
+          if (!parsed.rows.length) {
+            setToast('CSV is empty or invalid.');
+            setTimeout(() => setToast(''), 2200);
+            return;
+          }
+          const seen = new Set();
+          const preparedRows = parsed.rows.map((raw, idx) => {
+            const built = toImportedMember(raw, idx);
+            if (!built.ok) return { rowNo: idx + 2, action: 'skip', reason: built.reason, member: null };
+            const member = built.member;
+            const key = String(member.memberId || '').trim() || normalizePhone(member.mobile);
+            if (seen.has(key)) return { rowNo: idx + 2, action: 'skip', reason: 'Duplicate row key in CSV', member };
+            seen.add(key);
+            const existing = members.find((m) => String(m.memberId || '').trim() === String(member.memberId || '').trim())
+              || members.find((m) => normalizePhone(m.mobile) === normalizePhone(member.mobile));
+            const action = existing ? 'update' : 'add';
+            return { rowNo: idx + 2, action, reason: '', member, matchMemberId: existing?.memberId || '' };
+          });
+          const summary = preparedRows.reduce((acc, r) => {
+            if (r.action === 'add') acc.added += 1;
+            else if (r.action === 'update') acc.updated += 1;
+            else acc.skipped += 1;
+            return acc;
+          }, { added: 0, updated: 0, skipped: 0 });
+          setCsvImportState({ open: true, fileName: file.name || 'import.csv', rows: preparedRows, summary });
+        } catch {
+          setToast('Failed to read CSV file.');
+          setTimeout(() => setToast(''), 2200);
+        }
+      };
+      const applyCsvImport = () => {
+        const rows = csvImportState.rows || [];
+        if (!rows.length) return;
+        const upsertRows = rows.filter((r) => r.action === 'add' || r.action === 'update');
+        if (!upsertRows.length) {
+          setCsvImportState({ open: false, fileName: '', rows: [], summary: { added: 0, updated: 0, skipped: 0 } });
+          setToast('No valid rows to import.');
+          setTimeout(() => setToast(''), 2200);
+          return;
+        }
+        setMembers((prev) => {
+          const next = [...prev];
+          upsertRows.forEach((r) => {
+            const incoming = r.member;
+            const idx = next.findIndex((m) => String(m.memberId || '').trim() === String(incoming.memberId || '').trim()
+              || normalizePhone(m.mobile) === normalizePhone(incoming.mobile));
+            if (idx >= 0) {
+              next[idx] = {
+                ...next[idx],
+                ...incoming,
+                attachments: next[idx].attachments || [],
+                photo: next[idx].photo || incoming.photo || '',
+              };
+            } else {
+              next.unshift(incoming);
+            }
+          });
+          return next;
+        });
+        const s = csvImportState.summary || { added: 0, updated: 0, skipped: 0 };
+        setToast(`CSV import done. Added: ${s.added}, Updated: ${s.updated}, Skipped: ${s.skipped}`);
+        setTimeout(() => setToast(''), 3500);
+        setCsvImportState({ open: false, fileName: '', rows: [], summary: { added: 0, updated: 0, skipped: 0 } });
       };
 
       // Add or update setting option (in Settings page)
@@ -2058,6 +2376,12 @@ Please pay by: ${formattedLastDate}`;
           }} />
         );
       }
+
+      const membersAccess = normalizeAccess(user?.access).members;
+      const canViewMembers = membersAccess?.viewMembers !== false;
+      const canAddMembers = membersAccess?.addMembers !== false;
+      const canEditMembers = membersAccess?.editMembers !== false;
+      const canDeleteMembers = (user?.id === 'owner') && membersAccess?.deleteMembers !== false;
 
       // Logout handler clears the current user and resets navigation state.
       const logout = () => {
@@ -2319,7 +2643,7 @@ Please pay by: ${formattedLastDate}`;
                     setDashMode('list');
                     setDashSearch('');
                   }}
-                  onAddNew={() => setAddOpen(true)}
+                  onAddNew={canAddMembers ? () => setAddOpen(true) : null}
                   onSearch={(q, f) => {
                     setDashSearch(q.trim());
                     setDashField(f);
@@ -2337,8 +2661,8 @@ Please pay by: ${formattedLastDate}`;
                   title={`${dashFilter} Members`}
                   list={filteredMembers}
                   onBack={() => setDashMode('summary')}
-                  onEdit={(m) => setEditMember(m)}
-                  onStatusChange={quickStatus}
+                  onEdit={canEditMembers ? (m) => setEditMember(m) : null}
+                  onStatusChange={canEditMembers ? quickStatus : null}
                   holdOptions={settings.holdDurations}
                   logs={logs}
                   onWelcome={sendWelcomeEmail}
@@ -2353,14 +2677,15 @@ Please pay by: ${formattedLastDate}`;
                     genders: settings.genders || [],
                   }}
                   isOwner={user && user.id === 'owner'}
+                  canEdit={canEditMembers}
                 />
               )
             )}
             {activeTab === 'Members' && (
-              <DashboardView
+              canViewMembers ? <DashboardView
                 members={members}
-                onEdit={(m) => setEditMember(m)}
-                onStatusChange={quickStatus}
+                onEdit={canEditMembers ? (m) => setEditMember(m) : null}
+                onStatusChange={canEditMembers ? quickStatus : null}
                 holdOptions={settings.holdDurations}
                 logs={logs}
                 filters={filters}
@@ -2368,8 +2693,8 @@ Please pay by: ${formattedLastDate}`;
                 filterOpen={filterOpen}
                 setFilterOpen={setFilterOpen}
                 anyFilterActive={anyFilterActive}
-                canDelete={user && user.id === 'owner'}
-                onDelete={(m) => setDeleteCandidate(m)}
+                canDelete={canDeleteMembers}
+                onDelete={canDeleteMembers ? (m) => setDeleteCandidate(m) : null}
                 onWelcome={sendWelcomeEmail}
                 onWelcomeMail={sendWelcomeGmail}
                 onAddAttachment={addMemberAttachment}
@@ -2382,7 +2707,15 @@ Please pay by: ${formattedLastDate}`;
                   genders: settings.genders || [],
                 }}
                 isOwner={user && user.id === 'owner'}
-              />
+                canEdit={canEditMembers}
+                onImportCsv={openCsvImportDialog}
+              /> : (
+                <div className="p-3 md:p-8">
+                  <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4 text-sm text-slate-600">
+                    Members view access is disabled for this staff profile.
+                  </div>
+                </div>
+              )
             )}
             {activeTab === 'PT Clients' && (
               <PTClientsPage
@@ -2391,6 +2724,7 @@ Please pay by: ${formattedLastDate}`;
                 settings={settings}
                 updateSetting={updateSettingValue}
                 currentUser={user}
+                access={normalizeAccess(user?.access)}
               />
             )}
             {activeTab === 'Settings' && (
@@ -2460,6 +2794,7 @@ Please pay by: ${formattedLastDate}`;
                 smsEvents={smsEvents}
                 logEvent={logEvent}
                 currentUser={user}
+                access={normalizeAccess(user?.access)}
               />
             )}
             {activeTab === 'Finance' && (
@@ -2497,6 +2832,7 @@ Please pay by: ${formattedLastDate}`;
                 settings={settings}
                 updateSetting={updateSettingValue}
                 currentUser={user}
+                access={normalizeAccess(user?.access)}
                 focusLeaveRequestId={leaveTrackerFocus.requestId}
                 focusLeaveUserId={leaveTrackerFocus.userId}
                 onClearFocus={() => setLeaveTrackerFocus({ requestId: '', userId: '' })}
@@ -2538,7 +2874,7 @@ Please pay by: ${formattedLastDate}`;
             </div>
           </nav>
           {/* Edit Member Modal */}
-          {editMember && (
+          {editMember && canEditMembers && (
             <EditMemberModal
               member={editMember}
               onClose={() => setEditMember(null)}
@@ -2558,7 +2894,7 @@ Please pay by: ${formattedLastDate}`;
             />
           )}
           {/* Add Member Wizard */}
-          {addOpen && (
+          {addOpen && canAddMembers && (
             <AddMemberWizard
               open={addOpen}
               onClose={() => setAddOpen(false)}
@@ -2569,8 +2905,63 @@ Please pay by: ${formattedLastDate}`;
               canEditFormNo={user && user.id === 'owner'}
             />
           )}
+          <input
+            ref={csvImportInputRef}
+            type="file"
+            accept=".csv,text/csv"
+            className="hidden"
+            onChange={(e) => handleCsvImportFile(e.target.files && e.target.files[0])}
+          />
           {/* Toast Notification */}
           {toast && (<div className="fixed bottom-6 right-6 rounded-2xl bg-emerald-600 text-white px-4 py-2 shadow-lg z-50">{toast}</div>)}
+          {csvImportState.open && (
+            <div className="fixed inset-0 z-[70] flex items-center justify-center bg-slate-900/50 p-4">
+              <div className="w-full max-w-5xl rounded-3xl border border-slate-200 bg-white shadow-2xl max-h-[90vh] overflow-hidden">
+                <div className="flex items-center justify-between px-5 py-4 border-b border-slate-200">
+                  <div>
+                    <h3 className="text-lg font-semibold text-slate-900">CSV Import Preview</h3>
+                    <div className="text-xs text-slate-500">{csvImportState.fileName}</div>
+                  </div>
+                  <button onClick={() => setCsvImportState({ open: false, fileName: '', rows: [], summary: { added: 0, updated: 0, skipped: 0 } })} className="rounded-xl p-2 hover:bg-slate-100">✕</button>
+                </div>
+                <div className="px-5 py-3 border-b border-slate-200 text-sm flex flex-wrap gap-3">
+                  <span className="rounded-full border border-emerald-300 bg-emerald-50 px-3 py-1 text-emerald-700">Added: {csvImportState.summary.added}</span>
+                  <span className="rounded-full border border-blue-300 bg-blue-50 px-3 py-1 text-blue-700">Updated: {csvImportState.summary.updated}</span>
+                  <span className="rounded-full border border-amber-300 bg-amber-50 px-3 py-1 text-amber-700">Skipped: {csvImportState.summary.skipped}</span>
+                </div>
+                <div className="p-5 overflow-auto max-h-[58vh]">
+                  <table className="min-w-full text-sm">
+                    <thead>
+                      <tr className="bg-slate-100 text-slate-700">
+                        <th className="px-3 py-2 text-left">Row</th>
+                        <th className="px-3 py-2 text-left">Action</th>
+                        <th className="px-3 py-2 text-left">Member ID</th>
+                        <th className="px-3 py-2 text-left">Name</th>
+                        <th className="px-3 py-2 text-left">Mobile</th>
+                        <th className="px-3 py-2 text-left">Note</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {(csvImportState.rows || []).slice(0, 200).map((r) => (
+                        <tr key={`csv-${r.rowNo}-${r.member?.memberId || 'skip'}`} className="border-t border-slate-200">
+                          <td className="px-3 py-2">{r.rowNo}</td>
+                          <td className="px-3 py-2 capitalize">{r.action}</td>
+                          <td className="px-3 py-2">{r.member?.memberId || '-'}</td>
+                          <td className="px-3 py-2">{r.member?.name || '-'}</td>
+                          <td className="px-3 py-2">{r.member?.mobile || '-'}</td>
+                          <td className="px-3 py-2 text-xs text-slate-500">{r.reason || (r.action === 'update' ? `Matches ${r.matchMemberId}` : '')}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+                <div className="flex justify-end gap-3 px-5 py-4 border-t border-slate-200 bg-white">
+                  <button onClick={() => setCsvImportState({ open: false, fileName: '', rows: [], summary: { added: 0, updated: 0, skipped: 0 } })} className="rounded-xl border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-700">Cancel</button>
+                  <button onClick={applyCsvImport} className="rounded-full bg-emerald-600 px-4 py-2 text-sm font-medium text-white hover:bg-emerald-700">Import Now</button>
+                </div>
+              </div>
+            </div>
+          )}
           {resetModalOpen && (
             <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/45 p-4">
               <div className="w-full max-w-xl rounded-2xl border border-slate-200 bg-white p-5 shadow-2xl">
@@ -2615,7 +3006,7 @@ Please pay by: ${formattedLastDate}`;
           )}
 
           {/* Global Add Member Floating Button */}
-          {user && user.sections && user.sections.includes('Members') && !addOpen && !editMember && (
+          {user && user.sections && user.sections.includes('Members') && canAddMembers && !addOpen && !editMember && (
             <button
               onClick={() => setAddOpen(true)}
               onMouseEnter={() => setAddMemberFabHover(true)}
@@ -2646,7 +3037,7 @@ Please pay by: ${formattedLastDate}`;
           )}
 
           {/* Delete Confirmation Modal */}
-          {deleteCandidate && (
+          {deleteCandidate && canDeleteMembers && (
             <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 p-4">
               <div className="max-w-md w-full rounded-3xl bg-white shadow-xl p-6">
                 <h3 className="text-lg font-semibold mb-4">Delete Member</h3>
@@ -3002,6 +3393,9 @@ function Sidebar({ user, active, onSelect, theme, setTheme, onLogout, onUndo, on
       ];
       const canViewRevenueMonthly = access?.dashboard?.viewRevenueMonthly !== false;
       const canViewRevenueTrend = access?.dashboard?.viewRevenueTrend !== false;
+      const canViewMembershipTrends = access?.dashboard?.viewMembershipTrends !== false;
+      const canViewDashboardCore = access?.dashboard?.viewDashboardCore !== false;
+      const canViewOverdueRetentionAlerts = access?.dashboard?.viewOverdueRetentionAlerts !== false;
       const isMobile = useIsMobile();
       if (isMobile) {
         const recentMembers = members.slice(0, 6);
@@ -3015,45 +3409,49 @@ function Sidebar({ user, active, onSelect, theme, setTheme, onLogout, onUndo, on
         const insightJoinedToday = members.filter((m) => iso(m.joiningDate) === iso(today)).length;
         return (
           <div className="p-4 space-y-4">
-            <div className="flex items-center gap-2 overflow-x-auto pb-1">
-              {[
-                { key: 'All', onClick: () => onSearch('', 'all') },
-                { key: 'Active', onClick: () => onSelectStatus('Active') },
-                { key: 'Hold', onClick: () => onSelectStatus('Hold') },
-                { key: 'Risk', onClick: () => onSelectStatus('Active') },
-                { key: 'Win-back', onClick: () => onSelectStatus('Deactivated') },
-              ].map((x, idx) => (
-                <button key={x.key} onClick={x.onClick} className={cx('shrink-0 rounded-full px-4 py-2 text-xs font-semibold border', idx === 0 ? 'bg-blue-600 text-white border-blue-600' : 'bg-white text-slate-600 border-slate-200')}>
-                  {x.key}
-                </button>
-              ))}
-            </div>
-            <div className="flex items-center justify-between">
-              <div className="text-base font-semibold text-slate-900">Quick Actions</div>
-              <button onClick={() => setFiltersOpen(v => !v)} className="text-xs font-semibold text-blue-600">View All</button>
-            </div>
-            <div className="grid grid-cols-3 gap-2">
-              <button onClick={onAddNew} className="rounded-2xl border border-blue-200 bg-blue-50 p-3 text-xs font-semibold text-blue-700">Add Member</button>
-              <button className="rounded-2xl border border-emerald-200 bg-emerald-50 p-3 text-xs font-semibold text-emerald-700">Scan QR</button>
-              <button
-                type="button"
-                onClick={() => {
-                  const target = overdueList[0];
-                  if (!target || !onWelcome) return;
-                  const a = primaryMessageActionForMember(target, isOwner);
-                  onWelcome(target, a.key);
-                }}
-                className="rounded-2xl border border-violet-200 bg-violet-50 p-3 text-xs font-semibold text-violet-700"
-              >
-                Quick WhatsApp
-              </button>
-            </div>
-            <div className="grid grid-cols-2 gap-3">
-              <button onClick={() => onSelectStatus('Active')} className="rounded-2xl border border-emerald-200 bg-emerald-50 p-4 text-left"><div className="text-xs font-semibold text-emerald-700">Active Members</div><div className="mt-2 text-3xl font-bold text-emerald-800">{counts.Active}</div></button>
-              <button onClick={() => onSelectStatus('Hold')} className="rounded-2xl border border-amber-200 bg-amber-50 p-4 text-left"><div className="text-xs font-semibold text-amber-700">Hold Members</div><div className="mt-2 text-3xl font-bold text-amber-800">{counts.Hold}</div></button>
-              <button onClick={() => onSelectStatus('Active')} className="rounded-2xl border border-rose-200 bg-rose-50 p-4 text-left"><div className="text-xs font-semibold text-rose-700">Risk Alert</div><div className="mt-2 text-3xl font-bold text-rose-800">{overdueList.length}</div></button>
-              <button onClick={() => onSelectStatus('Deactivated')} className="rounded-2xl border border-pink-200 bg-pink-50 p-4 text-left"><div className="text-xs font-semibold text-pink-700">Win-back Opportunity</div><div className="mt-2 text-3xl font-bold text-pink-800">{counts.Deactivated}</div></button>
-            </div>
+            {canViewDashboardCore && (
+              <>
+                <div className="flex items-center gap-2 overflow-x-auto pb-1">
+                  {[
+                    { key: 'All', onClick: () => onSearch('', 'all') },
+                    { key: 'Active', onClick: () => onSelectStatus('Active') },
+                    { key: 'Hold', onClick: () => onSelectStatus('Hold') },
+                    { key: 'Risk', onClick: () => onSelectStatus('Active') },
+                    { key: 'Win-back', onClick: () => onSelectStatus('Deactivated') },
+                  ].map((x, idx) => (
+                    <button key={x.key} onClick={x.onClick} className={cx('shrink-0 rounded-full px-4 py-2 text-xs font-semibold border', idx === 0 ? 'bg-blue-600 text-white border-blue-600' : 'bg-white text-slate-600 border-slate-200')}>
+                      {x.key}
+                    </button>
+                  ))}
+                </div>
+                <div className="flex items-center justify-between">
+                  <div className="text-base font-semibold text-slate-900">Quick Actions</div>
+                  <button onClick={() => setFiltersOpen(v => !v)} className="text-xs font-semibold text-blue-600">View All</button>
+                </div>
+                <div className="grid grid-cols-3 gap-2">
+                  {onAddNew && <button onClick={onAddNew} className="rounded-2xl border border-blue-200 bg-blue-50 p-3 text-xs font-semibold text-blue-700">Add Member</button>}
+                  <button className="rounded-2xl border border-emerald-200 bg-emerald-50 p-3 text-xs font-semibold text-emerald-700">Scan QR</button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const target = overdueList[0];
+                      if (!target || !onWelcome) return;
+                      const a = primaryMessageActionForMember(target, isOwner);
+                      onWelcome(target, a.key);
+                    }}
+                    className="rounded-2xl border border-violet-200 bg-violet-50 p-3 text-xs font-semibold text-violet-700"
+                  >
+                    Quick WhatsApp
+                  </button>
+                </div>
+                <div className="grid grid-cols-2 gap-3">
+                  <button onClick={() => onSelectStatus('Active')} className="rounded-2xl border border-emerald-200 bg-emerald-50 p-4 text-left"><div className="text-xs font-semibold text-emerald-700">Active Members</div><div className="mt-2 text-3xl font-bold text-emerald-800">{counts.Active}</div></button>
+                  <button onClick={() => onSelectStatus('Hold')} className="rounded-2xl border border-amber-200 bg-amber-50 p-4 text-left"><div className="text-xs font-semibold text-amber-700">Hold Members</div><div className="mt-2 text-3xl font-bold text-amber-800">{counts.Hold}</div></button>
+                  <button onClick={() => onSelectStatus('Active')} className="rounded-2xl border border-rose-200 bg-rose-50 p-4 text-left"><div className="text-xs font-semibold text-rose-700">Risk Alert</div><div className="mt-2 text-3xl font-bold text-rose-800">{overdueList.length}</div></button>
+                  <button onClick={() => onSelectStatus('Deactivated')} className="rounded-2xl border border-pink-200 bg-pink-50 p-4 text-left"><div className="text-xs font-semibold text-pink-700">Win-back Opportunity</div><div className="mt-2 text-3xl font-bold text-pink-800">{counts.Deactivated}</div></button>
+                </div>
+              </>
+            )}
             <div className="rounded-2xl border border-blue-100 bg-blue-50 p-4">
               <div className="text-sm font-semibold text-blue-700">Today&apos;s Insights</div>
               <ul className="mt-2 space-y-1 text-xs text-slate-700">
@@ -3084,6 +3482,11 @@ function Sidebar({ user, active, onSelect, theme, setTheme, onLogout, onUndo, on
                 ))}
               </div>
             </div>
+            {!canViewDashboardCore && !canViewRevenueMonthly && !canViewRevenueTrend && !canViewMembershipTrends && !canViewOverdueRetentionAlerts && (
+              <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4 text-sm text-slate-600">
+                No dashboard widgets are enabled for this staff profile.
+              </div>
+            )}
           </div>
         );
       }
@@ -3092,17 +3495,19 @@ function Sidebar({ user, active, onSelect, theme, setTheme, onLogout, onUndo, on
           <div className="space-y-3">
             <div className="flex items-center justify-between gap-3">
               <h1 className="text-xl md:text-2xl font-semibold text-slate-900">Dashboard</h1>
-              <div className="flex items-center gap-2">
-                <button
-                  onClick={() => setFiltersOpen(prev => !prev)}
-                  className="rounded-full px-3 py-1.5 border border-blue-300 bg-blue-50 text-blue-700 text-xs md:text-sm font-medium"
-                >
-                  {filtersOpen ? 'Hide Filters' : 'Filter'}
-                </button>
-                <button onClick={onAddNew} className="rounded-full px-4 md:px-5 py-2 bg-blue-600 hover:bg-blue-700 text-white text-xs md:text-sm font-semibold flex items-center justify-center gap-2"><span className="text-base">＋</span> Add New Member</button>
-              </div>
+              {canViewDashboardCore && (
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={() => setFiltersOpen(prev => !prev)}
+                    className="rounded-full px-3 py-1.5 border border-blue-300 bg-blue-50 text-blue-700 text-xs md:text-sm font-medium"
+                  >
+                    {filtersOpen ? 'Hide Filters' : 'Filter'}
+                  </button>
+                  {onAddNew && <button onClick={onAddNew} className="rounded-full px-4 md:px-5 py-2 bg-blue-600 hover:bg-blue-700 text-white text-xs md:text-sm font-semibold flex items-center justify-center gap-2"><span className="text-base">＋</span> Add New Member</button>}
+                </div>
+              )}
             </div>
-            {filtersOpen && (
+            {canViewDashboardCore && filtersOpen && (
               <div className="flex flex-col md:flex-row items-stretch md:items-center gap-2">
                 <input
                   value={q}
@@ -3128,32 +3533,34 @@ function Sidebar({ user, active, onSelect, theme, setTheme, onLogout, onUndo, on
               </div>
             )}
           </div>
-          <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-5 gap-4">
-            {tiles.map(tile => (
-              <button
-                key={tile.key}
-                onClick={() => onSelectStatus(tile.key)}
-                className={cx(
-                  'rounded-2xl p-5 text-left shadow hover:shadow-md transition border',
-                  tile.color === 'emerald' ? 'bg-emerald-50 border-emerald-200 text-emerald-700' :
-                  tile.color === 'amber' ? 'bg-amber-50 border-amber-200 text-amber-700' :
-                  tile.color === 'pink' ? 'bg-pink-50 border-pink-200 text-pink-700' :
-                  'bg-slate-100 border-slate-200 text-slate-700'
-                )}
-              >
-                <div className="text-sm">{tile.key}</div>
-                <div className="mt-2 text-3xl font-bold">{counts[tile.key]}</div>
-                <div className="mt-1 text-xs underline">View {tile.key} members</div>
-              </button>
-            ))}
-            {canViewRevenueMonthly && (
-              <div className="rounded-2xl p-5 text-left shadow border bg-emerald-50 border-emerald-200 text-emerald-800">
-                <div className="text-sm">Total Revenue (Monthly)</div>
-                <div className="mt-2 text-3xl font-bold">${monthlyRevenue.toLocaleString()}</div>
-                <div className="mt-1 text-xs">Auto from member billing data</div>
-              </div>
-            )}
-          </div>
+          {canViewDashboardCore && (
+            <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-5 gap-4">
+              {tiles.map(tile => (
+                <button
+                  key={tile.key}
+                  onClick={() => onSelectStatus(tile.key)}
+                  className={cx(
+                    'rounded-2xl p-5 text-left shadow hover:shadow-md transition border',
+                    tile.color === 'emerald' ? 'bg-emerald-50 border-emerald-200 text-emerald-700' :
+                    tile.color === 'amber' ? 'bg-amber-50 border-amber-200 text-amber-700' :
+                    tile.color === 'pink' ? 'bg-pink-50 border-pink-200 text-pink-700' :
+                    'bg-slate-100 border-slate-200 text-slate-700'
+                  )}
+                >
+                  <div className="text-sm">{tile.key}</div>
+                  <div className="mt-2 text-3xl font-bold">{counts[tile.key]}</div>
+                  <div className="mt-1 text-xs underline">View {tile.key} members</div>
+                </button>
+              ))}
+            </div>
+          )}
+          {canViewRevenueMonthly && (
+            <div className="rounded-2xl p-5 text-left shadow border bg-emerald-50 border-emerald-200 text-emerald-800">
+              <div className="text-sm">Total Revenue (Monthly)</div>
+              <div className="mt-2 text-3xl font-bold">${monthlyRevenue.toLocaleString()}</div>
+              <div className="mt-1 text-xs">Auto from member billing data</div>
+            </div>
+          )}
 
           <div className="grid grid-cols-1 xl:grid-cols-3 gap-4">
             {canViewRevenueTrend && (
@@ -3191,6 +3598,7 @@ function Sidebar({ user, active, onSelect, theme, setTheme, onLogout, onUndo, on
               </div>
             </div>
             )}
+            {canViewMembershipTrends && (
             <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
               <div className="text-lg font-semibold text-slate-800 mb-3">Membership by Plan Type</div>
               <div className="flex items-center gap-4">
@@ -3206,6 +3614,7 @@ function Sidebar({ user, active, onSelect, theme, setTheme, onLogout, onUndo, on
                 </div>
               </div>
             </div>
+            )}
           </div>
           {canViewRevenueTrend && showTrendHistory && historicalTrend.length > 0 && (
             <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
@@ -3225,6 +3634,7 @@ function Sidebar({ user, active, onSelect, theme, setTheme, onLogout, onUndo, on
             </div>
           )}
 
+          {canViewOverdueRetentionAlerts && (
           <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
             <div className="text-lg font-semibold text-slate-800 mb-3">Overdue Payments and Retention Alerts</div>
             <div className="overflow-x-auto">
@@ -3338,12 +3748,18 @@ function Sidebar({ user, active, onSelect, theme, setTheme, onLogout, onUndo, on
               </div>
             </div>
           </div>
+          )}
+          {!canViewDashboardCore && !canViewRevenueMonthly && !canViewRevenueTrend && !canViewMembershipTrends && !canViewOverdueRetentionAlerts && (
+            <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4 text-sm text-slate-600">
+              No dashboard widgets are enabled for this staff profile.
+            </div>
+          )}
         </div>
       );
     }
 
     // ---- Members List (Dashboard list mode) ----
-function MembersList({ title, list, onBack, onEdit, onStatusChange, holdOptions, logs, onWelcome, onWelcomeMail, onAddAttachment, onQuickFieldEdit, editOptions, isOwner }) {
+function MembersList({ title, list, onBack, onEdit, onStatusChange, holdOptions, logs, onWelcome, onWelcomeMail, onAddAttachment, onQuickFieldEdit, editOptions, isOwner, canEdit = true }) {
       const [openId, setOpenId] = React.useState(null);
       const [mobileDetailMemberId, setMobileDetailMemberId] = React.useState('');
       const [page, setPage] = React.useState(1);
@@ -3381,8 +3797,8 @@ function MembersList({ title, list, onBack, onEdit, onStatusChange, holdOptions,
                 m={m}
                 expanded={openId === m.memberId}
                 onToggle={() => setOpenId(openId === m.memberId ? null : m.memberId)}
-                onEdit={() => onEdit(m)}
-                onStatusChange={onStatusChange}
+                onEdit={() => onEdit && onEdit(m)}
+                onStatusChange={canEdit ? onStatusChange : null}
                 holdOptions={holdOptions}
                 canDelete={false}
                 onDelete={() => {}}
@@ -3395,6 +3811,7 @@ function MembersList({ title, list, onBack, onEdit, onStatusChange, holdOptions,
                 editOptions={editOptions}
                 isOwner={isOwner}
                 onOpenMobileDetail={(member) => setMobileDetailMemberId(member?.memberId || '')}
+                canEdit={canEdit}
               />
             ))}
             {(list || []).length > pageSize && (
@@ -3428,13 +3845,14 @@ function MembersList({ title, list, onBack, onEdit, onStatusChange, holdOptions,
                 onEdit && onEdit(member);
               }}
               onWelcome={onWelcome}
-              onStatusChange={onStatusChange}
+              onStatusChange={canEdit ? onStatusChange : null}
               holdOptions={holdOptions}
               canDelete={false}
               onDelete={() => {}}
               isOwner={isOwner}
               onQuickFieldEdit={onQuickFieldEdit}
               editOptions={editOptions}
+              canEdit={canEdit}
             />
           )}
         </div>
@@ -3442,13 +3860,14 @@ function MembersList({ title, list, onBack, onEdit, onStatusChange, holdOptions,
     }
 
     // ---- Member Row ----
-function MemberRow({ m, expanded, onToggle, onEdit, onStatusChange, holdOptions, onDelete, canDelete, onWelcome, onWelcomeMail, onAddAttachment, logs, selected, onSelectToggle, selectable, onQuickFieldEdit, editOptions, isOwner, onOpenMobileDetail }) {
+function MemberRow({ m, expanded, onToggle, onEdit, onStatusChange, holdOptions, onDelete, canDelete, onWelcome, onWelcomeMail, onAddAttachment, logs, selected, onSelectToggle, selectable, onQuickFieldEdit, editOptions, isOwner, onOpenMobileDetail, canEdit = true }) {
       const todayHighlight = fmt(m.billingDate) === fmt(new Date());
       // Determine if we can open WhatsApp welcome/payment reminder.
       // Active members with mobile number and billing date qualify.
       const canWelcome = m.mobile && String(m.mobile).trim();
       const statusTemplate = primaryMessageActionForMember(m, isOwner);
-      const statusSentText = getSmsSentInfoText(m, statusTemplate.key);
+      const hasPrimaryMessageAction = statusTemplate.key !== 'none';
+      const statusSentText = hasPrimaryMessageAction ? getSmsSentInfoText(m, statusTemplate.key) : '';
       const uploadDoc = async (e) => {
         const file = e.target.files?.[0];
         if (!file) return;
@@ -3483,6 +3902,7 @@ function MemberRow({ m, expanded, onToggle, onEdit, onStatusChange, holdOptions,
             statusTemplate={statusTemplate}
             todayHighlight={todayHighlight}
             statusSentText={statusSentText}
+            canEdit={canEdit}
           />
           <MemberRowMobileView
             m={m}
@@ -3504,6 +3924,7 @@ function MemberRow({ m, expanded, onToggle, onEdit, onStatusChange, holdOptions,
                   statusTemplate={statusTemplate}
                   isOwner={isOwner}
                   statusSentText={statusSentText}
+                  canEdit={canEdit}
                 />
                 <ExpandedActionsDesktopView
                   m={m}
@@ -3513,8 +3934,9 @@ function MemberRow({ m, expanded, onToggle, onEdit, onStatusChange, holdOptions,
                   statusTemplate={statusTemplate}
                   isOwner={isOwner}
                   statusSentText={statusSentText}
+                  canEdit={canEdit}
                 />
-              <MemberDetails m={m} logs={logs} onQuickFieldEdit={onQuickFieldEdit} editOptions={editOptions} />
+              <MemberDetails m={m} logs={logs} onQuickFieldEdit={canEdit ? onQuickFieldEdit : null} editOptions={editOptions} isOwner={isOwner} />
               <WhatsAppMessageTypesBlock
                 m={m}
                 onWelcome={onWelcome}
@@ -3526,7 +3948,7 @@ function MemberRow({ m, expanded, onToggle, onEdit, onStatusChange, holdOptions,
                 onWelcomeMail={onWelcomeMail}
                 uploadDoc={uploadDoc}
               />
-              <QuickActions m={m} onStatusChange={onStatusChange} holdOptions={holdOptions} canDelete={canDelete} onDelete={onDelete} />
+              <QuickActions m={m} onStatusChange={onStatusChange} holdOptions={holdOptions} canDelete={canDelete} onDelete={onDelete} canEdit={canEdit} />
               </div>
             </div>
           )}
@@ -3535,7 +3957,7 @@ function MemberRow({ m, expanded, onToggle, onEdit, onStatusChange, holdOptions,
     }
 
     // Phase A split: desktop-specific member row presentation.
-function MemberRowDesktopView({ m, selectable, selected, onSelectToggle, onToggle, onEdit, onWelcome, canWelcome, statusTemplate, todayHighlight, statusSentText }) {
+function MemberRowDesktopView({ m, selectable, selected, onSelectToggle, onToggle, onEdit, onWelcome, canWelcome, statusTemplate, todayHighlight, statusSentText, canEdit = true }) {
       return (
         <button onClick={onToggle} className="hidden lg:grid w-full grid-cols-12 items-center gap-4 px-2 py-3 text-left text-slate-700 hover:bg-slate-100">
           <div className="col-span-1 font-medium flex items-center gap-2 min-w-0">
@@ -3561,33 +3983,37 @@ function MemberRowDesktopView({ m, selectable, selected, onSelectToggle, onToggl
           <div className="col-span-2">{fmt(m.nextPaymentDate || nextPaymentDateFromBillingDate(m)) || '-'}</div>
           <div className="col-span-3 flex items-center gap-2 pr-2 overflow-hidden">
             <Badge tone={toneForStatus(m.status)} className="w-24 text-center flex-shrink-0">{shortStatus(m.status)}</Badge>
-            <button
-              onClick={(e) => { e.stopPropagation(); onEdit(m); }}
-              className="flex-shrink-0 whitespace-nowrap flex items-center gap-1 rounded-lg px-3 py-2 text-xs font-medium bg-indigo-50 text-indigo-700 border border-indigo-200 hover:bg-indigo-100"
-            >
-              <span>✎</span>
-              <span>Action</span>
-            </button>
-            <div className="flex items-center gap-2 min-w-0">
+            {canEdit && (
               <button
-                onClick={(e) => {
-                  e.stopPropagation();
-                  onWelcome && onWelcome(m, statusTemplate.key);
-                }}
-                disabled={!canWelcome || statusTemplate.disabled}
-                title={canWelcome ? `Open WhatsApp ${statusTemplate.label}` : 'Cannot open (missing mobile number)'}
-                className={cx(
-                  'flex-shrink-0 whitespace-nowrap flex items-center gap-1 rounded-lg px-3 py-2 text-xs font-medium border',
-                  canWelcome && !statusTemplate.disabled
-                    ? 'bg-blue-50 text-blue-700 border-blue-200 hover:bg-blue-100'
-                    : 'bg-slate-200 text-slate-500 border-slate-300 cursor-not-allowed'
-                )}
+                onClick={(e) => { e.stopPropagation(); onEdit && onEdit(m); }}
+                className="flex-shrink-0 whitespace-nowrap flex items-center gap-1 rounded-lg px-3 py-2 text-xs font-medium bg-indigo-50 text-indigo-700 border border-indigo-200 hover:bg-indigo-100"
               >
-                <span>💬</span>
-                <span>{statusTemplate.label}</span>
+                <span>✎</span>
+                <span>Action</span>
               </button>
-              <SmsSendInfoChip text={statusSentText} />
-            </div>
+            )}
+            {statusTemplate.key !== 'none' && (
+              <div className="flex items-center gap-2 min-w-0">
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onWelcome && onWelcome(m, statusTemplate.key);
+                  }}
+                  disabled={!canWelcome || statusTemplate.disabled}
+                  title={canWelcome ? `Open WhatsApp ${statusTemplate.label}` : 'Cannot open (missing mobile number)'}
+                  className={cx(
+                    'flex-shrink-0 whitespace-nowrap flex items-center gap-1 rounded-lg px-3 py-2 text-xs font-medium border',
+                    canWelcome && !statusTemplate.disabled
+                      ? 'bg-blue-50 text-blue-700 border-blue-200 hover:bg-blue-100'
+                      : 'bg-slate-200 text-slate-500 border-slate-300 cursor-not-allowed'
+                  )}
+                >
+                  <span>💬</span>
+                  <span>{statusTemplate.label}</span>
+                </button>
+                <SmsSendInfoChip text={statusSentText} />
+              </div>
+            )}
           </div>
         </button>
       );
@@ -3634,7 +4060,7 @@ function MemberRowDesktopView({ m, selectable, selected, onSelectToggle, onToggl
         </button>
       );
     }
-    function MobileMemberDetailView({ m, onBack, onEdit, onWelcome, onStatusChange, holdOptions, canDelete, onDelete, isOwner, onQuickFieldEdit, editOptions }) {
+    function MobileMemberDetailView({ m, onBack, onEdit, onWelcome, onStatusChange, holdOptions, canDelete, onDelete, isOwner, onQuickFieldEdit, editOptions, canEdit = true }) {
       const statusTemplate = primaryMessageActionForMember(m, isOwner);
       const canWelcome = Boolean(String(m.mobile || '').trim()) && !statusTemplate.disabled;
       const dueAmount = Number(m.amount || 0);
@@ -3654,7 +4080,7 @@ function MemberRowDesktopView({ m, selectable, selected, onSelectToggle, onToggl
       const detailRows = [
         { key: 'name', label: 'Name', value: m.name || '-', icon: '👤', tone: 'bg-indigo-50 text-indigo-600', editable: true, type: 'text' },
         { key: 'mobile', label: 'Mobile', value: m.mobile || '-', icon: '📱', tone: 'bg-blue-50 text-blue-600', editable: true, type: 'tel' },
-        { key: 'joined', label: 'Joined Date', value: fmt(m.joiningDate) || '-', icon: '📅', tone: 'bg-blue-50 text-blue-600', editable: false },
+        { key: 'joiningDate', label: 'Joined Date', value: fmt(m.joiningDate) || '-', icon: '📅', tone: 'bg-blue-50 text-blue-600', editable: isOwner, type: 'date', rawValue: iso(m.joiningDate) || '' },
         { key: 'billingDate', label: 'Billing Date', value: fmt(m.billingDate) || '-', icon: '🧾', tone: 'bg-amber-50 text-amber-600', editable: true, type: 'date', rawValue: iso(m.billingDate) || '' },
         { key: 'nextPayment', label: 'Next Payment Date', value: fmt(m.nextPaymentDate || nextPaymentDateFromBillingDate(m)) || '-', icon: '⏭️', tone: 'bg-indigo-50 text-indigo-600', editable: false },
         { key: 'paymentBy', label: 'Payment By', value: fmt(retentionPaymentDeadline(m) || m.billingDate) || '-', icon: '⏰', tone: 'bg-orange-50 text-orange-600', editable: false },
@@ -3668,7 +4094,7 @@ function MemberRowDesktopView({ m, selectable, selected, onSelectToggle, onToggl
           <div className="sticky top-0 z-10 flex items-center justify-between border-b border-slate-200 bg-white/95 backdrop-blur px-4 py-3">
             <button onClick={onBack} className="rounded-xl border border-slate-300 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700">← Back</button>
             <div className="text-sm font-bold text-slate-900">Member Profile</div>
-            <button onClick={() => onEdit && onEdit(m)} className="rounded-xl border border-indigo-300 bg-indigo-50 px-3 py-1.5 text-xs font-semibold text-indigo-700">Edit</button>
+            {canEdit ? <button onClick={() => onEdit && onEdit(m)} className="rounded-xl border border-indigo-300 bg-indigo-50 px-3 py-1.5 text-xs font-semibold text-indigo-700">Edit</button> : <div />}
           </div>
           <div className="p-4 space-y-4 pb-24">
             <div className="rounded-[28px] border border-slate-200 bg-gradient-to-br from-white to-blue-50 p-5 shadow-sm">
@@ -3684,18 +4110,20 @@ function MemberRowDesktopView({ m, selectable, selected, onSelectToggle, onToggl
                 </div>
               </div>
               <div className="mt-5 grid grid-cols-4 gap-2">
-                <button
-                  onClick={() => canWelcome && onWelcome && onWelcome(m, statusTemplate.key)}
-                  disabled={!canWelcome}
-                  className={cx('rounded-2xl px-2 py-3 text-[11px] font-semibold border', canWelcome ? 'border-blue-300 bg-blue-50 text-blue-700' : 'border-slate-300 bg-slate-100 text-slate-500')}
-                >
-                  💬
-                </button>
-                <button onClick={() => onEdit && onEdit(m)} className="rounded-2xl px-2 py-3 text-[11px] font-semibold border border-indigo-300 bg-indigo-50 text-indigo-700">Edit</button>
-                <button onClick={() => onStatusChange && onStatusChange(m.memberId, 'Active')} className="rounded-2xl px-2 py-3 text-[11px] font-semibold border border-emerald-300 bg-emerald-50 text-emerald-700">Activate</button>
+                {statusTemplate.key !== 'none' && (
+                  <button
+                    onClick={() => canWelcome && onWelcome && onWelcome(m, statusTemplate.key)}
+                    disabled={!canWelcome}
+                    className={cx('rounded-2xl px-2 py-3 text-[11px] font-semibold border', canWelcome ? 'border-blue-300 bg-blue-50 text-blue-700' : 'border-slate-300 bg-slate-100 text-slate-500')}
+                  >
+                    💬
+                  </button>
+                )}
+                {canEdit && <button onClick={() => onEdit && onEdit(m)} className="rounded-2xl px-2 py-3 text-[11px] font-semibold border border-indigo-300 bg-indigo-50 text-indigo-700">Edit</button>}
+                {canEdit && <button onClick={() => onStatusChange && onStatusChange(m.memberId, 'Active')} className="rounded-2xl px-2 py-3 text-[11px] font-semibold border border-emerald-300 bg-emerald-50 text-emerald-700">Activate</button>}
                 <button onClick={onBack} className="rounded-2xl px-2 py-3 text-[11px] font-semibold border border-slate-300 bg-white text-slate-700">Close</button>
               </div>
-              <div className="mt-2 text-[11px] text-slate-500">{statusTemplate.label}</div>
+              {statusTemplate.key !== 'none' && <div className="mt-2 text-[11px] text-slate-500">{statusTemplate.label}</div>}
             </div>
             <div className="rounded-3xl border border-slate-200 bg-white p-4 shadow-sm space-y-3">
               <div className="text-xs font-semibold uppercase tracking-wide text-slate-400">Membership Details</div>
@@ -3709,7 +4137,7 @@ function MemberRowDesktopView({ m, selectable, selected, onSelectToggle, onToggl
                         <div className="text-sm font-semibold text-slate-900 truncate">{row.value}</div>
                       </div>
                     </div>
-                    {row.editable && (
+                    {canEdit && row.editable && (
                       <button
                         onClick={() => triggerQuickFieldEdit(row.key, row.label, row.type || 'text', row.options || [], row.rawValue)}
                         className="rounded-lg border border-blue-200 bg-white px-2 py-1 text-[10px] font-semibold text-blue-700"
@@ -3728,12 +4156,12 @@ function MemberRowDesktopView({ m, selectable, selected, onSelectToggle, onToggl
                     </div>
                   </div>
                   <div className="flex items-center gap-1.5">
-                    <button
+                    {canEdit && <button
                       onClick={() => triggerQuickFieldEdit('paymentMethod', 'Payment Method', 'select', editOptions?.paymentMethods || [])}
                       className="rounded-lg border border-blue-200 bg-white px-2 py-1 text-[10px] font-semibold text-blue-700"
                     >
                       Edit
-                    </button>
+                    </button>}
                     <span className="rounded-lg border border-slate-200 bg-white px-2 py-0.5 text-[10px] font-semibold text-slate-600">{m.formNo || '-'}</span>
                   </div>
                 </div>
@@ -3742,8 +4170,8 @@ function MemberRowDesktopView({ m, selectable, selected, onSelectToggle, onToggl
             <div className="rounded-3xl border border-slate-200 bg-white p-4 shadow-sm">
               <div className="text-xs font-semibold uppercase tracking-wide text-slate-400 mb-2">Quick Status</div>
               <div className="flex flex-wrap gap-2">
-                {m.status !== 'Hold' && <button onClick={() => onStatusChange && onStatusChange(m.memberId, 'Hold', { holdDuration: holdOptions?.[0] || '1 Month' })} className="rounded-xl border border-amber-300 bg-amber-50 px-3 py-2 text-xs font-semibold text-amber-700">Hold</button>}
-                {m.status !== 'Deactivated' && <button onClick={() => onStatusChange && onStatusChange(m.memberId, 'Deactivated')} className="rounded-xl border border-pink-300 bg-pink-50 px-3 py-2 text-xs font-semibold text-pink-700">Deactivate</button>}
+                {canEdit && m.status !== 'Hold' && <button onClick={() => onStatusChange && onStatusChange(m.memberId, 'Hold', { holdDuration: holdOptions?.[0] || '1 Month' })} className="rounded-xl border border-amber-300 bg-amber-50 px-3 py-2 text-xs font-semibold text-amber-700">Hold</button>}
+                {canEdit && m.status !== 'Deactivated' && <button onClick={() => onStatusChange && onStatusChange(m.memberId, 'Deactivated')} className="rounded-xl border border-pink-300 bg-pink-50 px-3 py-2 text-xs font-semibold text-pink-700">Deactivate</button>}
                 {canDelete && <button onClick={() => onDelete && onDelete(m)} className="rounded-xl border border-rose-300 bg-rose-50 px-3 py-2 text-xs font-semibold text-rose-700">Delete</button>}
               </div>
             </div>
@@ -3753,71 +4181,81 @@ function MemberRowDesktopView({ m, selectable, selected, onSelectToggle, onToggl
     }
 
     // Phase A.2 split: mobile-only quick action strip in expanded panel.
-    function ExpandedActionsMobileView({ m, onEdit, onWelcome, canWelcome, statusTemplate, statusSentText }) {
+    function ExpandedActionsMobileView({ m, onEdit, onWelcome, canWelcome, statusTemplate, statusSentText, canEdit = true }) {
       return (
         <div className="lg:hidden rounded-xl border border-slate-200 bg-slate-50 p-3 flex flex-wrap items-center gap-2">
-          <button
-            onClick={() => onEdit(m)}
-            className="rounded-lg border border-indigo-300 bg-indigo-50 px-3 py-2 text-xs font-medium text-indigo-700 hover:bg-indigo-100"
-          >
-            Action
-          </button>
-          <div className="flex items-center gap-2">
+          {canEdit && (
             <button
-              onClick={() => onWelcome && onWelcome(m, statusTemplate.key)}
-              disabled={!canWelcome || statusTemplate.disabled}
-              className={cx(
-                'rounded-lg border px-3 py-2 text-xs font-medium',
-                canWelcome && !statusTemplate.disabled
-                  ? 'bg-blue-50 text-blue-700 border-blue-200 hover:bg-blue-100'
-                  : 'bg-slate-200 text-slate-500 border-slate-300 cursor-not-allowed'
-              )}
+              onClick={() => onEdit && onEdit(m)}
+              className="rounded-lg border border-indigo-300 bg-indigo-50 px-3 py-2 text-xs font-medium text-indigo-700 hover:bg-indigo-100"
             >
-              {statusTemplate.label}
+              Action
             </button>
-            <SmsSendInfoChip text={statusSentText} />
-          </div>
+          )}
+          {statusTemplate.key !== 'none' && (
+            <div className="flex items-center gap-2">
+              <button
+                onClick={() => onWelcome && onWelcome(m, statusTemplate.key)}
+                disabled={!canWelcome || statusTemplate.disabled}
+                className={cx(
+                  'rounded-lg border px-3 py-2 text-xs font-medium',
+                  canWelcome && !statusTemplate.disabled
+                    ? 'bg-blue-50 text-blue-700 border-blue-200 hover:bg-blue-100'
+                    : 'bg-slate-200 text-slate-500 border-slate-300 cursor-not-allowed'
+                )}
+              >
+                {statusTemplate.label}
+              </button>
+              <SmsSendInfoChip text={statusSentText} />
+            </div>
+          )}
         </div>
       );
     }
 
     // Phase A.2 split: desktop-only quick action strip in expanded panel.
-    function ExpandedActionsDesktopView({ m, onEdit, onWelcome, canWelcome, statusTemplate, statusSentText }) {
+    function ExpandedActionsDesktopView({ m, onEdit, onWelcome, canWelcome, statusTemplate, statusSentText, canEdit = true }) {
       return (
         <div className="hidden lg:flex rounded-xl border border-slate-200 bg-slate-50 p-3 flex-wrap items-center gap-2">
-          <button
-            onClick={() => onEdit(m)}
-            className="rounded-lg border border-indigo-300 bg-indigo-50 px-3 py-2 text-xs font-medium text-indigo-700 hover:bg-indigo-100"
-          >
-            Action
-          </button>
-          <div className="flex items-center gap-2">
+          {canEdit && (
             <button
-              onClick={() => onWelcome && onWelcome(m, statusTemplate.key)}
-              disabled={!canWelcome || statusTemplate.disabled}
-              className={cx(
-                'rounded-lg border px-3 py-2 text-xs font-medium',
-                canWelcome && !statusTemplate.disabled
-                  ? 'bg-blue-50 text-blue-700 border-blue-200 hover:bg-blue-100'
-                  : 'bg-slate-200 text-slate-500 border-slate-300 cursor-not-allowed'
-              )}
+              onClick={() => onEdit && onEdit(m)}
+              className="rounded-lg border border-indigo-300 bg-indigo-50 px-3 py-2 text-xs font-medium text-indigo-700 hover:bg-indigo-100"
             >
-              {statusTemplate.label}
+              Action
             </button>
-            <SmsSendInfoChip text={statusSentText} />
-          </div>
+          )}
+          {statusTemplate.key !== 'none' && (
+            <div className="flex items-center gap-2">
+              <button
+                onClick={() => onWelcome && onWelcome(m, statusTemplate.key)}
+                disabled={!canWelcome || statusTemplate.disabled}
+                className={cx(
+                  'rounded-lg border px-3 py-2 text-xs font-medium',
+                  canWelcome && !statusTemplate.disabled
+                    ? 'bg-blue-50 text-blue-700 border-blue-200 hover:bg-blue-100'
+                    : 'bg-slate-200 text-slate-500 border-slate-300 cursor-not-allowed'
+                )}
+              >
+                {statusTemplate.label}
+              </button>
+              <SmsSendInfoChip text={statusSentText} />
+            </div>
+          )}
         </div>
       );
     }
 
     function WhatsAppMessageTypesBlock({ m, onWelcome, canWelcome, statusTemplate }) {
+      const todayIso = iso(new Date());
+      const showWelcomeType = iso(m.joiningDate) === todayIso;
       const types = [
         { key: 'reminder', label: 'Reminder' },
         { key: 'monthReminder', label: 'Month Reminder' },
         { key: 'fine', label: 'Fine SMS' },
         { key: 'deactivate', label: 'Deactivate SMS' },
         { key: 'hold', label: 'Hold SMS' },
-        { key: 'welcome', label: 'Welcome SMS' },
+        ...(showWelcomeType ? [{ key: 'welcome', label: 'Welcome SMS' }] : []),
         { key: 'success', label: 'Success SMS' },
       ];
       return (
@@ -3889,7 +4327,7 @@ function MemberRowDesktopView({ m, selectable, selected, onSelectToggle, onToggl
     }
 
     // ---- Member Details (expanded row) ----
-    function MemberDetails({ m, logs, onQuickFieldEdit, editOptions }) {
+    function MemberDetails({ m, logs, onQuickFieldEdit, editOptions, isOwner = false }) {
       // Normalise undefined/empty values to a dash to avoid displaying
       // "undefined" or other undesired text in the details panel.
       const normal = (val) => {
@@ -3909,7 +4347,7 @@ function MemberRowDesktopView({ m, selectable, selected, onSelectToggle, onToggl
         { label: 'Staff', key: 'staff', value: normal(m.staff), editable: false },
         { label: 'Amount', key: 'amount', value: m.amount !== undefined && m.amount !== null ? m.amount : '—', editable: quickEditableKeys.has('amount'), type: 'number' },
         { label: 'Plan', key: 'plan', value: normal(m.plan), editable: quickEditableKeys.has('plan'), type: 'select', options: editOptions?.plans || [] },
-        { label: 'Joining Date', key: 'joiningDate', value: fmt(m.joiningDate) || '—', editable: false, type: 'date', rawValue: iso(m.joiningDate) || '' },
+        { label: 'Joining Date', key: 'joiningDate', value: fmt(m.joiningDate) || '—', editable: isOwner, type: 'date', rawValue: iso(m.joiningDate) || '' },
         { label: 'Billing Date', key: 'billingDate', value: fmt(m.billingDate) || '—', editable: quickEditableKeys.has('billingDate'), type: 'date', rawValue: iso(m.billingDate) || '' },
         { label: 'Next Payment Date', key: 'nextPaymentDate', value: fmt(m.nextPaymentDate || nextPaymentDateFromBillingDate(m)) || '—', editable: false },
         { label: 'Payment By', key: 'paymentBy', value: fmt(retentionPaymentDeadline(m) || m.billingDate) || '—', editable: false },
@@ -4045,21 +4483,21 @@ function MemberRowDesktopView({ m, selectable, selected, onSelectToggle, onToggl
     }
 
     // ---- Quick Actions (Activate / Hold / Deactivate) ----
-function QuickActions({ m, onStatusChange, holdOptions, canDelete, onDelete }) {
+function QuickActions({ m, onStatusChange, holdOptions, canDelete, onDelete, canEdit = true }) {
       const [sel, setSel] = React.useState(holdOptions[0] || '1 Month');
       return (
         <div className="flex flex-wrap items-center gap-2">
           {/* Activate button shown when member is not already active */}
-          {m.status !== 'Active' && (
+          {canEdit && m.status !== 'Active' && (
             <button
-              onClick={() => onStatusChange(m.memberId, 'Active')}
+              onClick={() => onStatusChange && onStatusChange(m.memberId, 'Active')}
               className="inline-flex items-center gap-2 rounded-xl px-3 py-2 text-sm font-medium border border-emerald-200 bg-emerald-50 text-emerald-700 hover:bg-emerald-100"
             >
               Activate
             </button>
           )}
           {/* Hold selection and button */}
-          <div className="flex items-center gap-2">
+          {canEdit && <div className="flex items-center gap-2">
             <select
               value={sel}
               onChange={(e) => setSel(e.target.value)}
@@ -4068,16 +4506,16 @@ function QuickActions({ m, onStatusChange, holdOptions, canDelete, onDelete }) {
               {holdOptions.map(x => <option key={x} value={x}>{x}</option>)}
             </select>
             <button
-              onClick={() => onStatusChange(m.memberId, 'Hold', { holdDuration: sel })}
+              onClick={() => onStatusChange && onStatusChange(m.memberId, 'Hold', { holdDuration: sel })}
               className="inline-flex items-center gap-2 rounded-xl px-3 py-2 text-sm font-medium border border-amber-200 bg-amber-50 text-amber-700 hover:bg-amber-100"
             >
               Hold
             </button>
-          </div>
+          </div>}
           {/* Deactivate button */}
-          {m.status !== 'Deactivated' && (
+          {canEdit && m.status !== 'Deactivated' && (
             <button
-              onClick={() => onStatusChange(m.memberId, 'Deactivated')}
+              onClick={() => onStatusChange && onStatusChange(m.memberId, 'Deactivated')}
               className="inline-flex items-center gap-2 rounded-xl px-3 py-2 text-sm font-medium border border-pink-200 bg-pink-50 text-pink-700 hover:bg-pink-100"
             >
               Deactivate
@@ -4097,11 +4535,15 @@ function QuickActions({ m, onStatusChange, holdOptions, canDelete, onDelete }) {
     }
 
     // ---- Dashboard View (Members grouped by status) ----
-function DashboardView({ members, onEdit, onStatusChange, holdOptions, logs, filters, filterOpen, setFilterOpen, anyFilterActive, canDelete, onDelete, billingMonthOptions, onWelcome, onWelcomeMail, onAddAttachment, onQuickFieldEdit, editOptions, isOwner }) {
+function DashboardView({ members, onEdit, onStatusChange, holdOptions, logs, filters, filterOpen, setFilterOpen, anyFilterActive, canDelete, onDelete, billingMonthOptions, onWelcome, onWelcomeMail, onAddAttachment, onQuickFieldEdit, editOptions, isOwner, canEdit = true, onImportCsv = null }) {
       // Single expanded row across all statuses. Only one memberId may be expanded at a time.
       const [expandedId, setExpandedId] = React.useState(null);
       const [mobileDetailMemberId, setMobileDetailMemberId] = React.useState('');
       const [focusStatus, setFocusStatus] = React.useState('');
+      const [quickSearchInput, setQuickSearchInput] = React.useState('');
+      const [appliedQuickSearch, setAppliedQuickSearch] = React.useState('');
+      const [sortField, setSortField] = React.useState('joiningDate');
+      const [sortDirection, setSortDirection] = React.useState('desc');
       const [selectedIds, setSelectedIds] = React.useState([]);
       const [visibleByStatus, setVisibleByStatus] = React.useState({ Active: 20, Hold: 20, Deactivated: 20, Cancelled: 20 });
       const sectionRefs = React.useRef({});
@@ -4112,7 +4554,7 @@ function DashboardView({ members, onEdit, onStatusChange, holdOptions, logs, fil
         setPages({ Active: 1, Hold: 1, Deactivated: 1, Cancelled: 1 });
         setSelectedIds([]);
         setVisibleByStatus({ Active: 20, Hold: 20, Deactivated: 20, Cancelled: 20 });
-      }, [members, filters]);
+      }, [members, filters, appliedQuickSearch]);
       React.useEffect(() => {
         if (!focusStatus) return;
         const node = sectionRefs.current[focusStatus];
@@ -4124,9 +4566,42 @@ function DashboardView({ members, onEdit, onStatusChange, holdOptions, logs, fil
         setSelectedIds(prev => prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]);
       };
       const applyBulkStatus = (status, opts = {}) => {
+        if (!canEdit || !onStatusChange) return;
         selectedIds.forEach(id => onStatusChange(id, status, opts));
         setSelectedIds([]);
       };
+      const toggleSort = React.useCallback((field) => {
+        setSortField((prevField) => {
+          if (prevField === field) {
+            setSortDirection((prevDir) => (prevDir === 'asc' ? 'desc' : 'asc'));
+            return prevField;
+          }
+          setSortDirection('asc');
+          return field;
+        });
+      }, []);
+      const sortIndicator = React.useCallback((field) => {
+        if (sortField !== field) return '↕';
+        return sortDirection === 'asc' ? '↑' : '↓';
+      }, [sortDirection, sortField]);
+      const sortMembers = React.useCallback((list) => {
+        const sorted = [...list];
+        sorted.sort((a, b) => {
+          const dir = sortDirection === 'asc' ? 1 : -1;
+          if (sortField === 'billingDate' || sortField === 'nextPaymentDate') {
+            const av = asUTC(a[sortField]);
+            const bv = asUTC(b[sortField]);
+            const at = av ? av.getTime() : 0;
+            const bt = bv ? bv.getTime() : 0;
+            return (at - bt) * dir;
+          }
+          const av = String(a[sortField] || '').toLowerCase();
+          const bv = String(b[sortField] || '').toLowerCase();
+          if (av === bv) return 0;
+          return (av > bv ? 1 : -1) * dir;
+        });
+        return sorted;
+      }, [sortDirection, sortField]);
       // Apply filters to the full member list. All filters are AND'ed.
       const applyFilters = React.useCallback((list) => {
         return list.filter(m => {
@@ -4162,19 +4637,33 @@ function DashboardView({ members, onEdit, onStatusChange, holdOptions, logs, fil
             const bd = asUTC(m.billingDate);
             if (bt && bd && bd > bt) return false;
           }
+          if (appliedQuickSearch) {
+            const q = appliedQuickSearch.toLowerCase();
+            const hay = [
+              m.name,
+              m.memberId,
+              m.formNo,
+              m.mobile,
+              m.email,
+              m.plan,
+              m.status,
+              m.staff,
+            ].join(' ').toLowerCase();
+            if (!hay.includes(q)) return false;
+          }
           return true;
         });
-      }, [filters]);
+      }, [filters, appliedQuickSearch]);
       // Filter members and group by status
       const grouped = React.useMemo(() => {
         const list = applyFilters(members);
         return {
-          Active: list.filter(m => m.status === 'Active'),
-          Hold: list.filter(m => m.status === 'Hold'),
-          Deactivated: list.filter(m => m.status === 'Deactivated'),
-          Cancelled: list.filter(m => m.status === 'Cancelled'),
+          Active: sortMembers(list.filter(m => m.status === 'Active')),
+          Hold: sortMembers(list.filter(m => m.status === 'Hold')),
+          Deactivated: sortMembers(list.filter(m => m.status === 'Deactivated')),
+          Cancelled: sortMembers(list.filter(m => m.status === 'Cancelled')),
         };
-      }, [members, applyFilters]);
+      }, [members, applyFilters, sortMembers]);
       // Page size determines how many members to show per page in each
       // status group. Show maximum 10 rows per page.
       const pageSize = 10;
@@ -4197,12 +4686,15 @@ function DashboardView({ members, onEdit, onStatusChange, holdOptions, logs, fil
         [members, mobileDetailMemberId]
       );
       if (isMobile) {
-        const mobileList = applyFilters(members);
+        const mobileList = sortMembers(applyFilters(members));
         return (
           <div className="p-4 space-y-3">
             <div className="flex items-center justify-between">
               <h1 className="text-xl font-semibold text-slate-900">Members</h1>
-              <button onClick={() => setFilterOpen(true)} className="rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm font-semibold text-slate-700">⌕</button>
+              <div className="flex items-center gap-2">
+                {onImportCsv && <button onClick={onImportCsv} className="rounded-xl border border-emerald-300 bg-emerald-50 px-3 py-2 text-xs font-semibold text-emerald-700">Import CSV</button>}
+                <button onClick={() => setFilterOpen(true)} className="rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm font-semibold text-slate-700">⌕</button>
+              </div>
             </div>
             <div className="flex gap-2 overflow-x-auto pb-1">
               {[
@@ -4232,8 +4724,8 @@ function DashboardView({ members, onEdit, onStatusChange, holdOptions, logs, fil
                   m={m}
                   expanded={false}
                   onToggle={() => {}}
-                  onEdit={() => onEdit(m)}
-                  onStatusChange={onStatusChange}
+                  onEdit={() => onEdit && onEdit(m)}
+                  onStatusChange={canEdit ? onStatusChange : null}
                   holdOptions={holdOptions}
                   canDelete={canDelete}
                   onDelete={onDelete}
@@ -4246,6 +4738,7 @@ function DashboardView({ members, onEdit, onStatusChange, holdOptions, logs, fil
                   editOptions={editOptions}
                   isOwner={isOwner}
                   onOpenMobileDetail={(member) => setMobileDetailMemberId(member?.memberId || '')}
+                  canEdit={canEdit}
                 />
               ))}
             </div>
@@ -4258,13 +4751,14 @@ function DashboardView({ members, onEdit, onStatusChange, holdOptions, logs, fil
                   onEdit && onEdit(member);
                 }}
                 onWelcome={onWelcome}
-                onStatusChange={onStatusChange}
+                onStatusChange={canEdit ? onStatusChange : null}
                 holdOptions={holdOptions}
                 canDelete={canDelete}
                 onDelete={onDelete}
                 isOwner={isOwner}
                 onQuickFieldEdit={onQuickFieldEdit}
                 editOptions={editOptions}
+                canEdit={canEdit}
               />
             )}
           </div>
@@ -4289,16 +4783,11 @@ function DashboardView({ members, onEdit, onStatusChange, holdOptions, logs, fil
                   <button onClick={() => applyBulkStatus('Deactivated')} className="rounded-xl px-3 py-2 border border-pink-300 bg-pink-50 text-pink-700 text-xs font-medium">Bulk Deactivate</button>
                 </>
               )}
-              <button
-                onClick={() => setFilterOpen(true)}
-                className="flex items-center gap-2 rounded-xl px-4 py-2 border border-blue-300 bg-blue-50 text-blue-700 hover:bg-blue-100"
-              >
-                <span>🔍</span>
-                <span>Filter</span>
-                {anyFilterActive && (
-                  <span className="ml-2 inline-block bg-blue-600 text-white text-xs font-semibold px-2 py-0.5 rounded-full">•</span>
-                )}
-              </button>
+              {onImportCsv && (
+                <button onClick={onImportCsv} className="rounded-xl px-4 py-2 border border-emerald-300 bg-emerald-50 text-emerald-700 hover:bg-emerald-100 text-xs font-semibold">
+                  Import CSV
+                </button>
+              )}
             </div>
           </div>
           <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4">
@@ -4323,6 +4812,40 @@ function DashboardView({ members, onEdit, onStatusChange, holdOptions, logs, fil
               <div className="text-xs text-rose-700">Deactivated Members</div>
             </div>
           </div>
+          <div className="flex justify-end">
+            <div className="w-full md:w-auto mt-2 flex items-center gap-2">
+              <div className="relative w-full md:w-80">
+                <input
+                  value={quickSearchInput}
+                  onChange={(e) => {
+                    const next = e.target.value;
+                    setQuickSearchInput(next);
+                    if (!next.trim()) setAppliedQuickSearch('');
+                  }}
+                  onKeyDown={(e) => { if (e.key === 'Enter') setAppliedQuickSearch(quickSearchInput.trim()); }}
+                  placeholder="Search members..."
+                  className="w-full rounded-2xl border border-slate-300 bg-white pl-4 pr-12 py-2.5 text-sm text-slate-800 placeholder:text-slate-400 focus:border-blue-300 focus:outline-none focus:ring-2 focus:ring-blue-100"
+                />
+                <button
+                  type="button"
+                  onClick={() => setAppliedQuickSearch(quickSearchInput.trim())}
+                  className="absolute right-2 top-1/2 -translate-y-1/2 rounded-xl px-2 py-1 text-xl text-slate-500 hover:text-slate-700"
+                  aria-label="Search members"
+                >
+                  🔍
+                </button>
+              </div>
+              <button
+                onClick={() => setFilterOpen(true)}
+                className="flex items-center gap-2 rounded-xl px-4 py-2 border border-blue-300 bg-blue-50 text-blue-700 hover:bg-blue-100"
+              >
+                <span>Filter</span>
+                {anyFilterActive && (
+                  <span className="ml-1 inline-block bg-blue-600 text-white text-xs font-semibold px-2 py-0.5 rounded-full">•</span>
+                )}
+              </button>
+            </div>
+          </div>
           {(focusStatus ? [focusStatus] : ['Active','Hold','Deactivated','Cancelled']).map(key => {
             const list = grouped[key];
             const totalPages = Math.max(1, Math.ceil(list.length / pageSize));
@@ -4335,11 +4858,11 @@ function DashboardView({ members, onEdit, onStatusChange, holdOptions, logs, fil
                 <h2 className="text-xl font-semibold">{key} Members ({list.length})</h2>
                 <div className="rounded-3xl bg-white p-4 shadow-sm">
                   <div className="hidden md:grid grid-cols-12 gap-4 px-3 py-2 text-sm font-semibold bg-blue-50 text-blue-700 border border-blue-100 rounded-2xl">
-                    <div className="col-span-1">ID</div>
-                    <div className="col-span-2">Name</div>
-                    <div className="col-span-2">Plan</div>
-                    <div className="col-span-2">Billing Date</div>
-                    <div className="col-span-2">Next Payment Date</div>
+                    <button onClick={() => toggleSort('memberId')} className="col-span-1 text-left hover:text-blue-900">ID <span className="text-[11px]">{sortIndicator('memberId')}</span></button>
+                    <button onClick={() => toggleSort('name')} className="col-span-2 text-left hover:text-blue-900">Name <span className="text-[11px]">{sortIndicator('name')}</span></button>
+                    <button onClick={() => toggleSort('plan')} className="col-span-2 text-left hover:text-blue-900">Plan <span className="text-[11px]">{sortIndicator('plan')}</span></button>
+                    <button onClick={() => toggleSort('billingDate')} className="col-span-2 text-left hover:text-blue-900">Bill Date <span className="text-[11px]">{sortIndicator('billingDate')}</span></button>
+                    <button onClick={() => toggleSort('nextPaymentDate')} className="col-span-2 text-left hover:text-blue-900">Next Pay Date <span className="text-[11px]">{sortIndicator('nextPaymentDate')}</span></button>
                     <div className="col-span-3">Status / Action / Welcome</div>
                   </div>
                   {pageList.map(m => (
@@ -4348,8 +4871,8 @@ function DashboardView({ members, onEdit, onStatusChange, holdOptions, logs, fil
                       m={m}
                       expanded={expandedId === m.memberId}
                       onToggle={() => setExpandedId(prev => (prev === m.memberId ? null : m.memberId))}
-                      onEdit={() => onEdit(m)}
-                      onStatusChange={onStatusChange}
+                      onEdit={() => onEdit && onEdit(m)}
+                      onStatusChange={canEdit ? onStatusChange : null}
                       holdOptions={holdOptions}
                       canDelete={canDelete}
                       onDelete={onDelete}
@@ -4364,6 +4887,7 @@ function DashboardView({ members, onEdit, onStatusChange, holdOptions, logs, fil
                       editOptions={editOptions}
                       isOwner={isOwner}
                       onOpenMobileDetail={(member) => setMobileDetailMemberId(member?.memberId || '')}
+                      canEdit={canEdit}
                     />
                   ))}
                   {pageList.length === 0 && (
@@ -4411,13 +4935,14 @@ function DashboardView({ members, onEdit, onStatusChange, holdOptions, logs, fil
                 onEdit && onEdit(member);
               }}
               onWelcome={onWelcome}
-              onStatusChange={onStatusChange}
+              onStatusChange={canEdit ? onStatusChange : null}
               holdOptions={holdOptions}
               canDelete={canDelete}
               onDelete={onDelete}
               isOwner={isOwner}
               onQuickFieldEdit={onQuickFieldEdit}
               editOptions={editOptions}
+              canEdit={canEdit}
             />
           )}
         </div>
@@ -5321,7 +5846,7 @@ function EditMemberModal({ member, onClose, onSave, planOptions, statusOptions, 
     }
 
     // ---- PT Clients Page ----
-function PTClientsPage({ members, users, settings, updateSetting, currentUser }) {
+function PTClientsPage({ members, users, settings, updateSetting, currentUser, access = {} }) {
       const PT_TABS = ['PT Workout', 'Workout Plan', 'Diet Plan', 'Chat Trainer', 'Today Sessions', 'Weight Progress'];
       const [activeSubTab, setActiveSubTab] = React.useState('PT Workout');
       const ptProfiles = settings.ptClientProfiles || {};
@@ -5329,12 +5854,20 @@ function PTClientsPage({ members, users, settings, updateSetting, currentUser })
         ? settings.exerciseTypes
         : buildDefaultSettings().exerciseTypes;
       const [selectedMemberId, setSelectedMemberId] = React.useState('');
+      const [clientPickerOpen, setClientPickerOpen] = React.useState(false);
+      const [clientPickerSearch, setClientPickerSearch] = React.useState('');
+      const clientPickerRef = React.useRef(null);
       const [chatDraft, setChatDraft] = React.useState('');
       const [sessionDraft, setSessionDraft] = React.useState({ date: iso(new Date()), time: '07:00', status: 'Scheduled', note: '' });
       const [weightDraft, setWeightDraft] = React.useState({ date: iso(new Date()), weight: '' });
       const [workoutDate, setWorkoutDate] = React.useState(iso(new Date()));
       const [focusPage, setFocusPage] = React.useState(1);
       const FOCUS_PER_PAGE = 10;
+      const ptAccess = normalizeAccess(access).ptClients;
+      const canViewPtClients = ptAccess?.viewPtClients !== false;
+      const canEditPtPlan = ptAccess?.editPtPlan !== false;
+      const canEditPtWorkout = ptAccess?.editPtWorkout !== false;
+      const canUploadDietDocuments = ptAccess?.uploadDietDocuments !== false;
       const trainers = (users || []).filter(u => !u.blocked && (u.id === 'trainer' || (u.sections || []).includes('PT Clients')));
       const ptMembers = React.useMemo(() => {
         const active = (members || []).filter(m => String(m.status || '') === 'Active');
@@ -5350,6 +5883,28 @@ function PTClientsPage({ members, users, settings, updateSetting, currentUser })
         }
       }, [ptMembers, selectedMemberId]);
       const selectedMember = ptMembers.find(m => m.memberId === selectedMemberId) || null;
+      const filteredPtMembers = React.useMemo(() => {
+        const q = String(clientPickerSearch || '').trim().toLowerCase();
+        if (!q) return ptMembers;
+        return ptMembers.filter((m) => {
+          const hay = `${m.name || ''} ${m.plan || ''} ${m.memberId || ''}`.toLowerCase();
+          return hay.includes(q);
+        });
+      }, [ptMembers, clientPickerSearch]);
+      React.useEffect(() => {
+        if (!clientPickerOpen) return;
+        const onDocDown = (e) => {
+          if (clientPickerRef.current && !clientPickerRef.current.contains(e.target)) {
+            setClientPickerOpen(false);
+          }
+        };
+        document.addEventListener('mousedown', onDocDown);
+        document.addEventListener('touchstart', onDocDown);
+        return () => {
+          document.removeEventListener('mousedown', onDocDown);
+          document.removeEventListener('touchstart', onDocDown);
+        };
+      }, [clientPickerOpen]);
       const profile = selectedMember ? (ptProfiles[selectedMember.memberId] || {}) : {};
       const focusByDate = profile.focusByDate || {};
       const monthDate = asUTC(workoutDate || new Date()) || asUTC(new Date());
@@ -5361,7 +5916,9 @@ function PTClientsPage({ members, users, settings, updateSetting, currentUser })
       React.useEffect(() => {
         if (focusPage > focusPages) setFocusPage(focusPages);
       }, [focusPage, focusPages]);
-      const persistProfile = (memberId, patch) => {
+      const persistProfile = (memberId, patch, mode = 'workout') => {
+        if (mode === 'plan' && !canEditPtPlan) return;
+        if (mode === 'workout' && !canEditPtWorkout) return;
         if (!memberId) return;
         const prevAll = settings.ptClientProfiles || {};
         const prevProfile = prevAll[memberId] || {};
@@ -5411,6 +5968,7 @@ function PTClientsPage({ members, users, settings, updateSetting, currentUser })
         setWeightDraft(v => ({ ...v, weight: '' }));
       };
       const addDietAttachments = async (files) => {
+        if (!canUploadDietDocuments) return;
         if (!selectedMember || !files?.length) return;
         const valid = Array.from(files).filter((file) => file.size <= MAX_IMAGE_FILE_BYTES);
         const entries = await Promise.all(valid.map(async (file) => {
@@ -5433,6 +5991,7 @@ function PTClientsPage({ members, users, settings, updateSetting, currentUser })
         persistProfile(selectedMember.memberId, { dietAttachments: next });
       };
       const removeDietAttachment = (id) => {
+        if (!canUploadDietDocuments) return;
         if (!selectedMember || !id) return;
         const next = (profile.dietAttachments || []).filter((item) => item.id !== id);
         persistProfile(selectedMember.memberId, { dietAttachments: next });
@@ -5442,6 +6001,15 @@ function PTClientsPage({ members, users, settings, updateSetting, currentUser })
       const firstWeight = weightLogs[0]?.weight ?? null;
       const latestWeight = weightLogs[weightLogs.length - 1]?.weight ?? null;
       const weightDelta = (firstWeight != null && latestWeight != null) ? (latestWeight - firstWeight) : null;
+      if (!canViewPtClients) {
+        return (
+          <div className="p-3 md:p-8">
+            <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4 text-sm text-slate-600">
+              PT Clients view access is disabled for this staff profile.
+            </div>
+          </div>
+        );
+      }
       return (
         <div className="p-3 md:p-8 space-y-4">
           <div className="flex flex-col gap-3 md:flex-row md:items-end md:justify-between">
@@ -5449,11 +6017,57 @@ function PTClientsPage({ members, users, settings, updateSetting, currentUser })
               <h1 className="text-xl md:text-2xl font-semibold text-slate-900">PT Clients</h1>
               <p className="text-sm text-slate-600">Training operations from member data + PT logs.</p>
             </div>
-            <div className="w-full md:w-80">
+            <div ref={clientPickerRef} className="w-full md:w-80 relative">
               <label className="text-xs text-slate-500">Select PT Client</label>
-              <select value={selectedMemberId} onChange={(e) => setSelectedMemberId(e.target.value)} className="mt-1 w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm">
-                {ptMembers.map(m => <option key={m.memberId} value={m.memberId}>{m.name} - {m.plan}</option>)}
-              </select>
+              <button
+                type="button"
+                onClick={() => setClientPickerOpen((v) => !v)}
+                className="mt-1 w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-left text-sm flex items-center justify-between"
+              >
+                <span className="truncate">{selectedMember ? `${selectedMember.name} - ${selectedMember.plan}` : 'Select PT Client'}</span>
+                <span className="text-slate-500">⌄</span>
+              </button>
+              {clientPickerOpen && (
+                <div className="absolute z-40 mt-2 w-full rounded-2xl border border-slate-200 bg-white shadow-xl">
+                  <div className="p-2 border-b border-slate-200">
+                    <div className="relative">
+                      <input
+                        value={clientPickerSearch}
+                        onChange={(e) => setClientPickerSearch(e.target.value)}
+                        placeholder="Search clients..."
+                        className="w-full rounded-xl border border-slate-300 bg-white pl-3 pr-9 py-2 text-sm"
+                      />
+                      <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-slate-400">🔍</span>
+                    </div>
+                  </div>
+                  <div className="max-h-80 overflow-auto">
+                    {filteredPtMembers.map((m) => {
+                      const active = m.memberId === selectedMemberId;
+                      return (
+                        <button
+                          key={`pt-pick-${m.memberId}`}
+                          type="button"
+                          onClick={() => {
+                            setSelectedMemberId(m.memberId);
+                            setClientPickerOpen(false);
+                          }}
+                          className={cx('w-full flex items-center gap-3 px-3 py-3 text-left border-b border-slate-100 hover:bg-slate-50', active && 'bg-blue-50')}
+                        >
+                          <Avatar name={m.name} photo={m.photo} className="h-10 w-10 rounded-full" />
+                          <div className="min-w-0">
+                            <div className="truncate text-sm font-medium text-slate-900">{m.name}</div>
+                            <div className="truncate text-xs text-slate-600">{m.plan || 'No plan'}</div>
+                          </div>
+                          {active && <span className="ml-auto text-blue-600 text-sm">✓</span>}
+                        </button>
+                      );
+                    })}
+                    {filteredPtMembers.length === 0 && (
+                      <div className="px-3 py-3 text-sm text-slate-500">No matching PT clients.</div>
+                    )}
+                  </div>
+                </div>
+              )}
             </div>
           </div>
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
@@ -5489,11 +6103,11 @@ function PTClientsPage({ members, users, settings, updateSetting, currentUser })
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                       <div>
                         <label className="text-sm font-medium">Workout Date</label>
-                        <input type="date" value={workoutDate} onChange={(e) => setWorkoutDate(e.target.value)} className="mt-1 w-full rounded-xl border border-slate-300 px-3 py-2 text-sm" />
+                        <input type="date" value={workoutDate} onChange={(e) => setWorkoutDate(e.target.value)} disabled={!canEditPtWorkout} className="mt-1 w-full rounded-xl border border-slate-300 px-3 py-2 text-sm disabled:bg-slate-100 disabled:text-slate-500" />
                       </div>
                       <div>
                         <label className="text-sm font-medium">Assigned Trainer</label>
-                        <select value={profile.trainerId || ''} onChange={(e) => persistProfile(selectedMember.memberId, { trainerId: e.target.value })} className="mt-1 w-full rounded-xl border border-slate-300 px-3 py-2 text-sm">
+                        <select value={profile.trainerId || ''} onChange={(e) => persistProfile(selectedMember.memberId, { trainerId: e.target.value })} disabled={!canEditPtWorkout} className="mt-1 w-full rounded-xl border border-slate-300 px-3 py-2 text-sm disabled:bg-slate-100 disabled:text-slate-500">
                           <option value="">Select trainer</option>
                           {trainers.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
                         </select>
@@ -5509,7 +6123,7 @@ function PTClientsPage({ members, users, settings, updateSetting, currentUser })
                             <button
                               key={opt}
                               type="button"
-                              onClick={() => setFocusForDate(opt)}
+                              onClick={() => canEditPtWorkout && setFocusForDate(opt)}
                               className={cx(
                                 'rounded-xl border px-3 py-2 text-left text-sm',
                                 active ? 'border-blue-600 bg-blue-50 text-blue-700' : 'border-slate-300 bg-white text-slate-700 hover:bg-slate-50'
@@ -5524,12 +6138,12 @@ function PTClientsPage({ members, users, settings, updateSetting, currentUser })
                         <button onClick={() => setFocusPage((p) => Math.max(1, p - 1))} disabled={focusPage <= 1} className="rounded border border-slate-300 px-2 py-1 disabled:opacity-50">Prev</button>
                         <span>Pagination: [{focusPage}] / {focusPages}</span>
                         <button onClick={() => setFocusPage((p) => Math.min(focusPages, p + 1))} disabled={focusPage >= focusPages} className="rounded border border-slate-300 px-2 py-1 disabled:opacity-50">Next &gt;</button>
-                        <button onClick={() => setFocusForDate('')} className="ml-2 rounded border border-rose-300 bg-rose-50 px-2 py-1 text-rose-700">Clear for date</button>
+                        {canEditPtWorkout && <button onClick={() => setFocusForDate('')} className="ml-2 rounded border border-rose-300 bg-rose-50 px-2 py-1 text-rose-700">Clear for date</button>}
                       </div>
                     </div>
                     <div>
                       <label className="text-sm font-medium">PT Workout Notes</label>
-                      <textarea rows={4} value={profile.ptWorkoutNotes || ''} onChange={(e) => persistProfile(selectedMember.memberId, { ptWorkoutNotes: e.target.value })} className="mt-1 w-full rounded-xl border border-slate-300 px-3 py-2 text-sm" />
+                      <textarea rows={4} value={profile.ptWorkoutNotes || ''} onChange={(e) => persistProfile(selectedMember.memberId, { ptWorkoutNotes: e.target.value })} disabled={!canEditPtWorkout} className="mt-1 w-full rounded-xl border border-slate-300 px-3 py-2 text-sm disabled:bg-slate-100 disabled:text-slate-500" />
                     </div>
                     <div className="rounded-xl border border-slate-200 bg-white p-3">
                       <div className="flex flex-wrap items-center justify-between gap-2 mb-2">
@@ -5567,22 +6181,22 @@ function PTClientsPage({ members, users, settings, updateSetting, currentUser })
                 {activeSubTab === 'Workout Plan' && (
                   <div>
                     <label className="text-sm font-medium">Weekly Workout Plan</label>
-                    <textarea rows={6} value={profile.workoutPlan || ''} onChange={(e) => persistProfile(selectedMember.memberId, { workoutPlan: e.target.value })} placeholder="Day-wise split, reps, sets, progressive overload notes." className="mt-1 w-full rounded-xl border border-slate-300 px-3 py-2 text-sm" />
+                    <textarea rows={6} value={profile.workoutPlan || ''} onChange={(e) => persistProfile(selectedMember.memberId, { workoutPlan: e.target.value }, 'plan')} disabled={!canEditPtPlan} placeholder="Day-wise split, reps, sets, progressive overload notes." className="mt-1 w-full rounded-xl border border-slate-300 px-3 py-2 text-sm disabled:bg-slate-100 disabled:text-slate-500" />
                   </div>
                 )}
                 {activeSubTab === 'Diet Plan' && (
                   <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-                    <div><label className="text-sm font-medium">Calories / day</label><input value={profile.calories || ''} onChange={(e) => persistProfile(selectedMember.memberId, { calories: e.target.value })} className="mt-1 w-full rounded-xl border border-slate-300 px-3 py-2 text-sm" /></div>
-                    <div><label className="text-sm font-medium">Protein (g)</label><input value={profile.protein || ''} onChange={(e) => persistProfile(selectedMember.memberId, { protein: e.target.value })} className="mt-1 w-full rounded-xl border border-slate-300 px-3 py-2 text-sm" /></div>
-                    <div><label className="text-sm font-medium">Water (L)</label><input value={profile.water || ''} onChange={(e) => persistProfile(selectedMember.memberId, { water: e.target.value })} className="mt-1 w-full rounded-xl border border-slate-300 px-3 py-2 text-sm" /></div>
-                    <div className="md:col-span-3"><label className="text-sm font-medium">Diet Plan Details</label><textarea rows={5} value={profile.dietPlan || ''} onChange={(e) => persistProfile(selectedMember.memberId, { dietPlan: e.target.value })} className="mt-1 w-full rounded-xl border border-slate-300 px-3 py-2 text-sm" /></div>
+                    <div><label className="text-sm font-medium">Calories / day</label><input value={profile.calories || ''} onChange={(e) => persistProfile(selectedMember.memberId, { calories: e.target.value }, 'plan')} disabled={!canEditPtPlan} className="mt-1 w-full rounded-xl border border-slate-300 px-3 py-2 text-sm disabled:bg-slate-100 disabled:text-slate-500" /></div>
+                    <div><label className="text-sm font-medium">Protein (g)</label><input value={profile.protein || ''} onChange={(e) => persistProfile(selectedMember.memberId, { protein: e.target.value }, 'plan')} disabled={!canEditPtPlan} className="mt-1 w-full rounded-xl border border-slate-300 px-3 py-2 text-sm disabled:bg-slate-100 disabled:text-slate-500" /></div>
+                    <div><label className="text-sm font-medium">Water (L)</label><input value={profile.water || ''} onChange={(e) => persistProfile(selectedMember.memberId, { water: e.target.value }, 'plan')} disabled={!canEditPtPlan} className="mt-1 w-full rounded-xl border border-slate-300 px-3 py-2 text-sm disabled:bg-slate-100 disabled:text-slate-500" /></div>
+                    <div className="md:col-span-3"><label className="text-sm font-medium">Diet Plan Details</label><textarea rows={5} value={profile.dietPlan || ''} onChange={(e) => persistProfile(selectedMember.memberId, { dietPlan: e.target.value }, 'plan')} disabled={!canEditPtPlan} className="mt-1 w-full rounded-xl border border-slate-300 px-3 py-2 text-sm disabled:bg-slate-100 disabled:text-slate-500" /></div>
                     <div className="md:col-span-3 rounded-xl border border-slate-200 bg-slate-50 p-3 space-y-3">
                       <div className="flex flex-wrap items-center justify-between gap-2">
                         <div>
                           <div className="text-sm font-semibold text-slate-900">Diet Plan Documents</div>
                           <div className="text-xs text-slate-500">Upload paper diet-plan photos/files (max 10MB each).</div>
                         </div>
-                        <label className="cursor-pointer rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-100">
+                        {canUploadDietDocuments && <label className="cursor-pointer rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-100">
                           <input
                             type="file"
                             accept="image/*,.pdf"
@@ -5596,7 +6210,7 @@ function PTClientsPage({ members, users, settings, updateSetting, currentUser })
                             }}
                           />
                           Add Document
-                        </label>
+                        </label>}
                       </div>
                       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">
                         {(profile.dietAttachments || []).map((doc) => (
@@ -5609,7 +6223,7 @@ function PTClientsPage({ members, users, settings, updateSetting, currentUser })
                             <div className="text-xs text-slate-700 truncate" title={doc.name}>{doc.name}</div>
                             <div className="flex items-center gap-2">
                               <a href={doc.dataUrl} target="_blank" rel="noreferrer" className="rounded border border-blue-300 bg-blue-50 px-2 py-1 text-[11px] font-semibold text-blue-700">Open</a>
-                              <button type="button" onClick={() => removeDietAttachment(doc.id)} className="rounded border border-rose-300 bg-rose-50 px-2 py-1 text-[11px] font-semibold text-rose-700">Remove</button>
+                              {canUploadDietDocuments && <button type="button" onClick={() => removeDietAttachment(doc.id)} className="rounded border border-rose-300 bg-rose-50 px-2 py-1 text-[11px] font-semibold text-rose-700">Remove</button>}
                             </div>
                           </div>
                         ))}
@@ -5624,7 +6238,7 @@ function PTClientsPage({ members, users, settings, updateSetting, currentUser })
                   <div className="space-y-3">
                     <div className="flex gap-2">
                       <input value={chatDraft} onChange={(e) => setChatDraft(e.target.value)} placeholder="Enter trainer update / member concern..." className="flex-1 rounded-xl border border-slate-300 px-3 py-2 text-sm" />
-                      <button onClick={addChatMessage} className="rounded-full bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700">Save Note</button>
+                      <button onClick={addChatMessage} disabled={!canEditPtWorkout} className="rounded-full bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:bg-slate-300 disabled:cursor-not-allowed">Save Note</button>
                     </div>
                     <div className="space-y-2">
                       {(profile.chat || []).slice(0, 10).map(msg => (
@@ -5641,11 +6255,11 @@ function PTClientsPage({ members, users, settings, updateSetting, currentUser })
                 {activeSubTab === 'Today Sessions' && (
                   <div className="space-y-3">
                     <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
-                      <div><label className="text-sm font-medium">Date</label><input type="date" value={sessionDraft.date} onChange={(e) => setSessionDraft(v => ({ ...v, date: e.target.value }))} className="mt-1 w-full rounded-xl border border-slate-300 px-3 py-2 text-sm" /></div>
-                      <div><label className="text-sm font-medium">Time</label><input type="time" value={sessionDraft.time} onChange={(e) => setSessionDraft(v => ({ ...v, time: e.target.value }))} className="mt-1 w-full rounded-xl border border-slate-300 px-3 py-2 text-sm" /></div>
-                      <div><label className="text-sm font-medium">Status</label><select value={sessionDraft.status} onChange={(e) => setSessionDraft(v => ({ ...v, status: e.target.value }))} className="mt-1 w-full rounded-xl border border-slate-300 px-3 py-2 text-sm"><option>Scheduled</option><option>Completed</option><option>Missed</option></select></div>
-                      <div className="md:self-end"><button onClick={addSession} className="w-full rounded-full bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700">Add Session</button></div>
-                      <div className="md:col-span-4"><input value={sessionDraft.note} onChange={(e) => setSessionDraft(v => ({ ...v, note: e.target.value }))} placeholder="Session note" className="w-full rounded-xl border border-slate-300 px-3 py-2 text-sm" /></div>
+                      <div><label className="text-sm font-medium">Date</label><input type="date" value={sessionDraft.date} onChange={(e) => setSessionDraft(v => ({ ...v, date: e.target.value }))} disabled={!canEditPtWorkout} className="mt-1 w-full rounded-xl border border-slate-300 px-3 py-2 text-sm disabled:bg-slate-100 disabled:text-slate-500" /></div>
+                      <div><label className="text-sm font-medium">Time</label><input type="time" value={sessionDraft.time} onChange={(e) => setSessionDraft(v => ({ ...v, time: e.target.value }))} disabled={!canEditPtWorkout} className="mt-1 w-full rounded-xl border border-slate-300 px-3 py-2 text-sm disabled:bg-slate-100 disabled:text-slate-500" /></div>
+                      <div><label className="text-sm font-medium">Status</label><select value={sessionDraft.status} onChange={(e) => setSessionDraft(v => ({ ...v, status: e.target.value }))} disabled={!canEditPtWorkout} className="mt-1 w-full rounded-xl border border-slate-300 px-3 py-2 text-sm disabled:bg-slate-100 disabled:text-slate-500"><option>Scheduled</option><option>Completed</option><option>Missed</option></select></div>
+                      <div className="md:self-end"><button onClick={addSession} disabled={!canEditPtWorkout} className="w-full rounded-full bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:bg-slate-300 disabled:cursor-not-allowed">Add Session</button></div>
+                      <div className="md:col-span-4"><input value={sessionDraft.note} onChange={(e) => setSessionDraft(v => ({ ...v, note: e.target.value }))} disabled={!canEditPtWorkout} placeholder="Session note" className="w-full rounded-xl border border-slate-300 px-3 py-2 text-sm disabled:bg-slate-100 disabled:text-slate-500" /></div>
                     </div>
                     <div className="space-y-2">
                       {(profile.sessions || []).slice(0, 8).map(s => (
@@ -5661,9 +6275,9 @@ function PTClientsPage({ members, users, settings, updateSetting, currentUser })
                 {activeSubTab === 'Weight Progress' && (
                   <div className="space-y-3">
                     <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
-                      <div><label className="text-sm font-medium">Date</label><input type="date" value={weightDraft.date} onChange={(e) => setWeightDraft(v => ({ ...v, date: e.target.value }))} className="mt-1 w-full rounded-xl border border-slate-300 px-3 py-2 text-sm" /></div>
-                      <div><label className="text-sm font-medium">Weight (kg)</label><input value={weightDraft.weight} onChange={(e) => setWeightDraft(v => ({ ...v, weight: e.target.value }))} className="mt-1 w-full rounded-xl border border-slate-300 px-3 py-2 text-sm" /></div>
-                      <div className="md:self-end"><button onClick={addWeightLog} className="w-full rounded-full bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700">Add Weight</button></div>
+                      <div><label className="text-sm font-medium">Date</label><input type="date" value={weightDraft.date} onChange={(e) => setWeightDraft(v => ({ ...v, date: e.target.value }))} disabled={!canEditPtWorkout} className="mt-1 w-full rounded-xl border border-slate-300 px-3 py-2 text-sm disabled:bg-slate-100 disabled:text-slate-500" /></div>
+                      <div><label className="text-sm font-medium">Weight (kg)</label><input value={weightDraft.weight} onChange={(e) => setWeightDraft(v => ({ ...v, weight: e.target.value }))} disabled={!canEditPtWorkout} className="mt-1 w-full rounded-xl border border-slate-300 px-3 py-2 text-sm disabled:bg-slate-100 disabled:text-slate-500" /></div>
+                      <div className="md:self-end"><button onClick={addWeightLog} disabled={!canEditPtWorkout} className="w-full rounded-full bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:bg-slate-300 disabled:cursor-not-allowed">Add Weight</button></div>
                     </div>
                     <div className="text-sm text-slate-700">Current: <span className="font-semibold">{latestWeight == null ? 'NA' : `${latestWeight} kg`}</span> • Change: <span className="font-semibold">{weightDelta == null ? 'NA' : `${weightDelta > 0 ? '+' : ''}${weightDelta.toFixed(1)} kg`}</span></div>
                     <div className="space-y-1">
@@ -5759,8 +6373,13 @@ function AttendancePage({ users, settings, updateSetting, currentUser }) {
     // ---- Leave Tracker Page (module-registered) ----
     const LeaveTrackerPage = (window.__APG_MODULES__ && window.__APG_MODULES__.LeaveTrackerPageModule)
       ? window.__APG_MODULES__.LeaveTrackerPageModule
-      : function LeaveTrackerFallback({ users = [], settings = {}, updateSetting, currentUser = null, focusLeaveRequestId = '', focusLeaveUserId = '', onClearFocus }) {
-        const canApprove = currentUser?.id === 'owner' || currentUser?.id === 'manager';
+      : function LeaveTrackerFallback({ users = [], settings = {}, updateSetting, currentUser = null, access = {}, focusLeaveRequestId = '', focusLeaveUserId = '', onClearFocus }) {
+        const leaveAccess = normalizeAccess(access).leave;
+        const canViewCreateLeaveRequest = leaveAccess?.viewCreateLeaveRequest !== false;
+        const canViewLeaveRequests = leaveAccess?.viewLeaveRequests !== false;
+        const canViewAnnualLeaveBalance = leaveAccess?.viewAnnualLeaveBalance !== false;
+        const canViewLeaveHistory = leaveAccess?.viewLeaveHistory !== false;
+        const canApprove = (currentUser?.id === 'owner' || currentUser?.id === 'manager') && canViewLeaveRequests;
         const leaveRequests = settings.leaveRequests || [];
         const [form, setForm] = React.useState({ userId: currentUser?.id || '', type: 'Casual', startDate: iso(new Date()), endDate: iso(new Date()), reason: '' });
         const [formError, setFormError] = React.useState('');
@@ -5831,6 +6450,7 @@ function AttendancePage({ users, settings, updateSetting, currentUser }) {
               <h1 className="text-xl md:text-2xl font-semibold text-slate-900">Leave Tracker</h1>
               <p className="text-sm text-slate-600">Leave requests, approvals, and yearly balance tracking.</p>
             </div>
+            {canViewCreateLeaveRequest && (
             <div className="rounded-3xl border border-slate-200 bg-white p-4 space-y-3">
               <h3 className="text-base font-semibold">Create Leave Request</h3>
               {formError && <div className="rounded-xl border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-700">{formError}</div>}
@@ -5844,6 +6464,8 @@ function AttendancePage({ users, settings, updateSetting, currentUser }) {
                 <div className="md:col-span-5"><input value={form.reason} onChange={(e) => setForm(v => ({ ...v, reason: e.target.value }))} placeholder="Reason for leave request" className="w-full rounded-xl border border-slate-300 px-3 py-2 text-sm" /></div>
               </div>
             </div>
+            )}
+            {canViewLeaveRequests && (
             <div className="rounded-3xl border border-slate-200 bg-white p-4 space-y-3">
               <div className="flex items-center justify-between gap-2">
                 <h3 className="text-base font-semibold">Leave Requests</h3>
@@ -5876,6 +6498,8 @@ function AttendancePage({ users, settings, updateSetting, currentUser }) {
               })}
               {(!filteredLeaveRequests || filteredLeaveRequests.length === 0) && <div className="text-sm text-slate-500">No leave requests found for selected filter.</div>}
             </div>
+            )}
+            {canViewAnnualLeaveBalance && (
             <div className="rounded-3xl border border-slate-200 bg-white p-4">
               <h3 className="text-base font-semibold mb-2">Annual Leave Balance</h3>
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">
@@ -5887,6 +6511,8 @@ function AttendancePage({ users, settings, updateSetting, currentUser }) {
                 ))}
               </div>
             </div>
+            )}
+            {canViewLeaveHistory && (
             <div className="rounded-3xl border border-slate-200 bg-white p-4 space-y-3">
               <div className="flex items-center justify-between gap-2 flex-wrap">
                 <h3 className="text-base font-semibold">Leave History (Last 2 Years)</h3>
@@ -5928,6 +6554,12 @@ function AttendancePage({ users, settings, updateSetting, currentUser }) {
                 </table>
               </div>
             </div>
+            )}
+            {!canViewCreateLeaveRequest && !canViewLeaveRequests && !canViewAnnualLeaveBalance && !canViewLeaveHistory && (
+              <div className="rounded-3xl border border-slate-200 bg-slate-50 p-4 text-sm text-slate-600">
+                No Leave Tracker sections are enabled for this staff profile.
+              </div>
+            )}
           </div>
         );
       };
@@ -6472,10 +7104,11 @@ function SettingsPage({ settings, updateSetting, members, access, storageInfo, b
     }
 
     // ---- WhatsApp SMS Page ----
-    function WhatsAppSmsPage({ members, setMembers, settings, updateSetting, smsEvents, logEvent, currentUser }) {
+    function WhatsAppSmsPage({ members, setMembers, settings, updateSetting, smsEvents, logEvent, currentUser, access }) {
       const [ruleTab, setRuleTab] = React.useState('all');
       const [activeType, setActiveType] = React.useState('reminder');
       const [search, setSearch] = React.useState('');
+      const [messagePage, setMessagePage] = React.useState(1);
       const [expandedTemplates, setExpandedTemplates] = React.useState({});
       const [templateEditor, setTemplateEditor] = React.useState({ open: false, key: '', value: '' });
       const messageCenterRef = React.useRef(null);
@@ -6525,6 +7158,35 @@ function SettingsPage({ settings, updateSetting, members, access, storageInfo, b
         { key: 'welcome', label: 'Welcome SMS' },
         { key: 'templates', label: 'WhatsApp Template' },
       ];
+      const whatsappAccess = normalizeAccess(access).whatsapp;
+      const whatsappTabPermissionByType = {
+        reminder: 'viewReminder',
+        monthReminder: 'viewMonthReminder',
+        success: 'viewSuccess',
+        fine: 'viewFine',
+        deactivate: 'viewDeactivate',
+        hold: 'viewHold',
+        welcome: 'viewWelcome',
+        templates: 'viewTemplates',
+      };
+      const allowedSmsTypes = React.useMemo(
+        () => smsTypes.filter((s) => whatsappAccess?.[whatsappTabPermissionByType[s.key]] !== false),
+        [smsTypes, whatsappAccess]
+      );
+      const hasMessagingTabs = React.useMemo(
+        () => allowedSmsTypes.some((s) => s.key !== 'templates'),
+        [allowedSmsTypes]
+      );
+      const firstMessagingType = React.useMemo(
+        () => (allowedSmsTypes.find((s) => s.key !== 'templates')?.key || ''),
+        [allowedSmsTypes]
+      );
+      React.useEffect(() => {
+        if (!allowedSmsTypes.length) return;
+        if (!allowedSmsTypes.some((s) => s.key === activeType)) {
+          setActiveType(allowedSmsTypes[0].key);
+        }
+      }, [allowedSmsTypes, activeType]);
       const todayKey = iso(new Date());
       const todayUtc = asUTC(todayKey);
       const activeMembers = members.filter(m => m.status === 'Active');
@@ -6580,6 +7242,13 @@ function SettingsPage({ settings, updateSetting, members, access, storageInfo, b
           return hay.includes(q);
         });
       }, [membersByType, activeType, search]);
+      React.useEffect(() => {
+        setMessagePage(1);
+      }, [activeType, search]);
+      const MESSAGE_PAGE_SIZE = 10;
+      const messageTotalPages = Math.max(1, Math.ceil(rows.length / MESSAGE_PAGE_SIZE));
+      const safeMessagePage = messagePage > messageTotalPages ? 1 : messagePage;
+      const messagePageRows = rows.slice((safeMessagePage - 1) * MESSAGE_PAGE_SIZE, safeMessagePage * MESSAGE_PAGE_SIZE);
       const isSuccessAuditTab = activeType === 'success';
       const isOwnerUser = currentUser?.id === 'owner';
       const canActInSuccessTab = !isSuccessAuditTab || isOwnerUser;
@@ -6673,7 +7342,7 @@ function SettingsPage({ settings, updateSetting, members, access, storageInfo, b
           <div className="border-t border-slate-300" />
           <div className="overflow-x-auto">
             <div className="flex items-center gap-2 text-sm font-medium whitespace-nowrap pb-1 min-w-max">
-              {smsTypes.map(s => (
+              {allowedSmsTypes.map(s => (
                 <button
                   key={s.key}
                   onClick={() => {
@@ -6686,21 +7355,30 @@ function SettingsPage({ settings, updateSetting, members, access, storageInfo, b
               ))}
             </div>
           </div>
+          {!allowedSmsTypes.length && (
+            <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4 text-sm text-slate-600">
+              No WhatsApp SMS access is enabled for this staff profile.
+            </div>
+          )}
           {activeType === 'templates' && (
             <div className="space-y-4">
-              <div className="flex items-center justify-end">
-                <button
-                  onClick={() => {
-                    messageCenterRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
-                    setActiveType('reminder');
-                  }}
-                  className="rounded-full bg-blue-600 text-white px-4 py-2 text-sm font-semibold"
-                >
-                  ＋ Messaging Center
-                </button>
-              </div>
+              {hasMessagingTabs && (
+                <div className="flex items-center justify-end">
+                  <button
+                    onClick={() => {
+                      messageCenterRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                      if (firstMessagingType) setActiveType(firstMessagingType);
+                    }}
+                    className="rounded-full bg-blue-600 text-white px-4 py-2 text-sm font-semibold"
+                  >
+                    ＋ Messaging Center
+                  </button>
+                </div>
+              )}
               <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
-                {templateCards.map(card => (
+                {templateCards
+                  .filter((card) => whatsappAccess?.[whatsappTabPermissionByType[card.key]] !== false)
+                  .map(card => (
                   <div key={card.key} className={cx('rounded-2xl border p-4 bg-white shadow-sm', card.tone)}>
                     <div className="text-2xl font-semibold">{card.title}</div>
                     <div className="text-lg text-slate-600">({card.subtitle})</div>
@@ -6731,12 +7409,13 @@ function SettingsPage({ settings, updateSetting, members, access, storageInfo, b
             </div>
           )}
 
+          {hasMessagingTabs && activeType !== 'templates' && (
           <div ref={messageCenterRef} className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm space-y-3">
             <div className="flex items-center justify-between gap-3 flex-wrap">
               <div className="text-xl font-semibold">Search Section: whom to send what SMS</div>
               <div className="flex items-center gap-2">
                 <select value={activeType} onChange={(e) => setActiveType(e.target.value)} className="rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm">
-                  {smsTypes.map(s => <option key={s.key} value={s.key}>{s.label}</option>)}
+                  {allowedSmsTypes.filter((s) => s.key !== 'templates').map(s => <option key={s.key} value={s.key}>{s.label}</option>)}
                 </select>
                 <input
                   value={search}
@@ -6760,7 +7439,7 @@ function SettingsPage({ settings, updateSetting, members, access, storageInfo, b
                   </tr>
                 </thead>
                 <tbody>
-                  {rows.map(m => (
+                  {messagePageRows.map(m => (
                     <tr key={`${activeType}-${m.memberId}`} className="border-b border-slate-200">
                       <td className="px-3 py-2">{m.name}</td>
                       <td className="px-3 py-2">{m.mobile || '-'}</td>
@@ -6814,13 +7493,13 @@ function SettingsPage({ settings, updateSetting, members, access, storageInfo, b
                       </td>
                     </tr>
                   ))}
-                  {rows.length === 0 && (
+                  {messagePageRows.length === 0 && (
                     <tr><td colSpan={7} className="px-3 py-3 text-slate-500 text-center">No members match this SMS condition.</td></tr>
                   )}
                 </tbody>
               </table>
               <div className="md:hidden divide-y divide-slate-200">
-                {rows.map(m => (
+                {messagePageRows.map(m => (
                   <div key={`mobile-${activeType}-${m.memberId}`} className="py-3 space-y-2">
                     <div className="flex items-center justify-between">
                       <div className="font-semibold text-slate-900">{m.name}</div>
@@ -6879,10 +7558,32 @@ function SettingsPage({ settings, updateSetting, members, access, storageInfo, b
                     </div>
                   </div>
                 ))}
-                {rows.length === 0 && <div className="py-3 text-slate-500 text-sm text-center">No members match this SMS condition.</div>}
+                {messagePageRows.length === 0 && <div className="py-3 text-slate-500 text-sm text-center">No members match this SMS condition.</div>}
               </div>
+              {rows.length > MESSAGE_PAGE_SIZE && (
+                <div className="mt-3 flex items-center justify-between text-sm">
+                  <div>Page {safeMessagePage} of {messageTotalPages}</div>
+                  <div className="flex gap-2">
+                    <button
+                      onClick={() => setMessagePage((p) => Math.max(1, p - 1))}
+                      disabled={safeMessagePage === 1}
+                      className={cx('rounded-lg border px-3 py-1', safeMessagePage === 1 ? 'bg-slate-200 text-slate-400 cursor-not-allowed' : 'bg-white text-blue-700 hover:bg-blue-50 border-blue-300')}
+                    >
+                      Prev
+                    </button>
+                    <button
+                      onClick={() => setMessagePage((p) => Math.min(messageTotalPages, p + 1))}
+                      disabled={safeMessagePage === messageTotalPages}
+                      className={cx('rounded-lg border px-3 py-1', safeMessagePage === messageTotalPages ? 'bg-slate-200 text-slate-400 cursor-not-allowed' : 'bg-white text-blue-700 hover:bg-blue-50 border-blue-300')}
+                    >
+                      Next
+                    </button>
+                  </div>
+                </div>
+              )}
             </div>
           </div>
+          )}
 
           <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
             <div className="text-3xl font-semibold mb-3">Campaign Control</div>
@@ -7698,6 +8399,10 @@ function SettingsPage({ settings, updateSetting, members, access, storageInfo, b
       const [dashboardAccessOpen, setDashboardAccessOpen] = React.useState(false);
       const [financeAccessOpen, setFinanceAccessOpen] = React.useState(false);
       const [settingsAccessOpen, setSettingsAccessOpen] = React.useState(false);
+      const [whatsappAccessOpen, setWhatsappAccessOpen] = React.useState(false);
+      const [leaveAccessOpen, setLeaveAccessOpen] = React.useState(false);
+      const [membersAccessOpen, setMembersAccessOpen] = React.useState(false);
+      const [ptClientsAccessOpen, setPtClientsAccessOpen] = React.useState(false);
       const isOwner = currentUser && currentUser.id === 'owner';
       const closeStaffModal = () => {
         setModalOpen(false);
@@ -7706,6 +8411,10 @@ function SettingsPage({ settings, updateSetting, members, access, storageInfo, b
         setDashboardAccessOpen(false);
         setFinanceAccessOpen(false);
         setSettingsAccessOpen(false);
+        setWhatsappAccessOpen(false);
+        setLeaveAccessOpen(false);
+        setMembersAccessOpen(false);
+        setPtClientsAccessOpen(false);
       };
       const roleTemplates = React.useMemo(() => {
         const list = settings && Array.isArray(settings.roleTemplates) && settings.roleTemplates.length
@@ -7737,6 +8446,10 @@ function SettingsPage({ settings, updateSetting, members, access, storageInfo, b
         setEditingId(null);
         setSelectedRole('');
         setDashboardAccessOpen(false);
+        setWhatsappAccessOpen(false);
+        setLeaveAccessOpen(false);
+        setMembersAccessOpen(false);
+        setPtClientsAccessOpen(false);
         setModalOpen(true);
       };
 
@@ -7760,6 +8473,10 @@ function SettingsPage({ settings, updateSetting, members, access, storageInfo, b
         setDashboardAccessOpen(true);
         setFinanceAccessOpen(true);
         setSettingsAccessOpen(true);
+        setWhatsappAccessOpen(true);
+        setLeaveAccessOpen(true);
+        setMembersAccessOpen(true);
+        setPtClientsAccessOpen(true);
         setModalOpen(true);
       };
       const applyRolePreset = (roleKey) => {
@@ -7932,6 +8649,98 @@ function SettingsPage({ settings, updateSetting, members, access, storageInfo, b
           return { ...f, sections: nextSections, access: next };
         });
       };
+      const toggleWhatsappParent = () => {
+        setForm(f => {
+          const hasWhatsapp = f.sections.includes('WhatsApp SMS');
+          const nextSections = hasWhatsapp ? f.sections.filter(s => s !== 'WhatsApp SMS') : [...f.sections, 'WhatsApp SMS'];
+          const nextAccess = {
+            ...normalizeAccess(f.access),
+            whatsapp: WHATSAPP_CHILD_PERMISSIONS.reduce((acc, p) => ({ ...acc, [p.key]: hasWhatsapp ? false : true }), {}),
+          };
+          return { ...f, sections: nextSections, access: nextAccess };
+        });
+      };
+      const toggleWhatsappChild = (key) => {
+        setForm(f => {
+          const normalized = normalizeAccess(f.access);
+          const next = { ...normalized, whatsapp: { ...normalized.whatsapp, [key]: !(normalized.whatsapp[key] !== false) } };
+          const shouldEnableWhatsapp = Object.values(next.whatsapp).some(Boolean);
+          const hasWhatsapp = f.sections.includes('WhatsApp SMS');
+          const nextSections = shouldEnableWhatsapp
+            ? (hasWhatsapp ? f.sections : [...f.sections, 'WhatsApp SMS'])
+            : f.sections.filter(s => s !== 'WhatsApp SMS');
+          return { ...f, sections: nextSections, access: next };
+        });
+      };
+      const toggleLeaveParent = () => {
+        setForm(f => {
+          const hasLeave = f.sections.includes('Leave Tracker');
+          const nextSections = hasLeave ? f.sections.filter(s => s !== 'Leave Tracker') : [...f.sections, 'Leave Tracker'];
+          const nextAccess = {
+            ...normalizeAccess(f.access),
+            leave: LEAVE_CHILD_PERMISSIONS.reduce((acc, p) => ({ ...acc, [p.key]: hasLeave ? false : true }), {}),
+          };
+          return { ...f, sections: nextSections, access: nextAccess };
+        });
+      };
+      const toggleLeaveChild = (key) => {
+        setForm(f => {
+          const normalized = normalizeAccess(f.access);
+          const next = { ...normalized, leave: { ...normalized.leave, [key]: !(normalized.leave[key] !== false) } };
+          const shouldEnableLeave = Object.values(next.leave).some(Boolean);
+          const hasLeave = f.sections.includes('Leave Tracker');
+          const nextSections = shouldEnableLeave
+            ? (hasLeave ? f.sections : [...f.sections, 'Leave Tracker'])
+            : f.sections.filter(s => s !== 'Leave Tracker');
+          return { ...f, sections: nextSections, access: next };
+        });
+      };
+      const toggleMembersParent = () => {
+        setForm(f => {
+          const hasMembers = f.sections.includes('Members');
+          const nextSections = hasMembers ? f.sections.filter(s => s !== 'Members') : [...f.sections, 'Members'];
+          const nextAccess = {
+            ...normalizeAccess(f.access),
+            members: MEMBERS_CHILD_PERMISSIONS.reduce((acc, p) => ({ ...acc, [p.key]: hasMembers ? false : true }), {}),
+          };
+          return { ...f, sections: nextSections, access: nextAccess };
+        });
+      };
+      const toggleMembersChild = (key) => {
+        setForm(f => {
+          const normalized = normalizeAccess(f.access);
+          const next = { ...normalized, members: { ...normalized.members, [key]: !(normalized.members[key] !== false) } };
+          const shouldEnableMembers = Object.values(next.members).some(Boolean);
+          const hasMembers = f.sections.includes('Members');
+          const nextSections = shouldEnableMembers
+            ? (hasMembers ? f.sections : [...f.sections, 'Members'])
+            : f.sections.filter(s => s !== 'Members');
+          return { ...f, sections: nextSections, access: next };
+        });
+      };
+      const togglePtClientsParent = () => {
+        setForm(f => {
+          const hasPtClients = f.sections.includes('PT Clients');
+          const nextSections = hasPtClients ? f.sections.filter(s => s !== 'PT Clients') : [...f.sections, 'PT Clients'];
+          const nextAccess = {
+            ...normalizeAccess(f.access),
+            ptClients: PT_CLIENTS_CHILD_PERMISSIONS.reduce((acc, p) => ({ ...acc, [p.key]: hasPtClients ? false : true }), {}),
+          };
+          return { ...f, sections: nextSections, access: nextAccess };
+        });
+      };
+      const togglePtClientsChild = (key) => {
+        setForm(f => {
+          const normalized = normalizeAccess(f.access);
+          const next = { ...normalized, ptClients: { ...normalized.ptClients, [key]: !(normalized.ptClients[key] !== false) } };
+          const shouldEnablePtClients = Object.values(next.ptClients).some(Boolean);
+          const hasPtClients = f.sections.includes('PT Clients');
+          const nextSections = shouldEnablePtClients
+            ? (hasPtClients ? f.sections : [...f.sections, 'PT Clients'])
+            : f.sections.filter(s => s !== 'PT Clients');
+          return { ...f, sections: nextSections, access: next };
+        });
+      };
       const toggleAllSections = () => {
         setForm(f => {
           const allSelected = ALL_SECTIONS.every(sec => f.sections.includes(sec));
@@ -7940,9 +8749,13 @@ function SettingsPage({ settings, updateSetting, members, access, storageInfo, b
             sections: allSelected ? [] : [...ALL_SECTIONS],
             access: allSelected
               ? normalizeAccess({
-                dashboard: { viewRevenueMonthly: false, viewRevenueTrend: false },
+                dashboard: { viewDashboardCore: false, viewOverdueRetentionAlerts: false, viewRevenueMonthly: false, viewRevenueTrend: false, viewMembershipTrends: false },
                 finance: { viewRevenueAutoMembers: false, viewRevenueTrend4Months: false, viewPlanPopularity: false, viewTransactionsAutoMembers: false },
                 settings: { managePlans: false, manageStatuses: false, managePaymentMethods: false, manageHoldDurations: false, manageGenders: false },
+                whatsapp: { viewReminder: false, viewMonthReminder: false, viewSuccess: false, viewFine: false, viewDeactivate: false, viewHold: false, viewWelcome: false, viewTemplates: false },
+                leave: { viewCreateLeaveRequest: false, viewLeaveRequests: false, viewAnnualLeaveBalance: false, viewLeaveHistory: false },
+                members: { viewMembers: false, addMembers: false, editMembers: false, deleteMembers: false },
+                ptClients: { viewPtClients: false, editPtPlan: false, editPtWorkout: false, uploadDietDocuments: false },
               })
               : normalizeAccess(f.access),
           };
@@ -8358,7 +9171,147 @@ function SettingsPage({ settings, updateSetting, members, access, storageInfo, b
                           </div>
                         )}
                       </div>
-                      {ALL_SECTIONS.filter(sec => sec !== 'Dashboard' && sec !== 'Finance' && sec !== 'Settings').map(sec => (
+                      <div className="sm:col-span-2 rounded-xl border border-slate-200 bg-slate-50 p-2">
+                        <div className="flex items-center justify-between gap-2">
+                          <label className="inline-flex items-center gap-2 text-sm text-slate-800">
+                            <input
+                              type="checkbox"
+                              checked={form.sections.includes('WhatsApp SMS')}
+                              onChange={toggleWhatsappParent}
+                              className="rounded"
+                            />
+                            WhatsApp SMS
+                          </label>
+                          <button
+                            type="button"
+                            onClick={() => setWhatsappAccessOpen(v => !v)}
+                            className="rounded-lg border border-slate-300 bg-white px-2 py-1 text-[11px] font-medium text-slate-700 hover:bg-slate-100"
+                          >
+                            {whatsappAccessOpen ? 'Hide Access' : 'Expand Access'}
+                          </button>
+                        </div>
+                        {whatsappAccessOpen && (
+                          <div className="mt-2 grid grid-cols-1 sm:grid-cols-2 gap-2 pl-2">
+                            {WHATSAPP_CHILD_PERMISSIONS.map((perm) => (
+                              <label key={perm.key} className="inline-flex items-center gap-2 text-xs text-slate-700">
+                                <input
+                                  type="checkbox"
+                                  checked={normalizeAccess(form.access).whatsapp[perm.key] !== false}
+                                  onChange={() => toggleWhatsappChild(perm.key)}
+                                  className="rounded"
+                                />
+                                {perm.label}
+                              </label>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                      <div className="sm:col-span-2 rounded-xl border border-slate-200 bg-slate-50 p-2">
+                        <div className="flex items-center justify-between gap-2">
+                          <label className="inline-flex items-center gap-2 text-sm text-slate-800">
+                            <input
+                              type="checkbox"
+                              checked={form.sections.includes('Leave Tracker')}
+                              onChange={toggleLeaveParent}
+                              className="rounded"
+                            />
+                            Leave Tracker
+                          </label>
+                          <button
+                            type="button"
+                            onClick={() => setLeaveAccessOpen(v => !v)}
+                            className="rounded-lg border border-slate-300 bg-white px-2 py-1 text-[11px] font-medium text-slate-700 hover:bg-slate-100"
+                          >
+                            {leaveAccessOpen ? 'Hide Access' : 'Expand Access'}
+                          </button>
+                        </div>
+                        {leaveAccessOpen && (
+                          <div className="mt-2 grid grid-cols-1 sm:grid-cols-2 gap-2 pl-2">
+                            {LEAVE_CHILD_PERMISSIONS.map((perm) => (
+                              <label key={perm.key} className="inline-flex items-center gap-2 text-xs text-slate-700">
+                                <input
+                                  type="checkbox"
+                                  checked={normalizeAccess(form.access).leave[perm.key] !== false}
+                                  onChange={() => toggleLeaveChild(perm.key)}
+                                  className="rounded"
+                                />
+                                {perm.label}
+                              </label>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                      <div className="sm:col-span-2 rounded-xl border border-slate-200 bg-slate-50 p-2">
+                        <div className="flex items-center justify-between gap-2">
+                          <label className="inline-flex items-center gap-2 text-sm text-slate-800">
+                            <input
+                              type="checkbox"
+                              checked={form.sections.includes('Members')}
+                              onChange={toggleMembersParent}
+                              className="rounded"
+                            />
+                            Members
+                          </label>
+                          <button
+                            type="button"
+                            onClick={() => setMembersAccessOpen(v => !v)}
+                            className="rounded-lg border border-slate-300 bg-white px-2 py-1 text-[11px] font-medium text-slate-700 hover:bg-slate-100"
+                          >
+                            {membersAccessOpen ? 'Hide Access' : 'Expand Access'}
+                          </button>
+                        </div>
+                        {membersAccessOpen && (
+                          <div className="mt-2 grid grid-cols-1 sm:grid-cols-2 gap-2 pl-2">
+                            {MEMBERS_CHILD_PERMISSIONS.map((perm) => (
+                              <label key={perm.key} className="inline-flex items-center gap-2 text-xs text-slate-700">
+                                <input
+                                  type="checkbox"
+                                  checked={normalizeAccess(form.access).members[perm.key] !== false}
+                                  onChange={() => toggleMembersChild(perm.key)}
+                                  className="rounded"
+                                />
+                                {perm.label}
+                              </label>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                      <div className="sm:col-span-2 rounded-xl border border-slate-200 bg-slate-50 p-2">
+                        <div className="flex items-center justify-between gap-2">
+                          <label className="inline-flex items-center gap-2 text-sm text-slate-800">
+                            <input
+                              type="checkbox"
+                              checked={form.sections.includes('PT Clients')}
+                              onChange={togglePtClientsParent}
+                              className="rounded"
+                            />
+                            PT Clients
+                          </label>
+                          <button
+                            type="button"
+                            onClick={() => setPtClientsAccessOpen(v => !v)}
+                            className="rounded-lg border border-slate-300 bg-white px-2 py-1 text-[11px] font-medium text-slate-700 hover:bg-slate-100"
+                          >
+                            {ptClientsAccessOpen ? 'Hide Access' : 'Expand Access'}
+                          </button>
+                        </div>
+                        {ptClientsAccessOpen && (
+                          <div className="mt-2 grid grid-cols-1 sm:grid-cols-2 gap-2 pl-2">
+                            {PT_CLIENTS_CHILD_PERMISSIONS.map((perm) => (
+                              <label key={perm.key} className="inline-flex items-center gap-2 text-xs text-slate-700">
+                                <input
+                                  type="checkbox"
+                                  checked={normalizeAccess(form.access).ptClients[perm.key] !== false}
+                                  onChange={() => togglePtClientsChild(perm.key)}
+                                  className="rounded"
+                                />
+                                {perm.label}
+                              </label>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                      {ALL_SECTIONS.filter(sec => sec !== 'Dashboard' && sec !== 'Members' && sec !== 'PT Clients' && sec !== 'Finance' && sec !== 'Settings' && sec !== 'WhatsApp SMS' && sec !== 'Leave Tracker').map(sec => (
                         <label key={sec} className="inline-flex items-center gap-2 text-sm text-slate-800">
                           <input
                             type="checkbox"

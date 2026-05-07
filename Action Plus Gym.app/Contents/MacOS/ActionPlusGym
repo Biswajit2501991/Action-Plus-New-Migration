@@ -1,0 +1,11 @@
+#!/bin/zsh
+set -e
+
+APP_DIR="$(cd "$(dirname "$0")/../../.." && pwd)"
+cd "$APP_DIR"
+
+if [ -x "./start.command" ]; then
+  exec ./start.command
+fi
+
+exec node "./scripts/bootstrap-and-run.mjs"
