@@ -497,6 +497,7 @@
     ];
     const MEMBERS_CHILD_PERMISSIONS = [
       { key: 'viewMembers', label: 'View Members' },
+      { key: 'viewVisitors', label: 'View Visitors' },
       { key: 'addMembers', label: 'Add Members' },
       { key: 'editMembers', label: 'Edit Members' },
       { key: 'deleteMembers', label: 'Delete Members' },
@@ -546,6 +547,7 @@
       },
       members: {
         viewMembers: true,
+        viewVisitors: true,
         addMembers: true,
         editMembers: true,
         deleteMembers: true,
@@ -597,6 +599,7 @@
       },
       members: {
         viewMembers: access?.members?.viewMembers !== false,
+        viewVisitors: access?.members?.viewVisitors !== false,
         addMembers: access?.members?.addMembers !== false,
         editMembers: access?.members?.editMembers !== false,
         deleteMembers: access?.members?.deleteMembers !== false,
@@ -1265,9 +1268,10 @@ Phone: +91-7047157510`;
         (async () => {
           try {
             await backendJson('/health');
-            const [remoteUsers, remoteMembers, remoteSettings, remoteLogs, remoteFinance, remoteSmsEvents] = await Promise.all([
+            const [remoteUsers, remoteMembers, remoteVisitors, remoteSettings, remoteLogs, remoteFinance, remoteSmsEvents] = await Promise.all([
               backendJson('/users').catch(() => []),
               backendJson('/members').catch(() => []),
+              backendJson('/visitors').catch(() => []),
               backendJson('/settings').catch(() => ({})),
               backendJson('/logs').catch(() => []),
               backendJson('/finance').catch(() => []),
@@ -1279,6 +1283,7 @@ Phone: +91-7047157510`;
             setDataSyncMode('backend');
             if (Array.isArray(remoteUsers) && remoteUsers.length > 0) setUsers(remoteUsers);
             if (Array.isArray(remoteMembers) && remoteMembers.length > 0) setMembers(remoteMembers);
+            if (Array.isArray(remoteVisitors) && remoteVisitors.length > 0) setVisitors(remoteVisitors);
             if (remoteSettings && typeof remoteSettings === 'object' && Object.keys(remoteSettings).length > 0) setSettings(remoteSettings);
             if (Array.isArray(remoteLogs) && remoteLogs.length > 0) setLogs(remoteLogs);
             if (Array.isArray(remoteFinance) && remoteFinance.length > 0) setFinanceTransactions(remoteFinance);
@@ -1491,6 +1496,10 @@ Phone: +91-7047157510`;
                 await backendJson('/users/bulk', { method: 'PUT', body: JSON.stringify({ users: row.payload || [] }) });
                 await deleteQueuedSnapshot('users');
                 setOfflineQueueCount((c) => Math.max(0, c - 1));
+              } else if (row.entity === 'visitors') {
+                await backendJson('/visitors/bulk', { method: 'PUT', body: JSON.stringify({ visitors: row.payload || [] }) });
+                await deleteQueuedSnapshot('visitors');
+                setOfflineQueueCount((c) => Math.max(0, c - 1));
               } else if (row.entity === 'settings') {
                 await backendJson('/settings/bulk', { method: 'PUT', body: JSON.stringify({ settings: row.payload || {} }) });
                 await deleteQueuedSnapshot('settings');
@@ -1532,8 +1541,18 @@ Phone: +91-7047157510`;
         queueSyncSnapshot('members', members).then(() => setOfflineQueueCount((c) => c + 1)).catch(() => {});
       }, [members, dataSyncMode, syncRuntimeReady, backendHydrated]);
       React.useEffect(() => {
+        if (!syncRuntimeReady) return;
+        if (dataSyncMode === 'backend' && !backendHydrated) return;
+        if (dataSyncMode === 'backend') {
+          backendJson('/visitors/bulk', {
+            method: 'PUT',
+            body: JSON.stringify({ visitors }),
+          }).catch(() => queueSyncSnapshot('visitors', visitors).then(() => setOfflineQueueCount((c) => c + 1)).catch(() => {}));
+          return;
+        }
         safeSetItemJSON(STORAGE_KEYS.visitors, visitors);
-      }, [visitors]);
+        queueSyncSnapshot('visitors', visitors).then(() => setOfflineQueueCount((c) => c + 1)).catch(() => {});
+      }, [visitors, dataSyncMode, syncRuntimeReady, backendHydrated]);
       React.useEffect(() => {
         if (!syncRuntimeReady) return;
         if (dataSyncMode === 'backend' && !backendHydrated) return;
@@ -1641,6 +1660,7 @@ Phone: +91-7047157510`;
       const [mobileMenuOpen, setMobileMenuOpen] = React.useState(false);
       const [notificationOpen, setNotificationOpen] = React.useState(false);
       const [leaveTrackerFocus, setLeaveTrackerFocus] = React.useState({ requestId: '', userId: '' });
+      const [visitorNotificationFocusId, setVisitorNotificationFocusId] = React.useState('');
       const HISTORY_LIMIT = 5;
       const skipHistoryCaptureRef = React.useRef(false);
       const historyRef = React.useRef({ past: [], current: null, currentSig: '', future: [] });
@@ -1702,7 +1722,28 @@ Phone: +91-7047157510`;
           .sort((a, b) => String(b.createdAt || '').localeCompare(String(a.createdAt || '')))
           .slice(0, 20);
       }, [settings?.leaveRequests, user]);
-      const pendingLeaveCount = leaveNotifications.length;
+      const callbackNotifications = React.useMemo(() => {
+        const canSeeVisitors = normalizeAccess(user?.access).members?.viewVisitors !== false;
+        if (!canSeeVisitors) return [];
+        const today = iso(new Date());
+        return (visitors || [])
+          .filter((v) => {
+            if (v.status === 'Converted') return false;
+            if (!v.callBackRequired) return false;
+            if (iso(v.lastCalledAt || '') === today) return false;
+            return iso(v.tentativeJoiningDate || '') === today;
+          })
+          .slice(0, 20);
+      }, [user?.access, visitors]);
+      const pendingLeaveCount = leaveNotifications.length + callbackNotifications.length;
+      const openVisitorFromNotification = (visitorId) => {
+        if (!visitorId) return;
+        if (normalizeAccess(user?.access).members?.viewVisitors === false) return;
+        setNotificationOpen(false);
+        setActiveTab('Members');
+        setMembersView('visitors');
+        setVisitorNotificationFocusId(visitorId);
+      };
       const rememberMemberDefaults = React.useCallback((member) => {
         if (!member) return;
         const nextDefaults = {
@@ -2302,6 +2343,10 @@ Please pay by: ${formattedLastDate}`;
         setTimeout(() => setToast(''), 2500);
       };
       const openAddSelector = () => {
+        if (normalizeAccess(user?.access).members?.viewVisitors === false) {
+          setAddOpen(true);
+          return;
+        }
         setAddTypeOpen(true);
       };
       const saveVisitor = (payload) => {
@@ -2315,11 +2360,15 @@ Please pay by: ${formattedLastDate}`;
           dob: payload.dob || '',
           mobile: String(payload.mobile || '').trim(),
           gender: payload.gender || '',
+          callBackRequired: Boolean(payload.callBackRequired),
+          tentativeJoiningDate: payload.tentativeJoiningDate || '',
           status: payload.status || 'New',
           addedAt: payload.addedAt || nowIso,
           updatedAt: nowIso,
           convertedAt: payload.convertedAt || '',
           convertedMemberId: payload.convertedMemberId || '',
+          lastCalledAt: payload.lastCalledAt || '',
+          lastCalledBy: payload.lastCalledBy || '',
         };
         if (!next.fullName || !next.email || !next.dob || !next.mobile || !next.gender) {
           setToast('Please complete all visitor required fields.');
@@ -2351,6 +2400,24 @@ Please pay by: ${formattedLastDate}`;
         const target = visitors.find((v) => v.id === visitorId) || null;
         setVisitors((prev) => prev.filter((v) => v.id !== visitorId));
         logEvent('visitor.deleted', 'visitor', visitorId, target, null);
+      };
+      const markVisitorCalled = (visitorId) => {
+        if (!visitorId) return;
+        const nowIso = new Date().toISOString();
+        const actor = user?.name || user?.id || '';
+        let beforeObj = null;
+        let afterObj = null;
+        setVisitors((prev) => prev.map((v) => {
+          if (v.id !== visitorId) return v;
+          beforeObj = v;
+          afterObj = { ...v, lastCalledAt: nowIso, lastCalledBy: actor };
+          return afterObj;
+        }));
+        if (afterObj) {
+          logEvent('visitor.called', 'visitor', visitorId, beforeObj, afterObj);
+          setToast('Visitor marked as called.');
+          setTimeout(() => setToast(''), 1800);
+        }
       };
       const convertVisitorToMember = (visitor) => {
         if (!visitor) return;
@@ -2651,6 +2718,7 @@ Please pay by: ${formattedLastDate}`;
 
       const membersAccess = normalizeAccess(user?.access).members;
       const canViewMembers = membersAccess?.viewMembers !== false;
+      const canViewVisitors = membersAccess?.viewVisitors !== false;
       const canAddMembers = membersAccess?.addMembers !== false;
       const canEditMembers = membersAccess?.editMembers !== false;
       const canDeleteMembers = (user?.id === 'owner') && membersAccess?.deleteMembers !== false;
@@ -2751,58 +2819,87 @@ Please pay by: ${formattedLastDate}`;
               <div className="hidden sm:block">
                 <SyncStatusDot mode={dataSyncMode} label={syncBadgeLabel} />
               </div>
-              {user?.id === 'owner' && (
-                <div className="relative">
-                  <button
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      setNotificationOpen(v => !v);
-                    }}
-                    className="relative rounded-xl border border-slate-300 bg-white px-2.5 py-1.5 text-xs font-semibold text-slate-700"
-                    aria-label="Notifications"
-                  >
-                    <AppIcon name="bell" className="h-4 w-4" />
-                    {pendingLeaveCount > 0 && (
-                      <span className="absolute -top-1 -right-1 rounded-full bg-rose-600 px-1.5 py-0.5 text-[9px] font-semibold text-white">{pendingLeaveCount}</span>
-                    )}
-                  </button>
-                  {notificationOpen && (
-                    <div onClick={(e) => e.stopPropagation()} className="absolute right-0 mt-1 w-72 rounded-xl border border-slate-200 bg-white shadow-xl p-2 z-50">
-                      <div className="px-2 py-1 text-xs font-semibold text-slate-600">Leave Notifications</div>
-                      {leaveNotifications.length === 0 ? (
-                        <div className="px-2 py-2 text-xs text-slate-500">No pending leave approvals.</div>
-                      ) : (
-                        <div className="max-h-64 overflow-auto space-y-1">
-                          {leaveNotifications.map(n => (
-                            <button
-                              key={n.id}
-                              onClick={() => {
-                                setNotificationOpen(false);
-                                setLeaveTrackerFocus({ requestId: n.id, userId: n.userId || '' });
-                                setActiveTab('Leave Tracker');
-                              }}
-                              className="w-full rounded-lg border border-slate-200 bg-slate-50 px-2 py-2 text-left hover:bg-slate-100"
-                            >
-                              <div className="text-xs font-semibold text-slate-800">{n.type} leave request</div>
-                              <div className="text-[11px] text-slate-600 mb-1">{n.userId} • {fmt(n.startDate)} - {fmt(n.endDate)}</div>
-                              <button
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  e.preventDefault();
-                                  approveLeaveRequestFromNotification(n.id);
-                                }}
-                                className="rounded-full border border-emerald-300 bg-emerald-50 px-2.5 py-1 text-[11px] font-semibold text-emerald-700 hover:bg-emerald-100"
-                              >
-                                Approve
-                              </button>
-                            </button>
-                          ))}
-                        </div>
-                      )}
-                    </div>
+              <div className="relative">
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setNotificationOpen(v => !v);
+                  }}
+                  className="relative rounded-xl border border-slate-300 bg-white px-2.5 py-1.5 text-xs font-semibold text-slate-700"
+                  aria-label="Notifications"
+                >
+                  <AppIcon name="bell" className="h-4 w-4" />
+                  {pendingLeaveCount > 0 && (
+                    <span className="absolute -top-1 -right-1 rounded-full bg-rose-600 px-1.5 py-0.5 text-[9px] font-semibold text-white">{pendingLeaveCount}</span>
                   )}
-                </div>
-              )}
+                </button>
+                {notificationOpen && (
+                  <div onClick={(e) => e.stopPropagation()} className="absolute right-0 mt-1 w-72 rounded-xl border border-slate-200 bg-white shadow-xl p-2 z-50">
+                    {user?.id === 'owner' && (
+                      <>
+                        <div className="px-2 py-1 text-xs font-semibold text-slate-600">Leave Notifications</div>
+                        {leaveNotifications.length === 0 ? (
+                          <div className="px-2 py-2 text-xs text-slate-500">No pending leave approvals.</div>
+                        ) : (
+                          <div className="max-h-64 overflow-auto space-y-1">
+                            {leaveNotifications.map(n => (
+                              <button
+                                key={n.id}
+                                onClick={() => {
+                                  setNotificationOpen(false);
+                                  setLeaveTrackerFocus({ requestId: n.id, userId: n.userId || '' });
+                                  setActiveTab('Leave Tracker');
+                                }}
+                                className="w-full rounded-lg border border-slate-200 bg-slate-50 px-2 py-2 text-left hover:bg-slate-100"
+                              >
+                                <div className="text-xs font-semibold text-slate-800">{n.type} leave request</div>
+                                <div className="text-[11px] text-slate-600 mb-1">{n.userId} • {fmt(n.startDate)} - {fmt(n.endDate)}</div>
+                                <button
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    e.preventDefault();
+                                    approveLeaveRequestFromNotification(n.id);
+                                  }}
+                                  className="rounded-full border border-emerald-300 bg-emerald-50 px-2.5 py-1 text-[11px] font-semibold text-emerald-700 hover:bg-emerald-100"
+                                >
+                                  Approve
+                                </button>
+                              </button>
+                            ))}
+                          </div>
+                        )}
+                      </>
+                    )}
+                    <div className="px-2 pt-2 pb-1 text-xs font-semibold text-slate-600">Visitor Call Back Alerts</div>
+                    {callbackNotifications.length === 0 ? (
+                      <div className="px-2 py-2 text-xs text-slate-500">No callback reminders for today.</div>
+                    ) : (
+                      <div className="max-h-64 overflow-auto space-y-1">
+                        {callbackNotifications.map((v) => (
+                          <button
+                            key={v.id}
+                            onClick={() => openVisitorFromNotification(v.id)}
+                            className="w-full rounded-lg border border-amber-200 bg-amber-50 px-2 py-2 text-left hover:bg-amber-100"
+                          >
+                            <div className="text-xs font-semibold text-amber-800">Call {v.fullName || 'Visitor'} today</div>
+                            <div className="text-[11px] text-amber-700">{v.mobile || '-'} • Tentative join: {fmt(v.tentativeJoiningDate)}</div>
+                                <button
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    e.preventDefault();
+                                    markVisitorCalled(v.id);
+                                  }}
+                                  className="mt-1 rounded-full border border-emerald-300 bg-emerald-50 px-2.5 py-1 text-[11px] font-semibold text-emerald-700 hover:bg-emerald-100"
+                                >
+                                  Mark as Called
+                                </button>
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
               <button
                 onClick={logout}
                 className="rounded-xl border border-rose-300 bg-rose-50 px-2.5 py-1.5 text-xs font-semibold text-rose-700"
@@ -2865,57 +2962,86 @@ Please pay by: ${formattedLastDate}`;
                       {themeModeLabel}
                     </button>
                     <SyncStatusDot mode={dataSyncMode} label={syncBadgeLabel} />
-                  {user?.id === 'owner' && (
-                    <div className="relative">
-                      <button
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          setNotificationOpen(v => !v);
-                        }}
-                        className="rounded-full border border-slate-300 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-100"
-                      >
-                        <span className="inline-flex items-center gap-1.5"><AppIcon name="bell" className="h-3.5 w-3.5" /> Notifications</span>
-                        {pendingLeaveCount > 0 && (
-                          <span className="ml-2 rounded-full bg-rose-600 px-2 py-0.5 text-[10px] font-semibold text-white">{pendingLeaveCount}</span>
-                        )}
-                      </button>
-                      {notificationOpen && (
-                        <div onClick={(e) => e.stopPropagation()} className="absolute right-0 mt-2 w-80 rounded-xl border border-slate-200 bg-white shadow-xl p-2 z-50">
-                          <div className="px-2 py-1 text-xs font-semibold text-slate-600">Pending Leave Approvals</div>
-                          {leaveNotifications.length === 0 ? (
-                            <div className="px-2 py-2 text-xs text-slate-500">No pending leave approvals.</div>
-                          ) : (
-                            <div className="max-h-72 overflow-auto space-y-1">
-                              {leaveNotifications.map(n => (
-                                <button
-                                  key={n.id}
-                                  onClick={() => {
-                                    setNotificationOpen(false);
-                                    setLeaveTrackerFocus({ requestId: n.id, userId: n.userId || '' });
-                                    setActiveTab('Leave Tracker');
-                                  }}
-                                  className="w-full rounded-lg border border-slate-200 bg-slate-50 px-2 py-2 text-left hover:bg-slate-100"
-                                >
-                                  <div className="text-xs font-semibold text-slate-800">{n.type} leave request</div>
-                                  <div className="text-[11px] text-slate-600 mb-1">{n.userId} • {fmt(n.startDate)} - {fmt(n.endDate)}</div>
-                                  <button
-                                    onClick={(e) => {
-                                      e.stopPropagation();
-                                      e.preventDefault();
-                                      approveLeaveRequestFromNotification(n.id);
-                                    }}
-                                    className="rounded-full border border-emerald-300 bg-emerald-50 px-2.5 py-1 text-[11px] font-semibold text-emerald-700 hover:bg-emerald-100"
-                                  >
-                                    Approve
-                                  </button>
-                                </button>
-                              ))}
-                            </div>
-                          )}
-                        </div>
+                  <div className="relative">
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setNotificationOpen(v => !v);
+                      }}
+                      className="rounded-full border border-slate-300 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-100"
+                    >
+                      <span className="inline-flex items-center gap-1.5"><AppIcon name="bell" className="h-3.5 w-3.5" /> Notifications</span>
+                      {pendingLeaveCount > 0 && (
+                        <span className="ml-2 rounded-full bg-rose-600 px-2 py-0.5 text-[10px] font-semibold text-white">{pendingLeaveCount}</span>
                       )}
-                    </div>
-                  )}
+                    </button>
+                    {notificationOpen && (
+                      <div onClick={(e) => e.stopPropagation()} className="absolute right-0 mt-2 w-80 rounded-xl border border-slate-200 bg-white shadow-xl p-2 z-50">
+                        {user?.id === 'owner' && (
+                          <>
+                            <div className="px-2 py-1 text-xs font-semibold text-slate-600">Pending Leave Approvals</div>
+                            {leaveNotifications.length === 0 ? (
+                              <div className="px-2 py-2 text-xs text-slate-500">No pending leave approvals.</div>
+                            ) : (
+                              <div className="max-h-72 overflow-auto space-y-1">
+                                {leaveNotifications.map(n => (
+                                  <button
+                                    key={n.id}
+                                    onClick={() => {
+                                      setNotificationOpen(false);
+                                      setLeaveTrackerFocus({ requestId: n.id, userId: n.userId || '' });
+                                      setActiveTab('Leave Tracker');
+                                    }}
+                                    className="w-full rounded-lg border border-slate-200 bg-slate-50 px-2 py-2 text-left hover:bg-slate-100"
+                                  >
+                                    <div className="text-xs font-semibold text-slate-800">{n.type} leave request</div>
+                                    <div className="text-[11px] text-slate-600 mb-1">{n.userId} • {fmt(n.startDate)} - {fmt(n.endDate)}</div>
+                                    <button
+                                      onClick={(e) => {
+                                        e.stopPropagation();
+                                        e.preventDefault();
+                                        approveLeaveRequestFromNotification(n.id);
+                                      }}
+                                      className="rounded-full border border-emerald-300 bg-emerald-50 px-2.5 py-1 text-[11px] font-semibold text-emerald-700 hover:bg-emerald-100"
+                                    >
+                                      Approve
+                                    </button>
+                                  </button>
+                                ))}
+                              </div>
+                            )}
+                          </>
+                        )}
+                        <div className="px-2 pt-2 pb-1 text-xs font-semibold text-slate-600">Visitor Call Back Alerts</div>
+                        {callbackNotifications.length === 0 ? (
+                          <div className="px-2 py-2 text-xs text-slate-500">No callback reminders for today.</div>
+                        ) : (
+                          <div className="max-h-72 overflow-auto space-y-1">
+                            {callbackNotifications.map((v) => (
+                              <button
+                                key={v.id}
+                                onClick={() => openVisitorFromNotification(v.id)}
+                                className="w-full rounded-lg border border-amber-200 bg-amber-50 px-2 py-2 text-left hover:bg-amber-100"
+                              >
+                                <div className="text-xs font-semibold text-amber-800">Call {v.fullName || 'Visitor'} today</div>
+                                <div className="text-[11px] text-amber-700">{v.mobile || '-'} • Tentative join: {fmt(v.tentativeJoiningDate)}</div>
+                                <button
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    e.preventDefault();
+                                    markVisitorCalled(v.id);
+                                  }}
+                                  className="mt-1 rounded-full border border-emerald-300 bg-emerald-50 px-2.5 py-1 text-[11px] font-semibold text-emerald-700 hover:bg-emerald-100"
+                                >
+                                  Mark as Called
+                                </button>
+                              </button>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    )}
+                  </div>
                   </div>
                 </div>
               </div>
@@ -2972,13 +3098,24 @@ Please pay by: ${formattedLastDate}`;
             {activeTab === 'Members' && (
               canViewMembers ? (
                 membersView === 'visitors' ? (
-                  <VisitorsPage
-                    visitors={visitors}
-                    onAddVisitor={() => { setVisitorEdit(null); setVisitorFormOpen(true); }}
-                    onEditVisitor={(v) => { setVisitorEdit(v); setVisitorFormOpen(true); }}
-                    onDeleteVisitor={deleteVisitor}
-                    onConvertVisitor={convertVisitorToMember}
-                  />
+                  canViewVisitors ? (
+                    <VisitorsPage
+                      visitors={visitors}
+                      onAddVisitor={() => { setVisitorEdit(null); setVisitorFormOpen(true); }}
+                      onEditVisitor={(v) => { setVisitorEdit(v); setVisitorFormOpen(true); }}
+                      onDeleteVisitor={deleteVisitor}
+                      onConvertVisitor={convertVisitorToMember}
+                      onMarkCalled={markVisitorCalled}
+                      focusVisitorId={visitorNotificationFocusId}
+                      onFocusHandled={() => setVisitorNotificationFocusId('')}
+                    />
+                  ) : (
+                    <div className="p-3 md:p-8">
+                      <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4 text-sm text-slate-600">
+                        Visitors access is disabled for this staff profile.
+                      </div>
+                    </div>
+                  )
                 ) : (
                   <DashboardView
                     members={members}
@@ -3051,9 +3188,10 @@ Please pay by: ${formattedLastDate}`;
                       method: 'POST',
                       body: JSON.stringify({ fileName }),
                     });
-                    const [remoteUsers, remoteMembers, remoteSettings, remoteLogs, remoteFinance, remoteSmsEvents] = await Promise.all([
+                    const [remoteUsers, remoteMembers, remoteVisitors, remoteSettings, remoteLogs, remoteFinance, remoteSmsEvents] = await Promise.all([
                       backendJson('/users').catch(() => []),
                       backendJson('/members').catch(() => []),
+                      backendJson('/visitors').catch(() => []),
                       backendJson('/settings').catch(() => ({})),
                       backendJson('/logs').catch(() => []),
                       backendJson('/finance').catch(() => []),
@@ -3061,6 +3199,7 @@ Please pay by: ${formattedLastDate}`;
                     ]);
                     if (Array.isArray(remoteUsers)) setUsers(remoteUsers);
                     if (Array.isArray(remoteMembers)) setMembers(remoteMembers);
+                    if (Array.isArray(remoteVisitors)) setVisitors(remoteVisitors);
                     if (remoteSettings && typeof remoteSettings === 'object') setSettings(remoteSettings);
                     if (Array.isArray(remoteLogs)) setLogs(remoteLogs);
                     if (Array.isArray(remoteFinance)) setFinanceTransactions(remoteFinance);
@@ -3539,6 +3678,7 @@ function Sidebar({ user, active, onSelect, theme, setTheme, onLogout, onUndo, on
       const allowedSections = user && user.sections ? user.sections : ALL_SECTIONS;
       const navItems = NAV.filter(item => allowedSections.includes(item.key) || item.key === 'Support');
       const [membersExpanded, setMembersExpanded] = React.useState(true);
+      const canViewVisitors = normalizeAccess(user?.access).members?.viewVisitors !== false;
       return (
         <aside className={cx(
           'w-72 bg-gradient-to-b from-blue-600 to-blue-500 text-white flex flex-col h-screen overflow-hidden',
@@ -3594,16 +3734,18 @@ function Sidebar({ user, active, onSelect, theme, setTheme, onLogout, onUndo, on
                         >
                           All Members
                         </button>
-                        <button
-                          onClick={() => {
-                            onSelect('Members');
-                            setMembersView && setMembersView('visitors');
-                            onCloseMobile && onCloseMobile();
-                          }}
-                          className={cx('w-full rounded-lg px-3 py-1.5 text-left text-sm', active === 'Members' && membersView === 'visitors' ? 'bg-white/20' : 'hover:bg-white/10')}
-                        >
-                          Visitors
-                        </button>
+                        {canViewVisitors && (
+                          <button
+                            onClick={() => {
+                              onSelect('Members');
+                              setMembersView && setMembersView('visitors');
+                              onCloseMobile && onCloseMobile();
+                            }}
+                            className={cx('w-full rounded-lg px-3 py-1.5 text-left text-sm', active === 'Members' && membersView === 'visitors' ? 'bg-white/20' : 'hover:bg-white/10')}
+                          >
+                            Visitors
+                          </button>
+                        )}
                       </div>
                     )}
                   </div>
@@ -5811,6 +5953,8 @@ function EditMemberModal({ member, onClose, onSave, planOptions, statusOptions, 
         dob: visitor?.dob || '',
         mobile: visitor?.mobile || '',
         gender: visitor?.gender || '',
+        callBackRequired: Boolean(visitor?.callBackRequired),
+        tentativeJoiningDate: visitor?.tentativeJoiningDate || '',
         status: visitor?.status || 'New',
         addedAt: visitor?.addedAt || '',
       }));
@@ -5884,6 +6028,38 @@ function EditMemberModal({ member, onClose, onSave, planOptions, statusOptions, 
                 <select value={form.gender} onBlur={() => setTouched((p) => ({ ...p, gender: true }))} onChange={(e) => setForm((p) => ({ ...p, gender: e.target.value }))} className={inputCls('gender')}><option value="">Select</option>{(settings?.genders || ['Male', 'Female', 'Other']).map((g) => <option key={g} value={g}>{g}</option>)}</select>
                 {showErr('gender') && <div className="mt-1 text-xs text-rose-600">{errors.gender}</div>}
               </div>
+              <div>
+                <label className="text-sm font-medium">Call Back (Optional)</label>
+                <div className="mt-2 flex items-center gap-4 rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm">
+                  <label className="inline-flex items-center gap-2">
+                    <input
+                      type="radio"
+                      name="visitorCallBack"
+                      checked={form.callBackRequired === true}
+                      onChange={() => setForm((p) => ({ ...p, callBackRequired: true }))}
+                    />
+                    Yes
+                  </label>
+                  <label className="inline-flex items-center gap-2">
+                    <input
+                      type="radio"
+                      name="visitorCallBack"
+                      checked={form.callBackRequired === false}
+                      onChange={() => setForm((p) => ({ ...p, callBackRequired: false }))}
+                    />
+                    No
+                  </label>
+                </div>
+              </div>
+              <div>
+                <label className="text-sm font-medium">Tentative Date of Joining</label>
+                <input
+                  type="date"
+                  value={form.tentativeJoiningDate}
+                  onChange={(e) => setForm((p) => ({ ...p, tentativeJoiningDate: e.target.value }))}
+                  className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm"
+                />
+              </div>
             </div>
             <div className="px-5 py-4 border-t border-slate-200 flex justify-end gap-2">
               <button onClick={onClose} className="rounded-xl border border-slate-300 bg-white px-4 py-2 text-sm font-medium">Cancel</button>
@@ -5894,9 +6070,15 @@ function EditMemberModal({ member, onClose, onSave, planOptions, statusOptions, 
       );
     }
 
-    function VisitorsPage({ visitors, onAddVisitor, onEditVisitor, onDeleteVisitor, onConvertVisitor }) {
-      const [selected, setSelected] = React.useState(null);
+    function VisitorsPage({ visitors, onAddVisitor, onEditVisitor, onDeleteVisitor, onConvertVisitor, onMarkCalled, focusVisitorId = '', onFocusHandled = null }) {
+      const [expandedId, setExpandedId] = React.useState('');
       const rows = visitors || [];
+      React.useEffect(() => {
+        if (!focusVisitorId) return;
+        const target = rows.find((v) => v.id === focusVisitorId);
+        if (target) setExpandedId(target.id);
+        if (onFocusHandled) onFocusHandled();
+      }, [focusVisitorId, onFocusHandled, rows]);
       return (
         <div className="p-3 md:p-8 space-y-4">
           <div className="flex items-center justify-between gap-2">
@@ -5909,40 +6091,57 @@ function EditMemberModal({ member, onClose, onSave, planOptions, statusOptions, 
                 <th className="px-3 py-2 text-left">Visitor ID</th><th className="px-3 py-2 text-left">Full Name</th><th className="px-3 py-2 text-left">Mobile</th><th className="px-3 py-2 text-left">Gmail</th><th className="px-3 py-2 text-left">Gender</th><th className="px-3 py-2 text-left">Date Added</th><th className="px-3 py-2 text-left">Status</th><th className="px-3 py-2 text-left">Actions</th>
               </tr></thead>
               <tbody>
-                {rows.map((v) => (
-                  <tr key={v.id} className="border-b border-slate-200 hover:bg-slate-50">
-                    <td className="px-3 py-2">{v.id}</td><td className="px-3 py-2">{v.fullName}</td><td className="px-3 py-2">{v.mobile}</td><td className="px-3 py-2">{v.email}</td><td className="px-3 py-2">{v.gender}</td><td className="px-3 py-2">{fmt(v.addedAt)}</td><td className="px-3 py-2">{v.status || 'New'}</td>
-                    <td className="px-3 py-2"><div className="flex items-center gap-2 flex-wrap">
-                      <button onClick={() => setSelected(v)} className="rounded-full border border-slate-300 bg-white px-2.5 py-1 text-xs">View</button>
-                      <button onClick={() => onEditVisitor(v)} className="rounded-full border border-indigo-300 bg-indigo-50 px-2.5 py-1 text-xs text-indigo-700">Edit</button>
-                      <button onClick={() => onDeleteVisitor(v.id)} className="rounded-full border border-rose-300 bg-rose-50 px-2.5 py-1 text-xs text-rose-700">Delete</button>
-                      <button disabled={v.status === 'Converted'} onClick={() => onConvertVisitor(v)} className={cx('rounded-full border px-2.5 py-1 text-xs', v.status === 'Converted' ? 'border-slate-300 bg-slate-100 text-slate-500 cursor-not-allowed' : 'border-emerald-300 bg-emerald-50 text-emerald-700')}>Convert to Member</button>
-                    </div></td>
-                  </tr>
-                ))}
+                {rows.map((v) => {
+                  const expanded = expandedId === v.id;
+                  const calledToday = iso(v.lastCalledAt || '') === iso(new Date());
+                  return (
+                    <React.Fragment key={v.id}>
+                      <tr
+                        className={cx('border-b border-slate-200 hover:bg-slate-50 cursor-pointer', expanded ? 'bg-blue-50/40' : '')}
+                        onClick={() => setExpandedId((prev) => (prev === v.id ? '' : v.id))}
+                      >
+                        <td className="px-3 py-2">{v.id}</td><td className="px-3 py-2">{v.fullName}</td><td className="px-3 py-2">{v.mobile}</td><td className="px-3 py-2">{v.email}</td><td className="px-3 py-2">{v.gender}</td><td className="px-3 py-2">{fmt(v.addedAt)}</td><td className="px-3 py-2"><div className="flex flex-wrap items-center gap-1.5"><span>{v.status || 'New'}</span>{calledToday && <span className="inline-flex items-center rounded-full border border-emerald-300 bg-emerald-50 px-2 py-0.5 text-[10px] font-semibold text-emerald-700">Called Today</span>}</div></td>
+                        <td className="px-3 py-2"><div className="flex items-center gap-2 flex-wrap">
+                          <button onClick={(e) => { e.stopPropagation(); onEditVisitor(v); }} className="rounded-full border border-indigo-300 bg-indigo-50 px-2.5 py-1 text-xs text-indigo-700">Edit</button>
+                          <button onClick={(e) => { e.stopPropagation(); onDeleteVisitor(v.id); }} className="rounded-full border border-rose-300 bg-rose-50 px-2.5 py-1 text-xs text-rose-700">Delete</button>
+                          <button disabled={v.status === 'Converted'} onClick={(e) => { e.stopPropagation(); onConvertVisitor(v); }} className={cx('rounded-full border px-2.5 py-1 text-xs', v.status === 'Converted' ? 'border-slate-300 bg-slate-100 text-slate-500 cursor-not-allowed' : 'border-emerald-300 bg-emerald-50 text-emerald-700')}>Convert to Member</button>
+                        </div></td>
+                      </tr>
+                      {expanded && (
+                        <tr className="border-b border-slate-200 bg-slate-50/70">
+                          <td colSpan={8} className="px-4 py-3">
+                            <div className="grid grid-cols-1 md:grid-cols-3 gap-2 text-sm">
+                              <div><span className="text-slate-500">DOB:</span> {fmt(v.dob) || '-'}</div>
+                              <div><span className="text-slate-500">Call Back:</span> {v.callBackRequired ? 'Yes' : 'No'}</div>
+                              <div><span className="text-slate-500">Tentative Joining:</span> {fmt(v.tentativeJoiningDate) || '-'}</div>
+                              <div><span className="text-slate-500">Last Called:</span> {fmt(v.lastCalledAt) || '-'}</div>
+                              <div><span className="text-slate-500">Called By:</span> {v.lastCalledBy || '-'}</div>
+                              <div><span className="text-slate-500">Call Status:</span> {calledToday ? 'Called Today' : 'Pending'}</div>
+                            </div>
+                            <div className="mt-3 flex flex-wrap gap-2">
+                              <button
+                                disabled={!v.callBackRequired || calledToday}
+                                onClick={() => onMarkCalled && onMarkCalled(v.id)}
+                                className={cx(
+                                  'rounded-full border px-3 py-1.5 text-xs font-semibold',
+                                  (!v.callBackRequired || calledToday)
+                                    ? 'border-slate-300 bg-slate-100 text-slate-500 cursor-not-allowed'
+                                    : 'border-emerald-300 bg-emerald-50 text-emerald-700'
+                                )}
+                              >
+                                Mark as Called
+                              </button>
+                            </div>
+                          </td>
+                        </tr>
+                      )}
+                    </React.Fragment>
+                  );
+                })}
                 {rows.length === 0 && <tr><td colSpan={8} className="px-3 py-4 text-center text-slate-500">No visitor records yet.</td></tr>}
               </tbody>
             </table>
           </div>
-          {selected && (
-            <div className="rounded-2xl border border-slate-200 bg-white p-4">
-              <div className="flex items-center justify-between gap-2">
-                <div className="text-sm font-semibold text-slate-800">Visitor Details</div>
-                <button onClick={() => setSelected(null)} className="rounded-lg px-2 py-1 text-xs border border-slate-300">Close</button>
-              </div>
-              <div className="mt-3 grid grid-cols-1 md:grid-cols-2 gap-2 text-sm">
-                <div><span className="text-slate-500">Name:</span> {selected.fullName}</div>
-                <div><span className="text-slate-500">Mobile:</span> {selected.mobile}</div>
-                <div><span className="text-slate-500">Gmail:</span> {selected.email}</div>
-                <div><span className="text-slate-500">DOB:</span> {fmt(selected.dob) || '-'}</div>
-                <div><span className="text-slate-500">Gender:</span> {selected.gender || '-'}</div>
-                <div><span className="text-slate-500">Status:</span> {selected.status || 'New'}</div>
-              </div>
-              <div className="mt-3">
-                <button disabled={selected.status === 'Converted'} onClick={() => onConvertVisitor(selected)} className={cx('rounded-full border px-3 py-1.5 text-xs font-semibold', selected.status === 'Converted' ? 'border-slate-300 bg-slate-100 text-slate-500 cursor-not-allowed' : 'border-emerald-300 bg-emerald-50 text-emerald-700')}>Convert to Member</button>
-              </div>
-            </div>
-          )}
         </div>
       );
     }
@@ -6463,7 +6662,13 @@ function EditMemberModal({ member, onClose, onSave, planOptions, statusOptions, 
         <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-slate-900/50 p-2 sm:p-4 overflow-y-auto">
           <div className="w-full max-w-3xl rounded-t-3xl sm:rounded-3xl bg-white shadow-xl max-h-[95dvh] sm:max-h-[92vh] overflow-hidden">
             <div className="flex items-center justify-between px-4 sm:px-6 py-4">
-              <h3 className="text-lg font-semibold">Add New Member — Step {step}</h3>
+              <h3 className={cx(
+                step === 1
+                  ? 'inline-flex items-center rounded-full border border-blue-200 bg-blue-50 px-4 py-1.5 text-base font-semibold text-blue-800'
+                  : 'text-sm font-semibold text-slate-700'
+              )}>
+                Add New Member — Step {step}
+              </h3>
               <button onClick={onClose} className="rounded-xl p-2 hover:bg-slate-200"><span>✕</span></button>
             </div>
             <div className="px-4 sm:px-6 pb-3">
@@ -9677,7 +9882,7 @@ function SettingsPage({ settings, updateSetting, members, access, storageInfo, b
                 settings: { managePlans: false, manageStatuses: false, managePaymentMethods: false, manageHoldDurations: false, manageGenders: false },
                 whatsapp: { viewReminder: false, viewMonthReminder: false, viewSuccess: false, viewFine: false, viewDeactivate: false, viewHold: false, viewWelcome: false, viewTemplates: false },
                 leave: { viewCreateLeaveRequest: false, viewLeaveRequests: false, viewAnnualLeaveBalance: false, viewLeaveHistory: false },
-                members: { viewMembers: false, addMembers: false, editMembers: false, deleteMembers: false },
+                members: { viewMembers: false, viewVisitors: false, addMembers: false, editMembers: false, deleteMembers: false },
                 ptClients: { viewPtClients: false, editPtPlan: false, editPtWorkout: false, uploadDietDocuments: false },
               })
               : normalizeAccess(f.access),

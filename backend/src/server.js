@@ -287,6 +287,16 @@ app.put('/api/members/bulk', async (req, res) => {
   res.json({ ok: true });
 });
 
+app.get('/api/visitors', async (_req, res) => {
+  const visitors = await readJsonCollection('apg.visitors', []);
+  res.json(visitors);
+});
+
+app.put('/api/visitors/bulk', async (req, res) => {
+  await writeJsonCollection('apg.visitors', req.body?.visitors || []);
+  res.json({ ok: true });
+});
+
 app.get('/api/users', async (_req, res) => {
   const users = await readJsonCollection('apg.users', []);
   res.json(users);
