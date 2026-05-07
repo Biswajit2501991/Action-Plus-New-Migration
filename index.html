@@ -312,6 +312,14 @@
         : s === 'Deactivated' ? 'pink'
         : 'slate';
     };
+    const MEDICAL_YES_NO_FIELDS = [
+      ['heartDisease', 'Heart Disease'],
+      ['cardiovascularCondition', 'Cardiovascular Condition'],
+      ['bloodPressure', 'High/Low Blood Pressure'],
+      ['arthritis', 'Arthritis'],
+      ['goutFamilyHistory', 'Gout Family Hx of Heart Disease'],
+      ['otherCondition', 'Other Condition'],
+    ];
 
     // List of all application sections/tabs. This array is used for role
     // assignments and to filter the navigation bar depending on a user's
@@ -2882,6 +2890,7 @@ Please pay by: ${formattedLastDate}`;
               holdOptions={settings.holdDurations}
               paymentOptions={settings.paymentMethods}
               canEditFormNo={user && user.id === 'owner'}
+              settings={settings}
             />
           )}
           {quickFieldEdit && (
@@ -4985,8 +4994,37 @@ function DashboardView({ members, onEdit, onStatusChange, holdOptions, logs, fil
     }
 
     // ---- Edit Member Modal ----
-function EditMemberModal({ member, onClose, onSave, planOptions, statusOptions, holdOptions, paymentOptions, canEditFormNo }) {
-      const [edit, setEdit] = React.useState(() => ({ ...member }));
+function EditMemberModal({ member, onClose, onSave, planOptions, statusOptions, holdOptions, paymentOptions, canEditFormNo, settings }) {
+      const [edit, setEdit] = React.useState(() => ({
+        ...member,
+        medicalAnswers: {
+          heartDisease: '',
+          cardiovascularCondition: '',
+          bloodPressure: '',
+          arthritis: '',
+          goutFamilyHistory: '',
+          otherCondition: '',
+          injuries: { knees: false, lowerBack: false, neckShoulders: false, hipsPelvis: false, flexibility: false, other: '' },
+          pregnant: 'No',
+          pregnantWeeks: '',
+          physicalActivity: '',
+          surgeryHistory: '',
+          smoking: '',
+          medication: '',
+          extraInfo: '',
+          ...(member?.medicalAnswers || {}),
+        },
+      }));
+      const markAllMedicalNo = React.useCallback(() => {
+        setEdit((prev) => ({
+          ...prev,
+          medicalAnswers: {
+            ...(prev.medicalAnswers || {}),
+            ...Object.fromEntries(MEDICAL_YES_NO_FIELDS.map(([key]) => [key, 'N'])),
+            pregnant: 'No',
+          },
+        }));
+      }, []);
       // Derived nextPaymentDate and paymentBy update when billingDate changes
       React.useEffect(() => {
         if (edit.billingDate) {
@@ -5034,10 +5072,11 @@ function EditMemberModal({ member, onClose, onSave, planOptions, statusOptions, 
       const dirty = React.useMemo(() => {
         // Compare editable fields to determine if anything changed. Include
         // formNo, amount and paymentMethod in addition to existing fields.
-        const keysToCheck = ['formNo','memberId','name','email','mobile','plan','status','holdDuration','billingDate','amount','paymentMethod','photo'];
+        const keysToCheck = ['formNo','memberId','name','email','mobile','plan','status','holdDuration','billingDate','amount','paymentMethod','photo','medicalAnswers'];
         return keysToCheck.some(k => {
           const a = edit[k] ?? '';
           const b = member[k] ?? '';
+          if (k === 'medicalAnswers') return JSON.stringify(a || {}) !== JSON.stringify(b || {});
           return String(a) !== String(b);
         });
       }, [edit, member]);
@@ -5240,6 +5279,40 @@ function EditMemberModal({ member, onClose, onSave, planOptions, statusOptions, 
                 <div>
                   <label className="text-sm font-medium">Staff</label>
                   <input readOnly value={edit.staff || ''} className="w-full rounded-xl border border-slate-200 bg-slate-100 px-3 py-2 text-sm text-slate-500" />
+                </div>
+                <div className="md:col-span-2 rounded-2xl border border-slate-200 bg-slate-50 p-4">
+                  <div className="mb-3 flex items-center justify-between gap-2">
+                    <div className="text-sm font-semibold text-slate-800">Medical Questionnaire</div>
+                    <button
+                      type="button"
+                      onClick={markAllMedicalNo}
+                      className="rounded-full border border-emerald-300 bg-emerald-50 px-3 py-1 text-xs font-semibold text-emerald-700 hover:bg-emerald-100"
+                    >
+                      Mark all No
+                    </button>
+                  </div>
+                  <div className="mb-3 text-xs text-slate-600 whitespace-pre-wrap">
+                    {(settings && settings.medicalQuestionnaireTemplate) || MEDICAL_QUESTIONNAIRE_TEMPLATE_DEFAULT}
+                  </div>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                    {MEDICAL_YES_NO_FIELDS.map(([key, label]) => (
+                      <div key={key} className="rounded-xl border border-slate-200 bg-white p-3">
+                        <div className="text-sm font-medium mb-1">{label}</div>
+                        <div className="flex gap-3 text-sm">
+                          <label><input type="radio" name={`edit-${key}`} checked={edit.medicalAnswers?.[key] === 'Y'} onChange={() => setEdit(prev => ({ ...prev, medicalAnswers: { ...(prev.medicalAnswers || {}), [key]: 'Y' } }))} /> Yes</label>
+                          <label><input type="radio" name={`edit-${key}`} checked={edit.medicalAnswers?.[key] === 'N'} onChange={() => setEdit(prev => ({ ...prev, medicalAnswers: { ...(prev.medicalAnswers || {}), [key]: 'N' } }))} /> No</label>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                  <div className="mt-3 grid grid-cols-1 md:grid-cols-2 gap-3">
+                    <div className="md:col-span-2"><label className="text-sm font-medium">Injuries / Notes</label><textarea value={edit.medicalAnswers?.extraInfo || ''} onChange={(e) => setEdit(prev => ({ ...prev, medicalAnswers: { ...(prev.medicalAnswers || {}), extraInfo: e.target.value } }))} rows={3} className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm" /></div>
+                    <div><label className="text-sm font-medium">Pregnant (Yes/No) and weeks</label><input value={`${edit.medicalAnswers?.pregnant || 'No'} ${edit.medicalAnswers?.pregnantWeeks || ''}`.trim()} onChange={(e) => setEdit(prev => ({ ...prev, medicalAnswers: { ...(prev.medicalAnswers || {}), pregnant: e.target.value.includes('Yes') ? 'Yes' : 'No', pregnantWeeks: e.target.value } }))} className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm" /></div>
+                    <div><label className="text-sm font-medium">Physical activity</label><input value={edit.medicalAnswers?.physicalActivity || ''} onChange={(e) => setEdit(prev => ({ ...prev, medicalAnswers: { ...(prev.medicalAnswers || {}), physicalActivity: e.target.value } }))} className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm" /></div>
+                    <div><label className="text-sm font-medium">Surgery history</label><input value={edit.medicalAnswers?.surgeryHistory || ''} onChange={(e) => setEdit(prev => ({ ...prev, medicalAnswers: { ...(prev.medicalAnswers || {}), surgeryHistory: e.target.value } }))} className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm" /></div>
+                    <div><label className="text-sm font-medium">Smoking details</label><input value={edit.medicalAnswers?.smoking || ''} onChange={(e) => setEdit(prev => ({ ...prev, medicalAnswers: { ...(prev.medicalAnswers || {}), smoking: e.target.value } }))} className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm" /></div>
+                    <div><label className="text-sm font-medium">Medication details</label><input value={edit.medicalAnswers?.medication || ''} onChange={(e) => setEdit(prev => ({ ...prev, medicalAnswers: { ...(prev.medicalAnswers || {}), medication: e.target.value } }))} className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm" /></div>
+                  </div>
                 </div>
               </div>
             </div>
@@ -5599,6 +5672,16 @@ function EditMemberModal({ member, onClose, onSave, planOptions, statusOptions, 
         })));
         setForm(f => ({ ...f, attachments: [...(f.attachments || []), ...entries.filter(Boolean)] }));
       };
+      const markAllMedicalNo = React.useCallback(() => {
+        setForm((prev) => ({
+          ...prev,
+          medicalAnswers: {
+            ...(prev.medicalAnswers || {}),
+            ...Object.fromEntries(MEDICAL_YES_NO_FIELDS.map(([key]) => [key, 'N'])),
+            pregnant: 'No',
+          },
+        }));
+      }, []);
       const save = () => {
         setWarn('');
         // Validate all fields on final step
@@ -5800,16 +5883,18 @@ function EditMemberModal({ member, onClose, onSave, planOptions, statusOptions, 
               )}
               {step === 4 && (
                 <div className="space-y-4 pb-6">
-                  <div className="text-sm text-slate-600">{settings.medicalQuestionnaireTemplate || MEDICAL_QUESTIONNAIRE_TEMPLATE_DEFAULT}</div>
+                  <div className="flex items-center justify-between gap-2">
+                    <div className="text-sm text-slate-600">{settings.medicalQuestionnaireTemplate || MEDICAL_QUESTIONNAIRE_TEMPLATE_DEFAULT}</div>
+                    <button
+                      type="button"
+                      onClick={markAllMedicalNo}
+                      className="shrink-0 rounded-full border border-emerald-300 bg-emerald-50 px-3 py-1 text-xs font-semibold text-emerald-700 hover:bg-emerald-100"
+                    >
+                      Mark all No
+                    </button>
+                  </div>
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                    {[
-                      ['heartDisease','Heart Disease'],
-                      ['cardiovascularCondition','Cardiovascular Condition'],
-                      ['bloodPressure','High/Low Blood Pressure'],
-                      ['arthritis','Arthritis'],
-                      ['goutFamilyHistory','Gout Family Hx of Heart Disease'],
-                      ['otherCondition','Other Condition'],
-                    ].map(([key,label]) => (
+                    {MEDICAL_YES_NO_FIELDS.map(([key,label]) => (
                       <div key={key} className="rounded-xl border border-slate-200 p-3">
                         <div className="text-sm font-medium mb-1">{label}</div>
                         <div className="flex gap-3 text-sm">
