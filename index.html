@@ -9149,13 +9149,19 @@ function SettingsPage({ settings, updateSetting, members, access, storageInfo, b
                     </td>
                     <td className="px-3 py-2 whitespace-nowrap text-xs max-w-xs truncate text-slate-900">{u.sections && u.sections.join(', ')}</td>
                     <td className="px-3 py-2 whitespace-nowrap text-slate-900">
-                      {isOwner && u.id !== 'owner' ? (
+                      {isOwner ? (
                         <div className="flex items-center gap-3">
-                          <button onClick={() => openEdit(u)} className="text-indigo-600 hover:underline text-xs font-medium">Edit</button>
-                          <button onClick={() => toggleBlocked(u)} className={cx('hover:underline text-xs font-medium', u.blocked ? 'text-emerald-600' : 'text-amber-700')}>
-                            {u.blocked ? 'Unblock' : 'Block'}
+                          <button onClick={() => openEdit(u)} className="text-indigo-600 hover:underline text-xs font-medium">
+                            {u.id === 'owner' ? 'Edit Profile' : 'Edit'}
                           </button>
-                          <button onClick={() => handleDelete(u)} className="text-rose-600 hover:underline text-xs font-medium">Delete</button>
+                          {u.id !== 'owner' && (
+                            <>
+                              <button onClick={() => toggleBlocked(u)} className={cx('hover:underline text-xs font-medium', u.blocked ? 'text-emerald-600' : 'text-amber-700')}>
+                                {u.blocked ? 'Unblock' : 'Block'}
+                              </button>
+                              <button onClick={() => handleDelete(u)} className="text-rose-600 hover:underline text-xs font-medium">Delete</button>
+                            </>
+                          )}
                         </div>
                       ) : (
                         <span className="text-slate-400 text-xs">No actions</span>
@@ -9198,13 +9204,19 @@ function SettingsPage({ settings, updateSetting, members, access, storageInfo, b
                     </button>
                   )}
                   <div className="flex flex-wrap gap-2">
-                    {isOwner && u.id !== 'owner' ? (
+                    {isOwner ? (
                       <>
-                        <button onClick={() => openEdit(u)} className="rounded-lg border border-slate-300 bg-white px-3 py-2 min-h-[44px] text-xs font-medium text-slate-700 hover:bg-slate-100">Edit</button>
-                        <button onClick={() => toggleBlocked(u)} className={cx('rounded-lg border px-3 py-2 min-h-[44px] text-xs font-medium', u.blocked ? 'border-emerald-300 bg-emerald-50 text-emerald-700 hover:bg-emerald-100' : 'border-amber-300 bg-amber-50 text-amber-700 hover:bg-amber-100')}>
-                          {u.blocked ? 'Unblock' : 'Block'}
+                        <button onClick={() => openEdit(u)} className="rounded-lg border border-slate-300 bg-white px-3 py-2 min-h-[44px] text-xs font-medium text-slate-700 hover:bg-slate-100">
+                          {u.id === 'owner' ? 'Edit Profile' : 'Edit'}
                         </button>
-                        <button onClick={() => handleDelete(u)} className="rounded-lg border border-rose-300 bg-rose-50 px-3 py-2 min-h-[44px] text-xs font-medium text-rose-700 hover:bg-rose-100">Delete</button>
+                        {u.id !== 'owner' && (
+                          <>
+                            <button onClick={() => toggleBlocked(u)} className={cx('rounded-lg border px-3 py-2 min-h-[44px] text-xs font-medium', u.blocked ? 'border-emerald-300 bg-emerald-50 text-emerald-700 hover:bg-emerald-100' : 'border-amber-300 bg-amber-50 text-amber-700 hover:bg-amber-100')}>
+                              {u.blocked ? 'Unblock' : 'Block'}
+                            </button>
+                            <button onClick={() => handleDelete(u)} className="rounded-lg border border-rose-300 bg-rose-50 px-3 py-2 min-h-[44px] text-xs font-medium text-rose-700 hover:bg-rose-100">Delete</button>
+                          </>
+                        )}
                       </>
                     ) : (
                       <span className="text-slate-400 text-xs">No actions</span>
