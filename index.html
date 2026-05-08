@@ -195,6 +195,10 @@
     const MONTHS = [
       'Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'
     ];
+    const DISPLAY_TIME_ZONES = {
+      IST: 'Asia/Kolkata',
+      AEST: 'Australia/Sydney',
+    };
     // Ensure a value is a Date in UTC and normalise to midnight UTC.
     const asUTC = (val) => {
       const d = val instanceof Date ? val : new Date(val);
@@ -229,6 +233,33 @@
       const mm = MONTHS[dt.getUTCMonth()];
       const yy = dt.getUTCFullYear();
       return `${dd}/${mm}/${yy}`;
+    };
+    const formatDateTz = (value, tz = 'IST') => {
+      if (!value) return '';
+      const dt = new Date(value);
+      if (Number.isNaN(dt.getTime())) return '';
+      const zone = DISPLAY_TIME_ZONES[tz] || DISPLAY_TIME_ZONES.IST;
+      return new Intl.DateTimeFormat('en-GB', {
+        day: '2-digit',
+        month: 'short',
+        year: 'numeric',
+        timeZone: zone,
+      }).format(dt).replace(/ /g, '/');
+    };
+    const formatDateTimeTz = (value, tz = 'IST') => {
+      if (!value) return '';
+      const dt = new Date(value);
+      if (Number.isNaN(dt.getTime())) return '';
+      const zone = DISPLAY_TIME_ZONES[tz] || DISPLAY_TIME_ZONES.IST;
+      return new Intl.DateTimeFormat('en-GB', {
+        day: '2-digit',
+        month: 'short',
+        year: 'numeric',
+        hour: '2-digit',
+        minute: '2-digit',
+        hour12: true,
+        timeZone: zone,
+      }).format(dt);
     };
     // Derive pay month label (Mon‑YYYY) from a date.
     const payMonthLabel = (d) => {
@@ -369,11 +400,9 @@
       if (member.status === 'Cancelled') return { key: 'fine', label: 'Fine SMS', disabled: false };
       return { key: 'none', label: '', disabled: true };
     };
-    const formatSmsSentAt = (value) => {
+    const formatSmsSentAt = (value, tz = 'IST') => {
       if (!value) return '';
-      const dt = new Date(value);
-      if (Number.isNaN(dt.getTime())) return '';
-      return `${fmt(dt)} ${dt.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`;
+      return formatDateTimeTz(value, tz);
     };
     const getLastWhatsAppSendMeta = (member, templateKey) => {
       if (!member) return null;
@@ -398,27 +427,24 @@
         sentBy: entry.sentBy || entry.by || '',
       };
     };
-    const getSmsSentInfoText = (member, templateKey) => {
+    const getSmsSentInfoText = (member, templateKey, tz = 'IST') => {
       const meta = getLastWhatsAppSendMeta(member, templateKey);
       if (!meta || !meta.sentAt) return '';
-      const when = formatSmsSentAt(meta.sentAt);
+      const when = formatSmsSentAt(meta.sentAt, tz);
       if (!when) return '';
-      return meta.sentBy ? `Sent ${when} by ${meta.sentBy}` : `Sent ${when}`;
+      return meta.sentBy ? `Sent ${when} (${tz}) by ${meta.sentBy}` : `Sent ${when} (${tz})`;
     };
-    const getLastWhatsAppCallText = (member) => {
+    const getLastWhatsAppCallText = (member, tz = 'IST') => {
       if (!member) return '';
       const direct = member.lastWhatsAppCall || null;
       const history = Array.isArray(member.messageHistory) ? member.messageHistory : [];
       const h = history.find((ev) => ev && ev.channel === 'whatsapp_call' && ev.status === 'opened');
       const calledAt = direct?.calledAt || h?.calledAt || h?.ts || '';
       if (!calledAt) return '';
-      const dt = new Date(calledAt);
-      if (Number.isNaN(dt.getTime())) return '';
       const calledBy = direct?.calledBy || h?.calledBy || h?.by || '';
-      const todayKey = iso(new Date());
-      const dayText = iso(dt) === todayKey ? 'Today' : fmt(dt);
-      const timeText = dt.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-      return calledBy ? `Last Call: ${dayText} ${timeText} by ${calledBy}` : `Last Call: ${dayText} ${timeText}`;
+      const whenText = formatDateTimeTz(calledAt, tz);
+      if (!whenText) return '';
+      return calledBy ? `Last Call: ${whenText} (${tz}) by ${calledBy}` : `Last Call: ${whenText} (${tz})`;
     };
     function SmsSendInfoChip({ text }) {
       if (!text) return null;
@@ -917,6 +943,7 @@ Phone: +91-7047157510`;
       smsEvents: 'apg.sms.events',
       filters: 'apg.filters',
       theme: 'apg.theme',
+      displayTimeZone: 'apg.displayTimeZone',
       addMemberDraft: 'apg.addMemberDraft',
     };
     const HEAVY_STORAGE_KEYS = [
@@ -1188,6 +1215,14 @@ Phone: +91-7047157510`;
       // expose any UI to change it. The effect below will never add the
       // 'dark' class on the html element.
       const [theme, setTheme] = React.useState('light');
+      const [displayTimeZone, setDisplayTimeZone] = React.useState(() => {
+        try {
+          const saved = String(localStorage.getItem(STORAGE_KEYS.displayTimeZone) || '').toUpperCase();
+          return saved === 'AEST' ? 'AEST' : 'IST';
+        } catch {
+          return 'IST';
+        }
+      });
       // Members, settings and logs are stored in localStorage; load on mount.
       const [members, setMembers] = React.useState(() => {
         try {
@@ -1449,6 +1484,11 @@ Phone: +91-7047157510`;
           recordStorageError(STORAGE_KEYS.theme, `Failed to persist ${STORAGE_KEYS.theme}.`);
         }
       }, [theme]);
+      React.useEffect(() => {
+        try {
+          localStorage.setItem(STORAGE_KEYS.displayTimeZone, displayTimeZone);
+        } catch {}
+      }, [displayTimeZone]);
       // When backend sync is connected, keep backend as source of truth for heavy datasets
       // and clear stale heavy browser cache to prevent storage budget warnings.
       React.useEffect(() => {
@@ -1976,6 +2016,87 @@ Phone: +91-7047157510`;
         setTimeout(() => setToast(''), 1500);
       };
 
+      const markLoginAttendance = (authUser, nowIso) => {
+        if (!authUser?.id) return;
+        const today = iso(nowIso);
+        const currentActor = authUser.name || authUser.id || '';
+        setSettings((prev) => {
+          const prevObj = prev && typeof prev === 'object' ? prev : {};
+          const records = Array.isArray(prevObj.staffAttendance) ? prevObj.staffAttendance : [];
+          const existing = records.find((r) => iso(r.date) === today && r.userId === authUser.id);
+          if (existing) {
+            const nextRecords = records.map((r) => {
+              if (r.id !== existing.id) return r;
+              const nextPatch = {
+                status: 'Present',
+                autoPresentWindowUntil: r.autoPresentWindowUntil || new Date(new Date(nowIso).getTime() + (24 * 60 * 60 * 1000)).toISOString(),
+                autoMarked: true,
+                timeZoneAtMark: displayTimeZone,
+                updatedAt: nowIso,
+                updatedBy: currentActor,
+              };
+              if (!r.firstLoginAt) nextPatch.firstLoginAt = nowIso;
+              return { ...r, ...nextPatch };
+            });
+            return { ...prevObj, staffAttendance: nextRecords };
+          }
+          const created = {
+            id: crypto.randomUUID(),
+            date: today,
+            userId: authUser.id,
+            status: 'Present',
+            checkIn: '',
+            checkOut: '',
+            note: '',
+            firstLoginAt: nowIso,
+            lastLogoutAt: '',
+            autoPresentWindowUntil: new Date(new Date(nowIso).getTime() + (24 * 60 * 60 * 1000)).toISOString(),
+            timeZoneAtMark: displayTimeZone,
+            autoMarked: true,
+            markedBy: currentActor,
+            updatedAt: nowIso,
+            updatedBy: currentActor,
+          };
+          return { ...prevObj, staffAttendance: [created, ...records] };
+        });
+      };
+      const markLogoutAttendance = (authUser, nowIso) => {
+        if (!authUser?.id) return;
+        const today = iso(nowIso);
+        const currentActor = authUser.name || authUser.id || '';
+        setSettings((prev) => {
+          const prevObj = prev && typeof prev === 'object' ? prev : {};
+          const records = Array.isArray(prevObj.staffAttendance) ? prevObj.staffAttendance : [];
+          const existing = records.find((r) => iso(r.date) === today && r.userId === authUser.id);
+          if (existing) {
+            return {
+              ...prevObj,
+              staffAttendance: records.map((r) => (r.id === existing.id
+                ? { ...r, lastLogoutAt: nowIso, updatedAt: nowIso, updatedBy: currentActor }
+                : r)),
+            };
+          }
+          const created = {
+            id: crypto.randomUUID(),
+            date: today,
+            userId: authUser.id,
+            status: 'Present',
+            checkIn: '',
+            checkOut: '',
+            note: '',
+            firstLoginAt: '',
+            lastLogoutAt: nowIso,
+            autoPresentWindowUntil: '',
+            timeZoneAtMark: displayTimeZone,
+            autoMarked: false,
+            markedBy: currentActor,
+            updatedAt: nowIso,
+            updatedBy: currentActor,
+          };
+          return { ...prevObj, staffAttendance: [created, ...records] };
+        });
+      };
+
       // Authentication handler
       const login = (id, pw) => {
         // Attempt to authenticate against our persisted users list. Match by id (case sensitive).
@@ -1988,7 +2109,10 @@ Phone: +91-7047157510`;
             return false;
           }
           // Login success. Use the user record as is (id, name, email, sections).
-          setUser({ ...rec, access: normalizeAccess(rec.access) });
+          const nowIso = new Date().toISOString();
+          setUser({ ...rec, access: normalizeAccess(rec.access), lastLoginAt: nowIso });
+          setUsers((prev) => prev.map((u) => (u.id === rec.id ? { ...u, lastLoginAt: nowIso } : u)));
+          markLoginAttendance(rec, nowIso);
           setActiveTab('Dashboard');
           setDashMode('summary');
           logEvent('auth.login', 'user', id, null, { id }, rec.name || id);
@@ -1998,13 +2122,15 @@ Phone: +91-7047157510`;
         const legacyAllowed = id === 'Bis' || id === 'Raja';
         const legacy = legacyAllowed ? DEMO_USERS[id] : null;
         if (legacy && legacy.password === pw) {
-          const newUser = { id, name: legacy.name, email: legacy.email, sections: [...ALL_SECTIONS], access: { ...DEFAULT_ACCESS }, blocked: false, blockedReason: '', blockedAt: '', updatedBy: '', photo: null };
+          const nowIso = new Date().toISOString();
+          const newUser = { id, name: legacy.name, email: legacy.email, sections: [...ALL_SECTIONS], access: { ...DEFAULT_ACCESS }, blocked: false, blockedReason: '', blockedAt: '', updatedBy: '', photo: null, lastLoginAt: nowIso, lastLogoutAt: '' };
           setUser(newUser);
           // Persist this user so they can log in again
           setUsers(prev => {
             if (!prev.find(u => u.id === id)) return [...prev, newUser];
             return prev;
           });
+          markLoginAttendance(newUser, nowIso);
           setActiveTab('Dashboard');
           setDashMode('summary');
           logEvent('auth.login', 'user', id, null, { id }, legacy.name || id);
@@ -2020,6 +2146,24 @@ Phone: +91-7047157510`;
         if (!latest) return;
         setUser(prev => (prev ? { ...prev, ...latest } : prev));
       }, [users]);
+      React.useEffect(() => {
+        if (!Array.isArray(users) || users.length === 0) return;
+        setSettings((prev) => {
+          const prevObj = prev && typeof prev === 'object' ? prev : {};
+          const records = Array.isArray(prevObj.staffAttendance) ? prevObj.staffAttendance : [];
+          if (!records.length) return prevObj;
+          const nowMs = Date.now();
+          let changed = false;
+          const nextRecords = records.map((r) => {
+            const untilMs = r.autoPresentWindowUntil ? new Date(r.autoPresentWindowUntil).getTime() : NaN;
+            if (!Number.isFinite(untilMs) || untilMs < nowMs || r.status === 'Present') return r;
+            changed = true;
+            return { ...r, status: 'Present', autoMarked: true };
+          });
+          if (!changed) return prevObj;
+          return { ...prevObj, staffAttendance: nextRecords };
+        });
+      }, [users, settings.staffAttendance]);
 
       // Status change handler (quick actions)
       const quickStatus = (memberId, nextStatus, opts = {}) => {
@@ -2765,6 +2909,9 @@ Please pay by: ${formattedLastDate}`;
         setTheme(prev => prev === 'light' ? 'dark' : prev === 'dark' ? 'system' : 'light');
       };
       const themeModeLabel = theme === 'system' ? 'Auto' : theme === 'dark' ? 'Dark' : 'Light';
+      const toggleDisplayTimeZone = () => {
+        setDisplayTimeZone((prev) => (prev === 'IST' ? 'AEST' : 'IST'));
+      };
 
       // If no user, show login screen
       if (!user) {
@@ -2781,9 +2928,34 @@ Please pay by: ${formattedLastDate}`;
       const canAddMembers = membersAccess?.addMembers !== false;
       const canEditMembers = membersAccess?.editMembers !== false;
       const canDeleteMembers = (user?.id === 'owner') && membersAccess?.deleteMembers !== false;
+      const refreshBackendBackupMeta = async () => {
+        if (dataSyncMode !== 'backend') return;
+        try {
+          const [info, payload] = await Promise.all([
+            backendJson('/storage').catch(() => null),
+            backendJson('/backups').catch(() => null),
+          ]);
+          if (info && typeof info === 'object') {
+            setBackendStorageInfo({
+              dbBytes: Number(info.dbBytes || 0),
+              backupsBytes: Number(info.backupsBytes || 0),
+              backupFileCount: Number(info.backupFileCount || 0),
+              totalBytes: Number(info.totalBytes || 0),
+            });
+          }
+          if (payload && Array.isArray(payload.backups)) {
+            setAvailableBackups(payload.backups);
+          }
+        } catch {}
+      };
 
       // Logout handler clears the current user and resets navigation state.
       const logout = () => {
+        const nowIso = new Date().toISOString();
+        if (user?.id) {
+          setUsers((prev) => prev.map((u) => (u.id === user.id ? { ...u, lastLogoutAt: nowIso } : u)));
+          markLogoutAttendance(user, nowIso);
+        }
         logEvent('auth.logout', 'user', user?.id || '', { id: user?.id }, null, user?.name || user?.id || '');
         setUser(null);
         setNotificationOpen(false);
@@ -2874,6 +3046,13 @@ Please pay by: ${formattedLastDate}`;
                 title={`Theme: ${themeModeLabel} (click to cycle Auto/Dark/Light)`}
               >
                 {themeModeLabel}
+              </button>
+              <button
+                onClick={toggleDisplayTimeZone}
+                className="rounded-xl border border-indigo-300 bg-indigo-50 px-2.5 py-1.5 text-xs font-semibold text-indigo-700 hover:bg-indigo-100"
+                title={`Timezone: ${displayTimeZone} (click to toggle IST/AEST)`}
+              >
+                {displayTimeZone}
               </button>
               <div className="hidden sm:block">
                 <SyncStatusDot mode={dataSyncMode} label={syncBadgeLabel} />
@@ -3020,6 +3199,13 @@ Please pay by: ${formattedLastDate}`;
                     >
                       {themeModeLabel}
                     </button>
+                    <button
+                      onClick={toggleDisplayTimeZone}
+                      className="rounded-full border border-indigo-300 bg-indigo-50 px-3 py-1.5 text-xs font-semibold text-indigo-700 hover:bg-indigo-100"
+                      title={`Timezone: ${displayTimeZone} (click to toggle IST/AEST)`}
+                    >
+                      {displayTimeZone}
+                    </button>
                     <SyncStatusDot mode={dataSyncMode} label={syncBadgeLabel} />
                   <div className="relative">
                     <button
@@ -3152,6 +3338,7 @@ Please pay by: ${formattedLastDate}`;
                   }}
                   isOwner={user && user.id === 'owner'}
                   canEdit={canEditMembers}
+                  displayTimeZone={displayTimeZone}
                 />
               )
             )}
@@ -3205,6 +3392,7 @@ Please pay by: ${formattedLastDate}`;
                     isOwner={user && user.id === 'owner'}
                     canEdit={canEditMembers}
                     onImportCsv={openCsvImportDialog}
+                    displayTimeZone={displayTimeZone}
                   />
                 )
               ) : (
@@ -3223,6 +3411,7 @@ Please pay by: ${formattedLastDate}`;
                 updateSetting={updateSettingValue}
                 currentUser={user}
                 access={normalizeAccess(user?.access)}
+                displayTimeZone={displayTimeZone}
               />
             )}
             {activeTab === 'Settings' && (
@@ -3265,6 +3454,7 @@ Please pay by: ${formattedLastDate}`;
                     if (Array.isArray(remoteLogs)) setLogs(remoteLogs);
                     if (Array.isArray(remoteFinance)) setFinanceTransactions(remoteFinance);
                     if (Array.isArray(remoteSmsEvents)) setSmsEvents(remoteSmsEvents);
+                    await refreshBackendBackupMeta();
                     setToast(`Restored from ${fileName}`);
                     setTimeout(() => setToast(''), 2500);
                   } catch {
@@ -3272,10 +3462,58 @@ Please pay by: ${formattedLastDate}`;
                     setTimeout(() => setToast(''), 2500);
                   }
                 }}
+                onDeleteBackup={async (fileName) => {
+                  if (!fileName || dataSyncMode !== 'backend' || user?.id !== 'owner') return;
+                  const ok = window.confirm(`Delete backup "${fileName}"?`);
+                  if (!ok) return;
+                  try {
+                    await backendJson(`/backups/${encodeURIComponent(fileName)}`, { method: 'DELETE' });
+                    await refreshBackendBackupMeta();
+                    setToast(`Deleted backup ${fileName}`);
+                    setTimeout(() => setToast(''), 2200);
+                  } catch {
+                    setToast('Backup deletion failed');
+                    setTimeout(() => setToast(''), 2200);
+                  }
+                }}
+                onDeleteBackupsOlderThan={async (days) => {
+                  if (!days || dataSyncMode !== 'backend' || user?.id !== 'owner') return;
+                  const ok = window.confirm(`Delete all backups older than ${days} days?`);
+                  if (!ok) return;
+                  try {
+                    await backendJson('/backups/prune-older', {
+                      method: 'POST',
+                      body: JSON.stringify({ days }),
+                    });
+                    await refreshBackendBackupMeta();
+                    setToast(`Old backups pruned (${days} days).`);
+                    setTimeout(() => setToast(''), 2400);
+                  } catch {
+                    setToast('Prune older backups failed');
+                    setTimeout(() => setToast(''), 2400);
+                  }
+                }}
+                onKeepLatestBackups={async (count) => {
+                  if (!count || dataSyncMode !== 'backend' || user?.id !== 'owner') return;
+                  const ok = window.confirm(`Keep latest ${count} backups and delete the rest?`);
+                  if (!ok) return;
+                  try {
+                    await backendJson('/backups/keep-latest', {
+                      method: 'POST',
+                      body: JSON.stringify({ count }),
+                    });
+                    await refreshBackendBackupMeta();
+                    setToast(`Kept latest ${count} backups.`);
+                    setTimeout(() => setToast(''), 2400);
+                  } catch {
+                    setToast('Keep latest backups failed');
+                    setTimeout(() => setToast(''), 2400);
+                  }
+                }}
               />
             )}
             {activeTab === 'Logs' && (
-              <LogsPage logs={logs} currentUser={user} onClearLogs={() => {
+              <LogsPage logs={logs} currentUser={user} displayTimeZone={displayTimeZone} onClearLogs={() => {
                 if (!(user && user.id === 'owner')) return;
                 const ok = window.confirm('Clear all logs? This cannot be undone.');
                 if (!ok) return;
@@ -3295,6 +3533,7 @@ Please pay by: ${formattedLastDate}`;
                 logEvent={logEvent}
                 currentUser={user}
                 access={normalizeAccess(user?.access)}
+                displayTimeZone={displayTimeZone}
               />
             )}
             {activeTab === 'Finance' && (
@@ -3306,6 +3545,7 @@ Please pay by: ${formattedLastDate}`;
                 setFinanceTransactions={setFinanceTransactions}
                 updateSetting={updateSettingValue}
                 access={normalizeAccess(user?.access)}
+                displayTimeZone={displayTimeZone}
               />
             )}
             {activeTab === 'Staff' && (
@@ -3324,6 +3564,7 @@ Please pay by: ${formattedLastDate}`;
                 settings={settings}
                 updateSetting={updateSettingValue}
                 currentUser={user}
+                displayTimeZone={displayTimeZone}
               />
             )}
             {activeTab === 'Leave Tracker' && (
@@ -4357,7 +4598,7 @@ function Sidebar({ user, active, onSelect, theme, setTheme, onLogout, onUndo, on
     }
 
     // ---- Members List (Dashboard list mode) ----
-function MembersList({ title, list, onBack, onEdit, onStatusChange, holdOptions, logs, onWelcome, onWhatsAppCall, onWelcomeMail, onAddAttachment, onQuickFieldEdit, editOptions, isOwner, canEdit = true }) {
+function MembersList({ title, list, onBack, onEdit, onStatusChange, holdOptions, logs, onWelcome, onWhatsAppCall, onWelcomeMail, onAddAttachment, onQuickFieldEdit, editOptions, isOwner, canEdit = true, displayTimeZone = 'IST' }) {
       const [openId, setOpenId] = React.useState(null);
       const [mobileDetailMemberId, setMobileDetailMemberId] = React.useState('');
       const [page, setPage] = React.useState(1);
@@ -4411,6 +4652,7 @@ function MembersList({ title, list, onBack, onEdit, onStatusChange, holdOptions,
                 isOwner={isOwner}
                 onOpenMobileDetail={(member) => setMobileDetailMemberId(member?.memberId || '')}
                 canEdit={canEdit}
+                displayTimeZone={displayTimeZone}
               />
             ))}
             {(list || []).length > pageSize && (
@@ -4460,15 +4702,15 @@ function MembersList({ title, list, onBack, onEdit, onStatusChange, holdOptions,
     }
 
     // ---- Member Row ----
-function MemberRow({ m, expanded, onToggle, onEdit, onStatusChange, holdOptions, onDelete, canDelete, onWelcome, onWhatsAppCall, onWelcomeMail, onAddAttachment, logs, selected, onSelectToggle, selectable, onQuickFieldEdit, editOptions, isOwner, onOpenMobileDetail, canEdit = true }) {
+function MemberRow({ m, expanded, onToggle, onEdit, onStatusChange, holdOptions, onDelete, canDelete, onWelcome, onWhatsAppCall, onWelcomeMail, onAddAttachment, logs, selected, onSelectToggle, selectable, onQuickFieldEdit, editOptions, isOwner, onOpenMobileDetail, canEdit = true, displayTimeZone = 'IST' }) {
       const todayHighlight = fmt(m.billingDate) === fmt(new Date());
       // Determine if we can open WhatsApp welcome/payment reminder.
       // Active members with mobile number and billing date qualify.
       const canWelcome = m.mobile && String(m.mobile).trim();
       const statusTemplate = primaryMessageActionForMember(m, isOwner);
       const hasPrimaryMessageAction = statusTemplate.key !== 'none';
-      const statusSentText = hasPrimaryMessageAction ? getSmsSentInfoText(m, statusTemplate.key) : '';
-      const callInfoText = getLastWhatsAppCallText(m);
+      const statusSentText = hasPrimaryMessageAction ? getSmsSentInfoText(m, statusTemplate.key, displayTimeZone) : '';
+      const callInfoText = getLastWhatsAppCallText(m, displayTimeZone);
       const uploadDoc = async (e) => {
         const file = e.target.files?.[0];
         if (!file) return;
@@ -4541,7 +4783,7 @@ function MemberRow({ m, expanded, onToggle, onEdit, onStatusChange, holdOptions,
                   statusSentText={statusSentText}
                   canEdit={canEdit}
                 />
-              <MemberDetails m={m} logs={logs} onQuickFieldEdit={canEdit ? onQuickFieldEdit : null} editOptions={editOptions} isOwner={isOwner} />
+              <MemberDetails m={m} logs={logs} onQuickFieldEdit={canEdit ? onQuickFieldEdit : null} editOptions={editOptions} isOwner={isOwner} displayTimeZone={displayTimeZone} />
               <WhatsAppMessageTypesBlock
                 m={m}
                 onWelcome={onWelcome}
@@ -5002,7 +5244,7 @@ function MemberRowDesktopView({ m, selectable, selected, onSelectToggle, onToggl
     }
 
     // ---- Member Details (expanded row) ----
-    function MemberDetails({ m, logs, onQuickFieldEdit, editOptions, isOwner = false }) {
+    function MemberDetails({ m, logs, onQuickFieldEdit, editOptions, isOwner = false, displayTimeZone = 'IST' }) {
       // Normalise undefined/empty values to a dash to avoid displaying
       // "undefined" or other undesired text in the details panel.
       const normal = (val) => {
@@ -5078,7 +5320,7 @@ function MemberRowDesktopView({ m, selectable, selected, onSelectToggle, onToggl
             {memberLogs.map(l => (
               <div key={l.id} className="text-xs text-slate-600 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-1">
                 <span>{l.action}</span>
-                <span className="text-slate-500">{fmt(l.ts)}</span>
+                <span className="text-slate-500">{formatDateTimeTz(l.ts, displayTimeZone)} <span className="text-[10px] uppercase">{displayTimeZone}</span></span>
               </div>
             ))}
             {memberLogs.length === 0 && (
@@ -5210,7 +5452,7 @@ function QuickActions({ m, onStatusChange, holdOptions, canDelete, onDelete, can
     }
 
     // ---- Dashboard View (Members grouped by status) ----
-function DashboardView({ members, onEdit, onStatusChange, holdOptions, logs, filters, filterOpen, setFilterOpen, anyFilterActive, canDelete, onDelete, billingMonthOptions, onWelcome, onWhatsAppCall, onWelcomeMail, onAddAttachment, onQuickFieldEdit, editOptions, isOwner, canEdit = true, onImportCsv = null }) {
+function DashboardView({ members, onEdit, onStatusChange, holdOptions, logs, filters, filterOpen, setFilterOpen, anyFilterActive, canDelete, onDelete, billingMonthOptions, onWelcome, onWhatsAppCall, onWelcomeMail, onAddAttachment, onQuickFieldEdit, editOptions, isOwner, canEdit = true, onImportCsv = null, displayTimeZone = 'IST' }) {
       // Single expanded row across all statuses. Only one memberId may be expanded at a time.
       const [expandedId, setExpandedId] = React.useState(null);
       const [mobileDetailMemberId, setMobileDetailMemberId] = React.useState('');
@@ -5415,6 +5657,7 @@ function DashboardView({ members, onEdit, onStatusChange, holdOptions, logs, fil
                   isOwner={isOwner}
                   onOpenMobileDetail={(member) => setMobileDetailMemberId(member?.memberId || '')}
                   canEdit={canEdit}
+                  displayTimeZone={displayTimeZone}
                 />
               ))}
             </div>
@@ -5568,6 +5811,7 @@ function DashboardView({ members, onEdit, onStatusChange, holdOptions, logs, fil
                       isOwner={isOwner}
                       onOpenMobileDetail={(member) => setMobileDetailMemberId(member?.memberId || '')}
                       canEdit={canEdit}
+                      displayTimeZone={displayTimeZone}
                     />
                   ))}
                   {pageList.length === 0 && (
@@ -6997,7 +7241,7 @@ function EditMemberModal({ member, onClose, onSave, planOptions, statusOptions, 
     }
 
     // ---- PT Clients Page ----
-function PTClientsPage({ members, users, settings, updateSetting, currentUser, access = {} }) {
+function PTClientsPage({ members, users, settings, updateSetting, currentUser, access = {}, displayTimeZone = 'IST' }) {
       const PT_TABS = ['PT Workout', 'Workout Plan', 'Diet Plan', 'Chat Trainer', 'Today Sessions', 'Weight Progress'];
       const [activeSubTab, setActiveSubTab] = React.useState('PT Workout');
       const ptProfiles = settings.ptClientProfiles || {};
@@ -7408,7 +7652,7 @@ function PTClientsPage({ members, users, settings, updateSetting, currentUser, a
                         <div key={msg.id} className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-sm">
                           <div className="font-medium text-slate-800">{msg.by}</div>
                           <div className="text-slate-700">{msg.text}</div>
-                          <div className="text-xs text-slate-500 mt-1">{fmt(msg.ts)}</div>
+                          <div className="text-xs text-slate-500 mt-1">{formatDateTimeTz(msg.ts, displayTimeZone)} <span className="text-[10px] uppercase">{displayTimeZone}</span></div>
                         </div>
                       ))}
                       {(!profile.chat || profile.chat.length === 0) && <div className="text-sm text-slate-500">No trainer notes yet.</div>}
@@ -7459,8 +7703,10 @@ function PTClientsPage({ members, users, settings, updateSetting, currentUser, a
     }
 
     // ---- Attendance Page ----
-function AttendancePage({ users, settings, updateSetting, currentUser }) {
+function AttendancePage({ users, settings, updateSetting, currentUser, displayTimeZone = 'IST' }) {
       const [date, setDate] = React.useState(iso(new Date()));
+      const [expandedStaffId, setExpandedStaffId] = React.useState('');
+      const [historyPageByStaff, setHistoryPageByStaff] = React.useState({});
       const staff = (users || []).filter(u => !u.blocked);
       const records = settings.staffAttendance || [];
       const keyFor = (userId) => `${date}__${userId}`;
@@ -7481,12 +7727,30 @@ function AttendancePage({ users, settings, updateSetting, currentUser }) {
       };
       const presentCount = staff.filter(s => (map[keyFor(s.id)]?.status || 'Absent') === 'Present').length;
       const leaveCount = staff.filter(s => (map[keyFor(s.id)]?.status || '') === 'Leave').length;
+      const twoMonthCutoff = React.useMemo(() => {
+        const base = new Date();
+        base.setMonth(base.getMonth() - 2);
+        return base;
+      }, []);
+      const attendanceHistoryByUser = React.useMemo(() => {
+        const out = {};
+        staff.forEach((s) => { out[s.id] = []; });
+        records.forEach((r) => {
+          const dt = new Date(r.date);
+          if (!Number.isNaN(dt.getTime()) && dt >= twoMonthCutoff && out[r.userId]) out[r.userId].push(r);
+        });
+        Object.keys(out).forEach((userId) => {
+          out[userId].sort((a, b) => String(b.date || '').localeCompare(String(a.date || '')));
+        });
+        return out;
+      }, [records, staff, twoMonthCutoff]);
+      const HISTORY_PAGE_SIZE = 5;
       return (
         <div className="p-3 md:p-8 space-y-4">
           <div className="flex flex-col gap-3 md:flex-row md:items-end md:justify-between">
             <div>
               <h1 className="text-xl md:text-2xl font-semibold text-slate-900">Attendance</h1>
-              <p className="text-sm text-slate-600">Daily staff attendance with check-in/out tracking.</p>
+              <p className="text-sm text-slate-600">Daily staff attendance with first-login and last-logout tracking.</p>
             </div>
             <div className="flex items-center gap-2">
               <input type="date" value={date} onChange={(e) => setDate(iso(e.target.value))} className="rounded-xl border border-slate-300 px-3 py-2 text-sm" />
@@ -7501,30 +7765,115 @@ function AttendancePage({ users, settings, updateSetting, currentUser }) {
           <div className="rounded-3xl border border-slate-200 bg-white p-3 sm:p-4 space-y-3">
             {staff.map(s => {
               const rec = map[keyFor(s.id)] || {};
+              const isOpen = expandedStaffId === s.id;
+              const historyRows = attendanceHistoryByUser[s.id] || [];
+              const totalPages = Math.max(1, Math.ceil(historyRows.length / HISTORY_PAGE_SIZE));
+              const currentPage = Math.min(Math.max(1, Number(historyPageByStaff[s.id] || 1)), totalPages);
+              const start = (currentPage - 1) * HISTORY_PAGE_SIZE;
+              const visibleRows = historyRows.slice(start, start + HISTORY_PAGE_SIZE);
               return (
-                <div key={s.id} className="rounded-2xl border border-slate-200 p-3 grid grid-cols-1 lg:grid-cols-6 gap-2">
-                  <div>
-                    <div className="text-sm font-semibold text-slate-900">{s.name}</div>
-                    <div className="text-xs text-slate-500">{s.id}</div>
-                  </div>
-                  <div>
-                    <label className="text-xs text-slate-500">Status</label>
-                    <select value={rec.status || 'Absent'} onChange={(e) => upsert(s.id, { status: e.target.value })} className="mt-1 w-full rounded-xl border border-slate-300 px-3 py-2 text-sm">
-                      <option>Present</option><option>Absent</option><option>Half Day</option><option>Leave</option>
-                    </select>
-                  </div>
-                  <div>
-                    <label className="text-xs text-slate-500">Check-In</label>
-                    <input type="time" value={rec.checkIn || ''} onChange={(e) => upsert(s.id, { checkIn: e.target.value })} className="mt-1 w-full rounded-xl border border-slate-300 px-3 py-2 text-sm" />
-                  </div>
-                  <div>
-                    <label className="text-xs text-slate-500">Check-Out</label>
-                    <input type="time" value={rec.checkOut || ''} onChange={(e) => upsert(s.id, { checkOut: e.target.value })} className="mt-1 w-full rounded-xl border border-slate-300 px-3 py-2 text-sm" />
-                  </div>
-                  <div className="lg:col-span-2">
-                    <label className="text-xs text-slate-500">Note</label>
-                    <input value={rec.note || ''} onChange={(e) => upsert(s.id, { note: e.target.value })} placeholder="Reason / shift notes" className="mt-1 w-full rounded-xl border border-slate-300 px-3 py-2 text-sm" />
-                  </div>
+                <div key={s.id} className="rounded-2xl border border-slate-200 bg-white">
+                  <button
+                    type="button"
+                    onClick={() => setExpandedStaffId((prev) => (prev === s.id ? '' : s.id))}
+                    className="w-full p-3 text-left flex flex-wrap items-center justify-between gap-2 hover:bg-slate-50 rounded-2xl"
+                  >
+                    <div>
+                      <div className="text-sm font-semibold text-slate-900">{s.name}</div>
+                      <div className="text-xs text-slate-500">{s.id}</div>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <span className={cx('rounded-full px-2 py-1 text-xs font-semibold border', (rec.status || 'Absent') === 'Present' ? 'bg-emerald-50 text-emerald-700 border-emerald-200' : 'bg-slate-100 text-slate-600 border-slate-200')}>
+                        {rec.status || 'Absent'}
+                      </span>
+                      <span className="text-xs font-semibold text-slate-500">{isOpen ? 'Hide' : 'Expand'}</span>
+                    </div>
+                  </button>
+                  {isOpen && (
+                    <div className="border-t border-slate-200 p-3 space-y-3">
+                      <div className="grid grid-cols-1 lg:grid-cols-4 gap-2">
+                        <div>
+                          <label className="text-xs text-slate-500">Status</label>
+                          <select value={rec.status || 'Absent'} onChange={(e) => upsert(s.id, { status: e.target.value })} className="mt-1 w-full rounded-xl border border-slate-300 px-3 py-2 text-sm">
+                            <option>Present</option><option>Absent</option><option>Half Day</option><option>Leave</option>
+                          </select>
+                        </div>
+                        <div>
+                          <label className="text-xs text-slate-500">First Login In</label>
+                          <div className="mt-1 rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-700">{rec.firstLoginAt ? <>{formatDateTimeTz(rec.firstLoginAt, displayTimeZone)} <span className="text-[10px] uppercase">{displayTimeZone}</span></> : '—'}</div>
+                        </div>
+                        <div>
+                          <label className="text-xs text-slate-500">Last Logout</label>
+                          <div className="mt-1 rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-700">{rec.lastLogoutAt ? <>{formatDateTimeTz(rec.lastLogoutAt, displayTimeZone)} <span className="text-[10px] uppercase">{displayTimeZone}</span></> : '—'}</div>
+                        </div>
+                        <div className="lg:col-span-4">
+                          <label className="text-xs text-slate-500">Note</label>
+                          <input value={rec.note || ''} onChange={(e) => upsert(s.id, { note: e.target.value })} placeholder="Reason / shift notes" className="mt-1 w-full rounded-xl border border-slate-300 px-3 py-2 text-sm" />
+                        </div>
+                        {rec.autoMarked && rec.autoPresentWindowUntil && (
+                          <div className="lg:col-span-4">
+                            <div className="inline-flex rounded-full border border-emerald-300 bg-emerald-50 px-2 py-0.5 text-[10px] font-semibold text-emerald-700">
+                              Auto Present 24h until {formatDateTimeTz(rec.autoPresentWindowUntil, displayTimeZone)} <span className="text-[10px] uppercase">{displayTimeZone}</span>
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                      <div className="rounded-2xl border border-slate-200 bg-slate-50 p-3">
+                        <div className="flex flex-wrap items-center justify-between gap-2 mb-2">
+                          <div className="text-sm font-semibold text-slate-800">Last 2 Months Attendance</div>
+                          <div className="text-xs text-slate-500">Showing {visibleRows.length} of {historyRows.length}</div>
+                        </div>
+                        <div className="overflow-x-auto">
+                          <table className="min-w-full text-xs">
+                            <thead>
+                              <tr className="bg-slate-100 text-slate-700">
+                                <th className="px-2 py-1 text-left">Date</th>
+                                <th className="px-2 py-1 text-left">Status</th>
+                                <th className="px-2 py-1 text-left">First Login</th>
+                                <th className="px-2 py-1 text-left">Last Logout</th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {visibleRows.map((row) => (
+                                <tr key={row.id} className="border-b border-slate-200">
+                                  <td className="px-2 py-1 whitespace-nowrap">{formatDateTz(row.date, displayTimeZone)}</td>
+                                  <td className="px-2 py-1 whitespace-nowrap">{row.status || 'Absent'}</td>
+                                  <td className="px-2 py-1 whitespace-nowrap">{row.firstLoginAt ? <>{formatDateTimeTz(row.firstLoginAt, displayTimeZone)} <span className="text-[10px] uppercase">{displayTimeZone}</span></> : '—'}</td>
+                                  <td className="px-2 py-1 whitespace-nowrap">{row.lastLogoutAt ? <>{formatDateTimeTz(row.lastLogoutAt, displayTimeZone)} <span className="text-[10px] uppercase">{displayTimeZone}</span></> : '—'}</td>
+                                </tr>
+                              ))}
+                              {visibleRows.length === 0 && (
+                                <tr>
+                                  <td colSpan={4} className="px-2 py-2 text-slate-500">No attendance entries for the last 2 months.</td>
+                                </tr>
+                              )}
+                            </tbody>
+                          </table>
+                        </div>
+                        {historyRows.length > HISTORY_PAGE_SIZE && (
+                          <div className="mt-2 flex items-center justify-between text-xs text-slate-600">
+                            <span>Page {currentPage} / {totalPages}</span>
+                            <div className="flex items-center gap-2">
+                              <button
+                                onClick={() => setHistoryPageByStaff((prev) => ({ ...prev, [s.id]: Math.max(1, currentPage - 1) }))}
+                                disabled={currentPage <= 1}
+                                className="rounded border border-slate-300 bg-white px-2 py-1 disabled:opacity-50"
+                              >
+                                Prev
+                              </button>
+                              <button
+                                onClick={() => setHistoryPageByStaff((prev) => ({ ...prev, [s.id]: Math.min(totalPages, currentPage + 1) }))}
+                                disabled={currentPage >= totalPages}
+                                className="rounded border border-slate-300 bg-white px-2 py-1 disabled:opacity-50"
+                              >
+                                Next
+                              </button>
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  )}
                 </div>
               );
             })}
@@ -7728,11 +8077,13 @@ function AttendancePage({ users, settings, updateSetting, currentUser }) {
       };
 
     // ---- Settings Page ----
-function SettingsPage({ settings, updateSetting, members, access, storageInfo, backendStorageInfo, dataSyncMode, offlineQueueCount = 0, canResetFreshStart = false, availableBackups = [], onExport, onImport, onResetFreshStart, onRestoreFromBackup }) {
+function SettingsPage({ settings, updateSetting, members, access, storageInfo, backendStorageInfo, dataSyncMode, offlineQueueCount = 0, canResetFreshStart = false, availableBackups = [], onExport, onImport, onResetFreshStart, onRestoreFromBackup, onDeleteBackup, onDeleteBackupsOlderThan, onKeepLatestBackups }) {
       const [newValues, setNewValues] = React.useState({ plans: '', statuses: '', paymentMethods: '', holdDurations: '', genders: '' });
       const [openSettingKey, setOpenSettingKey] = React.useState('');
       const importRef = React.useRef(null);
       const [selectedBackup, setSelectedBackup] = React.useState('');
+      const [pruneDays, setPruneDays] = React.useState('30');
+      const [keepLatestCount, setKeepLatestCount] = React.useState('20');
       const [backupPage, setBackupPage] = React.useState(1);
       const BACKUPS_PER_PAGE = 12;
       const backupPages = Math.max(1, Math.ceil((availableBackups || []).length / BACKUPS_PER_PAGE));
@@ -7876,6 +8227,51 @@ function SettingsPage({ settings, updateSetting, members, access, storageInfo, b
                     >
                       Restore Backup
                     </button>
+                    {canResetFreshStart && (
+                      <button
+                        onClick={() => onDeleteBackup && selectedBackup && onDeleteBackup(selectedBackup)}
+                        disabled={!selectedBackup}
+                        className="rounded-xl px-3 py-2 text-sm font-medium border border-rose-300 bg-rose-50 text-rose-700 hover:bg-rose-100 disabled:opacity-50"
+                      >
+                        Delete Selected
+                      </button>
+                    )}
+                  </div>
+                  {canResetFreshStart && (
+                    <div className="flex flex-wrap items-center gap-2 pt-1">
+                      <select
+                        value={pruneDays}
+                        onChange={(e) => setPruneDays(e.target.value)}
+                        className="rounded-xl border border-slate-300 bg-white px-2.5 py-2 text-sm"
+                      >
+                        <option value="7">Delete older than 7 days</option>
+                        <option value="15">Delete older than 15 days</option>
+                        <option value="30">Delete older than 30 days</option>
+                      </select>
+                      <button
+                        onClick={() => onDeleteBackupsOlderThan && onDeleteBackupsOlderThan(Number(pruneDays || 30))}
+                        className="rounded-xl px-3 py-2 text-sm font-medium border border-amber-300 bg-amber-50 text-amber-700 hover:bg-amber-100"
+                      >
+                        Prune Older
+                      </button>
+                      <input
+                        type="number"
+                        min="1"
+                        value={keepLatestCount}
+                        onChange={(e) => setKeepLatestCount(e.target.value)}
+                        className="w-28 rounded-xl border border-slate-300 bg-white px-2.5 py-2 text-sm"
+                        placeholder="Keep latest"
+                      />
+                      <button
+                        onClick={() => onKeepLatestBackups && onKeepLatestBackups(Number(keepLatestCount || 20))}
+                        className="rounded-xl px-3 py-2 text-sm font-medium border border-blue-300 bg-blue-50 text-blue-700 hover:bg-blue-100"
+                      >
+                        Keep Latest N
+                      </button>
+                    </div>
+                  )}
+                  <div className="text-xs text-slate-500">
+                    Auto backup retention is optimized (lower count, age prune, compression, disk cap).
                   </div>
                   <div className="flex items-center gap-2 text-xs text-slate-600">
                     <button
@@ -8081,7 +8477,7 @@ function SettingsPage({ settings, updateSetting, members, access, storageInfo, b
     }
 
     // ---- Logs Page ----
-    function LogsPage({ logs, currentUser, onClearLogs }) {
+    function LogsPage({ logs, currentUser, onClearLogs, displayTimeZone = 'IST' }) {
       const [filter, setFilter] = React.useState('');
       const [actorFilter, setActorFilter] = React.useState('');
       const [actionFilter, setActionFilter] = React.useState('');
@@ -8239,7 +8635,7 @@ function SettingsPage({ settings, updateSetting, members, access, storageInfo, b
                 {pageRows.map(l => (
                   <React.Fragment key={l.id}>
                     <tr onClick={() => setExpandedId(prev => prev === l.id ? '' : l.id)} className="border-b border-slate-200 hover:bg-slate-100 cursor-pointer">
-                      <td className="px-3 py-2 whitespace-nowrap">{fmt(l.ts)}</td>
+                      <td className="px-3 py-2 whitespace-nowrap">{formatDateTimeTz(l.ts, displayTimeZone)} <span className="text-[10px] uppercase text-slate-500">{displayTimeZone}</span></td>
                       <td className="px-3 py-2 whitespace-nowrap">{l.actor}</td>
                       <td className="px-3 py-2 whitespace-nowrap">
                         <span className="inline-flex rounded-full bg-blue-100 px-2 py-0.5 text-xs font-semibold text-blue-700">{l.action}</span>
@@ -8322,7 +8718,7 @@ function SettingsPage({ settings, updateSetting, members, access, storageInfo, b
                     <div className="font-medium text-slate-900 truncate">{l.actor || 'Unknown'}</div>
                     <span className="inline-flex rounded-full bg-blue-100 px-2 py-0.5 text-xs font-semibold text-blue-700">{l.action}</span>
                   </div>
-                  <div className="text-xs text-slate-500 mt-1">{fmt(l.ts)}</div>
+                  <div className="text-xs text-slate-500 mt-1">{formatDateTimeTz(l.ts, displayTimeZone)} <span className="text-[10px] uppercase">{displayTimeZone}</span></div>
                   <div className="text-xs text-slate-600 mt-1">Entity: {l.entityType} / {l.entityId}</div>
                   <div className="mt-2 grid grid-cols-1 gap-2 text-xs">
                     <div className="rounded-lg bg-slate-900 text-slate-100 p-2 overflow-auto">
@@ -8367,7 +8763,7 @@ function SettingsPage({ settings, updateSetting, members, access, storageInfo, b
     }
 
     // ---- WhatsApp SMS Page ----
-    function WhatsAppSmsPage({ members, setMembers, settings, updateSetting, smsEvents, logEvent, currentUser, access }) {
+    function WhatsAppSmsPage({ members, setMembers, settings, updateSetting, smsEvents, logEvent, currentUser, access, displayTimeZone = 'IST' }) {
       const [ruleTab, setRuleTab] = React.useState('all');
       const [activeType, setActiveType] = React.useState('reminder');
       const [search, setSearch] = React.useState('');
@@ -8932,7 +9328,7 @@ function SettingsPage({ settings, updateSetting, members, access, storageInfo, b
                 <tbody>
                   {autoSyncPageRows.map(ev => (
                     <tr key={ev.id} className="border-b border-slate-200">
-                      <td className="px-3 py-2 whitespace-nowrap">{fmt(ev.ts)}</td>
+                      <td className="px-3 py-2 whitespace-nowrap">{formatDateTimeTz(ev.ts, displayTimeZone)} <span className="text-[10px] uppercase text-slate-500">{displayTimeZone}</span></td>
                       <td className="px-3 py-2 whitespace-nowrap">{ev.memberName}</td>
                       <td className="px-3 py-2 whitespace-nowrap">{ev.fromStatus} → {ev.toStatus}</td>
                       <td className="px-3 py-2 whitespace-nowrap">{ev.templateKey}</td>
@@ -8960,7 +9356,7 @@ function SettingsPage({ settings, updateSetting, members, access, storageInfo, b
               <div className="md:hidden divide-y divide-slate-200">
                 {autoSyncPageRows.map(ev => (
                   <div key={`mobile-ev-${ev.id}`} className="py-3 space-y-2">
-                    <div className="text-xs text-slate-500">{fmt(ev.ts)}</div>
+                    <div className="text-xs text-slate-500">{formatDateTimeTz(ev.ts, displayTimeZone)} <span className="text-[10px] uppercase">{displayTimeZone}</span></div>
                     <div className="font-semibold text-slate-900">{ev.memberName}</div>
                     <div className="text-xs text-slate-600">{ev.fromStatus} → {ev.toStatus} | {ev.templateKey}</div>
                     <div className="text-xs text-slate-600 truncate">{ev.message}</div>
@@ -9061,7 +9457,7 @@ function SettingsPage({ settings, updateSetting, members, access, storageInfo, b
     }
 
     // ---- Finance Page ----
-    function FinancePage({ members, settings, logs, financeTransactions = [], setFinanceTransactions, updateSetting, access }) {
+    function FinancePage({ members, settings, logs, financeTransactions = [], setFinanceTransactions, updateSetting, access, displayTimeZone = 'IST' }) {
       const [query, setQuery] = React.useState('');
       const [appliedQuery, setAppliedQuery] = React.useState('');
       const [showFilter, setShowFilter] = React.useState(false);
@@ -9565,7 +9961,7 @@ function SettingsPage({ settings, updateSetting, members, access, storageInfo, b
                                 <tbody>
                                   {getMemberLogs(t.memberId).map(entry => (
                                     <tr key={entry.id} className="border-b border-slate-200">
-                                      <td className="px-2 py-1 whitespace-nowrap">{fmt(entry.ts)}</td>
+                                      <td className="px-2 py-1 whitespace-nowrap">{formatDateTimeTz(entry.ts, displayTimeZone)} <span className="text-[10px] uppercase text-slate-500">{displayTimeZone}</span></td>
                                       <td className="px-2 py-1 whitespace-nowrap">{amountFromLog(entry)}</td>
                                       <td className="px-2 py-1 whitespace-nowrap">{entry.actor || '-'}</td>
                                       <td className="px-2 py-1 whitespace-nowrap">{entry.action || '-'}</td>
@@ -9612,7 +10008,7 @@ function SettingsPage({ settings, updateSetting, members, access, storageInfo, b
                         <div className="space-y-1">
                           {getMemberLogs(t.memberId).slice(0, 5).map(entry => (
                             <div key={entry.id} className="text-xs text-slate-700">
-                              {fmt(entry.ts)} - {entry.actor || '-'} - {entry.action || '-'}
+                              {formatDateTimeTz(entry.ts, displayTimeZone)} <span className="text-[10px] uppercase">{displayTimeZone}</span> - {entry.actor || '-'} - {entry.action || '-'}
                             </div>
                           ))}
                           {getMemberLogs(t.memberId).length === 0 && (

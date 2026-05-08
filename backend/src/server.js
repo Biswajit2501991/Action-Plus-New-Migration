@@ -5,6 +5,9 @@ import crypto from 'node:crypto';
 import fs from 'node:fs/promises';
 import jwt from 'jsonwebtoken';
 import path from 'node:path';
+import os from 'node:os';
+import { gzip, gunzip } from 'node:zlib';
+import { promisify } from 'node:util';
 import { env } from './config/env.js';
 import { query, withTransaction } from './db/adapter.js';
 import { requireAuth } from './middleware/requireAuth.js';
@@ -104,8 +107,16 @@ function signAuthToken({ tenantId, userId, roles, permissions }) {
 
 const DB_FILE_PATH = path.resolve(process.cwd(), env.DATABASE_PATH);
 const DB_BACKUP_DIR = path.resolve(path.dirname(DB_FILE_PATH), 'backups');
-const MAX_DB_BACKUPS = Number(process.env.DB_BACKUP_MAX_FILES || 120);
+const gzipAsync = promisify(gzip);
+const gunzipAsync = promisify(gunzip);
+const MAX_DB_BACKUPS = Number(process.env.DB_BACKUP_MAX_FILES || 30);
+const MAX_BACKUP_TOTAL_BYTES = Number(process.env.DB_BACKUP_MAX_TOTAL_BYTES || (2 * 1024 * 1024 * 1024));
+const AUTO_BACKUP_INTERVAL_MS = Number(process.env.DB_BACKUP_INTERVAL_MS || (45 * 60 * 1000));
+const AUTO_BACKUP_MAX_AGE_DAYS = Number(process.env.DB_BACKUP_MAX_AGE_DAYS || 60);
+const COMPRESS_OLD_BACKUPS = process.env.DB_BACKUP_COMPRESS_OLD !== 'false';
+const COMPRESS_AFTER_MS = Number(process.env.DB_BACKUP_COMPRESS_AFTER_MS || (24 * 60 * 60 * 1000));
 let backupQueue = Promise.resolve();
+let lastBackupAtMs = 0;
 
 function makeBackupFilename(reason = 'autosave') {
   const stamp = new Date().toISOString().replace(/[:.]/g, '-');
@@ -114,29 +125,21 @@ function makeBackupFilename(reason = 'autosave') {
 }
 
 async function trimOldBackups() {
-  try {
-    const entries = await fs.readdir(DB_BACKUP_DIR, { withFileTypes: true });
-    const files = entries
-      .filter((entry) => entry.isFile() && entry.name.endsWith('.db'))
-      .map((entry) => entry.name)
-      .sort();
-    if (files.length <= MAX_DB_BACKUPS) return;
-    const removeCount = files.length - MAX_DB_BACKUPS;
-    const toRemove = files.slice(0, removeCount);
-    await Promise.all(toRemove.map((name) => fs.unlink(path.join(DB_BACKUP_DIR, name)).catch(() => {})));
-  } catch {
-    // Ignore cleanup errors so requests are never blocked by backup retention.
-  }
+  await pruneBackups({ keepLatest: MAX_DB_BACKUPS, maxAgeDays: AUTO_BACKUP_MAX_AGE_DAYS, hardCapBytes: MAX_BACKUP_TOTAL_BYTES, compressOld: COMPRESS_OLD_BACKUPS });
 }
 
 async function createDatabaseBackup(reason = 'autosave') {
   await fs.mkdir(DB_BACKUP_DIR, { recursive: true });
   const target = path.join(DB_BACKUP_DIR, makeBackupFilename(reason));
   await fs.copyFile(DB_FILE_PATH, target);
+  lastBackupAtMs = Date.now();
   await trimOldBackups();
 }
 
-function queueDatabaseBackup(reason) {
+function queueDatabaseBackup(reason, options = {}) {
+  const force = Boolean(options?.force);
+  const now = Date.now();
+  if (!force && (now - lastBackupAtMs) < AUTO_BACKUP_INTERVAL_MS) return;
   backupQueue = backupQueue
     .then(() => createDatabaseBackup(reason))
     .catch((err) => {
@@ -180,7 +183,7 @@ async function listBackupNames() {
   try {
     const entries = await fs.readdir(DB_BACKUP_DIR, { withFileTypes: true });
     return entries
-      .filter((entry) => entry.isFile() && entry.name.endsWith('.db'))
+      .filter((entry) => entry.isFile() && (entry.name.endsWith('.db') || entry.name.endsWith('.db.gz')))
       .map((entry) => entry.name)
       .sort()
       .reverse();
@@ -189,11 +192,98 @@ async function listBackupNames() {
   }
 }
 
+async function readBackupEntries() {
+  await fs.mkdir(DB_BACKUP_DIR, { recursive: true });
+  const entries = await fs.readdir(DB_BACKUP_DIR, { withFileTypes: true });
+  const files = await Promise.all(entries
+    .filter((entry) => entry.isFile() && (entry.name.endsWith('.db') || entry.name.endsWith('.db.gz')))
+    .map(async (entry) => {
+      try {
+        const fullPath = path.join(DB_BACKUP_DIR, entry.name);
+        const stat = await fs.stat(fullPath);
+        return {
+          name: entry.name,
+          path: fullPath,
+          size: Number(stat.size || 0),
+          mtimeMs: Number(stat.mtimeMs || 0),
+          gz: entry.name.endsWith('.gz'),
+        };
+      } catch {
+        return null;
+      }
+    }));
+  return files.filter(Boolean).sort((a, b) => b.mtimeMs - a.mtimeMs);
+}
+
+async function compressBackupFile(entry) {
+  if (!entry || entry.gz || !entry.path) return;
+  try {
+    const raw = await fs.readFile(entry.path);
+    const gz = await gzipAsync(raw);
+    const gzPath = `${entry.path}.gz`;
+    await fs.writeFile(gzPath, gz);
+    await fs.unlink(entry.path).catch(() => {});
+  } catch {}
+}
+
+async function pruneBackups({ keepLatest = MAX_DB_BACKUPS, maxAgeDays = null, hardCapBytes = MAX_BACKUP_TOTAL_BYTES, compressOld = COMPRESS_OLD_BACKUPS } = {}) {
+  try {
+    let files = await readBackupEntries();
+    const now = Date.now();
+    if (compressOld) {
+      const toCompress = files.filter((f) => !f.gz && (now - f.mtimeMs) > COMPRESS_AFTER_MS);
+      for (const file of toCompress) {
+        // Keep very recent files as plain .db for faster restore.
+        await compressBackupFile(file);
+      }
+      files = await readBackupEntries();
+    }
+    if (Number(maxAgeDays) > 0) {
+      const maxAgeMs = Number(maxAgeDays) * 24 * 60 * 60 * 1000;
+      const tooOld = files.filter((f) => (now - f.mtimeMs) > maxAgeMs);
+      await Promise.all(tooOld.map((f) => fs.unlink(f.path).catch(() => {})));
+      files = await readBackupEntries();
+    }
+    const keepN = Math.max(1, Number(keepLatest || MAX_DB_BACKUPS));
+    if (files.length > keepN) {
+      const drop = files.slice(keepN);
+      await Promise.all(drop.map((f) => fs.unlink(f.path).catch(() => {})));
+      files = await readBackupEntries();
+    }
+    let total = files.reduce((sum, f) => sum + Number(f.size || 0), 0);
+    const cap = Math.max(64 * 1024 * 1024, Number(hardCapBytes || MAX_BACKUP_TOTAL_BYTES));
+    if (total > cap) {
+      const oldestFirst = [...files].sort((a, b) => a.mtimeMs - b.mtimeMs);
+      for (const file of oldestFirst) {
+        if (total <= cap) break;
+        await fs.unlink(file.path).catch(() => {});
+        total -= Number(file.size || 0);
+      }
+    }
+  } catch {}
+}
+
+async function deleteBackupFileName(fileName = '') {
+  const name = String(fileName || '').trim();
+  if (!name || name.includes('/') || name.includes('\\')) throw new Error('invalid-backup-name');
+  const target = path.join(DB_BACKUP_DIR, name);
+  await fs.unlink(target);
+}
+
 async function restoreFromBackupFileName(fileName = '') {
   const name = String(fileName || '').trim();
   if (!name || name.includes('/') || name.includes('\\')) throw new Error('invalid-backup-name');
   const sourcePath = path.join(DB_BACKUP_DIR, name);
-  const backupDb = new Database(sourcePath, { readonly: true });
+  let openPath = sourcePath;
+  let tempDir = '';
+  if (name.endsWith('.gz')) {
+    tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'apg-restore-'));
+    openPath = path.join(tempDir, 'restore.db');
+    const zipped = await fs.readFile(sourcePath);
+    const raw = await gunzipAsync(zipped);
+    await fs.writeFile(openPath, raw);
+  }
+  const backupDb = new Database(openPath, { readonly: true });
   try {
     const rows = backupDb.prepare('select key, value_json from app_kv').all();
     for (const row of rows) {
@@ -208,6 +298,7 @@ async function restoreFromBackupFileName(fileName = '') {
     }
   } finally {
     backupDb.close();
+    if (tempDir) await fs.rm(tempDir, { recursive: true, force: true }).catch(() => {});
   }
 }
 
@@ -238,7 +329,6 @@ async function writeJsonCollection(key, value) {
          updated_at = CURRENT_TIMESTAMP`,
     [key, payload],
   );
-  queueDatabaseBackup(key);
 }
 
 async function readJsonValue(key, fallback = null) {
@@ -267,7 +357,6 @@ async function writeJsonValue(key, value) {
          updated_at = CURRENT_TIMESTAMP`,
     [key, payload],
   );
-  queueDatabaseBackup(key);
 }
 
 app.get('/api/v1/health', (_req, res) => {
@@ -284,6 +373,7 @@ app.get('/api/members', async (_req, res) => {
 
 app.put('/api/members/bulk', async (req, res) => {
   await writeJsonCollection('apg.members', req.body?.members || []);
+  queueDatabaseBackup('members-bulk');
   res.json({ ok: true });
 });
 
@@ -294,6 +384,7 @@ app.get('/api/visitors', async (_req, res) => {
 
 app.put('/api/visitors/bulk', async (req, res) => {
   await writeJsonCollection('apg.visitors', req.body?.visitors || []);
+  queueDatabaseBackup('visitors-bulk');
   res.json({ ok: true });
 });
 
@@ -304,6 +395,7 @@ app.get('/api/users', async (_req, res) => {
 
 app.put('/api/users/bulk', async (req, res) => {
   await writeJsonCollection('apg.users', req.body?.users || []);
+  queueDatabaseBackup('users-bulk');
   res.json({ ok: true });
 });
 
@@ -314,6 +406,7 @@ app.get('/api/settings', async (_req, res) => {
 
 app.put('/api/settings/bulk', async (req, res) => {
   await writeJsonValue('apg.settings', req.body?.settings || {});
+  queueDatabaseBackup('settings-bulk');
   res.json({ ok: true });
 });
 
@@ -324,6 +417,7 @@ app.get('/api/logs', async (_req, res) => {
 
 app.put('/api/logs/bulk', async (req, res) => {
   await writeJsonCollection('apg.logs', req.body?.logs || []);
+  queueDatabaseBackup('logs-bulk');
   res.json({ ok: true });
 });
 
@@ -334,6 +428,7 @@ app.get('/api/finance', async (_req, res) => {
 
 app.put('/api/finance/bulk', async (req, res) => {
   await writeJsonCollection('apg.finance', req.body?.finance || []);
+  queueDatabaseBackup('finance-bulk');
   res.json({ ok: true });
 });
 
@@ -344,6 +439,7 @@ app.get('/api/sms-events', async (_req, res) => {
 
 app.put('/api/sms-events/bulk', async (req, res) => {
   await writeJsonCollection('apg.sms.events', req.body?.smsEvents || []);
+  queueDatabaseBackup('sms-events-bulk');
   res.json({ ok: true });
 });
 
@@ -357,17 +453,54 @@ app.get('/api/backups', async (_req, res) => {
   res.json({ backups });
 });
 
+app.delete('/api/backups/:fileName', async (req, res) => {
+  const raw = req.params?.fileName || '';
+  const fileName = decodeURIComponent(raw);
+  if (!fileName) return res.status(400).json({ error: 'file-required' });
+  try {
+    await deleteBackupFileName(fileName);
+    await trimOldBackups();
+    const backups = await listBackupNames();
+    const storage = await computeStorageUsage();
+    return res.json({ ok: true, backups, storage });
+  } catch (error) {
+    return res.status(400).json({ error: 'delete-failed', message: String(error?.message || error) });
+  }
+});
+
+app.post('/api/backups/prune-older', async (req, res) => {
+  const days = Number(req.body?.days || 0);
+  if (!Number.isFinite(days) || days <= 0) return res.status(400).json({ error: 'invalid-days' });
+  await pruneBackups({ keepLatest: MAX_DB_BACKUPS, maxAgeDays: days, hardCapBytes: MAX_BACKUP_TOTAL_BYTES, compressOld: COMPRESS_OLD_BACKUPS });
+  const backups = await listBackupNames();
+  const storage = await computeStorageUsage();
+  return res.json({ ok: true, backups, storage });
+});
+
+app.post('/api/backups/keep-latest', async (req, res) => {
+  const count = Number(req.body?.count || 0);
+  if (!Number.isFinite(count) || count < 1) return res.status(400).json({ error: 'invalid-count' });
+  await pruneBackups({ keepLatest: count, maxAgeDays: null, hardCapBytes: MAX_BACKUP_TOTAL_BYTES, compressOld: COMPRESS_OLD_BACKUPS });
+  const backups = await listBackupNames();
+  const storage = await computeStorageUsage();
+  return res.json({ ok: true, backups, storage });
+});
+
 app.post('/api/backups/restore', async (req, res) => {
   const fileName = req.body?.fileName || '';
   if (!fileName) return res.status(400).json({ error: 'file-required' });
   try {
     await restoreFromBackupFileName(fileName);
-    queueDatabaseBackup('manual-restore');
+    queueDatabaseBackup('manual-restore', { force: true });
     return res.json({ ok: true, fileName });
   } catch (error) {
     return res.status(400).json({ error: 'restore-failed', message: String(error?.message || error) });
   }
 });
+
+setInterval(() => {
+  queueDatabaseBackup('interval-autosave');
+}, Math.max(5 * 60 * 1000, AUTO_BACKUP_INTERVAL_MS));
 
 app.post('/api/v1/auth/login', async (req, res) => {
   const identifier = (req.body?.identifier || req.body?.id || '').trim();
