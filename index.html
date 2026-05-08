@@ -7903,15 +7903,26 @@ function AttendancePage({ users, settings, updateSetting, currentUser, displayTi
         const [formError, setFormError] = React.useState('');
         const [formSuccess, setFormSuccess] = React.useState('');
         const [historyUserFilter, setHistoryUserFilter] = React.useState('');
+        const [leaveRequestPage, setLeaveRequestPage] = React.useState(1);
         const staff = (users || []).filter(u => !u.blocked);
         const filteredLeaveRequests = React.useMemo(() => {
           if (focusLeaveRequestId) return leaveRequests.filter((r) => r.id === focusLeaveRequestId);
           if (focusLeaveUserId) return leaveRequests.filter((r) => r.userId === focusLeaveUserId);
           return leaveRequests;
         }, [leaveRequests, focusLeaveRequestId, focusLeaveUserId]);
+        const LEAVE_REQUEST_PAGE_SIZE = 2;
+        const leaveRequestTotalPages = Math.max(1, Math.ceil(filteredLeaveRequests.length / LEAVE_REQUEST_PAGE_SIZE));
+        const safeLeaveRequestPage = Math.min(Math.max(1, leaveRequestPage), leaveRequestTotalPages);
+        const pagedLeaveRequests = React.useMemo(() => {
+          const start = (safeLeaveRequestPage - 1) * LEAVE_REQUEST_PAGE_SIZE;
+          return filteredLeaveRequests.slice(start, start + LEAVE_REQUEST_PAGE_SIZE);
+        }, [filteredLeaveRequests, safeLeaveRequestPage]);
         React.useEffect(() => {
           if (!form.userId && currentUser?.id) setForm(v => ({ ...v, userId: currentUser.id }));
         }, [currentUser, form.userId]);
+        React.useEffect(() => {
+          setLeaveRequestPage(1);
+        }, [filteredLeaveRequests.length, focusLeaveRequestId, focusLeaveUserId]);
         const dateRangeList = (startIso, endIso) => {
           const start = new Date(startIso);
           const end = new Date(endIso);
@@ -8066,7 +8077,7 @@ function AttendancePage({ users, settings, updateSetting, currentUser, displayTi
                   </button>
                 )}
               </div>
-              {(filteredLeaveRequests || []).map(r => {
+              {(pagedLeaveRequests || []).map(r => {
                 const staffName = staff.find(s => s.id === r.userId)?.name || r.userId;
                 return (
                   <div key={r.id} className="rounded-2xl border border-slate-200 p-3 flex flex-col lg:flex-row lg:items-center lg:justify-between gap-3">
@@ -8087,7 +8098,28 @@ function AttendancePage({ users, settings, updateSetting, currentUser, displayTi
                   </div>
                 );
               })}
-              {(!filteredLeaveRequests || filteredLeaveRequests.length === 0) && <div className="text-sm text-slate-500">No leave requests found for selected filter.</div>}
+              {(!pagedLeaveRequests || pagedLeaveRequests.length === 0) && <div className="text-sm text-slate-500">No leave requests found for selected filter.</div>}
+              {filteredLeaveRequests.length > LEAVE_REQUEST_PAGE_SIZE && (
+                <div className="flex items-center justify-between text-xs text-slate-600">
+                  <span>Page {safeLeaveRequestPage} / {leaveRequestTotalPages}</span>
+                  <div className="flex items-center gap-2">
+                    <button
+                      onClick={() => setLeaveRequestPage((p) => Math.max(1, p - 1))}
+                      disabled={safeLeaveRequestPage <= 1}
+                      className="rounded border border-slate-300 bg-white px-2 py-1 disabled:opacity-50"
+                    >
+                      Prev
+                    </button>
+                    <button
+                      onClick={() => setLeaveRequestPage((p) => Math.min(leaveRequestTotalPages, p + 1))}
+                      disabled={safeLeaveRequestPage >= leaveRequestTotalPages}
+                      className="rounded border border-slate-300 bg-white px-2 py-1 disabled:opacity-50"
+                    >
+                      Next
+                    </button>
+                  </div>
+                </div>
+              )}
             </div>
             )}
             {canViewAnnualLeaveBalance && (
