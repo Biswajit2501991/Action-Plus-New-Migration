@@ -6908,6 +6908,7 @@ function PTClientsPage({ members, users, settings, updateSetting, currentUser, a
       const [sessionDraft, setSessionDraft] = React.useState({ date: iso(new Date()), time: '07:00', status: 'Scheduled', note: '' });
       const [weightDraft, setWeightDraft] = React.useState({ date: iso(new Date()), weight: '' });
       const [workoutDate, setWorkoutDate] = React.useState(iso(new Date()));
+      const [workoutCalendarOpen, setWorkoutCalendarOpen] = React.useState(false);
       const [focusPage, setFocusPage] = React.useState(1);
       const FOCUS_PER_PAGE = 10;
       const ptAccess = normalizeAccess(access).ptClients;
@@ -7193,35 +7194,46 @@ function PTClientsPage({ members, users, settings, updateSetting, currentUser, a
                       <textarea rows={4} value={profile.ptWorkoutNotes || ''} onChange={(e) => persistProfile(selectedMember.memberId, { ptWorkoutNotes: e.target.value })} disabled={!canEditPtWorkout} className="mt-1 w-full rounded-xl border border-slate-300 px-3 py-2 text-sm disabled:bg-slate-100 disabled:text-slate-500" />
                     </div>
                     <div className="rounded-xl border border-slate-200 bg-white p-3">
-                      <div className="flex flex-wrap items-center justify-between gap-2 mb-2">
+                      <button
+                        type="button"
+                        onClick={() => setWorkoutCalendarOpen((v) => !v)}
+                        className="w-full flex flex-wrap items-center justify-between gap-2 text-left"
+                      >
                         <h4 className="text-sm font-semibold text-slate-900">Workout Scheduler & Calendar</h4>
-                        <div className="text-xs text-slate-600">Total PT days this month: <span className="font-semibold">{ptDaysDone}</span></div>
-                      </div>
-                      <div className="grid grid-cols-7 gap-2 text-center text-xs text-slate-500 mb-2">
-                        {['Sun','Mon','Tue','Wed','Thu','Fri','Sat'].map((d) => <div key={d} className="font-semibold">{d}</div>)}
-                      </div>
-                      <div className="grid grid-cols-7 gap-2">
-                        {monthEntries.map((entry) => (
-                          <button
-                            key={entry.key}
-                            type="button"
-                            onClick={() => setWorkoutDate(entry.key)}
-                            className={cx(
-                              'rounded-lg border px-2 py-2 text-xs',
-                              entry.isSunday
-                                ? 'border-slate-200 bg-slate-100 text-slate-500'
-                                : entry.hasFocus
-                                  ? 'border-emerald-300 bg-emerald-50 text-emerald-700'
-                                  : 'border-rose-300 bg-rose-50 text-rose-700',
-                              iso(workoutDate) === entry.key ? 'ring-2 ring-blue-500' : ''
-                            )}
-                            title={entry.focus ? `${entry.key}: ${entry.focus}` : `${entry.key}: No focus assigned`}
-                          >
-                            <div className="font-semibold">{entry.day}</div>
-                            <div className="mt-1 truncate">{entry.focus || (entry.isSunday ? 'Sun' : '—')}</div>
-                          </button>
-                        ))}
-                      </div>
+                        <div className="flex items-center gap-3">
+                          <div className="text-xs text-slate-600">Total PT days this month: <span className="font-semibold">{ptDaysDone}</span></div>
+                          <span className="text-xs font-semibold text-slate-500">{workoutCalendarOpen ? 'Hide' : 'Show'}</span>
+                        </div>
+                      </button>
+                      {workoutCalendarOpen && (
+                        <>
+                          <div className="mt-2 grid grid-cols-7 gap-2 text-center text-xs text-slate-500 mb-2">
+                            {['Sun','Mon','Tue','Wed','Thu','Fri','Sat'].map((d) => <div key={d} className="font-semibold">{d}</div>)}
+                          </div>
+                          <div className="grid grid-cols-7 gap-2">
+                            {monthEntries.map((entry) => (
+                              <button
+                                key={entry.key}
+                                type="button"
+                                onClick={() => setWorkoutDate(entry.key)}
+                                className={cx(
+                                  'rounded-lg border px-2 py-2 text-xs',
+                                  entry.isSunday
+                                    ? 'border-slate-200 bg-slate-100 text-slate-500'
+                                    : entry.hasFocus
+                                      ? 'border-emerald-300 bg-emerald-50 text-emerald-700'
+                                      : 'border-rose-300 bg-rose-50 text-rose-700',
+                                  iso(workoutDate) === entry.key ? 'ring-2 ring-blue-500' : ''
+                                )}
+                                title={entry.focus ? `${entry.key}: ${entry.focus}` : `${entry.key}: No focus assigned`}
+                              >
+                                <div className="font-semibold">{entry.day}</div>
+                                <div className="mt-1 truncate">{entry.focus || (entry.isSunday ? 'Sun' : '—')}</div>
+                              </button>
+                            ))}
+                          </div>
+                        </>
+                      )}
                     </div>
                   </div>
                 )}
