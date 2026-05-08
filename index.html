@@ -3574,6 +3574,7 @@ Please pay by: ${formattedLastDate}`;
                 updateSetting={updateSettingValue}
                 currentUser={user}
                 access={normalizeAccess(user?.access)}
+                logEvent={logEvent}
                 focusLeaveRequestId={leaveTrackerFocus.requestId}
                 focusLeaveUserId={leaveTrackerFocus.userId}
                 onClearFocus={() => setLeaveTrackerFocus({ requestId: '', userId: '' })}
@@ -7797,6 +7798,11 @@ function AttendancePage({ users, settings, updateSetting, currentUser, displayTi
                           <select value={rec.status || 'Absent'} onChange={(e) => upsert(s.id, { status: e.target.value })} className="mt-1 w-full rounded-xl border border-slate-300 px-3 py-2 text-sm">
                             <option>Present</option><option>Absent</option><option>Half Day</option><option>Leave</option>
                           </select>
+                          {rec.leaveAutoSynced && (
+                            <div className="mt-1 inline-flex rounded-full border border-violet-300 bg-violet-50 px-2 py-0.5 text-[10px] font-semibold text-violet-700">
+                              Synced from Leave
+                            </div>
+                          )}
                         </div>
                         <div>
                           <label className="text-xs text-slate-500">First Login In</label>
@@ -7885,7 +7891,7 @@ function AttendancePage({ users, settings, updateSetting, currentUser, displayTi
     // ---- Leave Tracker Page (module-registered) ----
     const LeaveTrackerPage = (window.__APG_MODULES__ && window.__APG_MODULES__.LeaveTrackerPageModule)
       ? window.__APG_MODULES__.LeaveTrackerPageModule
-      : function LeaveTrackerFallback({ users = [], settings = {}, updateSetting, currentUser = null, access = {}, focusLeaveRequestId = '', focusLeaveUserId = '', onClearFocus }) {
+      : function LeaveTrackerFallback({ users = [], settings = {}, updateSetting, currentUser = null, access = {}, logEvent, focusLeaveRequestId = '', focusLeaveUserId = '', onClearFocus }) {
         const leaveAccess = normalizeAccess(access).leave;
         const canViewCreateLeaveRequest = leaveAccess?.viewCreateLeaveRequest !== false;
         const canViewLeaveRequests = leaveAccess?.viewLeaveRequests !== false;
@@ -7906,6 +7912,65 @@ function AttendancePage({ users, settings, updateSetting, currentUser, displayTi
         React.useEffect(() => {
           if (!form.userId && currentUser?.id) setForm(v => ({ ...v, userId: currentUser.id }));
         }, [currentUser, form.userId]);
+        const dateRangeList = (startIso, endIso) => {
+          const start = new Date(startIso);
+          const end = new Date(endIso);
+          if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime()) || end < start) return [];
+          const out = [];
+          const cursor = new Date(Date.UTC(start.getUTCFullYear(), start.getUTCMonth(), start.getUTCDate()));
+          const endUtc = new Date(Date.UTC(end.getUTCFullYear(), end.getUTCMonth(), end.getUTCDate()));
+          while (cursor <= endUtc) {
+            out.push(iso(cursor));
+            cursor.setUTCDate(cursor.getUTCDate() + 1);
+          }
+          return out;
+        };
+        const syncApprovedLeaveToAttendance = (request) => {
+          if (!request || !request.userId || !request.startDate || !request.endDate || typeof updateSetting !== 'function') return 0;
+          const days = dateRangeList(request.startDate, request.endDate);
+          if (!days.length) return 0;
+          const existing = Array.isArray(settings.staffAttendance) ? settings.staffAttendance : [];
+          const actor = currentUser?.name || currentUser?.id || '';
+          const nowIso = new Date().toISOString();
+          const noteText = `Leave approved (${request.type || 'Leave'})`;
+          const keySet = new Set(days.map((d) => `${d}__${request.userId}`));
+          const touched = new Set();
+          const next = existing.map((row) => {
+            const rowDate = iso(row.date);
+            const key = `${rowDate}__${row.userId}`;
+            if (!keySet.has(key)) return row;
+            touched.add(key);
+            return {
+              ...row,
+              status: 'Leave',
+              leaveRequestId: request.id,
+              leaveAutoSynced: true,
+              note: row.note ? `${row.note} | ${noteText}` : noteText,
+              updatedAt: nowIso,
+              updatedBy: actor,
+            };
+          });
+          days.forEach((dayIso) => {
+            const key = `${dayIso}__${request.userId}`;
+            if (touched.has(key)) return;
+            next.unshift({
+              id: crypto.randomUUID(),
+              date: dayIso,
+              userId: request.userId,
+              status: 'Leave',
+              checkIn: '',
+              checkOut: '',
+              note: noteText,
+              leaveRequestId: request.id,
+              leaveAutoSynced: true,
+              markedBy: actor,
+              updatedAt: nowIso,
+              updatedBy: actor,
+            });
+          });
+          updateSetting('staffAttendance', next);
+          return days.length;
+        };
         const daysBetween = (a, b) => {
           const start = new Date(a);
           const end = new Date(b);
@@ -7929,13 +7994,27 @@ function AttendancePage({ users, settings, updateSetting, currentUser, displayTi
           }
           const req = { id: crypto.randomUUID(), ...form, days: daysBetween(form.startDate, form.endDate), status: 'Pending', createdAt: new Date().toISOString(), createdBy: currentUser?.name || currentUser?.id || '' };
           updateSetting('leaveRequests', [req, ...leaveRequests]);
+          if (typeof logEvent === 'function') {
+            logEvent('leave.requested', 'leave', req.id, null, req, currentUser?.name || currentUser?.id || '');
+          }
           setForm(v => ({ ...v, reason: '' }));
           setFormSuccess('Leave request submitted.');
           setTimeout(() => setFormSuccess(''), 2000);
         };
         const updateStatus = (id, status) => {
           if (!canApprove || typeof updateSetting !== 'function') return;
-          updateSetting('leaveRequests', leaveRequests.map(r => r.id === id ? { ...r, status, actionAt: new Date().toISOString(), actionBy: currentUser?.name || currentUser?.id || '' } : r));
+          const target = leaveRequests.find((r) => r.id === id);
+          const updated = leaveRequests.map(r => r.id === id ? { ...r, status, actionAt: new Date().toISOString(), actionBy: currentUser?.name || currentUser?.id || '' } : r);
+          updateSetting('leaveRequests', updated);
+          if (typeof logEvent === 'function' && target) {
+            logEvent('leave.status.updated', 'leave', id, target, { ...target, status }, currentUser?.name || currentUser?.id || '');
+          }
+          if (status === 'Approved' && target) {
+            const syncedDays = syncApprovedLeaveToAttendance({ ...target, status });
+            if (typeof logEvent === 'function') {
+              logEvent('attendance.leave_synced', 'attendance', target.userId, null, { leaveRequestId: id, syncedDays, startDate: target.startDate, endDate: target.endDate }, currentUser?.name || currentUser?.id || '');
+            }
+          }
         };
         const balanceFor = (userId) => {
           const year = new Date().getFullYear();
