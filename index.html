@@ -405,10 +405,33 @@
       if (!when) return '';
       return meta.sentBy ? `Sent ${when} by ${meta.sentBy}` : `Sent ${when}`;
     };
+    const getLastWhatsAppCallText = (member) => {
+      if (!member) return '';
+      const direct = member.lastWhatsAppCall || null;
+      const history = Array.isArray(member.messageHistory) ? member.messageHistory : [];
+      const h = history.find((ev) => ev && ev.channel === 'whatsapp_call' && ev.status === 'opened');
+      const calledAt = direct?.calledAt || h?.calledAt || h?.ts || '';
+      if (!calledAt) return '';
+      const dt = new Date(calledAt);
+      if (Number.isNaN(dt.getTime())) return '';
+      const calledBy = direct?.calledBy || h?.calledBy || h?.by || '';
+      const todayKey = iso(new Date());
+      const dayText = iso(dt) === todayKey ? 'Today' : fmt(dt);
+      const timeText = dt.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+      return calledBy ? `Last Call: ${dayText} ${timeText} by ${calledBy}` : `Last Call: ${dayText} ${timeText}`;
+    };
     function SmsSendInfoChip({ text }) {
       if (!text) return null;
       return (
         <div className="max-w-[230px] truncate rounded-md border border-amber-200 bg-amber-50 px-2 py-1 text-[10px] text-amber-800" title={text}>
+          {text}
+        </div>
+      );
+    }
+    function CallInfoChip({ text }) {
+      if (!text) return null;
+      return (
+        <div className="max-w-[260px] truncate rounded-md border border-emerald-200 bg-emerald-50 px-2 py-1 text-[10px] text-emerald-800" title={text}>
           {text}
         </div>
       );
@@ -455,6 +478,7 @@
       if (name === 'bell') return <svg {...common}><path d="M6 9a6 6 0 1 1 12 0c0 6 2 7 2 7H4s2-1 2-7" /><path d="M10 20a2 2 0 0 0 4 0" /></svg>;
       if (name === 'menu') return <svg {...common}><path d="M4 6h16M4 12h16M4 18h16" /></svg>;
       if (name === 'logout') return <svg {...common}><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" /><path d="M16 17l5-5-5-5" /><path d="M21 12H9" /></svg>;
+      if (name === 'phone') return <svg {...common}><path d="M22 16.9v3a2 2 0 0 1-2.2 2A19.8 19.8 0 0 1 3.1 5.2 2 2 0 0 1 5.1 3h3a2 2 0 0 1 2 1.7c.1.9.4 1.7.7 2.5a2 2 0 0 1-.4 2L9.1 10.6a16 16 0 0 0 4.3 4.3l1.4-1.3a2 2 0 0 1 2-.4c.8.3 1.6.6 2.5.7a2 2 0 0 1 1.7 2Z" /></svg>;
       return null;
     }
 
@@ -2125,6 +2149,41 @@ Please pay by: ${formattedLastDate}`;
         setToast('WhatsApp message opened.');
         setTimeout(() => setToast(''), 2500);
       };
+      const sendWhatsAppCall = (member) => {
+        if (!member) return;
+        const cleanPhone = String(member.mobile || '').replace(/\D/g, '');
+        if (!cleanPhone) {
+          setToast('Mobile number is missing.');
+          setTimeout(() => setToast(''), 2500);
+          return;
+        }
+        const finalPhone = cleanPhone.length === 10 ? `91${cleanPhone}` : cleanPhone;
+        const callAt = new Date().toISOString();
+        const calledBy = user?.name || user?.id || 'Staff';
+        // `whatsapp://call` is not supported on many desktop builds (shows "Invalid call link").
+        // Open a direct WhatsApp chat link instead; users can start the call from chat.
+        const callUrl = `https://api.whatsapp.com/send?phone=${finalPhone}`;
+        safeOpenExternal(callUrl);
+        setMembers(prev => prev.map(m => m.memberId === member.memberId ? {
+          ...m,
+          lastWhatsAppCall: { calledAt: callAt, calledBy },
+          messageHistory: [{ id: crypto.randomUUID(), channel: 'whatsapp_call', templateKey: 'call', status: 'opened', ts: callAt, calledAt: callAt, calledBy }, ...(m.messageHistory || [])].slice(0, 50),
+        } : m));
+        setSmsEvents(prev => ([{
+          id: crypto.randomUUID(),
+          memberId: member.memberId,
+          memberName: member.name || '',
+          fromStatus: member.status || '',
+          toStatus: member.status || '',
+          templateKey: 'whatsapp_call',
+          message: `WhatsApp call/chat opened by ${calledBy}`,
+          waUrl: callUrl,
+          ts: callAt,
+        }, ...prev]).slice(0, 300));
+        logEvent('whatsapp.call.opened', 'member', member.memberId, null, { calledAt: callAt, calledBy, mobile: finalPhone });
+        setToast('WhatsApp opened for call.');
+        setTimeout(() => setToast(''), 2500);
+      };
       const sendWelcomeGmail = (member) => {
         if (!member) return;
         if (!member.email || !isValidEmail(member.email)) {
@@ -3080,6 +3139,7 @@ Please pay by: ${formattedLastDate}`;
                   holdOptions={settings.holdDurations}
                   logs={logs}
                   onWelcome={sendWelcomeEmail}
+                  onWhatsAppCall={sendWhatsAppCall}
                   onWelcomeMail={sendWelcomeGmail}
                   onAddAttachment={addMemberAttachment}
                   onQuickFieldEdit={(payload) => setQuickFieldEdit(payload)}
@@ -3131,6 +3191,7 @@ Please pay by: ${formattedLastDate}`;
                     canDelete={canDeleteMembers}
                     onDelete={canDeleteMembers ? (m) => setDeleteCandidate(m) : null}
                     onWelcome={sendWelcomeEmail}
+                    onWhatsAppCall={sendWhatsAppCall}
                     onWelcomeMail={sendWelcomeGmail}
                     onAddAttachment={addMemberAttachment}
                     onQuickFieldEdit={(payload) => setQuickFieldEdit(payload)}
@@ -4296,7 +4357,7 @@ function Sidebar({ user, active, onSelect, theme, setTheme, onLogout, onUndo, on
     }
 
     // ---- Members List (Dashboard list mode) ----
-function MembersList({ title, list, onBack, onEdit, onStatusChange, holdOptions, logs, onWelcome, onWelcomeMail, onAddAttachment, onQuickFieldEdit, editOptions, isOwner, canEdit = true }) {
+function MembersList({ title, list, onBack, onEdit, onStatusChange, holdOptions, logs, onWelcome, onWhatsAppCall, onWelcomeMail, onAddAttachment, onQuickFieldEdit, editOptions, isOwner, canEdit = true }) {
       const [openId, setOpenId] = React.useState(null);
       const [mobileDetailMemberId, setMobileDetailMemberId] = React.useState('');
       const [page, setPage] = React.useState(1);
@@ -4340,6 +4401,7 @@ function MembersList({ title, list, onBack, onEdit, onStatusChange, holdOptions,
                 canDelete={false}
                 onDelete={() => {}}
                 onWelcome={onWelcome}
+                onWhatsAppCall={onWhatsAppCall}
                 onWelcomeMail={onWelcomeMail}
                 onAddAttachment={onAddAttachment}
                 logs={logs}
@@ -4382,6 +4444,7 @@ function MembersList({ title, list, onBack, onEdit, onStatusChange, holdOptions,
                 onEdit && onEdit(member);
               }}
               onWelcome={onWelcome}
+              onWhatsAppCall={onWhatsAppCall}
               onStatusChange={canEdit ? onStatusChange : null}
               holdOptions={holdOptions}
               canDelete={false}
@@ -4397,7 +4460,7 @@ function MembersList({ title, list, onBack, onEdit, onStatusChange, holdOptions,
     }
 
     // ---- Member Row ----
-function MemberRow({ m, expanded, onToggle, onEdit, onStatusChange, holdOptions, onDelete, canDelete, onWelcome, onWelcomeMail, onAddAttachment, logs, selected, onSelectToggle, selectable, onQuickFieldEdit, editOptions, isOwner, onOpenMobileDetail, canEdit = true }) {
+function MemberRow({ m, expanded, onToggle, onEdit, onStatusChange, holdOptions, onDelete, canDelete, onWelcome, onWhatsAppCall, onWelcomeMail, onAddAttachment, logs, selected, onSelectToggle, selectable, onQuickFieldEdit, editOptions, isOwner, onOpenMobileDetail, canEdit = true }) {
       const todayHighlight = fmt(m.billingDate) === fmt(new Date());
       // Determine if we can open WhatsApp welcome/payment reminder.
       // Active members with mobile number and billing date qualify.
@@ -4405,6 +4468,7 @@ function MemberRow({ m, expanded, onToggle, onEdit, onStatusChange, holdOptions,
       const statusTemplate = primaryMessageActionForMember(m, isOwner);
       const hasPrimaryMessageAction = statusTemplate.key !== 'none';
       const statusSentText = hasPrimaryMessageAction ? getSmsSentInfoText(m, statusTemplate.key) : '';
+      const callInfoText = getLastWhatsAppCallText(m);
       const uploadDoc = async (e) => {
         const file = e.target.files?.[0];
         if (!file) return;
@@ -4435,10 +4499,12 @@ function MemberRow({ m, expanded, onToggle, onEdit, onStatusChange, holdOptions,
             onToggle={onToggle}
             onEdit={onEdit}
             onWelcome={onWelcome}
+            onWhatsAppCall={onWhatsAppCall}
             canWelcome={canWelcome}
             statusTemplate={statusTemplate}
             todayHighlight={todayHighlight}
             statusSentText={statusSentText}
+            callInfoText={callInfoText}
             canEdit={canEdit}
           />
           <MemberRowMobileView
@@ -4457,6 +4523,7 @@ function MemberRow({ m, expanded, onToggle, onEdit, onStatusChange, holdOptions,
                   m={m}
                   onEdit={onEdit}
                   onWelcome={onWelcome}
+                  onWhatsAppCall={onWhatsAppCall}
                   canWelcome={canWelcome}
                   statusTemplate={statusTemplate}
                   isOwner={isOwner}
@@ -4467,6 +4534,7 @@ function MemberRow({ m, expanded, onToggle, onEdit, onStatusChange, holdOptions,
                   m={m}
                   onEdit={onEdit}
                   onWelcome={onWelcome}
+                  onWhatsAppCall={onWhatsAppCall}
                   canWelcome={canWelcome}
                   statusTemplate={statusTemplate}
                   isOwner={isOwner}
@@ -4494,7 +4562,7 @@ function MemberRow({ m, expanded, onToggle, onEdit, onStatusChange, holdOptions,
     }
 
     // Phase A split: desktop-specific member row presentation.
-function MemberRowDesktopView({ m, selectable, selected, onSelectToggle, onToggle, onEdit, onWelcome, canWelcome, statusTemplate, todayHighlight, statusSentText, canEdit = true }) {
+function MemberRowDesktopView({ m, selectable, selected, onSelectToggle, onToggle, onEdit, onWelcome, onWhatsAppCall, canWelcome, statusTemplate, todayHighlight, statusSentText, callInfoText, canEdit = true }) {
       return (
         <button onClick={onToggle} className="apg-member-row-desktop hidden lg:grid w-full grid-cols-12 items-center gap-4 px-2 py-3 text-left text-slate-700 hover:bg-slate-100">
           <div className="col-span-1 font-medium flex items-center gap-2 min-w-0">
@@ -4597,7 +4665,7 @@ function MemberRowDesktopView({ m, selectable, selected, onSelectToggle, onToggl
         </button>
       );
     }
-    function MobileMemberDetailView({ m, onBack, onEdit, onWelcome, onStatusChange, holdOptions, canDelete, onDelete, isOwner, onQuickFieldEdit, editOptions, canEdit = true }) {
+    function MobileMemberDetailView({ m, onBack, onEdit, onWelcome, onWhatsAppCall, onStatusChange, holdOptions, canDelete, onDelete, isOwner, onQuickFieldEdit, editOptions, canEdit = true }) {
       const statusTemplate = primaryMessageActionForMember(m, isOwner);
       const canWelcome = Boolean(String(m.mobile || '').trim()) && !statusTemplate.disabled;
       const dueAmount = Number(m.amount || 0);
@@ -4656,6 +4724,13 @@ function MemberRowDesktopView({ m, selectable, selected, onSelectToggle, onToggl
                     💬
                   </button>
                 )}
+                <button
+                  onClick={() => canWelcome && onWhatsAppCall && onWhatsAppCall(m)}
+                  disabled={!canWelcome}
+                  className={cx('rounded-2xl px-2 py-3 text-[11px] font-semibold border', canWelcome ? 'border-emerald-300 bg-emerald-50 text-emerald-700' : 'border-slate-300 bg-slate-100 text-slate-500')}
+                >
+                  <AppIcon name="phone" className="h-4 w-4 mx-auto" />
+                </button>
                 {canEdit && <button onClick={() => onEdit && onEdit(m)} className="rounded-2xl px-2 py-3 text-[11px] font-semibold border border-indigo-300 bg-indigo-50 text-indigo-700">Edit</button>}
                 {canEdit && <button onClick={() => onStatusChange && onStatusChange(m.memberId, 'Active')} className="rounded-2xl px-2 py-3 text-[11px] font-semibold border border-emerald-300 bg-emerald-50 text-emerald-700">Activate</button>}
                 <button onClick={onBack} className="rounded-2xl px-2 py-3 text-[11px] font-semibold border border-slate-300 bg-white text-slate-700">Close</button>
@@ -4718,7 +4793,7 @@ function MemberRowDesktopView({ m, selectable, selected, onSelectToggle, onToggl
     }
 
     // Phase A.2 split: mobile-only quick action strip in expanded panel.
-    function ExpandedActionsMobileView({ m, onEdit, onWelcome, canWelcome, statusTemplate, statusSentText, canEdit = true }) {
+    function ExpandedActionsMobileView({ m, onEdit, onWelcome, onWhatsAppCall, canWelcome, statusTemplate, statusSentText, canEdit = true }) {
       return (
         <div className="lg:hidden rounded-xl border border-slate-200 bg-slate-50 p-3 flex flex-wrap items-center gap-2">
           {canEdit && (
@@ -4743,6 +4818,19 @@ function MemberRowDesktopView({ m, selectable, selected, onSelectToggle, onToggl
               >
                 {statusTemplate.label}
               </button>
+              <button
+                onClick={() => onWhatsAppCall && onWhatsAppCall(m)}
+                disabled={!canWelcome}
+                className={cx(
+                  'rounded-lg border p-2 text-xs font-medium',
+                  canWelcome
+                    ? 'bg-emerald-50 text-emerald-700 border-emerald-200 hover:bg-emerald-100'
+                    : 'bg-slate-200 text-slate-500 border-slate-300 cursor-not-allowed'
+                )}
+                title="Open WhatsApp Call"
+              >
+                <AppIcon name="phone" className="h-3.5 w-3.5" />
+              </button>
               <SmsSendInfoChip text={statusSentText} />
             </div>
           )}
@@ -4751,7 +4839,7 @@ function MemberRowDesktopView({ m, selectable, selected, onSelectToggle, onToggl
     }
 
     // Phase A.2 split: desktop-only quick action strip in expanded panel.
-    function ExpandedActionsDesktopView({ m, onEdit, onWelcome, canWelcome, statusTemplate, statusSentText, canEdit = true }) {
+    function ExpandedActionsDesktopView({ m, onEdit, onWelcome, onWhatsAppCall, canWelcome, statusTemplate, statusSentText, canEdit = true }) {
       return (
         <div className="hidden lg:flex rounded-xl border border-slate-200 bg-slate-50 p-3 flex-wrap items-center gap-2">
           {canEdit && (
@@ -4775,6 +4863,19 @@ function MemberRowDesktopView({ m, selectable, selected, onSelectToggle, onToggl
                 )}
               >
                 {statusTemplate.label}
+              </button>
+              <button
+                onClick={() => onWhatsAppCall && onWhatsAppCall(m)}
+                disabled={!canWelcome}
+                className={cx(
+                  'rounded-lg border p-2 text-xs font-medium',
+                  canWelcome
+                    ? 'bg-emerald-50 text-emerald-700 border-emerald-200 hover:bg-emerald-100'
+                    : 'bg-slate-200 text-slate-500 border-slate-300 cursor-not-allowed'
+                )}
+                title="Open WhatsApp Call"
+              >
+                <AppIcon name="phone" className="h-3.5 w-3.5" />
               </button>
               <SmsSendInfoChip text={statusSentText} />
             </div>
@@ -5109,7 +5210,7 @@ function QuickActions({ m, onStatusChange, holdOptions, canDelete, onDelete, can
     }
 
     // ---- Dashboard View (Members grouped by status) ----
-function DashboardView({ members, onEdit, onStatusChange, holdOptions, logs, filters, filterOpen, setFilterOpen, anyFilterActive, canDelete, onDelete, billingMonthOptions, onWelcome, onWelcomeMail, onAddAttachment, onQuickFieldEdit, editOptions, isOwner, canEdit = true, onImportCsv = null }) {
+function DashboardView({ members, onEdit, onStatusChange, holdOptions, logs, filters, filterOpen, setFilterOpen, anyFilterActive, canDelete, onDelete, billingMonthOptions, onWelcome, onWhatsAppCall, onWelcomeMail, onAddAttachment, onQuickFieldEdit, editOptions, isOwner, canEdit = true, onImportCsv = null }) {
       // Single expanded row across all statuses. Only one memberId may be expanded at a time.
       const [expandedId, setExpandedId] = React.useState(null);
       const [mobileDetailMemberId, setMobileDetailMemberId] = React.useState('');
@@ -5304,6 +5405,7 @@ function DashboardView({ members, onEdit, onStatusChange, holdOptions, logs, fil
                   canDelete={canDelete}
                   onDelete={onDelete}
                   onWelcome={onWelcome}
+                  onWhatsAppCall={onWhatsAppCall}
                   onWelcomeMail={onWelcomeMail}
                   onAddAttachment={onAddAttachment}
                   logs={logs}
@@ -5325,6 +5427,7 @@ function DashboardView({ members, onEdit, onStatusChange, holdOptions, logs, fil
                   onEdit && onEdit(member);
                 }}
                 onWelcome={onWelcome}
+                onWhatsAppCall={onWhatsAppCall}
                 onStatusChange={canEdit ? onStatusChange : null}
                 holdOptions={holdOptions}
                 canDelete={canDelete}
@@ -5453,6 +5556,7 @@ function DashboardView({ members, onEdit, onStatusChange, holdOptions, logs, fil
                       canDelete={canDelete}
                       onDelete={onDelete}
                       onWelcome={onWelcome}
+                      onWhatsAppCall={onWhatsAppCall}
                       onWelcomeMail={onWelcomeMail}
                       onAddAttachment={onAddAttachment}
                       logs={logs}
