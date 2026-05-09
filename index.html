@@ -6273,7 +6273,7 @@ function EditMemberModal({ member, onClose, onSave, planOptions, statusOptions, 
 
     function AddTypeModal({ onClose, onSelectVisitor, onSelectMember }) {
       return (
-        <div className="fixed inset-0 z-[95] flex items-center justify-center bg-slate-900/50 p-4">
+        <div className="fixed inset-0 z-[95] flex items-center justify-center bg-slate-900/70 backdrop-blur-[3px] p-4">
           <div className="w-full max-w-md rounded-3xl border border-slate-200 bg-white p-5 shadow-xl">
             <div className="flex items-center justify-between mb-4">
               <h3 className="text-lg font-semibold text-slate-900">Add New</h3>
@@ -6334,13 +6334,19 @@ function EditMemberModal({ member, onClose, onSave, planOptions, statusOptions, 
         onSave(form);
       };
       return (
-        <div className="fixed inset-0 z-[95] flex items-center justify-center bg-slate-900/50 p-4">
+        <div className="fixed inset-0 z-[95] flex items-center justify-center bg-slate-900/70 backdrop-blur-[3px] p-4">
           <div className="w-full max-w-xl rounded-3xl border border-slate-200 bg-white shadow-xl">
             <div className="flex items-center justify-between px-5 py-4 border-b border-slate-200">
-              <h3 className="text-lg font-semibold text-slate-900">{visitor ? 'Edit Visitor' : 'Add Visitor'}</h3>
+              <h3 className="inline-flex items-center rounded-full border border-blue-200 bg-blue-50 px-4 py-1.5 text-base font-semibold text-blue-800">
+                {visitor ? 'Edit Visitor — Step 1' : 'Add Visitor — Step 1'}
+              </h3>
               <button onClick={onClose} className="rounded-xl p-2 hover:bg-slate-100">✕</button>
             </div>
             <div className="px-5 pt-4">
+              <div className="h-2 rounded-full bg-slate-200 overflow-hidden">
+                <div className="h-full w-full bg-blue-600" />
+              </div>
+              <div className="mt-2 text-xs text-slate-500"><span className="text-rose-600 font-semibold">*</span> Required fields</div>
               <div className="flex items-center gap-3">
                 <div className={cx(
                   'h-8 w-8 rounded-full grid place-items-center text-sm font-bold border',
@@ -6348,7 +6354,7 @@ function EditMemberModal({ member, onClose, onSave, planOptions, statusOptions, 
                 )}>
                   {visitorDetailsComplete ? '✓' : '○'}
                 </div>
-                <div className="text-xl font-semibold text-slate-700">Visitor Details</div>
+                <div className="text-sm font-semibold text-slate-700">Visitor Details</div>
               </div>
             </div>
             <div className="p-5 grid grid-cols-1 md:grid-cols-2 gap-3">
@@ -7008,14 +7014,10 @@ function EditMemberModal({ member, onClose, onSave, planOptions, statusOptions, 
       }, [open, prefillData]);
       if (!open) return null;
       return (
-        <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-slate-900/50 p-2 sm:p-4 overflow-y-auto">
+        <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-slate-900/70 backdrop-blur-[3px] p-2 sm:p-4 overflow-y-auto">
           <div className="w-full max-w-3xl rounded-t-3xl sm:rounded-3xl bg-white shadow-xl max-h-[95dvh] sm:max-h-[92vh] overflow-hidden">
             <div className="flex items-center justify-between px-4 sm:px-6 py-4">
-              <h3 className={cx(
-                step === 1
-                  ? 'inline-flex items-center rounded-full border border-blue-200 bg-blue-50 px-4 py-1.5 text-base font-semibold text-blue-800'
-                  : 'text-sm font-semibold text-slate-700'
-              )}>
+              <h3 className="inline-flex items-center rounded-full border border-blue-200 bg-blue-50 px-4 py-1.5 text-base font-semibold text-blue-800">
                 Add New Member — Step {step}
               </h3>
               <button onClick={onClose} className="rounded-xl p-2 hover:bg-slate-200"><span>✕</span></button>
