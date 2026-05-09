@@ -1183,15 +1183,16 @@ Phone: +91-7047157510`;
     function GymApp() {
       const [user, setUser] = React.useState(null);
       const [dataSyncMode, setDataSyncMode] = React.useState('checking');
+      const [lastHeartbeatAt, setLastHeartbeatAt] = React.useState('');
       const syncBadgeTone = dataSyncMode === 'backend'
         ? 'border-emerald-300 bg-emerald-50 text-emerald-700'
         : dataSyncMode === 'local'
           ? 'border-amber-300 bg-amber-50 text-amber-700'
           : 'border-slate-300 bg-slate-50 text-slate-600';
       const syncBadgeLabel = dataSyncMode === 'backend'
-        ? 'Backend Sync: Connected'
+        ? `Backend Sync: Connected${lastHeartbeatAt ? ` • Last heartbeat: ${lastHeartbeatAt}` : ''}`
         : dataSyncMode === 'local'
-          ? 'Backend Sync: Local only'
+          ? `Backend Sync: Local only${lastHeartbeatAt ? ` • Last heartbeat: ${lastHeartbeatAt}` : ''}`
           : 'Backend Sync: Checking...';
 
       // Users state: stores login credentials and the list of sections each user can access.
@@ -1358,6 +1359,47 @@ Phone: +91-7047157510`;
         })();
         return () => {
           alive = false;
+        };
+      }, []);
+      // Heartbeat: keep backend connection status fresh without hard refresh.
+      React.useEffect(() => {
+        let alive = true;
+        let inFlight = false;
+        const checkBackendHealth = async () => {
+          if (!alive || inFlight) return;
+          inFlight = true;
+          const controller = new AbortController();
+          const timer = setTimeout(() => controller.abort(), 6000);
+          try {
+            const res = await fetch(`${BACKEND_API_BASE_URL}/health`, {
+              method: 'GET',
+              headers: { 'Content-Type': 'application/json' },
+              cache: 'no-store',
+              signal: controller.signal,
+            });
+            if (!alive) return;
+            if (res.ok) {
+              setDataSyncMode('backend');
+              setBackendHydrated(true);
+              setLastHeartbeatAt(new Date().toLocaleTimeString([], { hour12: false }));
+            } else {
+              setDataSyncMode('local');
+              setBackendHydrated(false);
+            }
+          } catch {
+            if (!alive) return;
+            setDataSyncMode('local');
+            setBackendHydrated(false);
+          } finally {
+            clearTimeout(timer);
+            inFlight = false;
+          }
+        };
+        checkBackendHealth();
+        const heartbeat = setInterval(checkBackendHealth, 30000);
+        return () => {
+          alive = false;
+          clearInterval(heartbeat);
         };
       }, []);
       // Keep role templates aligned with latest app sections for future staff setup.
