@@ -5698,10 +5698,10 @@ function DashboardView({ members, onEdit, onStatusChange, holdOptions, logs, fil
             <h1 className="text-xl md:text-2xl font-semibold text-slate-900">Members</h1>
             <div className="flex items-center gap-2 flex-wrap">
               <button aria-pressed={!focusStatus} onClick={() => setFocusStatus('')} className={chipClass(!focusStatus, 'bg-blue-600 text-white border-blue-600 ring-blue-200', 'bg-blue-50 text-blue-700 border-blue-200')}>All Members</button>
-              <button aria-pressed={focusStatus === 'Active'} onClick={() => setFocusStatus('Active')} className={chipClass(focusStatus === 'Active', 'bg-emerald-600 text-white border-emerald-600 ring-emerald-200', 'bg-emerald-50 text-emerald-700 border-emerald-200')}>Active ({grouped.Active.length})</button>
-              <button aria-pressed={focusStatus === 'Hold'} onClick={() => setFocusStatus('Hold')} className={chipClass(focusStatus === 'Hold', 'bg-amber-500 text-white border-amber-500 ring-amber-200', 'bg-amber-50 text-amber-700 border-amber-200')}>Hold ({grouped.Hold.length})</button>
-              <button aria-pressed={focusStatus === 'Deactivated'} onClick={() => setFocusStatus('Deactivated')} className={chipClass(focusStatus === 'Deactivated', 'bg-pink-600 text-white border-pink-600 ring-pink-200', 'bg-pink-50 text-pink-700 border-pink-200')}>Deactivated ({grouped.Deactivated.length})</button>
-              <button aria-pressed={focusStatus === 'Cancelled'} onClick={() => setFocusStatus('Cancelled')} className={chipClass(focusStatus === 'Cancelled', 'bg-slate-700 text-white border-slate-700 ring-slate-200', 'bg-slate-100 text-slate-700 border-slate-200')}>Cancelled ({grouped.Cancelled.length})</button>
+              <button aria-pressed={focusStatus === 'Active'} onClick={() => setFocusStatus('Active')} className={chipClass(focusStatus === 'Active', 'bg-emerald-600 text-white border-emerald-600 ring-emerald-200', 'bg-emerald-50 text-emerald-700 border-emerald-200')}>Active Members ({grouped.Active.length})</button>
+              <button aria-pressed={focusStatus === 'Hold'} onClick={() => setFocusStatus('Hold')} className={chipClass(focusStatus === 'Hold', 'bg-amber-500 text-white border-amber-500 ring-amber-200', 'bg-amber-50 text-amber-700 border-amber-200')}>Hold Members ({grouped.Hold.length})</button>
+              <button aria-pressed={focusStatus === 'Deactivated'} onClick={() => setFocusStatus('Deactivated')} className={chipClass(focusStatus === 'Deactivated', 'bg-pink-600 text-white border-pink-600 ring-pink-200', 'bg-pink-50 text-pink-700 border-pink-200')}>Deactivated Members ({grouped.Deactivated.length})</button>
+              <button aria-pressed={focusStatus === 'Cancelled'} onClick={() => setFocusStatus('Cancelled')} className={chipClass(focusStatus === 'Cancelled', 'bg-slate-700 text-white border-slate-700 ring-slate-200', 'bg-slate-100 text-slate-700 border-slate-200')}>Cancelled Members ({grouped.Cancelled.length})</button>
               <button
                 type="button"
                 onClick={() => setHiddenSections({ Active: !allSectionsHidden, Hold: !allSectionsHidden, Deactivated: !allSectionsHidden, Cancelled: !allSectionsHidden })}
@@ -7541,12 +7541,12 @@ function PTClientsPage({ members, users, settings, updateSetting, currentUser, a
                     </div>
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                       <div>
-                        <label className="text-sm font-medium">Workout Date</label>
-                        <input type="date" value={workoutDate} onChange={(e) => setWorkoutDate(e.target.value)} disabled={!canEditPtWorkout} className="mt-1 w-full rounded-xl border border-slate-300 px-3 py-2 text-sm disabled:bg-slate-100 disabled:text-slate-500" />
+                        <label className="text-sm font-medium text-slate-700">Workout Date</label>
+                        <input type="date" value={workoutDate} onChange={(e) => setWorkoutDate(e.target.value)} disabled={!canEditPtWorkout} className="mt-1 w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 placeholder:text-slate-500 disabled:bg-slate-100 disabled:text-slate-500" />
                       </div>
                       <div>
-                        <label className="text-sm font-medium">Assigned Trainer</label>
-                        <select value={profile.trainerId || ''} onChange={(e) => persistProfile(selectedMember.memberId, { trainerId: e.target.value })} disabled={!canEditPtWorkout} className="mt-1 w-full rounded-xl border border-slate-300 px-3 py-2 text-sm disabled:bg-slate-100 disabled:text-slate-500">
+                        <label className="text-sm font-medium text-slate-700">Assigned Trainer</label>
+                        <select value={profile.trainerId || ''} onChange={(e) => persistProfile(selectedMember.memberId, { trainerId: e.target.value })} disabled={!canEditPtWorkout} className="mt-1 w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 disabled:bg-slate-100 disabled:text-slate-500">
                           <option value="">Select trainer</option>
                           {trainers.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
                         </select>
