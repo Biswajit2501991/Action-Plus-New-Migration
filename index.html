@@ -6505,7 +6505,9 @@ function EditMemberModal({ member, onClose, onSave, planOptions, statusOptions, 
     function AddMemberWizard({ open, onClose, onSave, settings, staffName, members, canEditFormNo, smartDefaults = {}, prefillData = null }) {
       const defaultJoiningDate = smartDefaults.joiningDate || iso(new Date());
       const defaultBillingDate = smartDefaults.billingDate || iso(new Date());
+      const formScrollRef = React.useRef(null);
       const [step, setStep] = React.useState(1);
+      const [resumeStepAfterFix, setResumeStepAfterFix] = React.useState(null);
       const [hideFooterOnMobile, setHideFooterOnMobile] = React.useState(false);
       const [form, setForm] = React.useState({
         formNo: '',
@@ -6801,6 +6803,23 @@ function EditMemberModal({ member, onClose, onSave, planOptions, statusOptions, 
           try { el.focus(); } catch {}
         });
       };
+      const scrollToFormTop = () => {
+        const node = formScrollRef.current;
+        if (node && typeof node.scrollTo === 'function') {
+          node.scrollTo({ top: 0, behavior: 'smooth' });
+        }
+      };
+      const goToStepAndFocus = (targetStep, fieldId, message, resumeStep = null) => {
+        setWarn(message || '');
+        setResumeStepAfterFix(Number.isFinite(resumeStep) ? resumeStep : null);
+        setStep(targetStep);
+        scrollToFormTop();
+        window.setTimeout(() => focusField(fieldId), 120);
+      };
+      React.useEffect(() => {
+        if (!warn) return;
+        scrollToFormTop();
+      }, [warn, step]);
       const firstInvalidStepField = (stepNo) => {
         if (stepNo === 1) {
           if (req1.formNo) return 'add-member-formNo';
@@ -6832,25 +6851,26 @@ function EditMemberModal({ member, onClose, onSave, planOptions, statusOptions, 
         if (step === 1) {
           // Ensure all required fields in step 1 are provided
           if (Object.values(req1).some(Boolean)) {
-            setWarn('Please fill all required fields in Step 1.');
-            focusField(firstInvalidStepField(1));
+            goToStepAndFocus(1, firstInvalidStepField(1), 'Please fill all required fields in Step 1.');
             return;
           }
         } else if (step === 2) {
           if (Object.values(req2).some(Boolean)) {
-            setWarn('Please fill all required fields in Step 2.');
-            focusField(firstInvalidStepField(2));
+            goToStepAndFocus(2, firstInvalidStepField(2), 'Please fill all required fields in Step 2.');
             return;
           }
         }
         if (step === 3 && Object.values(req3).some(Boolean)) {
-          setWarn('Please fill all required fields in Step 3.');
-          focusField(firstInvalidStepField(3));
+          goToStepAndFocus(3, firstInvalidStepField(3), 'Please fill all required fields in Step 3.');
           return;
         }
         if (step === 5 && Object.values(req5).some(Boolean)) {
-          setWarn('Please complete the acknowledgement details in Step 5.');
-          focusField(firstInvalidStepField(5));
+          goToStepAndFocus(5, firstInvalidStepField(5), 'Please complete the acknowledgement details in Step 5.');
+          return;
+        }
+        if (resumeStepAfterFix && step < resumeStepAfterFix) {
+          setStep(resumeStepAfterFix);
+          setResumeStepAfterFix(null);
           return;
         }
         setStep(s => Math.min(5, s + 1));
@@ -6905,19 +6925,14 @@ function EditMemberModal({ member, onClose, onSave, planOptions, statusOptions, 
         setWarn('');
         // Validate all fields on final step
         if (Object.values(req1).some(Boolean) || Object.values(req2).some(Boolean) || Object.values(req3).some(Boolean) || Object.values(req5).some(Boolean)) {
-          setWarn('Please fill all required fields.');
           if (Object.values(req1).some(Boolean)) {
-            setStep(1);
-            focusField(firstInvalidStepField(1));
+            goToStepAndFocus(1, firstInvalidStepField(1), 'Please fill all required fields.', 5);
           } else if (Object.values(req2).some(Boolean)) {
-            setStep(2);
-            focusField(firstInvalidStepField(2));
+            goToStepAndFocus(2, firstInvalidStepField(2), 'Please fill all required fields.', 5);
           } else if (Object.values(req3).some(Boolean)) {
-            setStep(3);
-            focusField(firstInvalidStepField(3));
+            goToStepAndFocus(3, firstInvalidStepField(3), 'Please fill all required fields.', 5);
           } else if (Object.values(req5).some(Boolean)) {
-            setStep(5);
-            focusField(firstInvalidStepField(5));
+            goToStepAndFocus(5, firstInvalidStepField(5), 'Please fill all required fields.');
           }
           return;
         }
@@ -6925,13 +6940,13 @@ function EditMemberModal({ member, onClose, onSave, planOptions, statusOptions, 
         const trimmedMobile = form.mobile.trim();
         const duplicate = (members || []).some(m => String(m.mobile).trim() === trimmedMobile);
         if (duplicate) {
-          setWarn('A member with this mobile number already exists. Please use a different mobile number.');
+          goToStepAndFocus(1, 'add-member-mobile', 'A member with this mobile number already exists. Please use a different mobile number.', 5);
           return;
         }
         const trimmedEmail = String(form.email || '').trim().toLowerCase();
         const duplicateEmail = (members || []).some(m => String(m.email || '').trim().toLowerCase() === trimmedEmail);
         if (duplicateEmail) {
-          setWarn('A member with this email already exists. Please use a different Gmail.');
+          goToStepAndFocus(1, 'add-member-email', 'A member with this email already exists. Please use a different Gmail.', 5);
           return;
         }
         // Generate member ID and payMonth label
@@ -6939,7 +6954,7 @@ function EditMemberModal({ member, onClose, onSave, planOptions, statusOptions, 
         const memberId = `APG-${form.formNo}/${yearSuffix}`;
         const duplicateMemberId = (members || []).some(m => String(m.memberId || '').trim() === memberId);
         if (duplicateMemberId) {
-          setWarn('Generated member ID already exists. Please change Form Number.');
+          goToStepAndFocus(1, 'add-member-formNo', 'Generated member ID already exists. Please change Form Number.', 5);
           return;
         }
         const payMonth = payMonthLabel(addMonths(form.billingDate, 1));
@@ -6955,6 +6970,7 @@ function EditMemberModal({ member, onClose, onSave, planOptions, statusOptions, 
         try { localStorage.removeItem(DRAFT_KEY); } catch {}
         onClose();
         setStep(1);
+        setResumeStepAfterFix(null);
         setForm({
           formNo: '',
           name: '',
@@ -7059,7 +7075,7 @@ function EditMemberModal({ member, onClose, onSave, planOptions, statusOptions, 
                 </div>
               </div>
             </div>
-            <div className={cx(
+            <div ref={formScrollRef} className={cx(
               'px-4 sm:px-6 max-h-[calc(95dvh-170px)] sm:max-h-[70vh] overflow-auto',
               (step === 4 || step === 5) ? 'pb-52 sm:pb-24' : 'pb-36 sm:pb-6'
             )}>
