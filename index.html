@@ -1396,7 +1396,7 @@ Phone: +91-7047157510`;
           }
         };
         checkBackendHealth();
-        const heartbeat = setInterval(checkBackendHealth, 30000);
+        const heartbeat = setInterval(checkBackendHealth, 5000);
         return () => {
           alive = false;
           clearInterval(heartbeat);
@@ -10251,56 +10251,122 @@ function SettingsPage({ settings, updateSetting, members, access, storageInfo, b
     function BackendPage({ setToast }) {
       const [busy, setBusy] = React.useState('');
       const [healthOk, setHealthOk] = React.useState(null);
+      const [supervisorOk, setSupervisorOk] = React.useState(null);
       const [lastCheck, setLastCheck] = React.useState('');
+      const supervisorBase = React.useMemo(() => {
+        const rel = window.__APG_ENV__ && window.__APG_ENV__.SUPERVISOR_RELATIVE;
+        if (rel && typeof location?.origin === 'string' && location.origin.startsWith('http')) {
+          const path = rel.startsWith('/') ? rel : `/${rel}`;
+          return `${location.origin}${path}`.replace(/\/$/, '');
+        }
+        const fromEnv = window.__APG_ENV__ && window.__APG_ENV__.SUPERVISOR_URL;
+        if (fromEnv) return String(fromEnv).replace(/\/$/, '');
+        const h = location.hostname;
+        if (h === 'localhost' || h === '127.0.0.1') return 'http://127.0.0.1:4010';
+        return '';
+      }, []);
       const controlHeaders = React.useCallback(() => {
-        const h = { 'Content-Type': 'application/json' };
+        const h = {};
         const t = window.__APG_ENV__ && window.__APG_ENV__.PROCESS_CONTROL_TOKEN;
         if (t) h['x-apg-process-token'] = String(t);
         return h;
       }, []);
       const pingHealth = React.useCallback(async () => {
+        const ts = new Date().toLocaleTimeString([], { hour12: false });
+        let apiUp = false;
         try {
           const res = await fetch(`${BACKEND_API_BASE_URL}/health`, { cache: 'no-store' });
-          const ok = res.ok;
-          setHealthOk(ok);
-          setLastCheck(new Date().toLocaleTimeString([], { hour12: false }));
-          return ok;
+          apiUp = res.ok;
         } catch {
-          setHealthOk(false);
-          setLastCheck(new Date().toLocaleTimeString([], { hour12: false }));
-          return false;
+          apiUp = false;
         }
-      }, []);
+        let supUp = null;
+        if (supervisorBase) {
+          try {
+            const sres = await fetch(`${supervisorBase}/health`, { cache: 'no-store' });
+            supUp = sres.ok;
+          } catch {
+            supUp = false;
+          }
+        }
+        setHealthOk(apiUp);
+        setSupervisorOk(supUp);
+        setLastCheck(ts);
+        return apiUp;
+      }, [supervisorBase]);
       React.useEffect(() => {
         pingHealth();
       }, [pingHealth]);
       const callProcess = async (action) => {
-        const paths = { restart: '/process/restart', stop: '/process/stop', start: '/process/start' };
+        const apiPaths = { restart: '/process/restart', stop: '/process/stop', start: '/process/start' };
+        const supPaths = { restart: '/backend/restart', stop: '/backend/stop', start: '/backend/start' };
         setBusy(action);
-        try {
-          const res = await fetch(`${BACKEND_API_BASE_URL}${paths[action]}`, {
-            method: 'POST',
-            headers: controlHeaders(),
-          });
-          let data = {};
+        const doneToast = (msg, isErr) => {
+          setToast(msg);
+          setTimeout(() => setToast(''), isErr ? 5000 : 3500);
+        };
+        const trySupervisor = async () => {
+          if (!supervisorBase) return null;
           try {
-            data = await res.json();
-          } catch {}
-          if (!res.ok) {
-            setToast(data.message || data.error || `Request failed (${res.status})`);
-            setTimeout(() => setToast(''), 4500);
+            const res = await fetch(`${supervisorBase}${supPaths[action]}`, {
+              method: 'POST',
+              headers: controlHeaders(),
+            });
+            let data = {};
+            try {
+              data = await res.json();
+            } catch {}
+            return { res, data };
+          } catch (e) {
+            return { res: null, data: {}, netError: String(e?.message || e) };
+          }
+        };
+        const tryApi = async () => {
+          try {
+            const res = await fetch(`${BACKEND_API_BASE_URL}${apiPaths[action]}`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json', ...controlHeaders() },
+            });
+            let data = {};
+            try {
+              data = await res.json();
+            } catch {}
+            return { res, data };
+          } catch (e) {
+            return { res: null, data: {}, netError: String(e?.message || e) };
+          }
+        };
+        const applySuccess = () => {
+          if (action === 'stop' || action === 'restart') setHealthOk(false);
+          setTimeout(() => pingHealth(), action === 'start' || action === 'restart' ? 2200 : 500);
+        };
+        try {
+          if (supervisorBase) {
+            const s = await trySupervisor();
+            if (s && s.res && s.res.ok) {
+              doneToast(s.data.message || 'Supervisor completed the request.');
+              applySuccess();
+              return;
+            }
+          }
+          const a = await tryApi();
+          if (a.netError) {
+            doneToast(
+              supervisorBase
+                ? `${a.netError} (API unreachable; supervisor also failed — is the desktop app or node scripts/apg-supervisor.mjs running?)`
+                : a.netError,
+              true
+            );
             return;
           }
-          setToast(data.message || 'Done.');
-          setTimeout(() => setToast(''), 3500);
-          if (action === 'stop' || action === 'restart') {
-            setHealthOk(false);
-          } else {
-            setTimeout(() => pingHealth(), 800);
+          if (!a.res || !a.res.ok) {
+            doneToast(a.data?.message || a.data?.error || `Request failed (${a.res?.status || '?'})`, true);
+            return;
           }
+          doneToast(a.data.message || 'Done.');
+          applySuccess();
         } catch (e) {
-          setToast(String(e?.message || e));
-          setTimeout(() => setToast(''), 4000);
+          doneToast(String(e?.message || e), true);
         } finally {
           setBusy('');
         }
@@ -10309,19 +10375,33 @@ function SettingsPage({ settings, updateSetting, members, access, storageInfo, b
         <div className="p-3 md:p-8 space-y-5">
           <h1 className="text-xl md:text-2xl font-semibold text-slate-900">Backend</h1>
           <p className="text-sm text-slate-600 max-w-2xl">
-            Control the API server from this screen. <b>Restart</b> and <b>Turn off</b> stop the Node process; use your process manager or terminal to start it again unless you configure <code className="text-xs bg-slate-100 px-1 rounded">APG_BACKEND_START_SCRIPT</code> on the server for <b>Turn on</b>.
+            <b>Turn on</b> and <b>Restart</b> use a local supervisor on port 4010 when you launch via the desktop app or <code className="text-xs bg-slate-100 px-1 rounded">npm run dev:all</code>, so they work even when the API is down. If the API is up, the same buttons can use the API when the supervisor is unavailable.
           </p>
           <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm space-y-3 max-w-xl">
-            <div className="text-sm">
-              <span className="font-semibold text-slate-800">Connection: </span>
-              {healthOk === null ? (
-                <span className="text-slate-500">Checking…</span>
-              ) : healthOk ? (
-                <span className="text-emerald-700">Reachable</span>
-              ) : (
-                <span className="text-rose-700">Not reachable</span>
-              )}
-              {lastCheck ? <span className="text-slate-500"> (checked {lastCheck})</span> : null}
+            <div className="text-sm space-y-1">
+              <div>
+                <span className="font-semibold text-slate-800">API: </span>
+                {healthOk === null ? (
+                  <span className="text-slate-500">Checking…</span>
+                ) : healthOk ? (
+                  <span className="text-emerald-700">Reachable</span>
+                ) : (
+                  <span className="text-rose-700">Not reachable</span>
+                )}
+              </div>
+              {supervisorBase ? (
+                <div>
+                  <span className="font-semibold text-slate-800">Supervisor: </span>
+                  {supervisorOk === null ? (
+                    <span className="text-slate-500">Checking…</span>
+                  ) : supervisorOk ? (
+                    <span className="text-emerald-700">Reachable ({supervisorBase})</span>
+                  ) : (
+                    <span className="text-rose-700">Not running — use desktop app or run <code className="text-xs bg-slate-100 px-1 rounded">npm run dev:supervisor</code></span>
+                  )}
+                </div>
+              ) : null}
+              {lastCheck ? <div className="text-xs text-slate-500">Last check: {lastCheck}</div> : null}
             </div>
             <div className="flex flex-wrap gap-2">
               <button

@@ -76,8 +76,8 @@ async function main() {
   await ensureDeps();
   console.log('[bootstrap] Preparing local SQLite database...');
   await ensureDatabase();
-  console.log('[bootstrap] Starting backend and frontend...');
-  const backend = start(npmCmd, ['run', 'dev'], backendDir, 'backend');
+  console.log('[bootstrap] Starting supervisor (manages API), then frontend...');
+  const supervisor = start('node', [path.join(rootDir, 'scripts', 'apg-supervisor.mjs')], rootDir, 'supervisor');
   const frontend = start(npmCmd, ['run', 'dev:web'], rootDir, 'frontend');
 
   setTimeout(() => {
@@ -85,7 +85,7 @@ async function main() {
   }, 2500);
 
   const shutdown = () => {
-    backend.kill('SIGTERM');
+    supervisor.kill('SIGTERM');
     frontend.kill('SIGTERM');
     process.exit(0);
   };

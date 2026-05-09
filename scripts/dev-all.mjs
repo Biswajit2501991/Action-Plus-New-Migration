@@ -27,11 +27,11 @@ function run(name, command, args, cwd) {
 
 const npmCmd = process.platform === 'win32' ? 'npm.cmd' : 'npm';
 
-const backend = run('backend', npmCmd, ['run', 'dev'], path.join(rootDir, 'backend'));
+const supervisor = run('supervisor', 'node', [path.join(rootDir, 'scripts', 'apg-supervisor.mjs')], rootDir);
 const frontend = run('frontend', npmCmd, ['run', 'dev:web'], rootDir);
 
 function shutdown() {
-  backend.kill('SIGTERM');
+  supervisor.kill('SIGTERM');
   frontend.kill('SIGTERM');
 }
 

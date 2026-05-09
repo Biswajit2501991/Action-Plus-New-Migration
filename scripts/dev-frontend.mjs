@@ -1,6 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import http from 'node:http';
+import { spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -39,6 +40,106 @@ const frontendPort = Number(process.env.FRONTEND_PORT || 5500);
 const frontendHost = process.env.FRONTEND_HOST || '127.0.0.1';
 const backendPort = Number(process.env.BACKEND_PORT || process.env.PORT || 4000);
 const apiBaseUrl = process.env.API_BASE_URL || `http://localhost:${backendPort}/api`;
+const supervisorPort = Number(process.env.APG_SUPERVISOR_PORT || 4010);
+const SUPERVISOR_PROXY_PREFIX = '/__apg_supervisor';
+
+let supervisorChild = null;
+let supervisorChildOwned = false;
+
+function probeSupervisorTcp() {
+  return new Promise((resolve) => {
+    const req = http.request(
+      { hostname: '127.0.0.1', port: supervisorPort, path: '/health', method: 'GET', timeout: 900 },
+      (r) => {
+        resolve(r.statusCode === 200);
+      },
+    );
+    req.on('error', () => resolve(false));
+    req.on('timeout', () => {
+      req.destroy();
+      resolve(false);
+    });
+    req.end();
+  });
+}
+
+async function ensureLocalSupervisor() {
+  if (process.env.APG_SUPERVISOR_AUTOSTART === '0') return;
+  if (await probeSupervisorTcp()) return;
+  const script = path.join(rootDir, 'scripts', 'apg-supervisor.mjs');
+  supervisorChild = spawn(process.execPath, [script], {
+    cwd: rootDir,
+    env: { ...process.env, APG_SUPERVISOR_PORT: String(supervisorPort) },
+    stdio: 'inherit',
+  });
+  supervisorChildOwned = true;
+  supervisorChild.on('exit', () => {
+    supervisorChild = null;
+    supervisorChildOwned = false;
+  });
+  for (let i = 0; i < 40; i += 1) {
+    await new Promise((r) => setTimeout(r, 250));
+    if (await probeSupervisorTcp()) {
+      // eslint-disable-next-line no-console
+      console.log(`[dev:web] Supervisor ready on 127.0.0.1:${supervisorPort}`);
+      return;
+    }
+  }
+  // eslint-disable-next-line no-console
+  console.warn(`[dev:web] Supervisor did not respond on :${supervisorPort} (Backend tab restart may fail until it is running).`);
+}
+
+function proxyToSupervisor(clientReq, clientRes) {
+  const u = new URL(clientReq.url || '/', `http://${frontendHost}:${frontendPort}`);
+  const subPath = u.pathname.slice(SUPERVISOR_PROXY_PREFIX.length) || '/';
+  const targetPath = subPath.startsWith('/') ? subPath : `/${subPath}`;
+
+  const hopHeaders = new Set([
+    'connection',
+    'keep-alive',
+    'proxy-authenticate',
+    'proxy-authorization',
+    'te',
+    'trailers',
+    'transfer-encoding',
+    'upgrade',
+    'host',
+  ]);
+  const outHeaders = {};
+  for (const [k, v] of Object.entries(clientReq.headers)) {
+    if (!v) continue;
+    if (hopHeaders.has(k.toLowerCase())) continue;
+    outHeaders[k] = v;
+  }
+
+  const proxyReq = http.request(
+    {
+      hostname: '127.0.0.1',
+      port: supervisorPort,
+      path: targetPath + u.search,
+      method: clientReq.method,
+      headers: outHeaders,
+      timeout: 120000,
+    },
+    (proxyRes) => {
+      clientRes.writeHead(proxyRes.statusCode || 502, proxyRes.headers);
+      proxyRes.pipe(clientRes);
+    },
+  );
+  proxyReq.on('error', (err) => {
+    if (clientRes.headersSent) return;
+    clientRes.writeHead(502, { 'Content-Type': 'application/json; charset=utf-8' });
+    clientRes.end(JSON.stringify({ error: 'supervisor-proxy-failed', message: String(err?.message || err) }));
+  });
+  proxyReq.on('timeout', () => {
+    proxyReq.destroy();
+    if (!clientRes.headersSent) {
+      clientRes.writeHead(504, { 'Content-Type': 'application/json; charset=utf-8' });
+      clientRes.end(JSON.stringify({ error: 'supervisor-proxy-timeout' }));
+    }
+  });
+  clientReq.pipe(proxyReq);
+}
 
 const mimeByExt = {
   '.html': 'text/html; charset=utf-8',
@@ -71,12 +172,29 @@ const server = http.createServer((req, res) => {
       FRONTEND_PORT: frontendPort,
       BACKEND_PORT: backendPort,
       API_BASE_URL: apiBaseUrl,
+      SUPERVISOR_URL: `http://127.0.0.1:${supervisorPort}`,
+      SUPERVISOR_RELATIVE: SUPERVISOR_PROXY_PREFIX,
       ...(process.env.PROCESS_CONTROL_TOKEN
         ? { PROCESS_CONTROL_TOKEN: process.env.PROCESS_CONTROL_TOKEN }
         : {}),
     };
     res.writeHead(200, { 'Content-Type': 'application/javascript; charset=utf-8' });
     res.end(`window.__APG_ENV__ = ${JSON.stringify(payload)};`);
+    return;
+  }
+
+  if (reqPath === SUPERVISOR_PROXY_PREFIX || reqPath.startsWith(`${SUPERVISOR_PROXY_PREFIX}/`)) {
+    if (req.method === 'OPTIONS') {
+      res.writeHead(204, {
+        'Access-Control-Allow-Origin': '*',
+        'Access-Control-Allow-Methods': 'GET,POST,OPTIONS',
+        'Access-Control-Allow-Headers': 'Content-Type, Authorization, x-apg-process-token, X-APG-Process-Token',
+        'Access-Control-Max-Age': '86400',
+      });
+      res.end();
+      return;
+    }
+    proxyToSupervisor(req, res);
     return;
   }
 
@@ -92,9 +210,21 @@ const server = http.createServer((req, res) => {
   fs.createReadStream(abs).pipe(res);
 });
 
-server.listen(frontendPort, frontendHost, () => {
+server.listen(frontendPort, frontendHost, async () => {
+  await ensureLocalSupervisor();
   // eslint-disable-next-line no-console
   console.log(`Frontend running at http://${frontendHost}:${frontendPort}/index.html`);
   // eslint-disable-next-line no-console
   console.log(`Frontend API base URL: ${apiBaseUrl}`);
+  // eslint-disable-next-line no-console
+  console.log(`Supervisor proxy: http://${frontendHost}:${frontendPort}${SUPERVISOR_PROXY_PREFIX} → 127.0.0.1:${supervisorPort}`);
 });
+
+function shutdownDev() {
+  if (supervisorChildOwned && supervisorChild && !supervisorChild.killed) {
+    supervisorChild.kill('SIGTERM');
+  }
+  process.exit(0);
+}
+process.on('SIGINT', shutdownDev);
+process.on('SIGTERM', shutdownDev);

@@ -19,7 +19,10 @@ app.use(express.json({ limit: '1mb' }));
 app.use((req, res, next) => {
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'GET,POST,PUT,PATCH,DELETE,OPTIONS');
-  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
+  res.setHeader(
+    'Access-Control-Allow-Headers',
+    'Content-Type, Authorization, x-apg-process-token, X-APG-Process-Token',
+  );
   if (req.method === 'OPTIONS') return res.status(204).end();
   return next();
 });
@@ -393,7 +396,8 @@ app.post('/api/process/stop', (req, res) => {
     action: 'stop',
     message: 'Server is shutting down. Start it again from your terminal, PM2, or desktop app.',
   });
-  setTimeout(() => process.exit(0), 500);
+  res.on('finish', () => process.exit(0));
+  setTimeout(() => process.exit(0), 3000);
 });
 
 app.post('/api/process/restart', (req, res) => {
@@ -404,7 +408,8 @@ app.post('/api/process/restart', (req, res) => {
     action: 'restart',
     message: 'Server process will exit. Use a process manager (PM2, launchd, etc.) to bring it back up.',
   });
-  setTimeout(() => process.exit(0), 500);
+  res.on('finish', () => process.exit(0));
+  setTimeout(() => process.exit(0), 3000);
 });
 
 app.post('/api/process/start', (req, res) => {
