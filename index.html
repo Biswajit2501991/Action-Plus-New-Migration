@@ -3840,6 +3840,7 @@ Please pay by: ${formattedLastDate}`;
                       deleteMember(deleteCandidate.memberId);
                       setDeleteCandidate(null);
                       setToast(`${deleteCandidate.name} has been deleted successfully`);
+                      setTimeout(() => setToast(''), 2500);
                     }}
                     className="rounded-xl px-4 py-2 bg-red-600 hover:bg-red-700 text-white text-sm font-medium"
                   >
@@ -5464,7 +5465,12 @@ function DashboardView({ members, onEdit, onStatusChange, holdOptions, logs, fil
       const [sortDirection, setSortDirection] = React.useState('desc');
       const [selectedIds, setSelectedIds] = React.useState([]);
       const [visibleByStatus, setVisibleByStatus] = React.useState({ Active: 20, Hold: 20, Deactivated: 20, Cancelled: 20 });
+      const [hiddenSections, setHiddenSections] = React.useState({ Active: false, Hold: false, Deactivated: false, Cancelled: false });
       const sectionRefs = React.useRef({});
+      const allSectionsHidden = React.useMemo(
+        () => ['Active', 'Hold', 'Deactivated', 'Cancelled'].every((status) => Boolean(hiddenSections[status])),
+        [hiddenSections]
+      );
       // Pagination state per status tab. Each status has its own current page.
       const [pages, setPages] = React.useState({ Active: 1, Hold: 1, Deactivated: 1, Cancelled: 1 });
       // When members or filters change, reset pagination to page 1 for each status.
@@ -5696,6 +5702,13 @@ function DashboardView({ members, onEdit, onStatusChange, holdOptions, logs, fil
               <button aria-pressed={focusStatus === 'Hold'} onClick={() => setFocusStatus('Hold')} className={chipClass(focusStatus === 'Hold', 'bg-amber-500 text-white border-amber-500 ring-amber-200', 'bg-amber-50 text-amber-700 border-amber-200')}>Hold ({grouped.Hold.length})</button>
               <button aria-pressed={focusStatus === 'Deactivated'} onClick={() => setFocusStatus('Deactivated')} className={chipClass(focusStatus === 'Deactivated', 'bg-pink-600 text-white border-pink-600 ring-pink-200', 'bg-pink-50 text-pink-700 border-pink-200')}>Deactivated ({grouped.Deactivated.length})</button>
               <button aria-pressed={focusStatus === 'Cancelled'} onClick={() => setFocusStatus('Cancelled')} className={chipClass(focusStatus === 'Cancelled', 'bg-slate-700 text-white border-slate-700 ring-slate-200', 'bg-slate-100 text-slate-700 border-slate-200')}>Cancelled ({grouped.Cancelled.length})</button>
+              <button
+                type="button"
+                onClick={() => setHiddenSections({ Active: !allSectionsHidden, Hold: !allSectionsHidden, Deactivated: !allSectionsHidden, Cancelled: !allSectionsHidden })}
+                className={chipClass(false, '', 'bg-white text-slate-700 border-slate-300')}
+              >
+                {allSectionsHidden ? 'Show all sections' : 'Hide all sections'}
+              </button>
               {selectedIds.length > 0 && (
                 <>
                   <span className="text-sm text-slate-600">{selectedIds.length} selected</span>
@@ -5743,7 +5756,16 @@ function DashboardView({ members, onEdit, onStatusChange, holdOptions, logs, fil
             return (
               <div key={key} className="space-y-3" ref={(el) => { sectionRefs.current[key] = el; }}>
                 <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
-                  <h2 className="text-xl font-semibold">{key} Members ({list.length})</h2>
+                  <div className="flex w-full items-center justify-between gap-2">
+                    <h2 className="text-xl font-semibold">{key} Members ({list.length})</h2>
+                    <button
+                      type="button"
+                      onClick={() => setHiddenSections((prev) => ({ ...prev, [key]: !prev[key] }))}
+                      className="rounded-xl border border-slate-300 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-100"
+                    >
+                      {hiddenSections[key] ? 'Show' : 'Hide'}
+                    </button>
+                  </div>
                   {idx === 0 && (
                     <div className="w-full md:w-auto flex items-center gap-2">
                       <div className="relative w-full md:w-72">
@@ -5779,7 +5801,8 @@ function DashboardView({ members, onEdit, onStatusChange, holdOptions, logs, fil
                     </div>
                   )}
                 </div>
-                <div className="rounded-3xl bg-white p-4 shadow-sm">
+                {!hiddenSections[key] && (
+                  <div className="rounded-3xl bg-white p-4 shadow-sm">
                   <div className="hidden md:grid grid-cols-12 gap-4 px-3 py-2 text-sm font-semibold bg-blue-50 text-blue-700 border border-blue-100 rounded-2xl">
                     <button onClick={() => toggleSort('memberId')} className="col-span-1 text-left hover:text-blue-900">ID <span className="text-[11px]">{sortIndicator('memberId')}</span></button>
                     <button onClick={() => toggleSort('name')} className="col-span-2 text-left hover:text-blue-900">Name <span className="text-[11px]">{sortIndicator('name')}</span></button>
@@ -5848,6 +5871,7 @@ function DashboardView({ members, onEdit, onStatusChange, holdOptions, logs, fil
                     </div>
                   )}
                 </div>
+                )}
               </div>
             );
           })}
