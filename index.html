@@ -505,6 +505,10 @@
       if (name === 'menu') return <svg {...common}><path d="M4 6h16M4 12h16M4 18h16" /></svg>;
       if (name === 'logout') return <svg {...common}><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" /><path d="M16 17l5-5-5-5" /><path d="M21 12H9" /></svg>;
       if (name === 'phone') return <svg {...common}><path d="M22 16.9v3a2 2 0 0 1-2.2 2A19.8 19.8 0 0 1 3.1 5.2 2 2 0 0 1 5.1 3h3a2 2 0 0 1 2 1.7c.1.9.4 1.7.7 2.5a2 2 0 0 1-.4 2L9.1 10.6a16 16 0 0 0 4.3 4.3l1.4-1.3a2 2 0 0 1 2-.4c.8.3 1.6.6 2.5.7a2 2 0 0 1 1.7 2Z" /></svg>;
+      if (name === 'settings') return <svg {...common}><circle cx="12" cy="12" r="3" /><path d="M19.4 15a1 1 0 0 0 .2 1.1l.1.1a2 2 0 0 1 0 2.8 2 2 0 0 1-2.8 0l-.1-.1a1 1 0 0 0-1.1-.2 1 1 0 0 0-.6.9V20a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.2a1 1 0 0 0-.6-.9 1 1 0 0 0-1.1.2l-.1.1a2 2 0 0 1-2.8 0 2 2 0 0 1 0-2.8l.1-.1a1 1 0 0 0 .2-1.1 1 1 0 0 0-.9-.6H4a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.2a1 1 0 0 0 .9-.6 1 1 0 0 0-.2-1.1l-.1-.1a2 2 0 0 1 0-2.8 2 2 0 0 1 2.8 0l.1.1a1 1 0 0 0 1.1.2H9a1 1 0 0 0 .6-.9V4a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.2a1 1 0 0 0 .6.9 1 1 0 0 0 1.1-.2l.1-.1a2 2 0 0 1 2.8 0 2 2 0 0 1 0 2.8l-.1.1a1 1 0 0 0-.2 1.1V9a1 1 0 0 0 .9.6H20a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.2a1 1 0 0 0-.9.6Z" /></svg>;
+      if (name === 'logs') return <svg {...common}><path d="M8 6h13M8 12h13M8 18h13" /><path d="M3 6h.01M3 12h.01M3 18h.01" /></svg>;
+      if (name === 'server') return <svg {...common}><rect x="3" y="4" width="18" height="6" rx="1.5" /><rect x="3" y="14" width="18" height="6" rx="1.5" /><path d="M7 7h.01M7 17h.01" /></svg>;
+      if (name === 'help') return <svg {...common}><circle cx="12" cy="12" r="9" /><path d="M9.5 9a2.5 2.5 0 1 1 4.2 1.8c-.8.7-1.7 1.2-1.7 2.4" /><path d="M12 17h.01" /></svg>;
       return null;
     }
 
@@ -1765,6 +1769,8 @@ Phone: +91-7047157510`;
       const [dashField, setDashField] = React.useState('all');
       const [mobileMenuOpen, setMobileMenuOpen] = React.useState(false);
       const [notificationOpen, setNotificationOpen] = React.useState(false);
+      const [headerDate, setHeaderDate] = React.useState(() => iso(new Date()));
+      const headerDateInputRef = React.useRef(null);
       const [quickExpenseOpen, setQuickExpenseOpen] = React.useState(false);
       const [leaveTrackerFocus, setLeaveTrackerFocus] = React.useState({ requestId: '', userId: '' });
       const [visitorNotificationFocusId, setVisitorNotificationFocusId] = React.useState('');
@@ -3272,60 +3278,51 @@ Please pay by: ${formattedLastDate}`;
             setMembersView={setMembersView}
           />
           <main className="flex-1 overflow-y-auto pt-[68px] md:pt-0 pb-28 md:pb-0 w-full bg-[#F8FAFC] md:bg-transparent">
-            <div className="hidden md:block px-8 pt-6">
-              <div className="rounded-2xl border border-slate-200 bg-white p-2 shadow-sm apg-card">
-                <div className="flex flex-wrap items-center justify-between gap-2">
-                  <div className="flex flex-wrap items-center gap-2">
-                    {dashboardTopTabs.map((tab) => (
-                      <button
-                        key={tab}
-                        onClick={() => {
-                          setActiveTab(tab);
-                          if (tab === 'Dashboard') setDashMode('summary');
-                          if (tab === 'Members') setMembersView('all');
+            <div className="hidden md:block px-8 pt-6 space-y-3">
+              <div className="rounded-2xl border border-slate-200 bg-white p-3 shadow-sm apg-card">
+                <div className="flex items-center justify-between gap-3">
+                  <div className="flex items-center gap-2 min-w-0 flex-1">
+                    <div className="flex items-center gap-2 rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 w-full max-w-md shadow-[inset_0_1px_0_rgba(255,255,255,0.7)]">
+                      <span className="text-slate-400">🔎</span>
+                      <input
+                        value={dashSearch}
+                        onChange={(e) => setDashSearch(e.target.value)}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter') {
+                            setDashField('all');
+                            setDashMode('list');
+                            if (activeTab !== 'Dashboard') setActiveTab('Dashboard');
+                          }
                         }}
-                        className={cx(
-                          'rounded-full px-3 py-1.5 text-xs font-semibold border transition-colors',
-                          activeTab === tab
-                            ? 'bg-blue-600 text-white border-blue-600'
-                            : 'bg-white text-slate-700 border-slate-300 hover:bg-slate-100'
-                        )}
-                      >
-                        {tab}
-                      </button>
-                    ))}
+                        placeholder="Search members, invoices, attendance..."
+                        className="w-full bg-transparent text-sm text-slate-700 placeholder:text-slate-400 focus:outline-none"
+                      />
+                    </div>
                   </div>
-                  <div className="flex flex-wrap items-center gap-2">
-                    <button
-                      onClick={toggleTheme}
-                      className="rounded-full border border-slate-300 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-100"
-                      title={`Theme: ${themeModeLabel} (click to cycle Auto/Dark/Light)`}
-                    >
-                      {themeModeLabel}
-                    </button>
+                  <div className="flex items-center gap-2 shrink-0">
                     <button
                       onClick={toggleDisplayTimeZone}
-                      className="rounded-full border border-indigo-300 bg-indigo-50 px-3 py-1.5 text-xs font-semibold text-indigo-700 hover:bg-indigo-100"
+                      className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-50 shadow-[inset_0_1px_0_rgba(255,255,255,0.8)]"
                       title={`Timezone: ${displayTimeZone} (click to toggle IST/AEST)`}
                     >
                       {displayTimeZone}
                     </button>
                     <SyncStatusDot mode={dataSyncMode} label={syncBadgeLabel} />
-                  <div className="relative">
-                    <button
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        setNotificationOpen(v => !v);
-                      }}
-                      className="rounded-full border border-slate-300 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-100"
-                    >
-                      <span className="inline-flex items-center gap-1.5"><AppIcon name="bell" className="h-3.5 w-3.5" /> Notifications</span>
-                      {pendingLeaveCount > 0 && (
-                        <span className="ml-2 rounded-full bg-rose-600 px-2 py-0.5 text-[10px] font-semibold text-white">{pendingLeaveCount}</span>
-                      )}
-                    </button>
-                    {notificationOpen && (
-                      <div onClick={(e) => e.stopPropagation()} className="absolute right-0 mt-2 w-80 rounded-xl border border-slate-200 bg-white shadow-xl p-2 z-50">
+                    <div className="relative">
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setNotificationOpen(v => !v);
+                        }}
+                        className="relative rounded-xl border border-slate-200 bg-white px-2.5 py-2 text-slate-700 hover:bg-slate-50 shadow-[inset_0_1px_0_rgba(255,255,255,0.8)]"
+                      >
+                        <AppIcon name="bell" className="h-4 w-4" />
+                        {pendingLeaveCount > 0 && (
+                          <span className="absolute -top-1 -right-1 rounded-full bg-rose-600 px-1.5 py-0.5 text-[10px] font-semibold text-white">{pendingLeaveCount}</span>
+                        )}
+                      </button>
+                      {notificationOpen && (
+                        <div onClick={(e) => e.stopPropagation()} className="absolute right-0 mt-2 w-80 rounded-xl border border-slate-200 bg-white shadow-xl p-2 z-50">
                         {user?.id === 'owner' && (
                           <>
                             <div className="px-2 py-1 text-xs font-semibold text-slate-600">Pending Leave Approvals</div>
@@ -3388,10 +3385,71 @@ Please pay by: ${formattedLastDate}`;
                             ))}
                           </div>
                         )}
+                        </div>
+                      )}
+                    </div>
+                    <button
+                      onClick={toggleTheme}
+                      className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-50 shadow-[inset_0_1px_0_rgba(255,255,255,0.8)]"
+                      title={`Theme: ${themeModeLabel} (click to cycle Auto/Dark/Light)`}
+                    >
+                      {themeModeLabel}
+                    </button>
+                    <div className="flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-2.5 py-1.5 shadow-[inset_0_1px_0_rgba(255,255,255,0.8)]">
+                      <Avatar name={user?.name || ''} photo={user?.photo || user?.avatar || null} className="h-8 w-8 rounded-full" />
+                      <div className="leading-tight pr-1">
+                        <div className="text-xs font-semibold text-slate-800">{user?.name || '-'}</div>
+                        <div className="text-[11px] text-slate-500">{user?.id || 'staff'}</div>
                       </div>
-                    )}
+                    </div>
+                    <button
+                      onClick={() => {
+                        const input = headerDateInputRef.current;
+                        if (!input) return;
+                        if (typeof input.showPicker === 'function') input.showPicker();
+                        else input.click();
+                      }}
+                      className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-50 shadow-[inset_0_1px_0_rgba(255,255,255,0.8)]"
+                      title="Select date"
+                    >
+                      🗓 {(() => {
+                        const d = asUTC(headerDate);
+                        if (!d) return '--/---/----';
+                        return `${String(d.getDate()).padStart(2, '0')}/${String(MONTHS[d.getMonth()] || '').slice(0, 3)}/${d.getFullYear()}`;
+                      })()}
+                    </button>
+                    <input
+                      ref={headerDateInputRef}
+                      type="date"
+                      value={headerDate}
+                      onChange={(e) => setHeaderDate(e.target.value)}
+                      className="absolute pointer-events-none opacity-0 h-0 w-0"
+                      tabIndex={-1}
+                      aria-hidden="true"
+                    />
                   </div>
-                  </div>
+                </div>
+              </div>
+              <div className="rounded-2xl border border-slate-200 bg-white p-3 shadow-sm apg-card">
+                <div className="flex flex-wrap items-center gap-2">
+                  {dashboardTopTabs.map((tab) => (
+                    <button
+                      key={tab}
+                      onClick={() => {
+                        setActiveTab(tab);
+                        if (tab === 'Dashboard') setDashMode('summary');
+                        if (tab === 'Members') setMembersView('all');
+                      }}
+                      className={cx(
+                        'rounded-full px-3 py-1.5 text-xs font-semibold border transition-colors shadow-[inset_0_1px_0_rgba(255,255,255,0.8)]',
+                        activeTab === tab
+                          ? 'bg-blue-600 text-white border-blue-600'
+                          : 'bg-white text-slate-700 border-slate-300 hover:bg-slate-100'
+                      )}
+                    >
+                      {tab}
+                    </button>
+                  ))}
                 </div>
               </div>
             </div>
@@ -4134,150 +4192,167 @@ Please pay by: ${formattedLastDate}`;
 
     // ---- Sidebar Component ----
 function Sidebar({ user, active, onSelect, theme, setTheme, onLogout, onUndo, onRedo, canUndo, canRedo, mobileOpen, onCloseMobile, membersView = 'all', setMembersView }) {
-      // Nav items with icon mapping (emoji). Could be replaced with SVG icons.
       const NAV = [
-        { key: 'Dashboard', label: 'Dashboard', icon: '🏠' },
-        { key: 'Members', label: 'Members', icon: '👥' },
-        { key: 'PT Clients', label: 'PT Clients', icon: '🏋️' },
-        { key: 'WhatsApp SMS', label: 'WhatsApp SMS', icon: '✉️' },
-        { key: 'Finance', label: 'Finance', icon: '💰' },
-        { key: 'Staff', label: 'Staff', icon: '👤' },
-        { key: 'Attendance', label: 'Attendance', icon: '🗓️' },
-        { key: 'Leave Tracker', label: 'Leave Tracker', icon: '📝' },
-        { key: 'Settings', label: 'Settings', icon: '⚙️' },
-        { key: 'Logs', label: 'Logs', icon: '📜' },
-        { key: 'Support', label: 'Support', icon: '❓' },
-        { key: 'Backend', label: 'Backend', icon: '🖥️' },
+        { key: 'Dashboard', label: 'Dashboard', icon: 'home', group: '' },
+        { key: 'Members', label: 'Members', icon: 'users', group: 'MEMBERS & CLIENTS' },
+        { key: 'PT Clients', label: 'PT Clients', icon: 'users', group: 'MEMBERS & CLIENTS' },
+        { key: 'WhatsApp SMS', label: 'WhatsApp SMS', icon: 'phone', group: 'COMMUNICATION' },
+        { key: 'Attendance', label: 'Attendance', icon: 'calendar', group: 'OPERATIONS' },
+        { key: 'Leave Tracker', label: 'Leave Tracker', icon: 'calendar', group: 'OPERATIONS' },
+        { key: 'Finance', label: 'Finance', icon: 'wallet', group: 'FINANCE' },
+        { key: 'Staff', label: 'Staff', icon: 'users', group: 'STAFF & MANAGEMENT' },
+        { key: 'Settings', label: 'Settings', icon: 'settings', group: 'SYSTEM' },
+        { key: 'Logs', label: 'Logs', icon: 'logs', group: 'SYSTEM' },
+        { key: 'Backend', label: 'Backend', icon: 'server', group: 'SYSTEM' },
+        { key: 'Support', label: 'Support', icon: 'help', group: 'SYSTEM' },
       ];
-      // Filter navigation items based on the logged in user's allowed sections. Always
-      // include the Support page. If no user or sections are provided, show all pages.
       const allowedSections = user && user.sections ? user.sections : ALL_SECTIONS;
       const navItems = NAV.filter(item => allowedSections.includes(item.key) || item.key === 'Support');
       const [membersExpanded, setMembersExpanded] = React.useState(true);
       const canViewVisitors = normalizeAccess(user?.access).members?.viewVisitors !== false;
+      const sectionOrder = ['', 'MEMBERS & CLIENTS', 'COMMUNICATION', 'OPERATIONS', 'FINANCE', 'STAFF & MANAGEMENT', 'SYSTEM'];
+      const groupedNav = React.useMemo(() => {
+        const map = {};
+        navItems.forEach((item) => {
+          const g = item.group || '';
+          if (!map[g]) map[g] = [];
+          map[g].push(item);
+        });
+        return map;
+      }, [navItems]);
+      const navButtonClass = (isActive) => cx(
+        'w-full flex items-center gap-2.5 rounded-2xl px-3 py-2 text-left text-[10px] font-semibold transition-all duration-150',
+        isActive
+          ? 'bg-gradient-to-r from-blue-50 to-indigo-50 text-blue-600 shadow-sm border border-blue-100'
+          : 'text-slate-700 hover:bg-slate-50/90 border border-transparent'
+      );
       return (
         <aside className={cx(
-          'w-72 bg-gradient-to-b from-blue-600 to-blue-500 text-white flex flex-col h-screen overflow-hidden',
+          'w-72 bg-[#fcfdff] border-r border-slate-200 text-slate-900 flex flex-col h-screen overflow-hidden',
           'fixed inset-y-0 left-0 z-40 transform transition-transform duration-200',
           mobileOpen ? 'translate-x-0' : '-translate-x-full',
           'md:static md:translate-x-0 md:shrink-0'
         )}>
-          {/* Brand logo at top */}
-          <div className="flex flex-col items-center pt-6 pb-4">
-            <div className="h-14 w-14 rounded-full bg-white p-1 shadow-lg overflow-hidden">
-              <img src="./assets/action-plus-logo.png" alt="Action Plus Gym logo" className="h-full w-full rounded-full object-cover" />
+          <div className="px-5 pt-4 pb-3 border-b border-slate-100 bg-white/80 backdrop-blur">
+            <div className="flex items-center gap-3">
+              <div className="h-9 w-9 rounded-full bg-blue-50 p-1 ring-1 ring-blue-100 overflow-hidden">
+                <img src="./assets/action-plus-logo.png" alt="Action Plus Gym logo" className="h-full w-full rounded-full object-cover" />
+              </div>
+              <div className="min-w-0">
+                <div className="truncate text-[13px] font-semibold text-slate-900 tracking-tight">Action Plus Gym</div>
+                <div className="truncate text-[11px] text-slate-500">{user?.name || 'User'}</div>
+              </div>
             </div>
-            <div className="mt-2 text-sm font-semibold">Action Plus Gym</div>
           </div>
-          <div className="mx-4 mb-6 p-4 rounded-2xl bg-white/10 flex flex-col items-center">
-            {/* User avatar using initials */}
-            <Avatar name={user.name} photo={user.photo || user.avatar || null} className="h-16 w-16 mb-2" />
-            <div className="font-semibold text-base">{user.name}</div>
-            <div className="text-white/80 text-sm">{user.email}</div>
-          </div>
-          <nav className="flex-1 px-2 space-y-1 overflow-y-auto">
-            {navItems.map(item => {
-              if (item.key === 'Members') {
-                return (
-                  <div key={item.key} className="space-y-1">
-                    <button
-                      onClick={() => {
-                        onSelect('Members');
-                        setMembersView && setMembersView('all');
-                        setMembersExpanded((v) => !v);
-                        onCloseMobile && onCloseMobile();
-                      }}
-                      className={cx(
-                        'w-full flex items-center justify-between text-left rounded-xl px-4 py-2 font-medium',
-                        active === 'Members' ? 'bg-white/20' : 'hover:bg-white/10'
-                      )}
-                    >
-                      <span className="flex items-center gap-3">
-                        <span>{item.icon}</span>
-                        <span>{item.label}</span>
-                      </span>
-                      <span className="text-xs">{membersExpanded ? '▾' : '▸'}</span>
-                    </button>
-                    {membersExpanded && (
-                      <div className="ml-8 mr-2 space-y-1">
+          <nav className="flex-1 px-4 py-3 overflow-y-auto">
+            {sectionOrder.map((section) => {
+              const items = groupedNav[section] || [];
+              if (items.length === 0) return null;
+              return (
+                <div key={section || 'main'} className="mb-3.5">
+                  {section ? (
+                    <div className="px-2 pb-1.5 text-[10px] font-bold tracking-[0.18em] text-slate-400">{section}</div>
+                  ) : null}
+                  <div className="space-y-1">
+                    {items.map((item) => {
+                      if (item.key === 'Members') {
+                        return (
+                          <div key={item.key} className="space-y-1">
+                            <button
+                              onClick={() => {
+                                onSelect('Members');
+                                setMembersView && setMembersView('all');
+                                setMembersExpanded((v) => !v);
+                                onCloseMobile && onCloseMobile();
+                              }}
+                              className={cx(navButtonClass(active === 'Members'), 'justify-between')}
+                            >
+                              <span className="flex items-center gap-3">
+                                <AppIcon name={item.icon} className="h-4 w-4 shrink-0" />
+                                <span>{item.label}</span>
+                              </span>
+                              <span className="text-[10px] text-slate-400">{membersExpanded ? '▾' : '▸'}</span>
+                            </button>
+                            {membersExpanded && (
+                              <div className="ml-8 mr-1 space-y-1">
+                                <button
+                                  onClick={() => {
+                                    onSelect('Members');
+                                    setMembersView && setMembersView('all');
+                                    onCloseMobile && onCloseMobile();
+                                  }}
+                                  className={cx(
+                                    'w-full rounded-xl px-3 py-1.5 text-left text-[11px] font-medium',
+                                    active === 'Members' && membersView === 'all' ? 'bg-blue-50 text-blue-700' : 'text-slate-600 hover:bg-slate-50'
+                                  )}
+                                >
+                                  All Members
+                                </button>
+                                {canViewVisitors && (
+                                  <button
+                                    onClick={() => {
+                                      onSelect('Members');
+                                      setMembersView && setMembersView('visitors');
+                                      onCloseMobile && onCloseMobile();
+                                    }}
+                                    className={cx(
+                                      'w-full rounded-xl px-3 py-1.5 text-left text-[11px] font-medium',
+                                      active === 'Members' && membersView === 'visitors' ? 'bg-blue-50 text-blue-700' : 'text-slate-600 hover:bg-slate-50'
+                                    )}
+                                  >
+                                    Visitors
+                                  </button>
+                                )}
+                              </div>
+                            )}
+                          </div>
+                        );
+                      }
+                      return (
                         <button
+                          key={item.key}
                           onClick={() => {
-                            onSelect('Members');
-                            setMembersView && setMembersView('all');
+                            onSelect(item.key);
                             onCloseMobile && onCloseMobile();
                           }}
-                          className={cx('w-full rounded-lg px-3 py-1.5 text-left text-sm', active === 'Members' && membersView === 'all' ? 'bg-white/20' : 'hover:bg-white/10')}
+                          className={navButtonClass(active === item.key)}
                         >
-                          All Members
+                          <AppIcon name={item.icon} className="h-4 w-4 shrink-0" />
+                          <span>{item.label}</span>
                         </button>
-                        {canViewVisitors && (
-                          <button
-                            onClick={() => {
-                              onSelect('Members');
-                              setMembersView && setMembersView('visitors');
-                              onCloseMobile && onCloseMobile();
-                            }}
-                            className={cx('w-full rounded-lg px-3 py-1.5 text-left text-sm', active === 'Members' && membersView === 'visitors' ? 'bg-white/20' : 'hover:bg-white/10')}
-                          >
-                            Visitors
-                          </button>
-                        )}
-                      </div>
-                    )}
+                      );
+                    })}
                   </div>
-                );
-              }
-              return (
-                <button
-                  key={item.key}
-                  onClick={() => {
-                    onSelect(item.key);
-                    onCloseMobile && onCloseMobile();
-                  }}
-                  className={cx(
-                    'w-full flex items-center justify-start text-left gap-3 rounded-xl px-4 py-2 font-medium',
-                    active === item.key ? 'bg-white/20' : 'hover:bg-white/10'
-                  )}
-                >
-                  <span>{item.icon}</span>
-                  <span>{item.label}</span>
-                </button>
+                </div>
               );
             })}
           </nav>
-          <div className="p-4 mt-auto space-y-3">
-            <div className="rounded-2xl bg-white/10 p-3">
-              <div className="text-xs text-white/80 mb-2">History</div>
-              <div className="grid grid-cols-2 gap-2">
-                <button
-                  onClick={onUndo}
-                  disabled={!canUndo}
-                  className={cx('rounded-xl px-3 py-2 text-xs font-medium border', canUndo ? 'bg-white text-blue-700 border-white/60 hover:bg-blue-50' : 'bg-white/20 text-white/50 border-white/20 cursor-not-allowed')}
-                  title="Undo (up to 5 steps)"
-                >
-                  ↶ Back
-                </button>
-                <button
-                  onClick={onRedo}
-                  disabled={!canRedo}
-                  className={cx('rounded-xl px-3 py-2 text-xs font-medium border', canRedo ? 'bg-white text-blue-700 border-white/60 hover:bg-blue-50' : 'bg-white/20 text-white/50 border-white/20 cursor-not-allowed')}
-                  title="Redo (up to 5 steps)"
-                >
-                  ↷ Forward
-                </button>
-              </div>
+          <div className="px-4 py-3 border-t border-slate-100 bg-white/80 backdrop-blur space-y-2">
+            <div className="grid grid-cols-2 gap-2">
+              <button
+                onClick={onUndo}
+                disabled={!canUndo}
+                className={cx('rounded-xl px-3 py-1.5 text-[12px] font-semibold border', canUndo ? 'bg-white text-slate-700 border-slate-300 hover:bg-slate-50' : 'bg-slate-100 text-slate-400 border-slate-200 cursor-not-allowed')}
+                title="Undo (up to 5 steps)"
+              >
+                ↶ Back
+              </button>
+              <button
+                onClick={onRedo}
+                disabled={!canRedo}
+                className={cx('rounded-xl px-3 py-1.5 text-[12px] font-semibold border', canRedo ? 'bg-white text-slate-700 border-slate-300 hover:bg-slate-50' : 'bg-slate-100 text-slate-400 border-slate-200 cursor-not-allowed')}
+                title="Redo (up to 5 steps)"
+              >
+                ↷ Forward
+              </button>
             </div>
-            <div className="rounded-2xl bg-white/10 p-3 space-y-2">
-            {/* Logout button with professional styling */}
             <button
               onClick={onLogout}
-              className="w-full flex items-center justify-center gap-2 rounded-xl px-4 py-2 text-sm font-medium bg-red-600 hover:bg-red-700 text-white"
+              className="w-full flex items-center justify-center gap-2 rounded-xl px-4 py-2 text-[13px] font-semibold bg-rose-600 hover:bg-rose-700 text-white"
             >
               <AppIcon name="logout" className="h-4 w-4" />
               <span>Logout</span>
             </button>
-            <div className="text-xs text-white/70">v1.0</div>
-            </div>
           </div>
         </aside>
       );
