@@ -71,6 +71,9 @@ const server = http.createServer((req, res) => {
       FRONTEND_PORT: frontendPort,
       BACKEND_PORT: backendPort,
       API_BASE_URL: apiBaseUrl,
+      ...(process.env.PROCESS_CONTROL_TOKEN
+        ? { PROCESS_CONTROL_TOKEN: process.env.PROCESS_CONTROL_TOKEN }
+        : {}),
     };
     res.writeHead(200, { 'Content-Type': 'application/javascript; charset=utf-8' });
     res.end(`window.__APG_ENV__ = ${JSON.stringify(payload)};`);

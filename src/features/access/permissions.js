@@ -10,6 +10,7 @@ export const ALL_SECTIONS = [
   'Settings',
   'Logs',
   'Support',
+  'Backend',
 ];
 
 export const DASHBOARD_CHILD_PERMISSIONS = [

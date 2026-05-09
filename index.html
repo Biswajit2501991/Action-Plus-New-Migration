@@ -513,7 +513,7 @@
     // allowed sections. If you add new tabs you should also update this
     // list accordingly.
     const extractedPermissions = (window.__APG_MODULES__ && window.__APG_MODULES__.permissions) || null;
-    const INLINE_ALL_SECTIONS = ['Dashboard','Members','PT Clients','WhatsApp SMS','Finance','Staff','Attendance','Leave Tracker','Settings','Logs','Support'];
+    const INLINE_ALL_SECTIONS = ['Dashboard','Members','PT Clients','WhatsApp SMS','Finance','Staff','Attendance','Leave Tracker','Settings','Logs','Support','Backend'];
     const ALL_SECTIONS = extractedPermissions?.ALL_SECTIONS || INLINE_ALL_SECTIONS;
     const DASHBOARD_CHILD_PERMISSIONS = extractedPermissions?.DASHBOARD_CHILD_PERMISSIONS || [
       { key: 'viewDashboardCore', label: 'Active / Hold / Deactivated / Cancelled + Filter + Add New Member' },
@@ -1895,7 +1895,7 @@ Phone: +91-7047157510`;
         return () => window.removeEventListener('apg:module-loader', onLoaderTelemetry);
       }, []);
       const dashboardTopTabs = React.useMemo(() => {
-        const ordered = ['Dashboard', 'Members', 'PT Clients', 'WhatsApp SMS', 'Finance', 'Staff', 'Attendance', 'Leave Tracker', 'Settings', 'Logs', 'Support'];
+        const ordered = ['Dashboard', 'Members', 'PT Clients', 'WhatsApp SMS', 'Finance', 'Staff', 'Attendance', 'Leave Tracker', 'Settings', 'Logs', 'Support', 'Backend'];
         const allowed = user && Array.isArray(user.sections) ? user.sections : ALL_SECTIONS;
         return ordered.filter((key) => key === 'Support' || allowed.includes(key));
       }, [user]);
@@ -3628,6 +3628,9 @@ Please pay by: ${formattedLastDate}`;
                 updateSetting={updateSettingValue}
               />
             )}
+            {activeTab === 'Backend' && (
+              <BackendPage setToast={setToast} />
+            )}
           </main>
           <nav className="md:hidden fixed bottom-0 inset-x-0 w-full z-30 border-t border-slate-200 bg-white/95 backdrop-blur px-4 pb-[max(0.65rem,env(safe-area-inset-bottom))] pt-2.5 shadow-[0_-6px_24px_rgba(15,23,42,0.08)]">
             <div className="grid grid-cols-5 gap-1.5">
@@ -4018,6 +4021,7 @@ function Sidebar({ user, active, onSelect, theme, setTheme, onLogout, onUndo, on
         { key: 'Settings', label: 'Settings', icon: '⚙️' },
         { key: 'Logs', label: 'Logs', icon: '📜' },
         { key: 'Support', label: 'Support', icon: '❓' },
+        { key: 'Backend', label: 'Backend', icon: '🖥️' },
       ];
       // Filter navigation items based on the logged in user's allowed sections. Always
       // include the Support page. If no user or sections are provided, show all pages.
@@ -10240,6 +10244,133 @@ function SettingsPage({ settings, updateSetting, members, access, storageInfo, b
             </div>
           </div>
           )}
+        </div>
+      );
+    }
+
+    function BackendPage({ setToast }) {
+      const [busy, setBusy] = React.useState('');
+      const [healthOk, setHealthOk] = React.useState(null);
+      const [lastCheck, setLastCheck] = React.useState('');
+      const controlHeaders = React.useCallback(() => {
+        const h = { 'Content-Type': 'application/json' };
+        const t = window.__APG_ENV__ && window.__APG_ENV__.PROCESS_CONTROL_TOKEN;
+        if (t) h['x-apg-process-token'] = String(t);
+        return h;
+      }, []);
+      const pingHealth = React.useCallback(async () => {
+        try {
+          const res = await fetch(`${BACKEND_API_BASE_URL}/health`, { cache: 'no-store' });
+          const ok = res.ok;
+          setHealthOk(ok);
+          setLastCheck(new Date().toLocaleTimeString([], { hour12: false }));
+          return ok;
+        } catch {
+          setHealthOk(false);
+          setLastCheck(new Date().toLocaleTimeString([], { hour12: false }));
+          return false;
+        }
+      }, []);
+      React.useEffect(() => {
+        pingHealth();
+      }, [pingHealth]);
+      const callProcess = async (action) => {
+        const paths = { restart: '/process/restart', stop: '/process/stop', start: '/process/start' };
+        setBusy(action);
+        try {
+          const res = await fetch(`${BACKEND_API_BASE_URL}${paths[action]}`, {
+            method: 'POST',
+            headers: controlHeaders(),
+          });
+          let data = {};
+          try {
+            data = await res.json();
+          } catch {}
+          if (!res.ok) {
+            setToast(data.message || data.error || `Request failed (${res.status})`);
+            setTimeout(() => setToast(''), 4500);
+            return;
+          }
+          setToast(data.message || 'Done.');
+          setTimeout(() => setToast(''), 3500);
+          if (action === 'stop' || action === 'restart') {
+            setHealthOk(false);
+          } else {
+            setTimeout(() => pingHealth(), 800);
+          }
+        } catch (e) {
+          setToast(String(e?.message || e));
+          setTimeout(() => setToast(''), 4000);
+        } finally {
+          setBusy('');
+        }
+      };
+      return (
+        <div className="p-3 md:p-8 space-y-5">
+          <h1 className="text-xl md:text-2xl font-semibold text-slate-900">Backend</h1>
+          <p className="text-sm text-slate-600 max-w-2xl">
+            Control the API server from this screen. <b>Restart</b> and <b>Turn off</b> stop the Node process; use your process manager or terminal to start it again unless you configure <code className="text-xs bg-slate-100 px-1 rounded">APG_BACKEND_START_SCRIPT</code> on the server for <b>Turn on</b>.
+          </p>
+          <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm space-y-3 max-w-xl">
+            <div className="text-sm">
+              <span className="font-semibold text-slate-800">Connection: </span>
+              {healthOk === null ? (
+                <span className="text-slate-500">Checking…</span>
+              ) : healthOk ? (
+                <span className="text-emerald-700">Reachable</span>
+              ) : (
+                <span className="text-rose-700">Not reachable</span>
+              )}
+              {lastCheck ? <span className="text-slate-500"> (checked {lastCheck})</span> : null}
+            </div>
+            <div className="flex flex-wrap gap-2">
+              <button
+                type="button"
+                onClick={() => pingHealth()}
+                className="rounded-xl border border-slate-300 bg-white px-4 py-2 text-sm font-semibold text-slate-800 hover:bg-slate-50"
+              >
+                Check connection
+              </button>
+            </div>
+            <div className="flex flex-wrap gap-2 pt-2 border-t border-slate-100">
+              <button
+                type="button"
+                disabled={Boolean(busy)}
+                onClick={() => callProcess('restart')}
+                className={cx(
+                  'rounded-xl px-4 py-2 text-sm font-semibold text-white',
+                  busy ? 'bg-slate-400 cursor-not-allowed' : 'bg-blue-600 hover:bg-blue-700'
+                )}
+              >
+                {busy === 'restart' ? 'Restarting…' : 'Restart backend'}
+              </button>
+              <button
+                type="button"
+                disabled={Boolean(busy)}
+                onClick={() => callProcess('stop')}
+                className={cx(
+                  'rounded-xl px-4 py-2 text-sm font-semibold text-white',
+                  busy ? 'bg-slate-400 cursor-not-allowed' : 'bg-rose-600 hover:bg-rose-700'
+                )}
+              >
+                {busy === 'stop' ? 'Stopping…' : 'Turn off backend'}
+              </button>
+              <button
+                type="button"
+                disabled={Boolean(busy)}
+                onClick={() => callProcess('start')}
+                className={cx(
+                  'rounded-xl px-4 py-2 text-sm font-semibold text-white',
+                  busy ? 'bg-slate-400 cursor-not-allowed' : 'bg-emerald-600 hover:bg-emerald-700'
+                )}
+              >
+                {busy === 'start' ? 'Starting…' : 'Turn on backend'}
+              </button>
+            </div>
+            <p className="text-xs text-slate-500">
+              In production, set <code className="bg-slate-100 px-1 rounded">PROCESS_CONTROL_ENABLED=true</code> and optionally <code className="bg-slate-100 px-1 rounded">PROCESS_CONTROL_TOKEN</code> (must match frontend <code className="bg-slate-100 px-1 rounded">PROCESS_CONTROL_TOKEN</code> in <code className="bg-slate-100 px-1 rounded">/app.env.js</code>).
+            </p>
+          </div>
         </div>
       );
     }

@@ -6,6 +6,7 @@ import fs from 'node:fs/promises';
 import jwt from 'jsonwebtoken';
 import path from 'node:path';
 import os from 'node:os';
+import { spawn } from 'node:child_process';
 import { gzip, gunzip } from 'node:zlib';
 import { promisify } from 'node:util';
 import { env } from './config/env.js';
@@ -364,6 +365,83 @@ app.get('/api/v1/health', (_req, res) => {
 });
 app.get('/api/health', (_req, res) => {
   res.json({ ok: true, service: 'gym-backend', env: env.NODE_ENV });
+});
+
+function allowProcessControl(req, res) {
+  if (!env.PROCESS_CONTROL_ENABLED) {
+    return res.status(403).json({
+      error: 'process-control-disabled',
+      message: 'Backend process control is disabled. Set PROCESS_CONTROL_ENABLED=true to allow restart/stop/start.',
+    });
+  }
+  const token = env.PROCESS_CONTROL_TOKEN;
+  if (token) {
+    const fromHeader = req.headers['x-apg-process-token'];
+    const auth = String(req.headers.authorization || '').replace(/^Bearer\s+/i, '');
+    if (fromHeader !== token && auth !== token) {
+      return res.status(401).json({ error: 'process-control-unauthorized', message: 'Invalid process control token.' });
+    }
+  }
+  return null;
+}
+
+app.post('/api/process/stop', (req, res) => {
+  const denied = allowProcessControl(req, res);
+  if (denied) return;
+  res.json({
+    ok: true,
+    action: 'stop',
+    message: 'Server is shutting down. Start it again from your terminal, PM2, or desktop app.',
+  });
+  setTimeout(() => process.exit(0), 500);
+});
+
+app.post('/api/process/restart', (req, res) => {
+  const denied = allowProcessControl(req, res);
+  if (denied) return;
+  res.json({
+    ok: true,
+    action: 'restart',
+    message: 'Server process will exit. Use a process manager (PM2, launchd, etc.) to bring it back up.',
+  });
+  setTimeout(() => process.exit(0), 500);
+});
+
+app.post('/api/process/start', (req, res) => {
+  const denied = allowProcessControl(req, res);
+  if (denied) return;
+  const script = String(env.APG_BACKEND_START_SCRIPT || '').trim();
+  if (!script) {
+    return res.status(501).json({
+      error: 'start-not-configured',
+      message:
+        'Turn On is not configured. Set APG_BACKEND_START_SCRIPT on the server to a shell command that starts the backend, or start it manually.',
+    });
+  }
+  try {
+    const cwd = path.resolve(process.cwd());
+    const child =
+      process.platform === 'win32'
+        ? spawn(process.env.ComSpec || 'cmd.exe', ['/d', '/s', '/c', script], {
+            detached: true,
+            stdio: 'ignore',
+            cwd,
+            windowsHide: true,
+          })
+        : spawn('/bin/sh', ['-c', script], {
+            detached: true,
+            stdio: 'ignore',
+            cwd,
+          });
+    child.unref();
+    return res.json({
+      ok: true,
+      action: 'start',
+      message: 'Start script was launched in the background.',
+    });
+  } catch (error) {
+    return res.status(500).json({ error: 'start-failed', message: String(error?.message || error) });
+  }
 });
 
 app.get('/api/members', async (_req, res) => {
