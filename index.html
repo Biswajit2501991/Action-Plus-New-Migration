@@ -1765,6 +1765,7 @@ Phone: +91-7047157510`;
       const [dashField, setDashField] = React.useState('all');
       const [mobileMenuOpen, setMobileMenuOpen] = React.useState(false);
       const [notificationOpen, setNotificationOpen] = React.useState(false);
+      const [quickExpenseOpen, setQuickExpenseOpen] = React.useState(false);
       const [leaveTrackerFocus, setLeaveTrackerFocus] = React.useState({ requestId: '', userId: '' });
       const [visitorNotificationFocusId, setVisitorNotificationFocusId] = React.useState('');
       const HISTORY_LIMIT = 5;
@@ -1850,6 +1851,67 @@ Phone: +91-7047157510`;
         setMembersView('visitors');
         setVisitorNotificationFocusId(visitorId);
       };
+      const expenseCategories = React.useMemo(() => {
+        const list = Array.isArray(settings?.expenseCategories) && settings.expenseCategories.length
+          ? settings.expenseCategories
+          : ['General'];
+        return list;
+      }, [settings?.expenseCategories]);
+      const [quickExpenseDraft, setQuickExpenseDraft] = React.useState({
+        date: iso(new Date()),
+        amount: '',
+        category: 'General',
+        note: '',
+      });
+      React.useEffect(() => {
+        setQuickExpenseDraft((prev) => ({
+          ...prev,
+          category: expenseCategories.includes(prev.category) ? prev.category : (expenseCategories[0] || 'General'),
+        }));
+      }, [expenseCategories]);
+      const openAddExpense = React.useCallback(() => {
+        setQuickExpenseDraft({
+          date: iso(new Date()),
+          amount: '',
+          category: expenseCategories[0] || 'General',
+          note: '',
+        });
+        setQuickExpenseOpen(true);
+      }, [expenseCategories]);
+      const saveQuickExpense = React.useCallback(() => {
+        const amount = Number(quickExpenseDraft.amount || 0);
+        if (!amount || amount <= 0) {
+          setToast('Please enter a valid expense amount.');
+          setTimeout(() => setToast(''), 2500);
+          return;
+        }
+        if (!String(quickExpenseDraft.note || '').trim()) {
+          setToast('Expense note is required.');
+          setTimeout(() => setToast(''), 2500);
+          return;
+        }
+        const actor = user?.name || user?.id || 'Staff';
+        const nextRow = {
+          id: crypto.randomUUID(),
+          type: 'expense',
+          source: 'manual',
+          date: quickExpenseDraft.date || iso(new Date()),
+          amount,
+          category: quickExpenseDraft.category || 'General',
+          note: [quickExpenseDraft.note || '', `Added by: ${actor}`].filter(Boolean).join(' • '),
+          status: 'posted',
+          method: 'Cash',
+          memberName: quickExpenseDraft.category || 'Expense',
+          plan: 'Expense',
+          addedBy: actor,
+          addedById: user?.id || '',
+          createdAt: new Date().toISOString(),
+        };
+        setFinanceTransactions((prev) => [nextRow, ...(Array.isArray(prev) ? prev : [])]);
+        setQuickExpenseOpen(false);
+        setToast('Expense saved successfully.');
+        setTimeout(() => setToast(''), 2200);
+      }, [quickExpenseDraft, user, setFinanceTransactions]);
       const rememberMemberDefaults = React.useCallback((member) => {
         if (!member) return;
         const nextDefaults = {
@@ -3345,6 +3407,7 @@ Please pay by: ${formattedLastDate}`;
                     setDashSearch('');
                   }}
                   onAddNew={canAddMembers ? () => openAddSelector() : null}
+                  onAddExpense={openAddExpense}
                   onSearch={(q, f) => {
                     setDashSearch(q.trim());
                     setDashField(f);
@@ -3434,6 +3497,7 @@ Please pay by: ${formattedLastDate}`;
                     isOwner={user && user.id === 'owner'}
                     canEdit={canEditMembers}
                     onImportCsv={openCsvImportDialog}
+                    onAddExpense={openAddExpense}
                     displayTimeZone={displayTimeZone}
                   />
                 )
@@ -3866,6 +3930,68 @@ Please pay by: ${formattedLastDate}`;
               billingMonthOptions={billingMonthOptions}
             />
           )}
+          {quickExpenseOpen && (
+            <div className="fixed inset-0 z-[70] flex items-center justify-center bg-slate-900/55 p-3">
+              <div className="w-full max-w-lg rounded-3xl bg-white p-5 shadow-xl space-y-4">
+                <div className="flex items-center justify-between">
+                  <h3 className="text-lg font-semibold text-slate-900">Add Expense</h3>
+                  <button onClick={() => setQuickExpenseOpen(false)} className="rounded-xl p-2 text-slate-500 hover:bg-slate-100">✕</button>
+                </div>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <div>
+                    <label className="text-xs font-semibold text-slate-600">Date</label>
+                    <input
+                      type="date"
+                      value={quickExpenseDraft.date}
+                      onChange={(e) => setQuickExpenseDraft((p) => ({ ...p, date: e.target.value }))}
+                      className="mt-1 w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm"
+                    />
+                  </div>
+                  <div>
+                    <label className="text-xs font-semibold text-slate-600">Amount</label>
+                    <input
+                      type="number"
+                      min="1"
+                      step="0.01"
+                      value={quickExpenseDraft.amount}
+                      onChange={(e) => setQuickExpenseDraft((p) => ({ ...p, amount: e.target.value }))}
+                      placeholder="Enter amount"
+                      className="mt-1 w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm"
+                    />
+                  </div>
+                </div>
+                <div>
+                  <label className="text-xs font-semibold text-slate-600">Category</label>
+                  <select
+                    value={quickExpenseDraft.category}
+                    onChange={(e) => setQuickExpenseDraft((p) => ({ ...p, category: e.target.value }))}
+                    className="mt-1 w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm"
+                  >
+                    {expenseCategories.map((cat) => (
+                      <option key={cat} value={cat}>{cat}</option>
+                    ))}
+                  </select>
+                </div>
+                <div>
+                  <label className="text-xs font-semibold text-slate-600">Note *</label>
+                  <textarea
+                    rows={3}
+                    value={quickExpenseDraft.note}
+                    onChange={(e) => setQuickExpenseDraft((p) => ({ ...p, note: e.target.value }))}
+                    placeholder="Expense note is mandatory"
+                    className="mt-1 w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm"
+                  />
+                </div>
+                <div className="rounded-xl border border-blue-100 bg-blue-50 px-3 py-2 text-xs text-blue-700">
+                  Added by: <span className="font-semibold">{user?.name || user?.id || 'Staff'}</span>
+                </div>
+                <div className="flex justify-end gap-2">
+                  <button onClick={() => setQuickExpenseOpen(false)} className="rounded-xl border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-700">Cancel</button>
+                  <button onClick={saveQuickExpense} className="rounded-xl bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700">Save Expense</button>
+                </div>
+              </div>
+            </div>
+          )}
 
           {/* Delete Confirmation Modal */}
           {deleteCandidate && canDeleteMembers && (
@@ -4158,7 +4284,7 @@ function Sidebar({ user, active, onSelect, theme, setTheme, onLogout, onUndo, on
     }
 
     // ---- Dashboard Summary Component ----
-    function DashboardSummary({ members, access, isOwner = false, onSelectStatus, onAddNew, onSearch, onOpenMember, onWelcome }) {
+    function DashboardSummary({ members, access, isOwner = false, onSelectStatus, onAddNew, onAddExpense, onSearch, onOpenMember, onWelcome }) {
       const counts = React.useMemo(() => {
         return {
           Active: members.filter(m => m.status === 'Active').length,
@@ -4390,6 +4516,11 @@ function Sidebar({ user, active, onSelect, theme, setTheme, onLogout, onUndo, on
                   >
                     {filtersOpen ? 'Hide Filters' : 'Filter'}
                   </button>
+                  {onAddExpense && (
+                    <button onClick={onAddExpense} className="rounded-full px-4 md:px-5 py-2 border border-rose-300 bg-rose-50 text-rose-700 hover:bg-rose-100 text-xs md:text-sm font-semibold flex items-center justify-center gap-2">
+                      <span className="text-base">₹</span> Add Expense
+                    </button>
+                  )}
                   {onAddNew && <button onClick={onAddNew} className="rounded-full px-4 md:px-5 py-2 bg-blue-600 hover:bg-blue-700 text-white text-xs md:text-sm font-semibold flex items-center justify-center gap-2"><span className="text-base">＋</span> Add New Member</button>}
                 </div>
               )}
@@ -5500,7 +5631,7 @@ function QuickActions({ m, onStatusChange, holdOptions, canDelete, onDelete, can
     }
 
     // ---- Dashboard View (Members grouped by status) ----
-function DashboardView({ members, onEdit, onStatusChange, holdOptions, logs, filters, filterOpen, setFilterOpen, anyFilterActive, canDelete, onDelete, billingMonthOptions, onWelcome, onWhatsAppCall, onWelcomeMail, onAddAttachment, onQuickFieldEdit, editOptions, isOwner, canEdit = true, onImportCsv = null, displayTimeZone = 'IST' }) {
+function DashboardView({ members, onEdit, onStatusChange, holdOptions, logs, filters, filterOpen, setFilterOpen, anyFilterActive, canDelete, onDelete, billingMonthOptions, onWelcome, onWhatsAppCall, onWelcomeMail, onAddAttachment, onQuickFieldEdit, editOptions, isOwner, canEdit = true, onImportCsv = null, onAddExpense = null, displayTimeZone = 'IST' }) {
       // Single expanded row across all statuses. Only one memberId may be expanded at a time.
       const [expandedId, setExpandedId] = React.useState(null);
       const [mobileDetailMemberId, setMobileDetailMemberId] = React.useState('');
@@ -5662,6 +5793,7 @@ function DashboardView({ members, onEdit, onStatusChange, holdOptions, logs, fil
             <div className="flex items-center justify-between">
               <h1 className="text-xl font-semibold text-slate-900">Members</h1>
               <div className="flex items-center gap-2">
+                {onAddExpense && <button onClick={onAddExpense} className="rounded-xl border border-rose-300 bg-rose-50 px-3 py-2 text-xs font-semibold text-rose-700">Add Expense</button>}
                 {onImportCsv && <button onClick={onImportCsv} className="rounded-xl border border-emerald-300 bg-emerald-50 px-3 py-2 text-xs font-semibold text-emerald-700">Import CSV</button>}
                 <button onClick={() => setFilterOpen(true)} className="rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm font-semibold text-slate-700">⌕</button>
               </div>
@@ -5762,6 +5894,11 @@ function DashboardView({ members, onEdit, onStatusChange, holdOptions, logs, fil
                   <button onClick={() => applyBulkStatus('Hold', { holdDuration: holdOptions[0] || '1 Month' })} className="rounded-xl px-3 py-2 border border-amber-300 bg-amber-50 text-amber-700 text-xs font-medium">Bulk Hold</button>
                   <button onClick={() => applyBulkStatus('Deactivated')} className="rounded-xl px-3 py-2 border border-pink-300 bg-pink-50 text-pink-700 text-xs font-medium">Bulk Deactivate</button>
                 </>
+              )}
+              {onAddExpense && (
+                <button onClick={onAddExpense} className="rounded-xl px-4 py-2 border border-rose-300 bg-rose-50 text-rose-700 hover:bg-rose-100 text-xs font-semibold">
+                  Add Expense
+                </button>
               )}
               {onImportCsv && (
                 <button onClick={onImportCsv} className="rounded-xl px-4 py-2 border border-emerald-300 bg-emerald-50 text-emerald-700 hover:bg-emerald-100 text-xs font-semibold">
@@ -9666,7 +9803,7 @@ function SettingsPage({ settings, updateSetting, members, access, storageInfo, b
     }
 
     // ---- Finance Page ----
-    function FinancePage({ members, settings, logs, financeTransactions = [], setFinanceTransactions, updateSetting, access, displayTimeZone = 'IST' }) {
+    function FinancePage({ members, settings, logs, financeTransactions = [], setFinanceTransactions, updateSetting, access, openExpenseSignal = 0, displayTimeZone = 'IST' }) {
       const [query, setQuery] = React.useState('');
       const [appliedQuery, setAppliedQuery] = React.useState('');
       const [showFilter, setShowFilter] = React.useState(false);
@@ -9679,6 +9816,10 @@ function SettingsPage({ settings, updateSetting, members, access, storageInfo, b
       const [page, setPage] = React.useState(1);
       const [expandedId, setExpandedId] = React.useState('');
       const [showExpenseForm, setShowExpenseForm] = React.useState(false);
+      const [showExpenseLedger, setShowExpenseLedger] = React.useState(false);
+      const [expenseMonthFilter, setExpenseMonthFilter] = React.useState('');
+      const [sortField, setSortField] = React.useState('date');
+      const [sortDirection, setSortDirection] = React.useState('desc');
       const expenseCategories = Array.isArray(settings?.expenseCategories) && settings.expenseCategories.length
         ? settings.expenseCategories
         : ['General'];
@@ -9757,6 +9898,10 @@ function SettingsPage({ settings, updateSetting, members, access, storageInfo, b
           return { ...prev, category: expenseCategories[0] || 'General' };
         });
       }, [expenseCategories]);
+      React.useEffect(() => {
+        if (!openExpenseSignal) return;
+        setShowExpenseForm(true);
+      }, [openExpenseSignal]);
 
       const incomeRows = filteredTransactions.filter((t) => t.type !== 'expense');
       const revenue = incomeRows.reduce((sum, t) => sum + Number(t.amount || 0), 0);
@@ -9771,6 +9916,7 @@ function SettingsPage({ settings, updateSetting, members, access, storageInfo, b
       const addExpenseRow = () => {
         const amount = Number(expenseDraft.amount || 0);
         if (!amount || amount <= 0) return;
+        if (!String(expenseDraft.note || '').trim()) return;
         const nextRow = {
           id: crypto.randomUUID(),
           type: 'expense',
@@ -9866,9 +10012,57 @@ function SettingsPage({ settings, updateSetting, members, access, storageInfo, b
       }, [planBreakup]);
 
       const pageSize = 10;
-      const totalPages = Math.max(1, Math.ceil(filteredTransactions.length / pageSize));
+      const sortedTransactions = React.useMemo(() => {
+        const rows = [...filteredTransactions];
+        const dir = sortDirection === 'asc' ? 1 : -1;
+        rows.sort((a, b) => {
+          if (sortField === 'date') {
+            const at = new Date(a.date || 0).getTime();
+            const bt = new Date(b.date || 0).getTime();
+            return (at - bt) * dir;
+          }
+          if (sortField === 'amount') {
+            return (Number(a.amount || 0) - Number(b.amount || 0)) * dir;
+          }
+          const av = String(a[sortField] || '').toLowerCase();
+          const bv = String(b[sortField] || '').toLowerCase();
+          if (av === bv) return 0;
+          return (av > bv ? 1 : -1) * dir;
+        });
+        return rows;
+      }, [filteredTransactions, sortField, sortDirection]);
+      const toggleSort = (field) => {
+        setSortField((prev) => {
+          if (prev === field) {
+            setSortDirection((d) => (d === 'asc' ? 'desc' : 'asc'));
+            return prev;
+          }
+          setSortDirection('asc');
+          return field;
+        });
+      };
+      const sortIndicator = (field) => {
+        if (sortField !== field) return '↕';
+        return sortDirection === 'asc' ? '↑' : '↓';
+      };
+      const expenseLedgerRows = React.useMemo(() => {
+        return manualFinanceRows
+          .filter((r) => r.type === 'expense')
+          .filter((r) => {
+            if (!expenseMonthFilter) return true;
+            return String(r.date || '').slice(0, 7) === expenseMonthFilter;
+          })
+          .map((r) => {
+            const noteText = String(r.note || '');
+            const match = noteText.match(/Added by:\s*([^•]+)/i);
+            const actor = String(r.addedBy || match?.[1] || '').trim() || '-';
+            return { ...r, actor };
+          })
+          .sort((a, b) => new Date(b.date || 0).getTime() - new Date(a.date || 0).getTime());
+      }, [manualFinanceRows, expenseMonthFilter]);
+      const totalPages = Math.max(1, Math.ceil(sortedTransactions.length / pageSize));
       const safePage = page > totalPages ? 1 : page;
-      const pageRows = filteredTransactions.slice((safePage - 1) * pageSize, safePage * pageSize);
+      const pageRows = sortedTransactions.slice((safePage - 1) * pageSize, safePage * pageSize);
 
       const resetFilters = () => {
         setPlanFilter('');
@@ -10029,7 +10223,7 @@ function SettingsPage({ settings, updateSetting, members, access, storageInfo, b
                 </select>
               </div>
               <div><label className="text-xs text-slate-500">Amount</label><input type="number" min="0" value={expenseDraft.amount} onChange={(e) => setExpenseDraft(v => ({ ...v, amount: e.target.value }))} className="mt-1 w-full rounded-xl border border-slate-300 px-3 py-2 text-sm" /></div>
-              <div className="md:col-span-2"><label className="text-xs text-slate-500">Note</label><input value={expenseDraft.note} onChange={(e) => setExpenseDraft(v => ({ ...v, note: e.target.value }))} className="mt-1 w-full rounded-xl border border-slate-300 px-3 py-2 text-sm" placeholder="Optional note" /></div>
+              <div className="md:col-span-2"><label className="text-xs text-slate-500">Note *</label><input value={expenseDraft.note} onChange={(e) => setExpenseDraft(v => ({ ...v, note: e.target.value }))} className="mt-1 w-full rounded-xl border border-slate-300 px-3 py-2 text-sm" placeholder="Expense note is mandatory" /></div>
               <div className="md:col-span-5 flex justify-end"><button onClick={addExpenseRow} className="rounded-full bg-rose-600 px-4 py-2 text-sm font-medium text-white hover:bg-rose-700">Save Expense</button></div>
             </div>
           )}
@@ -10071,11 +10265,15 @@ function SettingsPage({ settings, updateSetting, members, access, storageInfo, b
               <div className="mt-1 text-3xl font-bold text-amber-700">${pendingAmount.toLocaleString()}</div>
               <div className="text-sm text-amber-700">({pendingRows.length} pending)</div>
             </div>
-            <div className={cardBase}>
+            <button
+              type="button"
+              onClick={() => setShowExpenseLedger(true)}
+              className={cx(cardBase, 'text-left hover:bg-rose-50/50 transition-colors')}
+            >
               <div className="text-sm text-slate-500">Expenses</div>
               <div className="mt-1 text-3xl font-bold text-rose-700">${expense.toLocaleString()}</div>
               <div className="text-sm text-rose-700">{useEstimatedExpense ? 'Estimated (26%)' : 'Actual expense rows'}</div>
-            </div>
+            </button>
             <div className={cardBase}>
               <div className="text-sm text-slate-500">Profit</div>
               <div className={cx('mt-1 text-3xl font-bold', profit >= 0 ? 'text-emerald-700' : 'text-rose-700')}>${profit.toLocaleString()}</div>
@@ -10131,12 +10329,13 @@ function SettingsPage({ settings, updateSetting, members, access, storageInfo, b
               <table className="min-w-full text-sm hidden md:table">
                 <thead>
                   <tr className="bg-blue-50 text-blue-700">
-                    <th className="px-3 py-2 text-left">Date</th>
-                    <th className="px-3 py-2 text-left">Member</th>
-                    <th className="px-3 py-2 text-left">Plan</th>
-                    <th className="px-3 py-2 text-left">Method</th>
-                    <th className="px-3 py-2 text-left">Payment Status</th>
-                    <th className="px-3 py-2 text-left">Amount</th>
+                    <th className="px-3 py-2 text-left"><button onClick={() => toggleSort('date')} className="font-semibold hover:text-blue-900">Date <span className="text-[11px]">{sortIndicator('date')}</span></button></th>
+                    <th className="px-3 py-2 text-left"><button onClick={() => toggleSort('memberName')} className="font-semibold hover:text-blue-900">Member <span className="text-[11px]">{sortIndicator('memberName')}</span></button></th>
+                    <th className="px-3 py-2 text-left"><button onClick={() => toggleSort('plan')} className="font-semibold hover:text-blue-900">Plan <span className="text-[11px]">{sortIndicator('plan')}</span></button></th>
+                    <th className="px-3 py-2 text-left"><button onClick={() => toggleSort('method')} className="font-semibold hover:text-blue-900">Method <span className="text-[11px]">{sortIndicator('method')}</span></button></th>
+                    <th className="px-3 py-2 text-left"><button onClick={() => toggleSort('status')} className="font-semibold hover:text-blue-900">Payment Status <span className="text-[11px]">{sortIndicator('status')}</span></button></th>
+                    <th className="px-3 py-2 text-left"><button onClick={() => toggleSort('note')} className="font-semibold hover:text-blue-900">Notes <span className="text-[11px]">{sortIndicator('note')}</span></button></th>
+                    <th className="px-3 py-2 text-left"><button onClick={() => toggleSort('amount')} className="font-semibold hover:text-blue-900">Amount <span className="text-[11px]">{sortIndicator('amount')}</span></button></th>
                   </tr>
                 </thead>
                 <tbody>
@@ -10151,11 +10350,12 @@ function SettingsPage({ settings, updateSetting, members, access, storageInfo, b
                         <td className="px-3 py-2 whitespace-nowrap">{t.plan || '-'}</td>
                         <td className="px-3 py-2 whitespace-nowrap">{t.method || '-'}</td>
                         <td className="px-3 py-2 whitespace-nowrap capitalize">{t.status}</td>
+                        <td className="px-3 py-2">{t.note || '-'}</td>
                         <td className="px-3 py-2 whitespace-nowrap font-semibold text-slate-800">${Number(t.amount || 0).toLocaleString()}</td>
                       </tr>
                       {expandedId === t.id && (
                         <tr className="bg-slate-50 border-b border-slate-200">
-                          <td colSpan={6} className="p-3">
+                          <td colSpan={7} className="p-3">
                             <div className="text-xs font-semibold text-slate-600 mb-2">Latest 10 logs for {t.memberName}</div>
                             <div className="overflow-x-auto">
                               <table className="min-w-full text-xs">
@@ -10191,7 +10391,7 @@ function SettingsPage({ settings, updateSetting, members, access, storageInfo, b
                   ))}
                   {pageRows.length === 0 && (
                     <tr>
-                      <td colSpan={6} className="px-3 py-4 text-center text-slate-500">No transactions found for selected filters.</td>
+                      <td colSpan={7} className="px-3 py-4 text-center text-slate-500">No transactions found for selected filters.</td>
                     </tr>
                   )}
                 </tbody>
@@ -10205,6 +10405,7 @@ function SettingsPage({ settings, updateSetting, members, access, storageInfo, b
                     </div>
                     <div className="text-xs text-slate-500 mt-1">Date: {fmt(t.date)} | Plan: {t.plan || '-'}</div>
                     <div className="text-xs text-slate-600">Method: {t.method || '-'} | Amount: ${Number(t.amount || 0).toLocaleString()}</div>
+                    <div className="text-xs text-slate-600">Note: {t.note || '-'}</div>
                     <button
                       onClick={() => setExpandedId(prev => prev === t.id ? '' : t.id)}
                       className="mt-2 rounded-lg border border-slate-300 bg-white px-3 py-2 min-h-[44px] text-xs font-medium text-slate-700"
@@ -10232,7 +10433,7 @@ function SettingsPage({ settings, updateSetting, members, access, storageInfo, b
                   <div className="p-4 text-center text-slate-500 text-sm">No transactions found for selected filters.</div>
                 )}
               </div>
-              {filteredTransactions.length > pageSize && (
+              {sortedTransactions.length > pageSize && (
                 <div className="flex items-center justify-between mt-3 text-sm">
                   <div>Page {safePage} of {totalPages}</div>
                   <div className="flex gap-2">
@@ -10243,6 +10444,50 @@ function SettingsPage({ settings, updateSetting, members, access, storageInfo, b
               )}
             </div>
           </div>
+          )}
+          {showExpenseLedger && (
+            <div className="fixed inset-0 z-[70] flex items-center justify-center bg-slate-900/55 p-3">
+              <div className="w-full max-w-4xl rounded-3xl bg-white p-5 shadow-xl space-y-4 max-h-[88vh] overflow-hidden flex flex-col">
+                <div className="flex items-center justify-between">
+                  <h3 className="text-lg font-semibold text-slate-900">Staff Added Expenses</h3>
+                  <button onClick={() => setShowExpenseLedger(false)} className="rounded-xl p-2 text-slate-500 hover:bg-slate-100">✕</button>
+                </div>
+                <div className="flex items-center gap-3">
+                  <label className="text-sm text-slate-600">Filter by month:</label>
+                  <input type="month" value={expenseMonthFilter} onChange={(e) => setExpenseMonthFilter(e.target.value)} className="rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm" />
+                  <button onClick={() => setExpenseMonthFilter('')} className="rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm">Reset</button>
+                </div>
+                <div className="overflow-auto rounded-2xl border border-slate-200">
+                  <table className="min-w-full text-sm">
+                    <thead>
+                      <tr className="bg-slate-50 text-slate-700">
+                        <th className="px-3 py-2 text-left">Date</th>
+                        <th className="px-3 py-2 text-left">Category</th>
+                        <th className="px-3 py-2 text-left">Amount</th>
+                        <th className="px-3 py-2 text-left">Added By</th>
+                        <th className="px-3 py-2 text-left">Note</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {expenseLedgerRows.map((r) => (
+                        <tr key={r.id} className="border-t border-slate-200">
+                          <td className="px-3 py-2 whitespace-nowrap">{fmt(r.date)}</td>
+                          <td className="px-3 py-2 whitespace-nowrap">{r.category || 'General'}</td>
+                          <td className="px-3 py-2 whitespace-nowrap font-semibold text-rose-700">${Number(r.amount || 0).toLocaleString()}</td>
+                          <td className="px-3 py-2 whitespace-nowrap">{r.actor}</td>
+                          <td className="px-3 py-2">{r.note || '-'}</td>
+                        </tr>
+                      ))}
+                      {expenseLedgerRows.length === 0 && (
+                        <tr>
+                          <td colSpan={5} className="px-3 py-4 text-center text-slate-500">No expense rows for selected month.</td>
+                        </tr>
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            </div>
           )}
         </div>
       );
