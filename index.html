@@ -112,6 +112,22 @@
     html.dark [class*="hover:bg-indigo-100"]:hover {
       filter: brightness(1.15);
     }
+    html.dark input:not([type="checkbox"]):not([type="radio"]),
+    html.dark select,
+    html.dark textarea {
+      background-color: #0f172a !important;
+      color: #e2e8f0 !important;
+      border-color: #334155 !important;
+    }
+    html.dark input::placeholder,
+    html.dark textarea::placeholder {
+      color: #94a3b8 !important;
+    }
+    .apg-force-light .bg-white { background-color: #ffffff !important; }
+    .apg-force-light .bg-slate-50, .apg-force-light .bg-slate-100 { background-color: #f8fafc !important; }
+    .apg-force-light .border-slate-200, .apg-force-light .border-slate-300 { border-color: #e2e8f0 !important; }
+    .apg-force-light .text-slate-900, .apg-force-light .text-slate-800, .apg-force-light .text-slate-700 { color: #0f172a !important; }
+    .apg-force-light .text-slate-600, .apg-force-light .text-slate-500, .apg-force-light .text-slate-400 { color: #475569 !important; }
     html.dark .apg-members-list-shell {
       background: #0f172a !important;
       border-color: #243247 !important;
@@ -570,8 +586,10 @@
       { key: 'managePlans', label: 'Plans' },
       { key: 'manageStatuses', label: 'Statuses' },
       { key: 'managePaymentMethods', label: 'Payment Methods' },
+      { key: 'manageExpenseCategories', label: 'Expense Categories' },
       { key: 'manageHoldDurations', label: 'Hold Durations' },
       { key: 'manageGenders', label: 'Genders' },
+      { key: 'manageFineRule', label: 'Fine SMS Rule' },
     ];
     const WHATSAPP_CHILD_PERMISSIONS = [
       { key: 'viewReminder', label: 'Reminder' },
@@ -602,6 +620,24 @@
       { key: 'editPtWorkout', label: 'Edit PT Workout' },
       { key: 'uploadDietDocuments', label: 'Upload Diet Documents' },
     ];
+    const ATTENDANCE_CHILD_PERMISSIONS = [
+      { key: 'viewAttendance', label: 'View Attendance Dashboard' },
+      { key: 'markAllPresent', label: 'Mark All Present' },
+      { key: 'editAttendance', label: 'Edit Status / Notes' },
+    ];
+    const LOGS_CHILD_PERMISSIONS = [
+      { key: 'viewLogs', label: 'View Audit Logs' },
+      { key: 'exportLogs', label: 'Export Logs CSV' },
+      { key: 'clearLogs', label: 'Clear Logs' },
+    ];
+    const SUPPORT_CHILD_PERMISSIONS = [
+      { key: 'viewSupportTemplates', label: 'View Support Templates' },
+      { key: 'editSupportTemplates', label: 'Edit / Save Support Templates' },
+    ];
+    const BACKEND_CHILD_PERMISSIONS = [
+      { key: 'viewBackendPage', label: 'View Backend Section' },
+      { key: 'controlBackendProcesses', label: 'Restart / Turn On / Turn Off Backend' },
+    ];
     const INLINE_DEFAULT_ACCESS = {
       dashboard: {
         viewDashboardCore: true,
@@ -615,13 +651,16 @@
         viewRevenueTrend4Months: true,
         viewPlanPopularity: true,
         viewTransactionsAutoMembers: true,
+        manageExpenses: true,
       },
       settings: {
         managePlans: true,
         manageStatuses: true,
         managePaymentMethods: true,
+        manageExpenseCategories: true,
         manageHoldDurations: true,
         manageGenders: true,
+        manageFineRule: true,
       },
       whatsapp: {
         viewReminder: true,
@@ -652,6 +691,24 @@
         editPtWorkout: true,
         uploadDietDocuments: true,
       },
+      attendance: {
+        viewAttendance: true,
+        markAllPresent: true,
+        editAttendance: true,
+      },
+      logs: {
+        viewLogs: true,
+        exportLogs: true,
+        clearLogs: true,
+      },
+      support: {
+        viewSupportTemplates: true,
+        editSupportTemplates: true,
+      },
+      backend: {
+        viewBackendPage: true,
+        controlBackendProcesses: true,
+      },
     };
     const DEFAULT_ACCESS = extractedPermissions?.DEFAULT_ACCESS || INLINE_DEFAULT_ACCESS;
     const normalizeAccess = extractedPermissions?.normalizeAccess || ((access) => ({
@@ -667,13 +724,16 @@
         viewRevenueTrend4Months: access?.finance?.viewRevenueTrend4Months !== false,
         viewPlanPopularity: access?.finance?.viewPlanPopularity !== false,
         viewTransactionsAutoMembers: access?.finance?.viewTransactionsAutoMembers !== false,
+        manageExpenses: access?.finance?.manageExpenses !== false,
       },
       settings: {
         managePlans: access?.settings?.managePlans !== false,
         manageStatuses: access?.settings?.manageStatuses !== false,
         managePaymentMethods: access?.settings?.managePaymentMethods !== false,
+        manageExpenseCategories: access?.settings?.manageExpenseCategories !== false,
         manageHoldDurations: access?.settings?.manageHoldDurations !== false,
         manageGenders: access?.settings?.manageGenders !== false,
+        manageFineRule: access?.settings?.manageFineRule !== false,
       },
       whatsapp: {
         viewReminder: access?.whatsapp?.viewReminder !== false,
@@ -703,6 +763,24 @@
         editPtPlan: access?.ptClients?.editPtPlan !== false,
         editPtWorkout: access?.ptClients?.editPtWorkout !== false,
         uploadDietDocuments: access?.ptClients?.uploadDietDocuments !== false,
+      },
+      attendance: {
+        viewAttendance: access?.attendance?.viewAttendance !== false,
+        markAllPresent: access?.attendance?.markAllPresent !== false,
+        editAttendance: access?.attendance?.editAttendance !== false,
+      },
+      logs: {
+        viewLogs: access?.logs?.viewLogs !== false,
+        exportLogs: access?.logs?.exportLogs !== false,
+        clearLogs: access?.logs?.clearLogs !== false,
+      },
+      support: {
+        viewSupportTemplates: access?.support?.viewSupportTemplates !== false,
+        editSupportTemplates: access?.support?.editSupportTemplates !== false,
+      },
+      backend: {
+        viewBackendPage: access?.backend?.viewBackendPage !== false,
+        controlBackendProcesses: access?.backend?.controlBackendProcesses !== false,
       },
     }));
     const DEFAULT_ROLE_TEMPLATES = [
@@ -1798,8 +1876,7 @@ Phone: +91-7047157510`;
       // Apply theme to document root
       React.useEffect(() => {
         const html = document.documentElement;
-        const preferDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
-        const useDark = theme === 'dark' || (theme === 'system' && preferDark);
+        const useDark = theme === 'dark';
         html.classList.toggle('dark', useDark);
       }, [theme]);
 
@@ -2006,11 +2083,23 @@ Phone: +91-7047157510`;
         window.addEventListener('apg:module-loader', onLoaderTelemetry);
         return () => window.removeEventListener('apg:module-loader', onLoaderTelemetry);
       }, []);
+      const canViewSectionByAccess = React.useCallback((sectionKey) => {
+        const access = normalizeAccess(user?.access);
+        if (sectionKey === 'Attendance') return access?.attendance?.viewAttendance !== false;
+        if (sectionKey === 'Logs') return access?.logs?.viewLogs !== false;
+        if (sectionKey === 'Support') return access?.support?.viewSupportTemplates !== false;
+        return true;
+      }, [user]);
       const dashboardTopTabs = React.useMemo(() => {
         const ordered = ['Dashboard', 'Members', 'PT Clients', 'WhatsApp SMS', 'Finance', 'Staff', 'Attendance', 'Leave Tracker', 'Settings', 'Logs', 'Support', 'Backend'];
         const allowed = user && Array.isArray(user.sections) ? user.sections : ALL_SECTIONS;
-        return ordered.filter((key) => key === 'Support' || allowed.includes(key));
-      }, [user]);
+        return ordered.filter((key) => (allowed.includes(key) || key === 'Support') && canViewSectionByAccess(key));
+      }, [user, canViewSectionByAccess]);
+      React.useEffect(() => {
+        if (!dashboardTopTabs.includes(activeTab) && dashboardTopTabs.length) {
+          setActiveTab(dashboardTopTabs[0]);
+        }
+      }, [activeTab, dashboardTopTabs]);
 
       React.useEffect(() => {
         const derivedMembersAccess = normalizeAccess(user?.access).members;
@@ -3136,6 +3225,8 @@ Please pay by: ${formattedLastDate}`;
       const canAddMembers = membersAccess?.addMembers !== false;
       const canEditMembers = membersAccess?.editMembers !== false;
       const canDeleteMembers = (user?.id === 'owner') && membersAccess?.deleteMembers !== false;
+      const financeAccess = normalizeAccess(user?.access).finance;
+      const canManageExpenses = financeAccess?.manageExpenses !== false;
       const refreshBackendBackupMeta = async () => {
         if (dataSyncMode !== 'backend') return;
         try {
@@ -3225,7 +3316,7 @@ Please pay by: ${formattedLastDate}`;
         { key: 'Finance', label: 'Billing', icon: 'wallet' },
         { key: 'Attendance', label: 'Attendance', icon: 'calendar' },
         { key: 'More', label: 'More', icon: 'more' },
-      ];
+      ].filter((tab) => tab.key === 'More' || dashboardTopTabs.includes(tab.key));
       return (
         <div className="h-screen overflow-hidden flex bg-slate-100 md:bg-slate-100 apg-body">
           {mobileMenuOpen && (
@@ -3600,7 +3691,7 @@ Please pay by: ${formattedLastDate}`;
                     setDashSearch('');
                   }}
                   onAddNew={canAddMembers ? () => openAddSelector() : null}
-                  onAddExpense={openAddExpense}
+                  onAddExpense={canManageExpenses ? openAddExpense : null}
                   onSearch={(q, f) => {
                     setDashSearch(q.trim());
                     setDashField(f);
@@ -3692,7 +3783,7 @@ Please pay by: ${formattedLastDate}`;
                     fineRuleConfig={fineRuleConfig}
                     canEdit={canEditMembers}
                     onImportCsv={openCsvImportDialog}
-                    onAddExpense={openAddExpense}
+                    onAddExpense={canManageExpenses ? openAddExpense : null}
                     displayTimeZone={displayTimeZone}
                   />
                 )
@@ -3814,7 +3905,7 @@ Please pay by: ${formattedLastDate}`;
               />
             )}
             {activeTab === 'Logs' && (
-              <LogsPage logs={logs} currentUser={user} displayTimeZone={displayTimeZone} onClearLogs={() => {
+              <LogsPage logs={logs} currentUser={user} access={normalizeAccess(user?.access)} displayTimeZone={displayTimeZone} onClearLogs={() => {
                 if (!(user && user.id === 'owner')) return;
                 const ok = window.confirm('Clear all logs? This cannot be undone.');
                 if (!ok) return;
@@ -3865,6 +3956,7 @@ Please pay by: ${formattedLastDate}`;
                 settings={settings}
                 updateSetting={updateSettingValue}
                 currentUser={user}
+                access={normalizeAccess(user?.access)}
                 displayTimeZone={displayTimeZone}
               />
             )}
@@ -3874,6 +3966,7 @@ Please pay by: ${formattedLastDate}`;
                 settings={settings}
                 updateSetting={updateSettingValue}
                 currentUser={user}
+                theme={theme}
                 access={normalizeAccess(user?.access)}
                 logEvent={logEvent}
                 focusLeaveRequestId={leaveTrackerFocus.requestId}
@@ -3885,10 +3978,11 @@ Please pay by: ${formattedLastDate}`;
               <SupportPage
                 settings={settings}
                 updateSetting={updateSettingValue}
+                access={normalizeAccess(user?.access)}
               />
             )}
             {activeTab === 'Backend' && (
-              <BackendPage setToast={setToast} />
+              <BackendPage setToast={setToast} access={normalizeAccess(user?.access)} />
             )}
           </main>
           <nav className="md:hidden fixed bottom-0 inset-x-0 w-full z-30 border-t border-slate-200 bg-white/95 backdrop-blur px-3 pb-[max(0.65rem,env(safe-area-inset-bottom))] pt-2 shadow-[0_-6px_24px_rgba(15,23,42,0.08)]">
@@ -4419,7 +4513,14 @@ function Sidebar({ user, active, onSelect, theme, setTheme, onLogout, onUndo, on
         { key: 'Support', label: 'Support', icon: 'help', group: 'SYSTEM' },
       ];
       const allowedSections = user && user.sections ? user.sections : ALL_SECTIONS;
-      const navItems = NAV.filter(item => allowedSections.includes(item.key) || item.key === 'Support');
+      const canViewSectionByAccess = (sectionKey) => {
+        const access = normalizeAccess(user?.access);
+        if (sectionKey === 'Attendance') return access?.attendance?.viewAttendance !== false;
+        if (sectionKey === 'Logs') return access?.logs?.viewLogs !== false;
+        if (sectionKey === 'Support') return access?.support?.viewSupportTemplates !== false;
+        return true;
+      };
+      const navItems = NAV.filter(item => (allowedSections.includes(item.key) || item.key === 'Support') && canViewSectionByAccess(item.key));
       const [membersExpanded, setMembersExpanded] = React.useState(true);
       const canViewVisitors = normalizeAccess(user?.access).members?.viewVisitors !== false;
       const sectionOrder = ['', 'MEMBERS & CLIENTS', 'COMMUNICATION', 'OPERATIONS', 'FINANCE', 'STAFF & MANAGEMENT', 'SYSTEM'];
@@ -4821,12 +4922,12 @@ function Sidebar({ user, active, onSelect, theme, setTheme, onLogout, onUndo, on
                   value={q}
                   onChange={(e) => { const val = e.target.value; setQ(val); }}
                   placeholder="Search members (name, ID, mobile, email, staff)..."
-                  className="flex-1 rounded-xl border border-slate-300 bg-white px-3 py-2 text-xs md:text-sm focus:outline-none focus:ring-2 focus:ring-blue-300 min-w-0"
+                  className="flex-1 rounded-xl border border-slate-300 bg-white px-3 py-2 text-xs md:text-sm text-slate-900 placeholder:text-slate-500 focus:outline-none focus:ring-2 focus:ring-blue-300 min-w-0"
                 />
                 <select
                   value={field}
                   onChange={(e) => { const f = e.target.value; setField(f); }}
-                  className="rounded-xl border border-slate-300 bg-white px-3 py-2 text-xs md:text-sm md:w-auto"
+                  className="rounded-xl border border-slate-300 bg-white px-3 py-2 text-xs md:text-sm text-slate-900 md:w-auto"
                 >
                   <option value="all">All</option>
                   <option value="name">Name</option>
@@ -4837,7 +4938,7 @@ function Sidebar({ user, active, onSelect, theme, setTheme, onLogout, onUndo, on
                   <option value="plan">Plan</option>
                   <option value="status">Status</option>
                 </select>
-                <button onClick={() => onSearch(q, field)} className="rounded-full px-4 py-2 border border-slate-300 bg-white text-xs md:text-sm font-medium w-full md:w-auto">Search</button>
+                <button onClick={() => onSearch(q, field)} className="rounded-full px-4 py-2 border border-slate-300 bg-white text-slate-900 text-xs md:text-sm font-medium w-full md:w-auto">Search</button>
               </div>
             )}
           </div>
@@ -5086,13 +5187,13 @@ function MembersList({ title, list, onBack, onEdit, onStatusChange, holdOptions,
         setPage(1);
       }, [list]);
       return (
-        <div className="p-2 md:p-8 space-y-4">
+        <div className="p-2 md:p-8 space-y-4 text-slate-900 dark:text-slate-100">
           <div className="flex items-center gap-3 mb-4">
-            <button onClick={onBack} className="p-2 rounded-xl hover:bg-slate-200"><span className="text-xl">←</span></button>
-            <h1 className="text-xl md:text-2xl font-semibold text-slate-900">{title} ({list.length})</h1>
+            <button onClick={onBack} className="p-2 rounded-xl hover:bg-slate-200 dark:hover:bg-slate-800"><span className="text-xl">←</span></button>
+            <h1 className="text-xl md:text-2xl font-semibold text-slate-900 dark:text-slate-100">{title} ({list.length})</h1>
           </div>
-          <div className="apg-members-list-shell rounded-3xl bg-white border border-slate-200 p-2 md:p-4 shadow-sm overflow-hidden">
-            <div className="apg-members-list-head hidden lg:grid grid-cols-12 gap-4 px-3 py-2 text-sm font-semibold bg-blue-50 text-blue-700 border border-blue-100 rounded-2xl">
+          <div className="apg-members-list-shell rounded-3xl bg-white border border-slate-200 p-2 md:p-4 shadow-sm overflow-hidden dark:bg-slate-900 dark:border-slate-700">
+            <div className="apg-members-list-head hidden lg:grid grid-cols-12 gap-4 px-3 py-2 text-sm font-semibold bg-blue-50 text-blue-700 border border-blue-100 rounded-2xl dark:bg-slate-800 dark:text-blue-200 dark:border-slate-700">
               <div className="col-span-1">ID</div>
               <div className="col-span-2">Name</div>
               <div className="col-span-2">Plan</div>
@@ -5100,7 +5201,7 @@ function MembersList({ title, list, onBack, onEdit, onStatusChange, holdOptions,
               <div className="col-span-2">Next Payment Date</div>
               <div className="col-span-3">Status / Action / Welcome</div>
             </div>
-            <div className="lg:hidden px-1 pb-2 text-xs text-slate-500">Tap a member card to view full details and actions.</div>
+            <div className="lg:hidden px-1 pb-2 text-xs text-slate-500 dark:text-slate-300">Tap a member card to view full details and actions.</div>
             {pageList.map(m => (
               <MemberRow
                 key={m.memberId}
@@ -5128,20 +5229,20 @@ function MembersList({ title, list, onBack, onEdit, onStatusChange, holdOptions,
               />
             ))}
             {(list || []).length > pageSize && (
-              <div className="flex items-center justify-between mt-2 text-sm">
+              <div className="flex items-center justify-between mt-2 text-sm text-slate-700 dark:text-slate-200">
                 <div>Page {safePage} of {totalPages}</div>
                 <div className="flex gap-2">
                   <button
                     onClick={() => setPage(p => Math.max(1, p - 1))}
                     disabled={safePage === 1}
-                    className={cx('px-3 py-2 min-h-[44px] rounded-xl border', safePage === 1 ? 'bg-slate-200 text-slate-400 cursor-not-allowed' : 'bg-white text-blue-700 hover:bg-blue-50 border-blue-300')}
+                    className={cx('px-3 py-2 min-h-[44px] rounded-xl border', safePage === 1 ? 'bg-slate-200 text-slate-400 cursor-not-allowed dark:bg-slate-800 dark:text-slate-500 dark:border-slate-700' : 'bg-white text-blue-700 hover:bg-blue-50 border-blue-300 dark:bg-slate-800 dark:text-blue-200 dark:border-slate-700 dark:hover:bg-slate-700')}
                   >
                     Prev
                   </button>
                   <button
                     onClick={() => setPage(p => Math.min(totalPages, p + 1))}
                     disabled={safePage === totalPages}
-                    className={cx('px-3 py-2 min-h-[44px] rounded-xl border', safePage === totalPages ? 'bg-slate-200 text-slate-400 cursor-not-allowed' : 'bg-white text-blue-700 hover:bg-blue-50 border-blue-300')}
+                    className={cx('px-3 py-2 min-h-[44px] rounded-xl border', safePage === totalPages ? 'bg-slate-200 text-slate-400 cursor-not-allowed dark:bg-slate-800 dark:text-slate-500 dark:border-slate-700' : 'bg-white text-blue-700 hover:bg-blue-50 border-blue-300 dark:bg-slate-800 dark:text-blue-200 dark:border-slate-700 dark:hover:bg-slate-700')}
                   >
                     Next
                   </button>
@@ -8271,10 +8372,14 @@ function PTClientsPage({ members, users, settings, updateSetting, currentUser, a
     }
 
     // ---- Attendance Page ----
-function AttendancePage({ users, settings, updateSetting, currentUser, displayTimeZone = 'IST' }) {
+    function AttendancePage({ users, settings, updateSetting, currentUser, access, displayTimeZone = 'IST' }) {
       const [date, setDate] = React.useState(iso(new Date()));
       const [expandedStaffId, setExpandedStaffId] = React.useState('');
       const [historyPageByStaff, setHistoryPageByStaff] = React.useState({});
+      const attendanceAccess = normalizeAccess(access).attendance;
+      const canViewAttendance = attendanceAccess?.viewAttendance !== false;
+      const canMarkAllPresent = attendanceAccess?.markAllPresent !== false;
+      const canEditAttendance = attendanceAccess?.editAttendance !== false;
       const staff = (users || []).filter(u => !u.blocked);
       const records = settings.staffAttendance || [];
       const keyFor = (userId) => `${date}__${userId}`;
@@ -8313,6 +8418,15 @@ function AttendancePage({ users, settings, updateSetting, currentUser, displayTi
         return out;
       }, [records, staff, twoMonthCutoff]);
       const HISTORY_PAGE_SIZE = 5;
+      if (!canViewAttendance) {
+        return (
+          <div className="p-3 md:p-8">
+            <div className="rounded-2xl border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800">
+              Attendance dashboard access is disabled for this profile.
+            </div>
+          </div>
+        );
+      }
       return (
         <div className="p-3 md:p-8 space-y-4">
           <div className="flex flex-col gap-3 md:flex-row md:items-end md:justify-between">
@@ -8322,7 +8436,7 @@ function AttendancePage({ users, settings, updateSetting, currentUser, displayTi
             </div>
             <div className="flex items-center gap-2">
               <input type="date" value={date} onChange={(e) => setDate(iso(e.target.value))} className="rounded-xl border border-slate-300 px-3 py-2 text-sm" />
-              <button onClick={() => staff.forEach(s => upsert(s.id, { status: 'Present' }))} className="rounded-full bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700">Mark All Present</button>
+              <button disabled={!canMarkAllPresent} onClick={() => canMarkAllPresent && staff.forEach(s => upsert(s.id, { status: 'Present' }))} className="rounded-full bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed">Mark All Present</button>
             </div>
           </div>
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
@@ -8362,7 +8476,7 @@ function AttendancePage({ users, settings, updateSetting, currentUser, displayTi
                       <div className="grid grid-cols-1 lg:grid-cols-4 gap-2">
                         <div>
                           <label className="text-xs text-slate-500">Status</label>
-                          <select value={rec.status || 'Absent'} onChange={(e) => upsert(s.id, { status: e.target.value })} className="mt-1 w-full rounded-xl border border-slate-300 px-3 py-2 text-sm">
+                          <select disabled={!canEditAttendance} value={rec.status || 'Absent'} onChange={(e) => canEditAttendance && upsert(s.id, { status: e.target.value })} className="mt-1 w-full rounded-xl border border-slate-300 px-3 py-2 text-sm disabled:opacity-60 disabled:bg-slate-100">
                             <option>Present</option><option>Absent</option><option>Half Day</option><option>Leave</option>
                           </select>
                           {rec.leaveAutoSynced && (
@@ -8381,7 +8495,7 @@ function AttendancePage({ users, settings, updateSetting, currentUser, displayTi
                         </div>
                         <div className="lg:col-span-4">
                           <label className="text-xs text-slate-500">Note</label>
-                          <input value={rec.note || ''} onChange={(e) => upsert(s.id, { note: e.target.value })} placeholder="Reason / shift notes" className="mt-1 w-full rounded-xl border border-slate-300 px-3 py-2 text-sm" />
+                          <input disabled={!canEditAttendance} value={rec.note || ''} onChange={(e) => canEditAttendance && upsert(s.id, { note: e.target.value })} placeholder="Reason / shift notes" className="mt-1 w-full rounded-xl border border-slate-300 px-3 py-2 text-sm disabled:opacity-60 disabled:bg-slate-100" />
                         </div>
                         {rec.autoMarked && rec.autoPresentWindowUntil && (
                           <div className="lg:col-span-4">
@@ -8458,7 +8572,7 @@ function AttendancePage({ users, settings, updateSetting, currentUser, displayTi
     // ---- Leave Tracker Page (module-registered) ----
     const LeaveTrackerPage = (window.__APG_MODULES__ && window.__APG_MODULES__.LeaveTrackerPageModule)
       ? window.__APG_MODULES__.LeaveTrackerPageModule
-      : function LeaveTrackerFallback({ users = [], settings = {}, updateSetting, currentUser = null, access = {}, logEvent, focusLeaveRequestId = '', focusLeaveUserId = '', onClearFocus }) {
+      : function LeaveTrackerFallback({ users = [], settings = {}, updateSetting, currentUser = null, access = {}, logEvent, theme = 'light', focusLeaveRequestId = '', focusLeaveUserId = '', onClearFocus }) {
         const leaveAccess = normalizeAccess(access).leave;
         const canViewCreateLeaveRequest = leaveAccess?.viewCreateLeaveRequest !== false;
         const canViewLeaveRequests = leaveAccess?.viewLeaveRequests !== false;
@@ -8613,8 +8727,9 @@ function AttendancePage({ users, settings, updateSetting, currentUser, displayTi
             .filter((r) => (historyUserFilter ? r.userId === historyUserFilter : true))
             .sort((a, b) => String(b.startDate || '').localeCompare(String(a.startDate || '')));
         }, [leaveRequests, historyUserFilter]);
+        const forceLightClass = theme === 'dark' ? '' : 'apg-force-light';
         return (
-          <div className="p-3 md:p-8 space-y-4 text-slate-900 dark:text-slate-100">
+          <div className={cx("p-3 md:p-8 space-y-4 text-slate-900 dark:text-slate-100", forceLightClass)}>
             <div>
               <h1 className="text-xl md:text-2xl font-semibold text-slate-900 dark:text-slate-100">Leave Tracker</h1>
               <p className="text-sm text-slate-600 dark:text-slate-300">Leave requests, approvals, and yearly balance tracking.</p>
@@ -8764,6 +8879,7 @@ function SettingsPage({ settings, updateSetting, members, access, storageInfo, b
       const [keepLatestCount, setKeepLatestCount] = React.useState('20');
       const [backupPage, setBackupPage] = React.useState(1);
       const [diskUsageOpen, setDiskUsageOpen] = React.useState(false);
+      const [fineRuleOpen, setFineRuleOpen] = React.useState(false);
       const BACKUPS_PER_PAGE = 12;
       const backupPages = Math.max(1, Math.ceil((availableBackups || []).length / BACKUPS_PER_PAGE));
       const pagedBackups = React.useMemo(() => {
@@ -8830,7 +8946,7 @@ function SettingsPage({ settings, updateSetting, members, access, storageInfo, b
         { key: 'plans', label: 'Plans', allowed: settingsAccess.managePlans },
         { key: 'statuses', label: 'Statuses', allowed: settingsAccess.manageStatuses },
         { key: 'paymentMethods', label: 'Payment Methods', allowed: settingsAccess.managePaymentMethods },
-        { key: 'expenseCategories', label: 'Expense Categories', allowed: settingsAccess.managePaymentMethods },
+        { key: 'expenseCategories', label: 'Expense Categories', allowed: settingsAccess.manageExpenseCategories },
         { key: 'holdDurations', label: 'Hold Durations', allowed: settingsAccess.manageHoldDurations },
         { key: 'genders', label: 'Genders', allowed: settingsAccess.manageGenders },
         { key: 'exerciseTypes', label: 'Exercise Types (PT Focus)', allowed: settingsAccess.managePlans },
@@ -8899,7 +9015,7 @@ function SettingsPage({ settings, updateSetting, members, access, storageInfo, b
                     <select
                       value={selectedBackup}
                       onChange={(e) => setSelectedBackup(e.target.value)}
-                      className="min-w-[260px] rounded-xl border border-slate-300 bg-white px-2.5 py-2 text-sm"
+                      className="min-w-[260px] rounded-xl border border-slate-300 bg-white px-2.5 py-2 text-sm text-slate-900"
                     >
                       <option value="">Select backup…</option>
                       {pagedBackups.map((name) => (
@@ -8928,7 +9044,7 @@ function SettingsPage({ settings, updateSetting, members, access, storageInfo, b
                       <select
                         value={pruneDays}
                         onChange={(e) => setPruneDays(e.target.value)}
-                        className="rounded-xl border border-slate-300 bg-white px-2.5 py-2 text-sm"
+                        className="rounded-xl border border-slate-300 bg-white px-2.5 py-2 text-sm text-slate-900"
                       >
                         <option value="7">Delete older than 7 days</option>
                         <option value="15">Delete older than 15 days</option>
@@ -8945,7 +9061,7 @@ function SettingsPage({ settings, updateSetting, members, access, storageInfo, b
                         min="1"
                         value={keepLatestCount}
                         onChange={(e) => setKeepLatestCount(e.target.value)}
-                        className="w-28 rounded-xl border border-slate-300 bg-white px-2.5 py-2 text-sm"
+                        className="w-28 rounded-xl border border-slate-300 bg-white px-2.5 py-2 text-sm text-slate-900 placeholder:text-slate-500"
                         placeholder="Keep latest"
                       />
                       <button
@@ -8998,7 +9114,7 @@ function SettingsPage({ settings, updateSetting, members, access, storageInfo, b
                   <select
                     value={selectedBackup}
                     onChange={(e) => setSelectedBackup(e.target.value)}
-                    className="rounded-xl border border-slate-300 bg-white px-2.5 py-2 text-sm"
+                    className="rounded-xl border border-slate-300 bg-white px-2.5 py-2 text-sm text-slate-900"
                   >
                     <option value="">Select backup…</option>
                     {availableBackups.map((name) => (
@@ -9028,38 +9144,57 @@ function SettingsPage({ settings, updateSetting, members, access, storageInfo, b
             </div>
             )}
           </div>
+          {settingsAccess.manageFineRule && (
           <div className="rounded-3xl bg-white border border-slate-200 p-4 shadow-sm space-y-3">
-            <div className="flex items-center justify-between gap-2">
+            <button
+              type="button"
+              onClick={() => setFineRuleOpen((v) => !v)}
+              className="w-full flex items-center justify-between text-left"
+            >
               <h3 className="text-lg font-semibold">Fine SMS Rule</h3>
-              <label className="inline-flex items-center gap-2 text-sm font-medium text-slate-700">
-                <input
-                  type="checkbox"
-                  checked={settings.fineSmsEnabled !== false}
-                  onChange={(e) => updateSetting('fineSmsEnabled', Boolean(e.target.checked))}
-                />
-                Enable
-              </label>
-            </div>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-              <label className="text-sm text-slate-700 space-y-1">
-                <span className="block font-medium">Grace days after Payment By</span>
-                <input
-                  type="number"
-                  min="0"
-                  step="1"
-                  value={String(Math.max(0, Number(settings.fineSmsGraceDays || 0)))}
-                  onChange={(e) => {
-                    const parsed = Math.max(0, Math.floor(Number(e.target.value || 0)));
-                    updateSetting('fineSmsGraceDays', Number.isFinite(parsed) ? parsed : 0);
-                  }}
-                  className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm"
-                />
-              </label>
-              <div className="rounded-2xl border border-rose-200 bg-rose-50 px-3 py-2 text-xs text-rose-700">
-                Fine SMS is shown when member is Active and Payment By date is crossed by configured grace days.
+              <div className="flex items-center gap-2">
+                <span className="rounded-full border border-slate-200 bg-slate-50 px-2 py-0.5 text-xs font-semibold text-slate-600">
+                  {settings.fineSmsEnabled !== false ? 'Enabled' : 'Disabled'}
+                </span>
+                <span className="text-xs font-semibold text-slate-500">{fineRuleOpen ? 'Hide' : 'Expand'}</span>
               </div>
-            </div>
+            </button>
+            {fineRuleOpen && (
+              <div className="space-y-3">
+                <div className="flex items-center justify-between gap-2">
+                  <div />
+                  <label className="inline-flex items-center gap-2 text-sm font-medium text-slate-700">
+                    <input
+                      type="checkbox"
+                      checked={settings.fineSmsEnabled !== false}
+                      onChange={(e) => updateSetting('fineSmsEnabled', Boolean(e.target.checked))}
+                    />
+                    Enable
+                  </label>
+                </div>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                  <label className="text-sm text-slate-700 space-y-1">
+                    <span className="block font-medium">Grace days after Payment By</span>
+                    <input
+                      type="number"
+                      min="0"
+                      step="1"
+                      value={String(Math.max(0, Number(settings.fineSmsGraceDays || 0)))}
+                      onChange={(e) => {
+                        const parsed = Math.max(0, Math.floor(Number(e.target.value || 0)));
+                        updateSetting('fineSmsGraceDays', Number.isFinite(parsed) ? parsed : 0);
+                      }}
+                      className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900"
+                    />
+                  </label>
+                  <div className="rounded-2xl border border-rose-200 bg-rose-50 px-3 py-2 text-xs text-rose-700">
+                    Fine SMS is shown when member is Active and Payment By date is crossed by configured grace days.
+                  </div>
+                </div>
+              </div>
+            )}
           </div>
+          )}
           {settingItems.length === 0 && (
             <div className="rounded-2xl border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800">
               You have Settings access, but no child permission is enabled for configuration lists.
@@ -9092,7 +9227,7 @@ function SettingsPage({ settings, updateSetting, members, access, storageInfo, b
                       ))}
                     </div>
                     <div className="flex items-center gap-2">
-                      <input value={newValues[key]} onChange={(e) => setNewValues(nv => ({ ...nv, [key]: e.target.value }))} placeholder={`Enter new ${key.slice(0,-1)}`} className="flex-1 rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm" />
+                      <input value={newValues[key]} onChange={(e) => setNewValues(nv => ({ ...nv, [key]: e.target.value }))} placeholder={`Enter new ${key.slice(0,-1)}`} className="flex-1 rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 placeholder:text-slate-500" />
                       <button onClick={() => handleAdd(key)} className="rounded-full px-4 py-2 text-sm font-medium bg-blue-600 hover:bg-blue-700 text-white">Add</button>
                     </div>
                   </>
@@ -9197,8 +9332,12 @@ function SettingsPage({ settings, updateSetting, members, access, storageInfo, b
     }
 
     // ---- Logs Page ----
-    function LogsPage({ logs, currentUser, onClearLogs, displayTimeZone = 'IST' }) {
+    function LogsPage({ logs, currentUser, onClearLogs, access, displayTimeZone = 'IST' }) {
       const [filter, setFilter] = React.useState('');
+      const logsAccess = normalizeAccess(access).logs;
+      const canViewLogs = logsAccess?.viewLogs !== false;
+      const canExportLogs = logsAccess?.exportLogs !== false;
+      const canClearLogs = logsAccess?.clearLogs !== false;
       const [actorFilter, setActorFilter] = React.useState('');
       const [actionFilter, setActionFilter] = React.useState('');
       const [entityFilter, setEntityFilter] = React.useState('');
@@ -9274,6 +9413,7 @@ function SettingsPage({ settings, updateSetting, members, access, storageInfo, b
         return filtered.filter(l => String(l.action || '').includes('deleted') || String(l.action || '').includes('blocked')).length;
       }, [filtered]);
       const exportCsv = () => {
+        if (!canExportLogs) return;
         const rows = filtered.map(l => [
           l.ts || '',
           l.actor || '',
@@ -9295,6 +9435,15 @@ function SettingsPage({ settings, updateSetting, members, access, storageInfo, b
         a.click();
         URL.revokeObjectURL(url);
       };
+      if (!canViewLogs) {
+        return (
+          <div className="p-3 md:p-8">
+            <div className="rounded-2xl border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800">
+              Audit logs access is disabled for this profile.
+            </div>
+          </div>
+        );
+      }
       return (
         <div className="p-3 md:p-8">
           <div className="mb-4 flex items-center justify-between gap-3 flex-wrap">
@@ -9307,7 +9456,7 @@ function SettingsPage({ settings, updateSetting, members, access, storageInfo, b
               </div>
             </div>
             <div className="flex items-center gap-2 flex-wrap">
-              {currentUser && currentUser.id === 'owner' && (
+              {currentUser && currentUser.id === 'owner' && canClearLogs && (
                 <button
                   onClick={() => onClearLogs && onClearLogs()}
                   className="rounded-xl px-3 py-2 min-h-[44px] text-sm font-medium border border-rose-300 bg-rose-50 text-rose-700 hover:bg-rose-100"
@@ -9315,7 +9464,7 @@ function SettingsPage({ settings, updateSetting, members, access, storageInfo, b
                   Clear Logs
                 </button>
               )}
-              <button onClick={exportCsv} className="rounded-xl px-3 py-2 min-h-[44px] text-sm font-medium bg-blue-600 text-white hover:bg-blue-700">Export to CSV</button>
+              <button disabled={!canExportLogs} onClick={exportCsv} className="rounded-xl px-3 py-2 min-h-[44px] text-sm font-medium bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed">Export to CSV</button>
             </div>
           </div>
           <div className="mb-4 grid grid-cols-1 md:grid-cols-5 gap-2">
@@ -10289,6 +10438,7 @@ function SettingsPage({ settings, updateSetting, members, access, storageInfo, b
       const expense = useEstimatedExpense ? estimatedExpense : actualExpense;
       const profit = revenue - expense;
       const addExpenseRow = () => {
+        if (!canFinanceManageExpenses) return;
         const amount = Number(expenseDraft.amount || 0);
         if (!amount || amount <= 0) return;
         if (!String(expenseDraft.note || '').trim()) return;
@@ -10459,11 +10609,12 @@ function SettingsPage({ settings, updateSetting, members, access, storageInfo, b
         return '-';
       };
 
-      const cardBase = 'rounded-2xl border border-slate-200 bg-white p-4 shadow-sm';
+      const cardBase = 'rounded-2xl border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-700 dark:bg-slate-900';
       const canFinanceRevenue = access?.finance?.viewRevenueAutoMembers !== false;
       const canFinanceTrend = access?.finance?.viewRevenueTrend4Months !== false;
       const canFinancePlan = access?.finance?.viewPlanPopularity !== false;
       const canFinanceTransactions = access?.finance?.viewTransactionsAutoMembers !== false;
+      const canFinanceManageExpenses = access?.finance?.manageExpenses !== false;
       const isMobile = useIsMobile();
       if (isMobile) {
         const upcoming = incomeRows.filter((t) => t.status !== 'pending').slice(0, 5);
@@ -10536,24 +10687,24 @@ function SettingsPage({ settings, updateSetting, members, access, storageInfo, b
         );
       }
       return (
-        <div className="p-3 md:p-8 space-y-5 bg-slate-100">
+          <div className="p-3 md:p-8 space-y-5 bg-slate-100 dark:bg-slate-950 text-slate-900 dark:text-slate-100">
           <div className="flex items-center justify-between gap-3 flex-wrap">
-            <h1 className="text-2xl font-semibold text-slate-900">Finance</h1>
+            <h1 className="text-2xl font-semibold text-slate-900 dark:text-slate-100">Finance</h1>
             <div className="flex gap-2 flex-wrap">
               <input
                 value={query}
                 onChange={(e) => setQuery(e.target.value)}
                 placeholder="Search member, plan, method"
-                className="rounded-xl border border-slate-300 bg-white px-3 py-2 min-h-[44px] text-sm w-full sm:w-auto"
+                className="rounded-xl border border-slate-300 bg-white px-3 py-2 min-h-[44px] text-sm text-slate-900 placeholder:text-slate-500 w-full sm:w-auto dark:border-slate-600 dark:bg-slate-900 dark:text-slate-100"
               />
               <button onClick={() => setAppliedQuery(query)} className="rounded-full bg-blue-600 text-white px-3 py-1.5 min-h-[36px] text-xs font-semibold hover:bg-blue-700">Search</button>
-              <button onClick={() => setShowFilter(v => !v)} className="rounded-full border border-slate-300 bg-white px-4 py-2 min-h-[44px] text-sm font-medium text-slate-700">Filter</button>
-              <button onClick={() => setShowExpenseForm(v => !v)} className="rounded-full border border-rose-300 bg-rose-50 px-4 py-2 min-h-[44px] text-sm font-medium text-rose-700">{showExpenseForm ? 'Close Expense' : 'Add Expense'}</button>
+              <button onClick={() => setShowFilter(v => !v)} className="rounded-full border border-slate-300 bg-white px-4 py-2 min-h-[44px] text-sm font-medium text-slate-700 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100">Filter</button>
+              <button disabled={!canFinanceManageExpenses} onClick={() => setShowExpenseForm(v => !v)} className={cx('rounded-full border px-4 py-2 min-h-[44px] text-sm font-medium', canFinanceManageExpenses ? 'border-rose-300 bg-rose-50 text-rose-700' : 'border-slate-300 bg-slate-100 text-slate-500 cursor-not-allowed')}>{showExpenseForm ? 'Close Expense' : 'Add Expense'}</button>
               <button onClick={exportFinanceCsv} className="rounded-full border border-emerald-300 bg-emerald-50 px-4 py-2 min-h-[44px] text-sm font-medium text-emerald-700">Export CSV</button>
             </div>
           </div>
-          <div className="rounded-2xl border border-slate-200 bg-white p-3 shadow-sm flex flex-wrap items-center gap-2">
-            <span className="text-sm text-slate-600">Transaction type:</span>
+          <div className="rounded-2xl border border-slate-200 bg-white p-3 shadow-sm flex flex-wrap items-center gap-2 dark:border-slate-700 dark:bg-slate-900">
+            <span className="text-sm text-slate-600 dark:text-slate-300">Transaction type:</span>
             {[
               { key: '', label: 'All' },
               { key: 'income', label: 'Income' },
@@ -10566,63 +10717,63 @@ function SettingsPage({ settings, updateSetting, members, access, storageInfo, b
                   'rounded-full border px-3 py-1.5 text-xs font-semibold',
                   typeFilter === opt.key
                     ? 'border-blue-500 bg-blue-50 text-blue-700'
-                    : 'border-slate-300 bg-white text-slate-600'
+                    : 'border-slate-300 bg-white text-slate-600 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-200'
                 )}
               >
                 {opt.label}
               </button>
             ))}
           </div>
-          <div className="rounded-2xl border border-slate-200 bg-white p-3 shadow-sm flex flex-wrap items-center gap-2">
-            <span className="text-sm text-slate-600">Expense mode:</span>
+          <div className="rounded-2xl border border-slate-200 bg-white p-3 shadow-sm flex flex-wrap items-center gap-2 dark:border-slate-700 dark:bg-slate-900">
+            <span className="text-sm text-slate-600 dark:text-slate-300">Expense mode:</span>
             <button
               onClick={() => typeof updateSetting === 'function' && updateSetting('financeUseEstimatedExpense', false)}
-              className={cx('rounded-full border px-3 py-1.5 text-xs font-semibold', !useEstimatedExpense ? 'border-rose-400 bg-rose-50 text-rose-700' : 'border-slate-300 bg-white text-slate-600')}
+              className={cx('rounded-full border px-3 py-1.5 text-xs font-semibold', !useEstimatedExpense ? 'border-rose-400 bg-rose-50 text-rose-700 dark:border-rose-500 dark:bg-rose-950/40 dark:text-rose-200' : 'border-slate-300 bg-white text-slate-600 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-200')}
             >
               Actual rows
             </button>
             <button
               onClick={() => typeof updateSetting === 'function' && updateSetting('financeUseEstimatedExpense', true)}
-              className={cx('rounded-full border px-3 py-1.5 text-xs font-semibold', useEstimatedExpense ? 'border-amber-400 bg-amber-50 text-amber-700' : 'border-slate-300 bg-white text-slate-600')}
+              className={cx('rounded-full border px-3 py-1.5 text-xs font-semibold', useEstimatedExpense ? 'border-amber-400 bg-amber-50 text-amber-700 dark:border-amber-500 dark:bg-amber-950/40 dark:text-amber-200' : 'border-slate-300 bg-white text-slate-600 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-200')}
             >
               Estimated 26% fallback
             </button>
           </div>
-          {showExpenseForm && (
-            <div className="rounded-2xl border border-rose-200 bg-white p-4 shadow-sm grid grid-cols-1 md:grid-cols-5 gap-3">
-              <div><label className="text-xs text-slate-500">Date</label><input type="date" value={expenseDraft.date} onChange={(e) => setExpenseDraft(v => ({ ...v, date: e.target.value }))} className="mt-1 w-full rounded-xl border border-slate-300 px-3 py-2 text-sm" /></div>
+          {showExpenseForm && canFinanceManageExpenses && (
+            <div className="rounded-2xl border border-rose-200 bg-white p-4 shadow-sm grid grid-cols-1 md:grid-cols-5 gap-3 dark:border-rose-700 dark:bg-slate-900">
+              <div><label className="text-xs text-slate-500">Date</label><input type="date" value={expenseDraft.date} onChange={(e) => setExpenseDraft(v => ({ ...v, date: e.target.value }))} className="mt-1 w-full rounded-xl border border-slate-300 px-3 py-2 text-sm text-slate-900" /></div>
               <div>
                 <label className="text-xs text-slate-500">Category</label>
-                <select value={expenseDraft.category} onChange={(e) => setExpenseDraft(v => ({ ...v, category: e.target.value }))} className="mt-1 w-full rounded-xl border border-slate-300 px-3 py-2 text-sm">
+                <select value={expenseDraft.category} onChange={(e) => setExpenseDraft(v => ({ ...v, category: e.target.value }))} className="mt-1 w-full rounded-xl border border-slate-300 px-3 py-2 text-sm text-slate-900">
                   {expenseCategories.map((cat) => <option key={cat} value={cat}>{cat}</option>)}
                 </select>
               </div>
-              <div><label className="text-xs text-slate-500">Amount</label><input type="number" min="0" value={expenseDraft.amount} onChange={(e) => setExpenseDraft(v => ({ ...v, amount: e.target.value }))} className="mt-1 w-full rounded-xl border border-slate-300 px-3 py-2 text-sm" /></div>
-              <div className="md:col-span-2"><label className="text-xs text-slate-500">Note *</label><input value={expenseDraft.note} onChange={(e) => setExpenseDraft(v => ({ ...v, note: e.target.value }))} className="mt-1 w-full rounded-xl border border-slate-300 px-3 py-2 text-sm" placeholder="Expense note is mandatory" /></div>
+              <div><label className="text-xs text-slate-500">Amount</label><input type="number" min="0" value={expenseDraft.amount} onChange={(e) => setExpenseDraft(v => ({ ...v, amount: e.target.value }))} className="mt-1 w-full rounded-xl border border-slate-300 px-3 py-2 text-sm text-slate-900" /></div>
+              <div className="md:col-span-2"><label className="text-xs text-slate-500">Note *</label><input value={expenseDraft.note} onChange={(e) => setExpenseDraft(v => ({ ...v, note: e.target.value }))} className="mt-1 w-full rounded-xl border border-slate-300 px-3 py-2 text-sm text-slate-900 placeholder:text-slate-500" placeholder="Expense note is mandatory" /></div>
               <div className="md:col-span-5 flex justify-end"><button onClick={addExpenseRow} className="rounded-full bg-rose-600 px-4 py-2 text-sm font-medium text-white hover:bg-rose-700">Save Expense</button></div>
             </div>
           )}
 
           {showFilter && (
-            <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm grid grid-cols-1 md:grid-cols-3 xl:grid-cols-5 gap-3">
-              <select value={planFilter} onChange={(e) => setPlanFilter(e.target.value)} className="rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm">
+            <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm grid grid-cols-1 md:grid-cols-3 xl:grid-cols-5 gap-3 dark:border-slate-700 dark:bg-slate-900">
+              <select value={planFilter} onChange={(e) => setPlanFilter(e.target.value)} className="rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900">
                 <option value="">All Plans</option>
                 {(settings?.plans || []).map(p => <option key={p} value={p}>{p}</option>)}
               </select>
-              <select value={methodFilter} onChange={(e) => setMethodFilter(e.target.value)} className="rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm">
+              <select value={methodFilter} onChange={(e) => setMethodFilter(e.target.value)} className="rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900">
                 <option value="">All Methods</option>
                 {(settings?.paymentMethods || []).map(m => <option key={m} value={m}>{m}</option>)}
               </select>
-              <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)} className="rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm">
+              <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)} className="rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900">
                 <option value="">All Payment Status</option>
                 <option value="paid">Paid</option>
                 <option value="pending">Pending</option>
                 <option value="posted">Posted (Expense)</option>
               </select>
-              <input type="date" value={fromDate} onChange={(e) => setFromDate(e.target.value)} className="rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm" />
+              <input type="date" value={fromDate} onChange={(e) => setFromDate(e.target.value)} className="rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900" />
               <div className="flex gap-2">
-                <input type="date" value={toDate} onChange={(e) => setToDate(e.target.value)} className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm" />
-                <button onClick={resetFilters} className="rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm">Reset</button>
+                <input type="date" value={toDate} onChange={(e) => setToDate(e.target.value)} className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900" />
+                <button onClick={resetFilters} className="rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100">Reset</button>
               </div>
             </div>
           )}
@@ -10643,7 +10794,7 @@ function SettingsPage({ settings, updateSetting, members, access, storageInfo, b
             <button
               type="button"
               onClick={() => setShowExpenseLedger(true)}
-              className={cx(cardBase, 'text-left hover:bg-rose-50/50 transition-colors')}
+              className={cx(cardBase, 'text-left hover:bg-rose-50/50 transition-colors dark:hover:bg-slate-800')}
             >
               <div className="text-sm text-slate-500">Expenses</div>
               <div className="mt-1 text-3xl font-bold text-rose-700">${expense.toLocaleString()}</div>
@@ -10703,7 +10854,7 @@ function SettingsPage({ settings, updateSetting, members, access, storageInfo, b
             <div className="overflow-x-auto">
               <table className="min-w-full text-sm hidden md:table">
                 <thead>
-                  <tr className="bg-blue-50 text-blue-700">
+                  <tr className="bg-blue-50 text-blue-700 dark:bg-slate-800 dark:text-blue-200">
                     <th className="px-3 py-2 text-left"><button onClick={() => toggleSort('date')} className="font-semibold hover:text-blue-900">Date <span className="text-[11px]">{sortIndicator('date')}</span></button></th>
                     <th className="px-3 py-2 text-left"><button onClick={() => toggleSort('memberName')} className="font-semibold hover:text-blue-900">Member <span className="text-[11px]">{sortIndicator('memberName')}</span></button></th>
                     <th className="px-3 py-2 text-left"><button onClick={() => toggleSort('plan')} className="font-semibold hover:text-blue-900">Plan <span className="text-[11px]">{sortIndicator('plan')}</span></button></th>
@@ -10718,7 +10869,7 @@ function SettingsPage({ settings, updateSetting, members, access, storageInfo, b
                     <React.Fragment key={t.id}>
                       <tr
                         onClick={() => setExpandedId(prev => prev === t.id ? '' : t.id)}
-                        className="border-b border-slate-200 hover:bg-slate-50 cursor-pointer"
+                        className="border-b border-slate-200 hover:bg-slate-50 cursor-pointer dark:border-slate-700 dark:hover:bg-slate-800"
                       >
                         <td className="px-3 py-2 whitespace-nowrap">{fmt(t.date)}</td>
                         <td className="px-3 py-2 whitespace-nowrap">{t.memberName || '-'}</td>
@@ -10726,10 +10877,10 @@ function SettingsPage({ settings, updateSetting, members, access, storageInfo, b
                         <td className="px-3 py-2 whitespace-nowrap">{t.method || '-'}</td>
                         <td className="px-3 py-2 whitespace-nowrap capitalize">{t.status}</td>
                         <td className="px-3 py-2">{t.note || '-'}</td>
-                        <td className="px-3 py-2 whitespace-nowrap font-semibold text-slate-800">${Number(t.amount || 0).toLocaleString()}</td>
+                        <td className="px-3 py-2 whitespace-nowrap font-semibold text-slate-800 dark:text-slate-100">${Number(t.amount || 0).toLocaleString()}</td>
                       </tr>
                       {expandedId === t.id && (
-                        <tr className="bg-slate-50 border-b border-slate-200">
+                        <tr className="bg-slate-50 border-b border-slate-200 dark:bg-slate-800 dark:border-slate-700">
                           <td colSpan={7} className="p-3">
                             <div className="text-xs font-semibold text-slate-600 mb-2">Latest 10 logs for {t.memberName}</div>
                             <div className="overflow-x-auto">
@@ -10868,7 +11019,7 @@ function SettingsPage({ settings, updateSetting, members, access, storageInfo, b
       );
     }
 
-    function BackendPage({ setToast }) {
+    function BackendPage({ setToast, access }) {
       const [busy, setBusy] = React.useState('');
       const [healthOk, setHealthOk] = React.useState(null);
       const [supervisorOk, setSupervisorOk] = React.useState(null);
@@ -10891,6 +11042,9 @@ function SettingsPage({ settings, updateSetting, members, access, storageInfo, b
         if (t) h['x-apg-process-token'] = String(t);
         return h;
       }, []);
+      const backendAccess = normalizeAccess(access).backend;
+      const canViewBackendPage = backendAccess?.viewBackendPage !== false;
+      const canControlBackend = backendAccess?.controlBackendProcesses !== false;
       const pingHealth = React.useCallback(async () => {
         const ts = new Date().toLocaleTimeString([], { hour12: false });
         let apiUp = false;
@@ -10918,6 +11072,11 @@ function SettingsPage({ settings, updateSetting, members, access, storageInfo, b
         pingHealth();
       }, [pingHealth]);
       const callProcess = async (action) => {
+        if (!canControlBackend) {
+          setToast('Backend control access is disabled for this staff profile.');
+          setTimeout(() => setToast(''), 2500);
+          return;
+        }
         const apiPaths = { restart: '/process/restart', stop: '/process/stop', start: '/process/start' };
         const supPaths = { restart: '/backend/restart', stop: '/backend/stop', start: '/backend/start' };
         setBusy(action);
@@ -10993,6 +11152,13 @@ function SettingsPage({ settings, updateSetting, members, access, storageInfo, b
       };
       return (
         <div className="p-3 md:p-8 space-y-5">
+          {!canViewBackendPage && (
+            <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4 text-sm text-slate-600">
+              Backend access is disabled for this staff profile.
+            </div>
+          )}
+          {canViewBackendPage && (
+          <>
           <h1 className="text-xl md:text-2xl font-semibold text-slate-900">Backend</h1>
           <p className="text-sm text-slate-600 max-w-2xl">
             <b>Turn on</b> and <b>Restart</b> use a local supervisor on port 4010 when you launch via the desktop app or <code className="text-xs bg-slate-100 px-1 rounded">npm run dev:all</code>, so they work even when the API is down. If the API is up, the same buttons can use the API when the supervisor is unavailable.
@@ -11035,79 +11201,98 @@ function SettingsPage({ settings, updateSetting, members, access, storageInfo, b
             <div className="flex flex-wrap gap-2 pt-2 border-t border-slate-100">
               <button
                 type="button"
-                disabled={Boolean(busy)}
+                disabled={Boolean(busy) || !canControlBackend}
                 onClick={() => callProcess('restart')}
                 className={cx(
                   'rounded-xl px-4 py-2 text-sm font-semibold text-white',
-                  busy ? 'bg-slate-400 cursor-not-allowed' : 'bg-blue-600 hover:bg-blue-700'
+                  (busy || !canControlBackend) ? 'bg-slate-400 cursor-not-allowed' : 'bg-blue-600 hover:bg-blue-700'
                 )}
               >
                 {busy === 'restart' ? 'Restarting…' : 'Restart backend'}
               </button>
               <button
                 type="button"
-                disabled={Boolean(busy)}
+                disabled={Boolean(busy) || !canControlBackend}
                 onClick={() => callProcess('stop')}
                 className={cx(
                   'rounded-xl px-4 py-2 text-sm font-semibold text-white',
-                  busy ? 'bg-slate-400 cursor-not-allowed' : 'bg-rose-600 hover:bg-rose-700'
+                  (busy || !canControlBackend) ? 'bg-slate-400 cursor-not-allowed' : 'bg-rose-600 hover:bg-rose-700'
                 )}
               >
                 {busy === 'stop' ? 'Stopping…' : 'Turn off backend'}
               </button>
               <button
                 type="button"
-                disabled={Boolean(busy)}
+                disabled={Boolean(busy) || !canControlBackend}
                 onClick={() => callProcess('start')}
                 className={cx(
                   'rounded-xl px-4 py-2 text-sm font-semibold text-white',
-                  busy ? 'bg-slate-400 cursor-not-allowed' : 'bg-emerald-600 hover:bg-emerald-700'
+                  (busy || !canControlBackend) ? 'bg-slate-400 cursor-not-allowed' : 'bg-emerald-600 hover:bg-emerald-700'
                 )}
               >
                 {busy === 'start' ? 'Starting…' : 'Turn on backend'}
               </button>
             </div>
+            {!canControlBackend && (
+              <div className="rounded-xl border border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-800">
+                You can view backend health, but process control actions are restricted for this staff profile.
+              </div>
+            )}
             <p className="text-xs text-slate-500">
               In production, set <code className="bg-slate-100 px-1 rounded">PROCESS_CONTROL_ENABLED=true</code> and optionally <code className="bg-slate-100 px-1 rounded">PROCESS_CONTROL_TOKEN</code> (must match frontend <code className="bg-slate-100 px-1 rounded">PROCESS_CONTROL_TOKEN</code> in <code className="bg-slate-100 px-1 rounded">/app.env.js</code>).
             </p>
           </div>
+          </>
+          )}
         </div>
       );
     }
 
-    function SupportPage({ settings, updateSetting }) {
+    function SupportPage({ settings, updateSetting, access }) {
       const [medicalTemplate, setMedicalTemplate] = React.useState(settings.medicalQuestionnaireTemplate || MEDICAL_QUESTIONNAIRE_TEMPLATE_DEFAULT);
       const [ackTemplate, setAckTemplate] = React.useState(settings.acknowledgementTemplate || ACKNOWLEDGEMENT_TEMPLATE_DEFAULT);
       const [ackU18Template, setAckU18Template] = React.useState(settings.acknowledgementUnder18Template || ACKNOWLEDGEMENT_UNDER18_TEMPLATE_DEFAULT);
       const [gmailTemplate, setGmailTemplate] = React.useState(settings.gmailWelcomeTemplate || GMAIL_WELCOME_TEMPLATE_DEFAULT);
+      const supportAccess = normalizeAccess(access).support;
+      const canViewSupportTemplates = supportAccess?.viewSupportTemplates !== false;
+      const canEditSupportTemplates = supportAccess?.editSupportTemplates !== false;
       React.useEffect(() => {
         setMedicalTemplate(settings.medicalQuestionnaireTemplate || MEDICAL_QUESTIONNAIRE_TEMPLATE_DEFAULT);
         setAckTemplate(settings.acknowledgementTemplate || ACKNOWLEDGEMENT_TEMPLATE_DEFAULT);
         setAckU18Template(settings.acknowledgementUnder18Template || ACKNOWLEDGEMENT_UNDER18_TEMPLATE_DEFAULT);
         setGmailTemplate(settings.gmailWelcomeTemplate || GMAIL_WELCOME_TEMPLATE_DEFAULT);
       }, [settings.medicalQuestionnaireTemplate, settings.acknowledgementTemplate, settings.acknowledgementUnder18Template, settings.gmailWelcomeTemplate]);
+      if (!canViewSupportTemplates) {
+        return (
+          <div className="p-3 md:p-8">
+            <div className="rounded-2xl border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800">
+              Support templates access is disabled for this profile.
+            </div>
+          </div>
+        );
+      }
       return (
-        <div className="p-3 md:p-8 space-y-5">
-          <h1 className="text-xl md:text-2xl font-semibold text-slate-900">Support Templates</h1>
-          <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm space-y-3">
-            <label className="text-sm font-medium text-slate-700">Medical Questionnaire Template</label>
-            <textarea value={medicalTemplate} onChange={(e) => setMedicalTemplate(e.target.value)} rows={10} className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm" />
-            <button onClick={() => updateSetting('medicalQuestionnaireTemplate', medicalTemplate)} className="rounded-full bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700">Save Medical Template</button>
+        <div className="p-3 md:p-8 space-y-5 text-slate-900 dark:text-slate-100">
+          <h1 className="text-xl md:text-2xl font-semibold text-slate-900 dark:text-slate-100">Support Templates</h1>
+          <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm space-y-3 dark:border-slate-700 dark:bg-slate-900">
+            <label className="text-sm font-medium text-slate-700 dark:text-slate-200">Medical Questionnaire Template</label>
+            <textarea disabled={!canEditSupportTemplates} value={medicalTemplate} onChange={(e) => setMedicalTemplate(e.target.value)} rows={10} className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 placeholder:text-slate-500 disabled:opacity-60 disabled:bg-slate-100 dark:border-slate-600 dark:bg-slate-900 dark:text-slate-100" />
+            <button disabled={!canEditSupportTemplates} onClick={() => canEditSupportTemplates && updateSetting('medicalQuestionnaireTemplate', medicalTemplate)} className="rounded-full bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed">Save Medical Template</button>
           </div>
-          <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm space-y-3">
-            <label className="text-sm font-medium text-slate-700">Acknowledgement Template (Adult)</label>
-            <textarea value={ackTemplate} onChange={(e) => setAckTemplate(e.target.value)} rows={12} className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm" />
-            <button onClick={() => updateSetting('acknowledgementTemplate', ackTemplate)} className="rounded-full bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700">Save Adult Acknowledgement</button>
+          <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm space-y-3 dark:border-slate-700 dark:bg-slate-900">
+            <label className="text-sm font-medium text-slate-700 dark:text-slate-200">Acknowledgement Template (Adult)</label>
+            <textarea disabled={!canEditSupportTemplates} value={ackTemplate} onChange={(e) => setAckTemplate(e.target.value)} rows={12} className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 placeholder:text-slate-500 disabled:opacity-60 disabled:bg-slate-100 dark:border-slate-600 dark:bg-slate-900 dark:text-slate-100" />
+            <button disabled={!canEditSupportTemplates} onClick={() => canEditSupportTemplates && updateSetting('acknowledgementTemplate', ackTemplate)} className="rounded-full bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed">Save Adult Acknowledgement</button>
           </div>
-          <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm space-y-3">
-            <label className="text-sm font-medium text-slate-700">Acknowledgement Template (Under 18 Parent/Guardian)</label>
-            <textarea value={ackU18Template} onChange={(e) => setAckU18Template(e.target.value)} rows={10} className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm" />
-            <button onClick={() => updateSetting('acknowledgementUnder18Template', ackU18Template)} className="rounded-full bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700">Save Under-18 Acknowledgement</button>
+          <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm space-y-3 dark:border-slate-700 dark:bg-slate-900">
+            <label className="text-sm font-medium text-slate-700 dark:text-slate-200">Acknowledgement Template (Under 18 Parent/Guardian)</label>
+            <textarea disabled={!canEditSupportTemplates} value={ackU18Template} onChange={(e) => setAckU18Template(e.target.value)} rows={10} className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 placeholder:text-slate-500 disabled:opacity-60 disabled:bg-slate-100 dark:border-slate-600 dark:bg-slate-900 dark:text-slate-100" />
+            <button disabled={!canEditSupportTemplates} onClick={() => canEditSupportTemplates && updateSetting('acknowledgementUnder18Template', ackU18Template)} className="rounded-full bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed">Save Under-18 Acknowledgement</button>
           </div>
-          <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm space-y-3">
-            <label className="text-sm font-medium text-slate-700">Gmail Welcome Template</label>
-            <textarea value={gmailTemplate} onChange={(e) => setGmailTemplate(e.target.value)} rows={12} className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm" />
-            <button onClick={() => updateSetting('gmailWelcomeTemplate', gmailTemplate)} className="rounded-full bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700">Save Gmail Welcome Template</button>
+          <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm space-y-3 dark:border-slate-700 dark:bg-slate-900">
+            <label className="text-sm font-medium text-slate-700 dark:text-slate-200">Gmail Welcome Template</label>
+            <textarea disabled={!canEditSupportTemplates} value={gmailTemplate} onChange={(e) => setGmailTemplate(e.target.value)} rows={12} className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 placeholder:text-slate-500 disabled:opacity-60 disabled:bg-slate-100 dark:border-slate-600 dark:bg-slate-900 dark:text-slate-100" />
+            <button disabled={!canEditSupportTemplates} onClick={() => canEditSupportTemplates && updateSetting('gmailWelcomeTemplate', gmailTemplate)} className="rounded-full bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed">Save Gmail Welcome Template</button>
           </div>
         </div>
       );
@@ -11135,6 +11320,10 @@ function SettingsPage({ settings, updateSetting, members, access, storageInfo, b
       const [leaveAccessOpen, setLeaveAccessOpen] = React.useState(false);
       const [membersAccessOpen, setMembersAccessOpen] = React.useState(false);
       const [ptClientsAccessOpen, setPtClientsAccessOpen] = React.useState(false);
+      const [attendanceAccessOpen, setAttendanceAccessOpen] = React.useState(false);
+      const [logsAccessOpen, setLogsAccessOpen] = React.useState(false);
+      const [supportAccessOpen, setSupportAccessOpen] = React.useState(false);
+      const [backendAccessOpen, setBackendAccessOpen] = React.useState(false);
       const isOwner = currentUser && currentUser.id === 'owner';
       const closeStaffModal = () => {
         setModalOpen(false);
@@ -11147,6 +11336,10 @@ function SettingsPage({ settings, updateSetting, members, access, storageInfo, b
         setLeaveAccessOpen(false);
         setMembersAccessOpen(false);
         setPtClientsAccessOpen(false);
+        setAttendanceAccessOpen(false);
+        setLogsAccessOpen(false);
+        setSupportAccessOpen(false);
+        setBackendAccessOpen(false);
       };
       const roleTemplates = React.useMemo(() => {
         const list = settings && Array.isArray(settings.roleTemplates) && settings.roleTemplates.length
@@ -11178,10 +11371,16 @@ function SettingsPage({ settings, updateSetting, members, access, storageInfo, b
         setEditingId(null);
         setSelectedRole('');
         setDashboardAccessOpen(false);
+        setFinanceAccessOpen(false);
+        setSettingsAccessOpen(false);
         setWhatsappAccessOpen(false);
         setLeaveAccessOpen(false);
         setMembersAccessOpen(false);
         setPtClientsAccessOpen(false);
+        setAttendanceAccessOpen(false);
+        setLogsAccessOpen(false);
+        setSupportAccessOpen(false);
+        setBackendAccessOpen(false);
         setModalOpen(true);
       };
 
@@ -11209,6 +11408,10 @@ function SettingsPage({ settings, updateSetting, members, access, storageInfo, b
         setLeaveAccessOpen(true);
         setMembersAccessOpen(true);
         setPtClientsAccessOpen(true);
+        setAttendanceAccessOpen(true);
+        setLogsAccessOpen(true);
+        setSupportAccessOpen(true);
+        setBackendAccessOpen(true);
         setModalOpen(true);
       };
       const applyRolePreset = (roleKey) => {
@@ -11334,6 +11537,7 @@ function SettingsPage({ settings, updateSetting, members, access, storageInfo, b
         { key: 'viewRevenueTrend4Months', label: 'Revenue Trend (Last 4 Months)' },
         { key: 'viewPlanPopularity', label: 'Plan Popularity' },
         { key: 'viewTransactionsAutoMembers', label: 'Transactions (Auto from Members)' },
+        { key: 'manageExpenses', label: 'Add / Edit Expense Entries' },
       ];
       const toggleFinanceParent = () => {
         setForm(f => {
@@ -11473,6 +11677,92 @@ function SettingsPage({ settings, updateSetting, members, access, storageInfo, b
           return { ...f, sections: nextSections, access: next };
         });
       };
+      const toggleBackendParent = () => {
+        setForm(f => {
+          const hasBackend = f.sections.includes('Backend');
+          const nextSections = hasBackend ? f.sections.filter(s => s !== 'Backend') : [...f.sections, 'Backend'];
+          const nextAccess = {
+            ...normalizeAccess(f.access),
+            backend: BACKEND_CHILD_PERMISSIONS.reduce((acc, p) => ({ ...acc, [p.key]: hasBackend ? false : true }), {}),
+          };
+          return { ...f, sections: nextSections, access: nextAccess };
+        });
+      };
+      const toggleBackendChild = (key) => {
+        setForm(f => {
+          const normalized = normalizeAccess(f.access);
+          const next = { ...normalized, backend: { ...normalized.backend, [key]: !(normalized.backend[key] !== false) } };
+          const shouldEnableBackend = Object.values(next.backend).some(Boolean);
+          const hasBackend = f.sections.includes('Backend');
+          const nextSections = shouldEnableBackend
+            ? (hasBackend ? f.sections : [...f.sections, 'Backend'])
+            : f.sections.filter(s => s !== 'Backend');
+          return { ...f, sections: nextSections, access: next };
+        });
+      };
+      const toggleAttendanceParent = () => {
+        setForm(f => {
+          const hasSection = f.sections.includes('Attendance');
+          const nextSections = hasSection ? f.sections.filter(s => s !== 'Attendance') : [...f.sections, 'Attendance'];
+          const nextAccess = {
+            ...normalizeAccess(f.access),
+            attendance: ATTENDANCE_CHILD_PERMISSIONS.reduce((acc, p) => ({ ...acc, [p.key]: hasSection ? false : true }), {}),
+          };
+          return { ...f, sections: nextSections, access: nextAccess };
+        });
+      };
+      const toggleAttendanceChild = (key) => {
+        setForm(f => {
+          const normalized = normalizeAccess(f.access);
+          const next = { ...normalized, attendance: { ...normalized.attendance, [key]: !(normalized.attendance[key] !== false) } };
+          const shouldEnable = Object.values(next.attendance).some(Boolean);
+          const hasSection = f.sections.includes('Attendance');
+          const nextSections = shouldEnable ? (hasSection ? f.sections : [...f.sections, 'Attendance']) : f.sections.filter(s => s !== 'Attendance');
+          return { ...f, sections: nextSections, access: next };
+        });
+      };
+      const toggleLogsParent = () => {
+        setForm(f => {
+          const hasSection = f.sections.includes('Logs');
+          const nextSections = hasSection ? f.sections.filter(s => s !== 'Logs') : [...f.sections, 'Logs'];
+          const nextAccess = {
+            ...normalizeAccess(f.access),
+            logs: LOGS_CHILD_PERMISSIONS.reduce((acc, p) => ({ ...acc, [p.key]: hasSection ? false : true }), {}),
+          };
+          return { ...f, sections: nextSections, access: nextAccess };
+        });
+      };
+      const toggleLogsChild = (key) => {
+        setForm(f => {
+          const normalized = normalizeAccess(f.access);
+          const next = { ...normalized, logs: { ...normalized.logs, [key]: !(normalized.logs[key] !== false) } };
+          const shouldEnable = Object.values(next.logs).some(Boolean);
+          const hasSection = f.sections.includes('Logs');
+          const nextSections = shouldEnable ? (hasSection ? f.sections : [...f.sections, 'Logs']) : f.sections.filter(s => s !== 'Logs');
+          return { ...f, sections: nextSections, access: next };
+        });
+      };
+      const toggleSupportParent = () => {
+        setForm(f => {
+          const hasSection = f.sections.includes('Support');
+          const nextSections = hasSection ? f.sections.filter(s => s !== 'Support') : [...f.sections, 'Support'];
+          const nextAccess = {
+            ...normalizeAccess(f.access),
+            support: SUPPORT_CHILD_PERMISSIONS.reduce((acc, p) => ({ ...acc, [p.key]: hasSection ? false : true }), {}),
+          };
+          return { ...f, sections: nextSections, access: nextAccess };
+        });
+      };
+      const toggleSupportChild = (key) => {
+        setForm(f => {
+          const normalized = normalizeAccess(f.access);
+          const next = { ...normalized, support: { ...normalized.support, [key]: !(normalized.support[key] !== false) } };
+          const shouldEnable = Object.values(next.support).some(Boolean);
+          const hasSection = f.sections.includes('Support');
+          const nextSections = shouldEnable ? (hasSection ? f.sections : [...f.sections, 'Support']) : f.sections.filter(s => s !== 'Support');
+          return { ...f, sections: nextSections, access: next };
+        });
+      };
       const toggleAllSections = () => {
         setForm(f => {
           const allSelected = ALL_SECTIONS.every(sec => f.sections.includes(sec));
@@ -11482,12 +11772,16 @@ function SettingsPage({ settings, updateSetting, members, access, storageInfo, b
             access: allSelected
               ? normalizeAccess({
                 dashboard: { viewDashboardCore: false, viewOverdueRetentionAlerts: false, viewRevenueMonthly: false, viewRevenueTrend: false, viewMembershipTrends: false },
-                finance: { viewRevenueAutoMembers: false, viewRevenueTrend4Months: false, viewPlanPopularity: false, viewTransactionsAutoMembers: false },
-                settings: { managePlans: false, manageStatuses: false, managePaymentMethods: false, manageHoldDurations: false, manageGenders: false },
+                finance: { viewRevenueAutoMembers: false, viewRevenueTrend4Months: false, viewPlanPopularity: false, viewTransactionsAutoMembers: false, manageExpenses: false },
+                settings: { managePlans: false, manageStatuses: false, managePaymentMethods: false, manageExpenseCategories: false, manageHoldDurations: false, manageGenders: false, manageFineRule: false },
                 whatsapp: { viewReminder: false, viewMonthReminder: false, viewSuccess: false, viewFine: false, viewDeactivate: false, viewHold: false, viewWelcome: false, viewTemplates: false },
                 leave: { viewCreateLeaveRequest: false, viewLeaveRequests: false, viewAnnualLeaveBalance: false, viewLeaveHistory: false },
                 members: { viewMembers: false, viewVisitors: false, addMembers: false, editMembers: false, deleteMembers: false },
                 ptClients: { viewPtClients: false, editPtPlan: false, editPtWorkout: false, uploadDietDocuments: false },
+                attendance: { viewAttendance: false, markAllPresent: false, editAttendance: false },
+                logs: { viewLogs: false, exportLogs: false, clearLogs: false },
+                support: { viewSupportTemplates: false, editSupportTemplates: false },
+                backend: { viewBackendPage: false, controlBackendProcesses: false },
               })
               : normalizeAccess(f.access),
           };
@@ -11850,6 +12144,111 @@ function SettingsPage({ settings, updateSetting, members, access, storageInfo, b
                           <label className="inline-flex items-center gap-2 text-sm text-slate-800">
                             <input
                               type="checkbox"
+                              checked={form.sections.includes('Attendance')}
+                              onChange={toggleAttendanceParent}
+                              className="rounded"
+                            />
+                            Attendance
+                          </label>
+                          <button
+                            type="button"
+                            onClick={() => setAttendanceAccessOpen(v => !v)}
+                            className="rounded-lg border border-slate-300 bg-white px-2 py-1 text-[11px] font-medium text-slate-700 hover:bg-slate-100"
+                          >
+                            {attendanceAccessOpen ? 'Hide Access' : 'Expand Access'}
+                          </button>
+                        </div>
+                        {attendanceAccessOpen && (
+                          <div className="mt-2 grid grid-cols-1 sm:grid-cols-2 gap-2 pl-2">
+                            {ATTENDANCE_CHILD_PERMISSIONS.map((perm) => (
+                              <label key={perm.key} className="inline-flex items-center gap-2 text-xs text-slate-700">
+                                <input
+                                  type="checkbox"
+                                  checked={normalizeAccess(form.access).attendance[perm.key] !== false}
+                                  onChange={() => toggleAttendanceChild(perm.key)}
+                                  className="rounded"
+                                />
+                                {perm.label}
+                              </label>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                      <div className="sm:col-span-2 rounded-xl border border-slate-200 bg-slate-50 p-2">
+                        <div className="flex items-center justify-between gap-2">
+                          <label className="inline-flex items-center gap-2 text-sm text-slate-800">
+                            <input
+                              type="checkbox"
+                              checked={form.sections.includes('Logs')}
+                              onChange={toggleLogsParent}
+                              className="rounded"
+                            />
+                            Logs
+                          </label>
+                          <button
+                            type="button"
+                            onClick={() => setLogsAccessOpen(v => !v)}
+                            className="rounded-lg border border-slate-300 bg-white px-2 py-1 text-[11px] font-medium text-slate-700 hover:bg-slate-100"
+                          >
+                            {logsAccessOpen ? 'Hide Access' : 'Expand Access'}
+                          </button>
+                        </div>
+                        {logsAccessOpen && (
+                          <div className="mt-2 grid grid-cols-1 sm:grid-cols-2 gap-2 pl-2">
+                            {LOGS_CHILD_PERMISSIONS.map((perm) => (
+                              <label key={perm.key} className="inline-flex items-center gap-2 text-xs text-slate-700">
+                                <input
+                                  type="checkbox"
+                                  checked={normalizeAccess(form.access).logs[perm.key] !== false}
+                                  onChange={() => toggleLogsChild(perm.key)}
+                                  className="rounded"
+                                />
+                                {perm.label}
+                              </label>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                      <div className="sm:col-span-2 rounded-xl border border-slate-200 bg-slate-50 p-2">
+                        <div className="flex items-center justify-between gap-2">
+                          <label className="inline-flex items-center gap-2 text-sm text-slate-800">
+                            <input
+                              type="checkbox"
+                              checked={form.sections.includes('Support')}
+                              onChange={toggleSupportParent}
+                              className="rounded"
+                            />
+                            Support
+                          </label>
+                          <button
+                            type="button"
+                            onClick={() => setSupportAccessOpen(v => !v)}
+                            className="rounded-lg border border-slate-300 bg-white px-2 py-1 text-[11px] font-medium text-slate-700 hover:bg-slate-100"
+                          >
+                            {supportAccessOpen ? 'Hide Access' : 'Expand Access'}
+                          </button>
+                        </div>
+                        {supportAccessOpen && (
+                          <div className="mt-2 grid grid-cols-1 sm:grid-cols-2 gap-2 pl-2">
+                            {SUPPORT_CHILD_PERMISSIONS.map((perm) => (
+                              <label key={perm.key} className="inline-flex items-center gap-2 text-xs text-slate-700">
+                                <input
+                                  type="checkbox"
+                                  checked={normalizeAccess(form.access).support[perm.key] !== false}
+                                  onChange={() => toggleSupportChild(perm.key)}
+                                  className="rounded"
+                                />
+                                {perm.label}
+                              </label>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                      <div className="sm:col-span-2 rounded-xl border border-slate-200 bg-slate-50 p-2">
+                        <div className="flex items-center justify-between gap-2">
+                          <label className="inline-flex items-center gap-2 text-sm text-slate-800">
+                            <input
+                              type="checkbox"
                               checked={form.sections.includes('Finance')}
                               onChange={toggleFinanceParent}
                               className="rounded"
@@ -12055,7 +12454,42 @@ function SettingsPage({ settings, updateSetting, members, access, storageInfo, b
                           </div>
                         )}
                       </div>
-                      {ALL_SECTIONS.filter(sec => sec !== 'Dashboard' && sec !== 'Members' && sec !== 'PT Clients' && sec !== 'Finance' && sec !== 'Settings' && sec !== 'WhatsApp SMS' && sec !== 'Leave Tracker').map(sec => (
+                      <div className="sm:col-span-2 rounded-xl border border-slate-200 bg-slate-50 p-2">
+                        <div className="flex items-center justify-between gap-2">
+                          <label className="inline-flex items-center gap-2 text-sm text-slate-800">
+                            <input
+                              type="checkbox"
+                              checked={form.sections.includes('Backend')}
+                              onChange={toggleBackendParent}
+                              className="rounded"
+                            />
+                            Backend
+                          </label>
+                          <button
+                            type="button"
+                            onClick={() => setBackendAccessOpen(v => !v)}
+                            className="rounded-lg border border-slate-300 bg-white px-2 py-1 text-[11px] font-medium text-slate-700 hover:bg-slate-100"
+                          >
+                            {backendAccessOpen ? 'Hide Access' : 'Expand Access'}
+                          </button>
+                        </div>
+                        {backendAccessOpen && (
+                          <div className="mt-2 grid grid-cols-1 sm:grid-cols-2 gap-2 pl-2">
+                            {BACKEND_CHILD_PERMISSIONS.map((perm) => (
+                              <label key={perm.key} className="inline-flex items-center gap-2 text-xs text-slate-700">
+                                <input
+                                  type="checkbox"
+                                  checked={normalizeAccess(form.access).backend[perm.key] !== false}
+                                  onChange={() => toggleBackendChild(perm.key)}
+                                  className="rounded"
+                                />
+                                {perm.label}
+                              </label>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                      {ALL_SECTIONS.filter(sec => sec !== 'Dashboard' && sec !== 'Members' && sec !== 'PT Clients' && sec !== 'Finance' && sec !== 'Settings' && sec !== 'WhatsApp SMS' && sec !== 'Leave Tracker' && sec !== 'Attendance' && sec !== 'Logs' && sec !== 'Support' && sec !== 'Backend').map(sec => (
                         <label key={sec} className="inline-flex items-center gap-2 text-sm text-slate-800">
                           <input
                             type="checkbox"

@@ -14,8 +14,11 @@ export const ALL_SECTIONS = [
 ];
 
 export const DASHBOARD_CHILD_PERMISSIONS = [
+  { key: 'viewDashboardCore', label: 'Active / Hold / Deactivated / Cancelled + Filter + Add New Member' },
+  { key: 'viewOverdueRetentionAlerts', label: 'Overdue Payments and Retention Alerts' },
   { key: 'viewRevenueMonthly', label: 'Total Revenue (Monthly)' },
-  { key: 'viewRevenueTrend', label: 'Revenue and Membership Trends' },
+  { key: 'viewRevenueTrend', label: 'Revenue' },
+  { key: 'viewMembershipTrends', label: 'Membership Trends' },
 ];
 
 export const FINANCE_CHILD_PERMISSIONS = [
@@ -23,32 +26,218 @@ export const FINANCE_CHILD_PERMISSIONS = [
   { key: 'viewRevenueTrend4Months', label: 'Revenue Trend (Last 4 Months)' },
   { key: 'viewPlanPopularity', label: 'Plan Popularity' },
   { key: 'viewTransactionsAutoMembers', label: 'Transactions (Auto from Members)' },
+  { key: 'manageExpenses', label: 'Add / Edit Expense Entries' },
+];
+
+export const SETTINGS_CHILD_PERMISSIONS = [
+  { key: 'managePlans', label: 'Plans' },
+  { key: 'manageStatuses', label: 'Statuses' },
+  { key: 'managePaymentMethods', label: 'Payment Methods' },
+  { key: 'manageExpenseCategories', label: 'Expense Categories' },
+  { key: 'manageHoldDurations', label: 'Hold Durations' },
+  { key: 'manageGenders', label: 'Genders' },
+  { key: 'manageFineRule', label: 'Fine SMS Rule' },
+];
+
+export const WHATSAPP_CHILD_PERMISSIONS = [
+  { key: 'viewReminder', label: 'Reminder' },
+  { key: 'viewMonthReminder', label: 'Month-Based Reminder' },
+  { key: 'viewSuccess', label: 'Success SMS' },
+  { key: 'viewFine', label: 'Fine SMS' },
+  { key: 'viewDeactivate', label: 'Deactivate SMS' },
+  { key: 'viewHold', label: 'Hold SMS' },
+  { key: 'viewWelcome', label: 'Welcome SMS' },
+  { key: 'viewTemplates', label: 'WhatsApp Template' },
+];
+
+export const LEAVE_CHILD_PERMISSIONS = [
+  { key: 'viewCreateLeaveRequest', label: 'Create Leave Request' },
+  { key: 'viewLeaveRequests', label: 'Leave Requests (with approve/reject if eligible)' },
+  { key: 'viewAnnualLeaveBalance', label: 'Annual Leave Balance' },
+  { key: 'viewLeaveHistory', label: 'Leave History (Last 2 Years)' },
+];
+
+export const MEMBERS_CHILD_PERMISSIONS = [
+  { key: 'viewMembers', label: 'View Members' },
+  { key: 'viewVisitors', label: 'View Visitors' },
+  { key: 'addMembers', label: 'Add Members' },
+  { key: 'editMembers', label: 'Edit Members' },
+  { key: 'deleteMembers', label: 'Delete Members' },
+];
+
+export const PT_CLIENTS_CHILD_PERMISSIONS = [
+  { key: 'viewPtClients', label: 'View PT Clients' },
+  { key: 'editPtPlan', label: 'Edit PT Plan' },
+  { key: 'editPtWorkout', label: 'Edit PT Workout' },
+  { key: 'uploadDietDocuments', label: 'Upload Diet Documents' },
+];
+
+export const ATTENDANCE_CHILD_PERMISSIONS = [
+  { key: 'viewAttendance', label: 'View Attendance Dashboard' },
+  { key: 'markAllPresent', label: 'Mark All Present' },
+  { key: 'editAttendance', label: 'Edit Status / Notes' },
+];
+
+export const LOGS_CHILD_PERMISSIONS = [
+  { key: 'viewLogs', label: 'View Audit Logs' },
+  { key: 'exportLogs', label: 'Export Logs CSV' },
+  { key: 'clearLogs', label: 'Clear Logs' },
+];
+
+export const SUPPORT_CHILD_PERMISSIONS = [
+  { key: 'viewSupportTemplates', label: 'View Support Templates' },
+  { key: 'editSupportTemplates', label: 'Edit / Save Support Templates' },
+];
+
+export const BACKEND_CHILD_PERMISSIONS = [
+  { key: 'viewBackendPage', label: 'View Backend Section' },
+  { key: 'controlBackendProcesses', label: 'Restart / Turn On / Turn Off Backend' },
 ];
 
 export const DEFAULT_ACCESS = {
   dashboard: {
+    viewDashboardCore: true,
+    viewOverdueRetentionAlerts: true,
     viewRevenueMonthly: true,
     viewRevenueTrend: true,
+    viewMembershipTrends: true,
   },
   finance: {
     viewRevenueAutoMembers: true,
     viewRevenueTrend4Months: true,
     viewPlanPopularity: true,
     viewTransactionsAutoMembers: true,
+    manageExpenses: true,
+  },
+  settings: {
+    managePlans: true,
+    manageStatuses: true,
+    managePaymentMethods: true,
+    manageExpenseCategories: true,
+    manageHoldDurations: true,
+    manageGenders: true,
+    manageFineRule: true,
+  },
+  whatsapp: {
+    viewReminder: true,
+    viewMonthReminder: true,
+    viewSuccess: true,
+    viewFine: true,
+    viewDeactivate: true,
+    viewHold: true,
+    viewWelcome: true,
+    viewTemplates: true,
+  },
+  leave: {
+    viewCreateLeaveRequest: true,
+    viewLeaveRequests: true,
+    viewAnnualLeaveBalance: true,
+    viewLeaveHistory: true,
+  },
+  members: {
+    viewMembers: true,
+    viewVisitors: true,
+    addMembers: true,
+    editMembers: true,
+    deleteMembers: true,
+  },
+  ptClients: {
+    viewPtClients: true,
+    editPtPlan: true,
+    editPtWorkout: true,
+    uploadDietDocuments: true,
+  },
+  attendance: {
+    viewAttendance: true,
+    markAllPresent: true,
+    editAttendance: true,
+  },
+  logs: {
+    viewLogs: true,
+    exportLogs: true,
+    clearLogs: true,
+  },
+  support: {
+    viewSupportTemplates: true,
+    editSupportTemplates: true,
+  },
+  backend: {
+    viewBackendPage: true,
+    controlBackendProcesses: true,
   },
 };
 
 export function normalizeAccess(access) {
   return {
     dashboard: {
+      viewDashboardCore: access?.dashboard?.viewDashboardCore !== false,
+      viewOverdueRetentionAlerts: access?.dashboard?.viewOverdueRetentionAlerts !== false,
       viewRevenueMonthly: access?.dashboard?.viewRevenueMonthly !== false,
       viewRevenueTrend: access?.dashboard?.viewRevenueTrend !== false,
+      viewMembershipTrends: access?.dashboard?.viewMembershipTrends !== false,
     },
     finance: {
       viewRevenueAutoMembers: access?.finance?.viewRevenueAutoMembers !== false,
       viewRevenueTrend4Months: access?.finance?.viewRevenueTrend4Months !== false,
       viewPlanPopularity: access?.finance?.viewPlanPopularity !== false,
       viewTransactionsAutoMembers: access?.finance?.viewTransactionsAutoMembers !== false,
+      manageExpenses: access?.finance?.manageExpenses !== false,
+    },
+    settings: {
+      managePlans: access?.settings?.managePlans !== false,
+      manageStatuses: access?.settings?.manageStatuses !== false,
+      managePaymentMethods: access?.settings?.managePaymentMethods !== false,
+      manageExpenseCategories: access?.settings?.manageExpenseCategories !== false,
+      manageHoldDurations: access?.settings?.manageHoldDurations !== false,
+      manageGenders: access?.settings?.manageGenders !== false,
+      manageFineRule: access?.settings?.manageFineRule !== false,
+    },
+    whatsapp: {
+      viewReminder: access?.whatsapp?.viewReminder !== false,
+      viewMonthReminder: access?.whatsapp?.viewMonthReminder !== false,
+      viewSuccess: access?.whatsapp?.viewSuccess !== false,
+      viewFine: access?.whatsapp?.viewFine !== false,
+      viewDeactivate: access?.whatsapp?.viewDeactivate !== false,
+      viewHold: access?.whatsapp?.viewHold !== false,
+      viewWelcome: access?.whatsapp?.viewWelcome !== false,
+      viewTemplates: access?.whatsapp?.viewTemplates !== false,
+    },
+    leave: {
+      viewCreateLeaveRequest: access?.leave?.viewCreateLeaveRequest !== false,
+      viewLeaveRequests: access?.leave?.viewLeaveRequests !== false,
+      viewAnnualLeaveBalance: access?.leave?.viewAnnualLeaveBalance !== false,
+      viewLeaveHistory: access?.leave?.viewLeaveHistory !== false,
+    },
+    members: {
+      viewMembers: access?.members?.viewMembers !== false,
+      viewVisitors: access?.members?.viewVisitors !== false,
+      addMembers: access?.members?.addMembers !== false,
+      editMembers: access?.members?.editMembers !== false,
+      deleteMembers: access?.members?.deleteMembers !== false,
+    },
+    ptClients: {
+      viewPtClients: access?.ptClients?.viewPtClients !== false,
+      editPtPlan: access?.ptClients?.editPtPlan !== false,
+      editPtWorkout: access?.ptClients?.editPtWorkout !== false,
+      uploadDietDocuments: access?.ptClients?.uploadDietDocuments !== false,
+    },
+    attendance: {
+      viewAttendance: access?.attendance?.viewAttendance !== false,
+      markAllPresent: access?.attendance?.markAllPresent !== false,
+      editAttendance: access?.attendance?.editAttendance !== false,
+    },
+    logs: {
+      viewLogs: access?.logs?.viewLogs !== false,
+      exportLogs: access?.logs?.exportLogs !== false,
+      clearLogs: access?.logs?.clearLogs !== false,
+    },
+    support: {
+      viewSupportTemplates: access?.support?.viewSupportTemplates !== false,
+      editSupportTemplates: access?.support?.editSupportTemplates !== false,
+    },
+    backend: {
+      viewBackendPage: access?.backend?.viewBackendPage !== false,
+      controlBackendProcesses: access?.backend?.controlBackendProcesses !== false,
     },
   };
 }
