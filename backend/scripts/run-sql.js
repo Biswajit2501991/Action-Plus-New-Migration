@@ -2,11 +2,9 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import dotenv from 'dotenv';
-import pg from 'pg';
+import Database from 'better-sqlite3';
 
 dotenv.config();
-
-const { Client } = pg;
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -20,25 +18,16 @@ if (!relativeSqlPath) {
   process.exit(1);
 }
 
-if (!process.env.DATABASE_URL) {
-  // eslint-disable-next-line no-console
-  console.error('DATABASE_URL is required');
-  process.exit(1);
-}
-
 const sqlPath = path.resolve(backendRoot, relativeSqlPath);
-
-const client = new Client({
-  connectionString: process.env.DATABASE_URL,
-  ssl: process.env.PGSSLMODE === 'require' ? { rejectUnauthorized: false } : undefined,
-});
+const databasePath = process.env.DATABASE_PATH || path.resolve(backendRoot, 'data', 'app.db');
+const db = new Database(databasePath);
+db.pragma('foreign_keys = ON');
 
 try {
   const sql = await fs.readFile(sqlPath, 'utf8');
-  await client.connect();
-  await client.query(sql);
+  db.exec(sql);
   // eslint-disable-next-line no-console
   console.log(`Executed SQL file: ${relativeSqlPath}`);
 } finally {
-  await client.end();
+  db.close();
 }
