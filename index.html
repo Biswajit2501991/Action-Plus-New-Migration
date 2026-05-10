@@ -1838,6 +1838,52 @@ Phone: +91-7047157510`;
         safeSetItemJSON(STORAGE_KEYS.smsEvents, smsEvents);
         queueSyncSnapshot('smsEvents', smsEvents).then(() => setOfflineQueueCount((c) => c + 1)).catch(() => {});
       }, [smsEvents, dataSyncMode, syncRuntimeReady, backendHydrated]);
+      // Pull member updates from backend so multi-device changes appear without refresh.
+      React.useEffect(() => {
+        if (dataSyncMode !== 'backend') return;
+        let alive = true;
+        const pullMembers = () => {
+          backendJson('/members')
+            .then((remoteMembers) => {
+              if (!alive || !Array.isArray(remoteMembers)) return;
+              setMembers((prev) => {
+                const prevSig = JSON.stringify(Array.isArray(prev) ? prev : []);
+                const nextSig = JSON.stringify(remoteMembers);
+                return prevSig === nextSig ? prev : remoteMembers;
+              });
+            })
+            .catch(() => {});
+        };
+        pullMembers();
+        const timer = setInterval(pullMembers, 5000);
+        return () => {
+          alive = false;
+          clearInterval(timer);
+        };
+      }, [dataSyncMode]);
+      // Pull visitor updates from backend so multi-device changes appear without refresh.
+      React.useEffect(() => {
+        if (dataSyncMode !== 'backend') return;
+        let alive = true;
+        const pullVisitors = () => {
+          backendJson('/visitors')
+            .then((remoteVisitors) => {
+              if (!alive || !Array.isArray(remoteVisitors)) return;
+              setVisitors((prev) => {
+                const prevSig = JSON.stringify(Array.isArray(prev) ? prev : []);
+                const nextSig = JSON.stringify(remoteVisitors);
+                return prevSig === nextSig ? prev : remoteVisitors;
+              });
+            })
+            .catch(() => {});
+        };
+        pullVisitors();
+        const timer = setInterval(pullVisitors, 5000);
+        return () => {
+          alive = false;
+          clearInterval(timer);
+        };
+      }, [dataSyncMode]);
       // Pull staff/user updates from backend so multi-device changes appear without refresh.
       React.useEffect(() => {
         if (dataSyncMode !== 'backend') return;
