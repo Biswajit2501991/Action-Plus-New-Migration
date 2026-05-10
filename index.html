@@ -5690,7 +5690,7 @@ function MembersList({ title, list, onBack, onEdit, onStatusChange, holdOptions,
 
     // ---- Member Row ----
 function MemberRow({ m, expanded, onToggle, onEdit, onStatusChange, holdOptions, onDelete, canDelete, onWelcome, onWhatsAppCall, onWelcomeMail, onAddAttachment, logs, selected, onSelectToggle, selectable, onQuickFieldEdit, editOptions, isOwner, currentUserRole = '', fineRuleConfig, onOpenMobileDetail, canEdit = true, displayTimeZone = 'IST', isCompactTablet = false }) {
-      const todayHighlight = fmt(m.billingDate) === fmt(new Date());
+      const todayHighlight = localCalendarDateKey(m.billingDate) === localTodayCalendarKey();
       // Determine if we can open WhatsApp welcome/payment reminder.
       // Active members with mobile number and billing date qualify.
       const canWelcome = m.mobile && String(m.mobile).trim();
@@ -5744,6 +5744,7 @@ function MemberRow({ m, expanded, onToggle, onEdit, onStatusChange, holdOptions,
             onSelectToggle={onSelectToggle}
             onToggle={onToggle}
             expanded={expanded}
+            todayHighlight={todayHighlight}
             onOpenMobileDetail={onOpenMobileDetail}
           />
           {expanded && (
@@ -5815,7 +5816,7 @@ function MemberRowDesktopView({ m, selectable, selected, onSelectToggle, onToggl
             <span className="truncate">{m.name}</span>
           </div>
           <div className="col-span-2 truncate">{m.plan}</div>
-          <div className="col-span-2">{fmt(m.billingDate)}</div>
+          <div className={cx('col-span-2', todayHighlight && 'bg-amber-50 text-amber-800 font-semibold rounded-md px-2 py-1')}>{fmt(m.billingDate)}</div>
           <div className="col-span-2">{fmt(retentionPaymentDeadline(m) || m.billingDate) || '-'}</div>
           <div className={cx('col-span-3 flex items-center gap-2 pr-2', isCompactTablet ? 'gap-1 pr-1' : '', isIpadLandscapeCompact ? 'overflow-hidden' : '')}>
             <Badge tone={toneForStatus(m.status)} className={cx('text-center flex-shrink-0', isCompactTablet ? 'w-20 text-[10px]' : 'w-24', isIpadLandscapeCompact ? 'w-[72px] px-1' : '')}>{shortStatus(m.status)}</Badge>
@@ -5862,7 +5863,7 @@ function MemberRowDesktopView({ m, selectable, selected, onSelectToggle, onToggl
     }
 
     // Phase A split: mobile-specific member row presentation.
-    function MemberRowMobileView({ m, selectable, selected, onSelectToggle, onToggle, expanded, onOpenMobileDetail }) {
+    function MemberRowMobileView({ m, selectable, selected, onSelectToggle, onToggle, expanded, todayHighlight = false, onOpenMobileDetail }) {
       return (
         <button
           onClick={() => {
@@ -5891,7 +5892,7 @@ function MemberRowDesktopView({ m, selectable, selected, onSelectToggle, onToggl
                 <Avatar name={m.name} photo={m.photo} className="h-9 w-9 rounded-xl" />
                 <span className="font-semibold truncate text-slate-900">{m.name}</span>
               </div>
-              <div className="text-[11px] text-slate-500 mt-1">Billing Date: {fmt(m.billingDate) || '-'}</div>
+              <div className={cx('text-[11px] mt-1', todayHighlight ? 'text-amber-800 font-semibold' : 'text-slate-500')}>Billing Date: {fmt(m.billingDate) || '-'}</div>
               <div className="text-[11px] text-slate-500">Next Payment Date: {fmt(m.nextPaymentDate || nextPaymentDateFromBillingDate(m)) || '-'}</div>
             </div>
             <div className="flex flex-col items-end gap-1">
