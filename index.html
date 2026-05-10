@@ -514,6 +514,8 @@
     const getSmsSentInfoText = (member, templateKey, tz = 'IST') => {
       const meta = getLastWhatsAppSendMeta(member, templateKey);
       if (!meta || !meta.sentAt) return '';
+      const sentByNorm = String(meta.sentBy || '').trim().toLowerCase();
+      if (sentByNorm === 'owner') return '';
       const when = formatSmsSentAt(meta.sentAt, tz);
       if (!when) return '';
       return meta.sentBy ? `Sent ${when} (${tz}) by ${meta.sentBy}` : `Sent ${when} (${tz})`;
@@ -569,6 +571,15 @@
         return () => window.removeEventListener('resize', onResize);
       }, []);
       return isMobile;
+    };
+    const useIsTabletView = () => {
+      const [isTablet, setIsTablet] = React.useState(() => window.innerWidth >= 768 && window.innerWidth <= 1366);
+      React.useEffect(() => {
+        const onResize = () => setIsTablet(window.innerWidth >= 768 && window.innerWidth <= 1366);
+        window.addEventListener('resize', onResize);
+        return () => window.removeEventListener('resize', onResize);
+      }, []);
+      return isTablet;
     };
     // Determine tone (colour) for a status
     const toneForStatus = (s) => {
@@ -1412,6 +1423,14 @@ Phone: +91-7047157510`;
           return 'IST';
         }
       });
+      const [tableDensity, setTableDensity] = React.useState(() => {
+        try {
+          const saved = String(localStorage.getItem('apg.tableDensity') || '').toLowerCase();
+          return saved === 'compact' ? 'compact' : 'normal';
+        } catch {
+          return 'normal';
+        }
+      });
       // Members, settings and logs are stored in localStorage; load on mount.
       const [members, setMembers] = React.useState(() => {
         try {
@@ -1716,6 +1735,11 @@ Phone: +91-7047157510`;
           localStorage.setItem(STORAGE_KEYS.displayTimeZone, displayTimeZone);
         } catch {}
       }, [displayTimeZone]);
+      React.useEffect(() => {
+        try {
+          localStorage.setItem('apg.tableDensity', tableDensity);
+        } catch {}
+      }, [tableDensity]);
       // When backend sync is connected, keep backend as source of truth for heavy datasets
       // and clear stale heavy browser cache to prevent storage budget warnings.
       React.useEffect(() => {
@@ -3985,6 +4009,8 @@ Please pay by: ${formattedLastDate}`;
                   fineRuleConfig={fineRuleConfig}
                   canEdit={canEditMembers}
                   displayTimeZone={displayTimeZone}
+                  tableDensity={tableDensity}
+                  setTableDensity={setTableDensity}
                 />
               )
             )}
@@ -4042,6 +4068,8 @@ Please pay by: ${formattedLastDate}`;
                     onImportCsv={openCsvImportDialog}
                     onAddExpense={canManageExpenses ? openAddExpense : null}
                     displayTimeZone={displayTimeZone}
+                    tableDensity={tableDensity}
+                    setTableDensity={setTableDensity}
                   />
                 )
               ) : (
@@ -5523,10 +5551,12 @@ function Sidebar({ user, active, onSelect, theme, setTheme, onLogout, onUndo, on
     }
 
     // ---- Members List (Dashboard list mode) ----
-function MembersList({ title, list, onBack, onEdit, onStatusChange, holdOptions, logs, onWelcome, onWhatsAppCall, onWelcomeMail, onAddAttachment, onQuickFieldEdit, editOptions, isOwner, currentUserRole = '', fineRuleConfig, canEdit = true, displayTimeZone = 'IST' }) {
+function MembersList({ title, list, onBack, onEdit, onStatusChange, holdOptions, logs, onWelcome, onWhatsAppCall, onWelcomeMail, onAddAttachment, onQuickFieldEdit, editOptions, isOwner, currentUserRole = '', fineRuleConfig, canEdit = true, displayTimeZone = 'IST', tableDensity = 'normal', setTableDensity = () => {} }) {
       const [openId, setOpenId] = React.useState(null);
       const [mobileDetailMemberId, setMobileDetailMemberId] = React.useState('');
       const [page, setPage] = React.useState(1);
+      const isTabletView = useIsTabletView();
+      const isCompactTablet = isTabletView && tableDensity === 'compact';
       const pageSize = 10;
       const totalPages = Math.max(1, Math.ceil((list || []).length / pageSize));
       const safePage = page > totalPages ? 1 : page;
@@ -5541,12 +5571,20 @@ function MembersList({ title, list, onBack, onEdit, onStatusChange, holdOptions,
       }, [list]);
       return (
         <div className="p-2 md:p-8 space-y-4 text-slate-900 dark:text-slate-100">
-          <div className="flex items-center gap-3 mb-4">
+          <div className="flex items-center justify-between gap-3 mb-4">
+            <div className="flex items-center gap-3">
             <button onClick={onBack} className="p-2 rounded-xl hover:bg-slate-200 dark:hover:bg-slate-800"><span className="text-xl">←</span></button>
             <h1 className="text-xl md:text-2xl font-semibold text-slate-900 dark:text-slate-100">{title} ({list.length})</h1>
+            </div>
+            {isTabletView && (
+              <div className="inline-flex items-center rounded-xl border border-slate-300 bg-white p-1">
+                <button onClick={() => setTableDensity('normal')} className={cx('rounded-lg px-2.5 py-1 text-xs font-semibold', tableDensity === 'normal' ? 'bg-blue-600 text-white' : 'text-slate-700 hover:bg-slate-100')}>Normal</button>
+                <button onClick={() => setTableDensity('compact')} className={cx('rounded-lg px-2.5 py-1 text-xs font-semibold', tableDensity === 'compact' ? 'bg-blue-600 text-white' : 'text-slate-700 hover:bg-slate-100')}>Compact</button>
+              </div>
+            )}
           </div>
-          <div className="apg-members-list-shell rounded-3xl bg-white border border-slate-200 p-2 md:p-4 shadow-sm overflow-hidden dark:bg-slate-900 dark:border-slate-700">
-            <div className="apg-members-list-head hidden lg:grid grid-cols-12 gap-4 px-3 py-2 text-sm font-semibold bg-blue-50 text-blue-700 border border-blue-100 rounded-2xl dark:bg-slate-800 dark:text-blue-200 dark:border-slate-700">
+          <div className={cx('apg-members-list-shell rounded-3xl bg-white border border-slate-200 p-2 md:p-4 shadow-sm overflow-hidden dark:bg-slate-900 dark:border-slate-700', isCompactTablet ? 'text-[12px]' : '')}>
+            <div className={cx('apg-members-list-head hidden lg:grid grid-cols-12 gap-4 px-3 py-2 text-sm font-semibold bg-blue-50 text-blue-700 border border-blue-100 rounded-2xl dark:bg-slate-800 dark:text-blue-200 dark:border-slate-700', isCompactTablet ? 'gap-2 px-2 py-1.5 text-xs' : '')}>
               <div className="col-span-1">ID</div>
               <div className="col-span-2">Name</div>
               <div className="col-span-2">Plan</div>
@@ -5631,7 +5669,7 @@ function MembersList({ title, list, onBack, onEdit, onStatusChange, holdOptions,
     }
 
     // ---- Member Row ----
-function MemberRow({ m, expanded, onToggle, onEdit, onStatusChange, holdOptions, onDelete, canDelete, onWelcome, onWhatsAppCall, onWelcomeMail, onAddAttachment, logs, selected, onSelectToggle, selectable, onQuickFieldEdit, editOptions, isOwner, currentUserRole = '', fineRuleConfig, onOpenMobileDetail, canEdit = true, displayTimeZone = 'IST' }) {
+function MemberRow({ m, expanded, onToggle, onEdit, onStatusChange, holdOptions, onDelete, canDelete, onWelcome, onWhatsAppCall, onWelcomeMail, onAddAttachment, logs, selected, onSelectToggle, selectable, onQuickFieldEdit, editOptions, isOwner, currentUserRole = '', fineRuleConfig, onOpenMobileDetail, canEdit = true, displayTimeZone = 'IST', isCompactTablet = false }) {
       const todayHighlight = fmt(m.billingDate) === fmt(new Date());
       // Determine if we can open WhatsApp welcome/payment reminder.
       // Active members with mobile number and billing date qualify.
@@ -5677,6 +5715,7 @@ function MemberRow({ m, expanded, onToggle, onEdit, onStatusChange, holdOptions,
             statusSentText={statusSentText}
             callInfoText={callInfoText}
             canEdit={canEdit}
+            isCompactTablet={isCompactTablet}
           />
           <MemberRowMobileView
             m={m}
@@ -5733,9 +5772,10 @@ function MemberRow({ m, expanded, onToggle, onEdit, onStatusChange, holdOptions,
     }
 
     // Phase A split: desktop-specific member row presentation.
-function MemberRowDesktopView({ m, selectable, selected, onSelectToggle, onToggle, onEdit, onWelcome, onWhatsAppCall, canWelcome, statusTemplate, todayHighlight, statusSentText, callInfoText, canEdit = true }) {
+function MemberRowDesktopView({ m, selectable, selected, onSelectToggle, onToggle, onEdit, onWelcome, onWhatsAppCall, canWelcome, statusTemplate, todayHighlight, statusSentText, callInfoText, canEdit = true, isCompactTablet = false }) {
+      const isIpadLandscapeCompact = isCompactTablet && typeof window !== 'undefined' && window.innerWidth >= 1024 && window.innerWidth <= 1366;
       return (
-        <button onClick={onToggle} className="apg-member-row-desktop hidden lg:grid w-full grid-cols-12 items-center gap-4 px-2 py-3 text-left text-slate-700 hover:bg-slate-100">
+        <button onClick={onToggle} className={cx('apg-member-row-desktop hidden lg:grid w-full grid-cols-12 items-center gap-4 px-2 py-3 text-left text-slate-700 hover:bg-slate-100', isCompactTablet ? 'gap-2 px-1.5 py-2 text-[12px]' : '')}>
           <div className="col-span-1 font-medium flex items-center gap-2 min-w-0">
             {selectable && (
               <input
@@ -5757,19 +5797,19 @@ function MemberRowDesktopView({ m, selectable, selected, onSelectToggle, onToggl
           <div className="col-span-2 truncate">{m.plan}</div>
           <div className="col-span-2">{fmt(m.billingDate)}</div>
           <div className="col-span-2">{fmt(retentionPaymentDeadline(m) || m.billingDate) || '-'}</div>
-          <div className="col-span-3 flex items-center gap-2 pr-2">
-            <Badge tone={toneForStatus(m.status)} className="w-24 text-center flex-shrink-0">{shortStatus(m.status)}</Badge>
+          <div className={cx('col-span-3 flex items-center gap-2 pr-2', isCompactTablet ? 'gap-1 pr-1' : '', isIpadLandscapeCompact ? 'overflow-hidden' : '')}>
+            <Badge tone={toneForStatus(m.status)} className={cx('text-center flex-shrink-0', isCompactTablet ? 'w-20 text-[10px]' : 'w-24', isIpadLandscapeCompact ? 'w-[72px] px-1' : '')}>{shortStatus(m.status)}</Badge>
             {canEdit && (
               <button
                 onClick={(e) => { e.stopPropagation(); onEdit && onEdit(m); }}
-                className="flex-shrink-0 whitespace-nowrap flex items-center gap-1 rounded-lg px-3 py-2 text-xs font-medium bg-indigo-50 text-indigo-700 border border-indigo-200 hover:bg-indigo-100"
+                className={cx('flex-shrink-0 whitespace-nowrap flex items-center gap-1 rounded-lg font-medium bg-indigo-50 text-indigo-700 border border-indigo-200 hover:bg-indigo-100', isCompactTablet ? 'px-2 py-1 text-[10px]' : 'px-3 py-2 text-xs', isIpadLandscapeCompact ? 'px-1.5 py-1 text-[9px]' : '')}
               >
                 <span>✎</span>
                 <span>Action</span>
               </button>
             )}
             {statusTemplate.key !== 'none' && (
-              <div className="flex items-center gap-2 min-w-0">
+              <div className={cx('flex items-center min-w-0', isCompactTablet ? 'gap-1' : 'gap-2', isIpadLandscapeCompact ? 'max-w-[165px]' : '')}>
                 <button
                   onClick={(e) => {
                     e.stopPropagation();
@@ -5782,7 +5822,9 @@ function MemberRowDesktopView({ m, selectable, selected, onSelectToggle, onToggl
                       : `Open WhatsApp ${statusTemplate.label}`)
                     : 'Cannot open (missing mobile number)'}
                   className={cx(
-                    'flex-shrink-0 whitespace-nowrap flex items-center gap-1 rounded-lg px-3 py-2 text-xs font-medium border',
+                    'flex-shrink-0 whitespace-nowrap flex items-center gap-1 rounded-lg font-medium border',
+                    isCompactTablet ? 'px-2 py-1 text-[10px]' : 'px-3 py-2 text-xs',
+                    isIpadLandscapeCompact ? 'px-1.5 py-1 text-[9px]' : '',
                     canWelcome && !statusTemplate.disabled
                       ? 'bg-blue-50 text-blue-700 border-blue-200 hover:bg-blue-100'
                       : 'bg-slate-200 text-slate-500 border-slate-300 cursor-not-allowed'
@@ -5791,7 +5833,7 @@ function MemberRowDesktopView({ m, selectable, selected, onSelectToggle, onToggl
                   <span>💬</span>
                   <span>{statusTemplate.label}</span>
                 </button>
-                <SmsSendInfoChip text={statusSentText} />
+                {!isIpadLandscapeCompact && <SmsSendInfoChip text={statusSentText} />}
               </div>
             )}
           </div>
@@ -6492,7 +6534,7 @@ function QuickActions({ m, onStatusChange, holdOptions, canDelete, onDelete, can
     }
 
     // ---- Dashboard View (Members grouped by status) ----
-function DashboardView({ members, onEdit, onStatusChange, holdOptions, logs, filters, filterOpen, setFilterOpen, anyFilterActive, canDelete, onDelete, billingMonthOptions, onWelcome, onWhatsAppCall, onWelcomeMail, onAddAttachment, onQuickFieldEdit, editOptions, isOwner, currentUserRole = '', fineRuleConfig, canEdit = true, onImportCsv = null, onAddExpense = null, displayTimeZone = 'IST' }) {
+function DashboardView({ members, onEdit, onStatusChange, holdOptions, logs, filters, filterOpen, setFilterOpen, anyFilterActive, canDelete, onDelete, billingMonthOptions, onWelcome, onWhatsAppCall, onWelcomeMail, onAddAttachment, onQuickFieldEdit, editOptions, isOwner, currentUserRole = '', fineRuleConfig, canEdit = true, onImportCsv = null, onAddExpense = null, displayTimeZone = 'IST', tableDensity = 'normal', setTableDensity = () => {} }) {
       // Single expanded row across all statuses. Only one memberId may be expanded at a time.
       const [expandedId, setExpandedId] = React.useState(null);
       const [mobileDetailMemberId, setMobileDetailMemberId] = React.useState('');
@@ -6643,6 +6685,8 @@ function DashboardView({ members, onEdit, onStatusChange, holdOptions, logs, fil
       }, [members, applyFilters]);
       const winbackCount = grouped.Deactivated.length;
       const isMobile = useIsMobile();
+      const isTabletView = useIsTabletView();
+      const isCompactTablet = isTabletView && tableDensity === 'compact';
       const mobileDetailMember = React.useMemo(
         () => members.find((m) => m.memberId === mobileDetailMemberId) || null,
         [members, mobileDetailMemberId]
@@ -6706,6 +6750,7 @@ function DashboardView({ members, onEdit, onStatusChange, holdOptions, logs, fil
                   onOpenMobileDetail={(member) => setMobileDetailMemberId(member?.memberId || '')}
                   canEdit={canEdit}
                   displayTimeZone={displayTimeZone}
+                  isCompactTablet={isCompactTablet}
                 />
               ))}
             </div>
@@ -6740,6 +6785,12 @@ function DashboardView({ members, onEdit, onStatusChange, holdOptions, logs, fil
           <div className="flex items-center justify-between mb-4 gap-2 flex-wrap">
             <h1 className="text-xl md:text-2xl font-semibold text-slate-900">Members</h1>
             <div className="flex items-center gap-2 flex-wrap">
+              {isTabletView && (
+                <div className="inline-flex items-center rounded-xl border border-slate-300 bg-white p-1">
+                  <button onClick={() => setTableDensity('normal')} className={cx('rounded-lg px-2.5 py-1 text-xs font-semibold', tableDensity === 'normal' ? 'bg-blue-600 text-white' : 'text-slate-700 hover:bg-slate-100')}>Normal</button>
+                  <button onClick={() => setTableDensity('compact')} className={cx('rounded-lg px-2.5 py-1 text-xs font-semibold', tableDensity === 'compact' ? 'bg-blue-600 text-white' : 'text-slate-700 hover:bg-slate-100')}>Compact</button>
+                </div>
+              )}
               <button aria-pressed={!focusStatus} onClick={() => setFocusStatus('')} className={chipClass(!focusStatus, 'bg-blue-600 text-white border-blue-600 ring-blue-200', 'bg-blue-50 text-blue-700 border-blue-200')}>All Members</button>
               <button aria-pressed={focusStatus === 'Active'} onClick={() => setFocusStatus('Active')} className={chipClass(focusStatus === 'Active', 'bg-emerald-600 text-white border-emerald-600 ring-emerald-200', 'bg-emerald-50 text-emerald-700 border-emerald-200')}>Active Members ({grouped.Active.length})</button>
               <button aria-pressed={focusStatus === 'Hold'} onClick={() => setFocusStatus('Hold')} className={chipClass(focusStatus === 'Hold', 'bg-amber-500 text-white border-amber-500 ring-amber-200', 'bg-amber-50 text-amber-700 border-amber-200')}>Hold Members ({grouped.Hold.length})</button>
@@ -6850,8 +6901,8 @@ function DashboardView({ members, onEdit, onStatusChange, holdOptions, logs, fil
                   )}
                 </div>
                 {!hiddenSections[key] && (
-                  <div className="rounded-3xl bg-white p-4 shadow-sm">
-                  <div className="hidden md:grid grid-cols-12 gap-4 px-3 py-2 text-sm font-semibold bg-blue-50 text-blue-700 border border-blue-100 rounded-2xl">
+                  <div className={cx('rounded-3xl bg-white p-4 shadow-sm', isCompactTablet ? 'p-3' : '')}>
+                  <div className={cx('hidden md:grid grid-cols-12 gap-4 px-3 py-2 text-sm font-semibold bg-blue-50 text-blue-700 border border-blue-100 rounded-2xl', isCompactTablet ? 'gap-2 px-2 py-1.5 text-xs' : '')}>
                     <button onClick={() => toggleSort('memberId')} className="col-span-1 text-left hover:text-blue-900">ID <span className="text-[11px]">{sortIndicator('memberId')}</span></button>
                     <button onClick={() => toggleSort('name')} className="col-span-2 text-left hover:text-blue-900">Name <span className="text-[11px]">{sortIndicator('name')}</span></button>
                     <button onClick={() => toggleSort('plan')} className="col-span-2 text-left hover:text-blue-900">Plan <span className="text-[11px]">{sortIndicator('plan')}</span></button>
@@ -6886,6 +6937,7 @@ function DashboardView({ members, onEdit, onStatusChange, holdOptions, logs, fil
                       onOpenMobileDetail={(member) => setMobileDetailMemberId(member?.memberId || '')}
                       canEdit={canEdit}
                       displayTimeZone={displayTimeZone}
+                      isCompactTablet={isCompactTablet}
                     />
                   ))}
                   {pageList.length === 0 && (
