@@ -1085,6 +1085,8 @@ Phone: +91-7047157510`;
       displayTimeZone: 'apg.displayTimeZone',
       addMemberDraft: 'apg.addMemberDraft',
     };
+    const AUTH_SESSION_KEY = 'apg.auth.session';
+    const AUTH_SESSION_TTL_MS = 15 * 60 * 1000;
     const HEAVY_STORAGE_KEYS = [
       STORAGE_KEYS.members,
       STORAGE_KEYS.users,
@@ -1324,6 +1326,8 @@ Phone: +91-7047157510`;
     // ---- App Component ----
     function GymApp() {
       const [user, setUser] = React.useState(null);
+      const [authSessionReady, setAuthSessionReady] = React.useState(false);
+      const sessionTouchRef = React.useRef(0);
       const [dataSyncMode, setDataSyncMode] = React.useState('checking');
       const [lastHeartbeatAt, setLastHeartbeatAt] = React.useState('');
       const syncBadgeTone = dataSyncMode === 'backend'
@@ -1343,6 +1347,32 @@ Phone: +91-7047157510`;
           return false;
         }
       })();
+      const [sessionMinutesLeft, setSessionMinutesLeft] = React.useState(null);
+      const readSessionMinutesLeft = React.useCallback(() => {
+        try {
+          const parsed = JSON.parse(localStorage.getItem(AUTH_SESSION_KEY) || 'null');
+          const expiresAt = Number(parsed?.expiresAt || 0);
+          if (!Number.isFinite(expiresAt) || expiresAt <= 0) return null;
+          const msLeft = expiresAt - Date.now();
+          if (msLeft <= 0) return 0;
+          return Math.max(1, Math.ceil(msLeft / 60000));
+        } catch {
+          return null;
+        }
+      }, []);
+      const sessionExpiryLabel = sessionMinutesLeft == null ? '' : `Session: ${sessionMinutesLeft}m`;
+      const writeAuthSession = React.useCallback((userId) => {
+        if (!userId) return;
+        try {
+          localStorage.setItem(AUTH_SESSION_KEY, JSON.stringify({
+            userId: String(userId),
+            expiresAt: Date.now() + AUTH_SESSION_TTL_MS,
+          }));
+        } catch {}
+      }, []);
+      const clearAuthSession = React.useCallback(() => {
+        try { localStorage.removeItem(AUTH_SESSION_KEY); } catch {}
+      }, []);
 
       // Users state: stores login credentials and the list of sections each user can access.
       // On first run it initialises with default accounts. Subsequent modifications are
@@ -2465,6 +2495,7 @@ Phone: +91-7047157510`;
           }
           // Login success. Use the user record as is (id, name, email, sections).
           const nowIso = new Date().toISOString();
+          writeAuthSession(rec.id);
           setUser({ ...rec, access: normalizeAccess(rec.access), lastLoginAt: nowIso });
           setUsers((prev) => prev.map((u) => (u.id === rec.id ? { ...u, lastLoginAt: nowIso } : u)));
           markLoginAttendance(rec, nowIso);
@@ -2501,6 +2532,86 @@ Phone: +91-7047157510`;
           return { ...prevObj, staffAttendance: nextRecords };
         });
       }, [users, settings.staffAttendance]);
+      React.useEffect(() => {
+        if (user?.id) {
+          setAuthSessionReady(true);
+          return;
+        }
+        let parsed = null;
+        try {
+          parsed = JSON.parse(localStorage.getItem(AUTH_SESSION_KEY) || 'null');
+        } catch {
+          parsed = null;
+        }
+        if (!parsed || !parsed.userId || !Number.isFinite(Number(parsed.expiresAt))) {
+          clearAuthSession();
+          setAuthSessionReady(true);
+          return;
+        }
+        if (Date.now() > Number(parsed.expiresAt)) {
+          clearAuthSession();
+          setAuthSessionReady(true);
+          return;
+        }
+        const rec = (users || []).find((u) => String(u?.id || '') === String(parsed.userId));
+        if (!rec || rec.blocked) {
+          clearAuthSession();
+          setAuthSessionReady(true);
+          return;
+        }
+        const nowIso = new Date().toISOString();
+        setUser({ ...rec, access: normalizeAccess(rec.access), lastLoginAt: nowIso });
+        setUsers((prev) => prev.map((u) => (u.id === rec.id ? { ...u, lastLoginAt: nowIso } : u)));
+        setActiveTab('Dashboard');
+        setDashMode('summary');
+        writeAuthSession(rec.id);
+        setAuthSessionReady(true);
+      }, [users, user?.id, clearAuthSession, writeAuthSession]);
+      React.useEffect(() => {
+        if (!user?.id) return;
+        const extendSession = () => {
+          const now = Date.now();
+          if (now - sessionTouchRef.current < 4000) return;
+          sessionTouchRef.current = now;
+          writeAuthSession(user.id);
+          setSessionMinutesLeft(readSessionMinutesLeft());
+        };
+        extendSession();
+        const events = ['click', 'keydown', 'touchstart', 'scroll'];
+        events.forEach((name) => window.addEventListener(name, extendSession));
+        const timer = setInterval(() => {
+          let parsed = null;
+          try { parsed = JSON.parse(localStorage.getItem(AUTH_SESSION_KEY) || 'null'); } catch { parsed = null; }
+          if (!parsed || String(parsed.userId || '') !== String(user.id)) {
+            clearAuthSession();
+            setUser(null);
+            return;
+          }
+          if (Date.now() > Number(parsed.expiresAt || 0)) {
+            clearAuthSession();
+            setUser(null);
+            setNotificationOpen(false);
+            setActiveTab('Dashboard');
+            setDashMode('summary');
+            setToast('Session expired. Please login again.');
+            setTimeout(() => setToast(''), 2200);
+            setSessionMinutesLeft(0);
+            return;
+          }
+          setSessionMinutesLeft(readSessionMinutesLeft());
+        }, 15000);
+        return () => {
+          events.forEach((name) => window.removeEventListener(name, extendSession));
+          clearInterval(timer);
+        };
+      }, [user?.id, clearAuthSession, writeAuthSession, readSessionMinutesLeft]);
+      React.useEffect(() => {
+        if (!user?.id) {
+          setSessionMinutesLeft(null);
+          return;
+        }
+        setSessionMinutesLeft(readSessionMinutesLeft());
+      }, [user?.id, readSessionMinutesLeft]);
 
       const applyMemberStatusChange = React.useCallback((memberId, nextStatus, opts = {}) => {
         setMembers(prev => prev.map(m => {
@@ -3304,6 +3415,14 @@ Please pay by: ${formattedLastDate}`;
         setDisplayTimeZone((prev) => (prev === 'IST' ? 'AEST' : 'IST'));
       };
 
+      // If no user, show login screen (after session bootstrap check).
+      if (!user && !authSessionReady) {
+        return (
+          <div className="min-h-screen grid place-items-center bg-slate-100 text-slate-600">
+            Restoring session...
+          </div>
+        );
+      }
       // If no user, show login screen
       if (!user) {
         return (
@@ -3349,6 +3468,7 @@ Please pay by: ${formattedLastDate}`;
           setUsers((prev) => prev.map((u) => (u.id === user.id ? { ...u, lastLogoutAt: nowIso } : u)));
           markLogoutAttendance(user, nowIso);
         }
+        clearAuthSession();
         logEvent('auth.logout', 'user', user?.id || '', { id: user?.id }, null, user?.name || user?.id || '');
         setUser(null);
         setNotificationOpen(false);
@@ -3447,6 +3567,11 @@ Please pay by: ${formattedLastDate}`;
               >
                 {displayTimeZone}
               </button>
+              {sessionExpiryLabel && (
+                <div className="rounded-xl border border-violet-300 bg-violet-50 px-2.5 py-1.5 text-[11px] font-semibold text-violet-700">
+                  {sessionExpiryLabel}
+                </div>
+              )}
               <div className="hidden sm:block">
                 <SyncStatusDot mode={dataSyncMode} label={syncBadgeLabel} />
               </div>
@@ -3631,6 +3756,11 @@ Please pay by: ${formattedLastDate}`;
                     >
                       {displayTimeZone}
                     </button>
+                    {sessionExpiryLabel && (
+                      <div className="rounded-xl border border-violet-200 bg-violet-50 px-3 py-2 text-xs font-semibold text-violet-700">
+                        {sessionExpiryLabel}
+                      </div>
+                    )}
                     <SyncStatusDot mode={dataSyncMode} label={syncBadgeLabel} />
                     <div className="relative">
                       <button
