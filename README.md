@@ -128,3 +128,61 @@ Your app URL will be:
 - `https://<your-username>.github.io/<your-repo>/`
 
 Note: this app stores data in browser `localStorage`, so data is per browser/device and not shared in real time across users.
+
+## Cloudflare Tunnel (Share Local App Securely)
+
+Use this when app runs on your local machine (for example in Australia) and members access from anywhere (for example India).
+
+### 1) Install cloudflared (macOS)
+
+- `brew install cloudflared`
+
+### 2) Project setup
+
+From project root:
+
+- `cp .env.example .env` (if not created already)
+- Optional: set `CF_TUNNEL_URL` if your frontend runs on a different host/port
+- Keep `API_BASE_URL=/api` so remote tunnel users can reach your local backend through the frontend proxy
+
+### 3) Start app + tunnel
+
+- `npm run dev:all:tunnel`
+
+This keeps existing app startup unchanged and adds tunnel in parallel.
+
+### 4) Tunnel modes
+
+- **Temporary URL (fast test):** leave `CF_TUNNEL_TOKEN` empty, run `npm run dev:tunnel` or `npm run dev:all:tunnel`.
+- **Named tunnel (recommended):** put Cloudflare tunnel token in `.env`:
+  - `CF_TUNNEL_TOKEN=<your-token>`
+  - Then run `npm run dev:all:tunnel`
+
+### 5) Cloudflare Access (login protection)
+
+In Cloudflare Zero Trust dashboard:
+
+1. Create an Access application for your tunnel hostname.
+2. Add policy to allow only your members (email OTP / Google / allowed domains).
+3. Share only the protected URL.
+
+### Notes
+
+- If your local machine sleeps or internet disconnects, remote users cannot access.
+- Keep backend bound locally; expose frontend only for safer setup.
+
+### Auto-start on macOS Login/Reboot
+
+To automatically start app + tunnel after login:
+
+1. Install launch agent:
+   - `npm run autostart:install`
+2. Check logs if needed:
+   - `logs/autostart.out.log`
+   - `logs/autostart.err.log`
+   - `logs/health-check.log` (single post-boot `OK/FAIL` line)
+3. Remove auto-start later:
+   - `npm run autostart:uninstall`
+
+This uses `launchd` with label `com.actionplus.gym.autostart` and runs `npm run dev:all:tunnel`.
+You can also run health check manually with `npm run health:check`.

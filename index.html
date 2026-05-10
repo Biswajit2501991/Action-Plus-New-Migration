@@ -250,6 +250,20 @@
       const yy = dt.getUTCFullYear();
       return `${dd}/${mm}/${yy}`;
     };
+    /** YYYY-MM-DD in the user's local calendar (matches native date inputs and "today"). */
+    const localCalendarDateKey = (value) => {
+      if (value === null || value === undefined || value === '') return '';
+      const s = String(value).trim();
+      if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return s;
+      if (/^\d{4}-\d{2}-\d{2}T/.test(s)) return s.slice(0, 10);
+      const dt = value instanceof Date ? value : new Date(value);
+      if (Number.isNaN(dt.getTime())) return '';
+      const y = dt.getFullYear();
+      const m = String(dt.getMonth() + 1).padStart(2, '0');
+      const d = String(dt.getDate()).padStart(2, '0');
+      return `${y}-${m}-${d}`;
+    };
+    const localTodayCalendarKey = () => localCalendarDateKey(new Date());
     const formatDateTz = (value, tz = 'IST') => {
       if (!value) return '';
       const dt = new Date(value);
@@ -785,25 +799,11 @@
     }));
     const DEFAULT_ROLE_TEMPLATES = [
       {
-        id: 'admin',
-        title: 'Administrator',
-        subtitle: 'Full System Access',
-        sections: [...ALL_SECTIONS],
-        color: 'bg-emerald-50 border-emerald-200',
-      },
-      {
         id: 'frontdesk',
         title: 'Front Desk Manager',
         subtitle: 'Member and Front Desk Ops',
         sections: ['Dashboard', 'Members', 'PT Clients', 'WhatsApp SMS', 'Finance', 'Attendance', 'Leave Tracker', 'Settings'],
         color: 'bg-amber-50 border-amber-200',
-      },
-      {
-        id: 'trainer',
-        title: 'Trainer',
-        subtitle: 'Class and Progress Access',
-        sections: ['Dashboard', 'Members', 'PT Clients', 'Attendance'],
-        color: 'bg-blue-50 border-blue-200',
       },
     ];
     const SMS_TEMPLATE_DEFAULTS = {
@@ -1076,9 +1076,16 @@ Phone: +91-7047157510`;
       STORAGE_KEYS.finance,
       STORAGE_KEYS.smsEvents,
     ];
-    const BACKEND_API_BASE_URL = (window.__APG_ENV__ && window.__APG_ENV__.API_BASE_URL)
-      ? String(window.__APG_ENV__.API_BASE_URL)
-      : 'http://localhost:4000/api';
+    /** Resolve at fetch time so remote tunnel users never stick on localhost if env loads late. */
+    const getBackendApiBaseUrl = () => {
+      const fromEnv = window.__APG_ENV__ && window.__APG_ENV__.API_BASE_URL;
+      if (fromEnv != null && String(fromEnv).trim() !== '') return String(fromEnv).replace(/\/+$/, '');
+      try {
+        const p = window.location && window.location.protocol;
+        if (p === 'http:' || p === 'https:') return '/api';
+      } catch {}
+      return 'http://localhost:4000/api';
+    };
     const STORAGE_SOFT_LIMIT_BYTES = 4.5 * 1024 * 1024; // ~4.5MB budget
     const MAX_IMPORT_FILE_BYTES = 5 * 1024 * 1024; // 5MB guardrail for backup imports
     const MAX_IMAGE_FILE_BYTES = 10 * 1024 * 1024; // 10MB input guard
@@ -1099,7 +1106,7 @@ Phone: +91-7047157510`;
       }
     };
     const backendJson = async (path, init = {}) => {
-      const res = await fetch(`${BACKEND_API_BASE_URL}${path}`, {
+      const res = await fetch(`${getBackendApiBaseUrl()}${path}`, {
         headers: { 'Content-Type': 'application/json', ...(init.headers || {}) },
         ...init,
       });
@@ -1231,16 +1238,10 @@ Phone: +91-7047157510`;
       .replaceAll('<', '&lt;')
       .replaceAll('>', '&gt;')
       .replaceAll('"', '&quot;');
-    // ---- Predefined demo users ----
+    // ---- Predefined users ----
     const DEMO_USERS = {
-      // Default staff roles with matching passwords
       owner: { password: 'owner', email: 'owner@example.com', name: 'Owner', role: 'Owner' },
-      manager: { password: 'manager', email: 'manager@example.com', name: 'Manager', role: 'Manager' },
-      trainer: { password: 'trainer', email: 'trainer@example.com', name: 'Trainer', role: 'Trainer' },
       reception: { password: 'reception', email: 'reception@example.com', name: 'Reception', role: 'Reception' },
-      // Legacy demo accounts
-      Bis: { password: 'b123', email: 'bis@example.com', name: 'Bis', role: 'Owner' },
-      Raja: { password: 'r123', email: 'raja@example.com', name: 'Raja', role: 'Owner' }
     };
     const buildDefaultSettings = () => ({
       plans: ['Basic','PT-Raja','1 Week','PT-Kaushik'],
@@ -1318,6 +1319,13 @@ Phone: +91-7047157510`;
         : dataSyncMode === 'local'
           ? `Backend Sync: Local only${lastHeartbeatAt ? ` • Last heartbeat: ${lastHeartbeatAt}` : ''}`
           : 'Backend Sync: Checking...';
+      const openedFromFileProtocol = (() => {
+        try {
+          return window.location?.protocol === 'file:';
+        } catch {
+          return false;
+        }
+      })();
 
       // Users state: stores login credentials and the list of sections each user can access.
       // On first run it initialises with default accounts. Subsequent modifications are
@@ -1329,8 +1337,6 @@ Phone: +91-7047157510`;
         } catch {}
         return [
           buildOwnerOnlyUser(),
-          { id: 'manager', password: 'manager', name: 'Manager', email: 'manager@example.com', sections: ['Dashboard','Members','PT Clients','Finance','Staff','Attendance','Leave Tracker','Settings','Logs'], access: { ...DEFAULT_ACCESS }, blocked: false, blockedReason: '', blockedAt: '', updatedBy: '', photo: null },
-          { id: 'trainer', password: 'trainer', name: 'Trainer', email: 'trainer@example.com', sections: ['Dashboard','Members','PT Clients','Attendance'], access: { ...DEFAULT_ACCESS }, blocked: false, blockedReason: '', blockedAt: '', updatedBy: '', photo: null },
           { id: 'reception', password: 'reception', name: 'Reception', email: 'reception@example.com', sections: ['Members'], access: { ...DEFAULT_ACCESS }, blocked: false, blockedReason: '', blockedAt: '', updatedBy: '', photo: null },
         ];
       });
@@ -1425,8 +1431,6 @@ Phone: +91-7047157510`;
         const current = Array.isArray(u.sections) ? u.sections : [];
         let required = [];
         if (u.id === 'owner') required = [...ALL_SECTIONS];
-        if (u.id === 'manager') required = ['Dashboard','Members','PT Clients','Finance','Staff','Attendance','Leave Tracker','Settings','Logs'];
-        if (u.id === 'trainer') required = ['Dashboard','Members','PT Clients','Attendance'];
         if (!required.length) return u;
         const nextSections = Array.from(new Set([...current, ...required]));
         const normalizedAccess = normalizeAccess(u.access);
@@ -1496,7 +1500,7 @@ Phone: +91-7047157510`;
           const controller = new AbortController();
           const timer = setTimeout(() => controller.abort(), 6000);
           try {
-            const res = await fetch(`${BACKEND_API_BASE_URL}/health`, {
+            const res = await fetch(`${getBackendApiBaseUrl()}/health`, {
               method: 'GET',
               headers: { 'Content-Type': 'application/json' },
               cache: 'no-store',
@@ -1534,9 +1538,7 @@ Phone: +91-7047157510`;
         const nextTemplates = templates.map(t => {
           if (!t || !t.id) return t;
           let required = [];
-          if (t.id === 'admin') required = [...ALL_SECTIONS];
           if (t.id === 'frontdesk') required = ['Dashboard', 'Members', 'PT Clients', 'WhatsApp SMS', 'Finance', 'Attendance', 'Leave Tracker', 'Settings'];
-          if (t.id === 'trainer') required = ['Dashboard', 'Members', 'PT Clients', 'Attendance'];
           if (!required.length) return t;
           const current = Array.isArray(t.sections) ? t.sections : [];
           const nextSections = Array.from(new Set([...current, ...required]));
@@ -1836,6 +1838,33 @@ Phone: +91-7047157510`;
         safeSetItemJSON(STORAGE_KEYS.smsEvents, smsEvents);
         queueSyncSnapshot('smsEvents', smsEvents).then(() => setOfflineQueueCount((c) => c + 1)).catch(() => {});
       }, [smsEvents, dataSyncMode, syncRuntimeReady, backendHydrated]);
+      // Pull staff/user updates from backend so multi-device changes appear without refresh.
+      React.useEffect(() => {
+        if (dataSyncMode !== 'backend') return;
+        let alive = true;
+        const pullUsers = () => {
+          backendJson('/users')
+            .then((remoteUsers) => {
+              if (!alive || !Array.isArray(remoteUsers)) return;
+              const normalizedRemote = remoteUsers.map((u) => ({
+                ...u,
+                access: normalizeAccess(u && u.access),
+              }));
+              setUsers((prev) => {
+                const prevSig = JSON.stringify(Array.isArray(prev) ? prev : []);
+                const nextSig = JSON.stringify(normalizedRemote);
+                return prevSig === nextSig ? prev : normalizedRemote;
+              });
+            })
+            .catch(() => {});
+        };
+        pullUsers();
+        const timer = setInterval(pullUsers, 5000);
+        return () => {
+          alive = false;
+          clearInterval(timer);
+        };
+      }, [dataSyncMode]);
 
       // Persist users to localStorage whenever they change. This ensures that newly added
       // staff or updated roles survive page reloads.
@@ -1956,16 +1985,18 @@ Phone: +91-7047157510`;
           .sort((a, b) => String(b.createdAt || '').localeCompare(String(a.createdAt || '')))
           .slice(0, 20);
       }, [settings?.leaveRequests, user]);
+      // Tentative join = local calendar today; not gated on callBackRequired; hide after mark-called today or Converted.
       const callbackNotifications = React.useMemo(() => {
         const canSeeVisitors = normalizeAccess(user?.access).members?.viewVisitors !== false;
         if (!canSeeVisitors) return [];
-        const today = iso(new Date());
+        const todayKey = localTodayCalendarKey();
         return (visitors || [])
           .filter((v) => {
             if (v.status === 'Converted') return false;
-            if (!v.callBackRequired) return false;
-            if (iso(v.lastCalledAt || '') === today) return false;
-            return iso(v.tentativeJoiningDate || '') === today;
+            const tentativeKey = localCalendarDateKey(v.tentativeJoiningDate);
+            if (!tentativeKey || tentativeKey !== todayKey) return false;
+            if (localCalendarDateKey(v.lastCalledAt || '') === todayKey) return false;
+            return true;
           })
           .slice(0, 20);
       }, [user?.access, visitors]);
@@ -2342,8 +2373,14 @@ Phone: +91-7047157510`;
 
       // Authentication handler
       const login = (id, pw) => {
-        // Attempt to authenticate against our persisted users list. Match by id (case sensitive).
-        const rec = users.find(u => u.id === id);
+        // Match by username or email so staff can sign in with either credential.
+        const raw = String(id || '').trim();
+        const key = raw.toLowerCase();
+        const rec = users.find((u) => {
+          const userId = String(u?.id || '').trim().toLowerCase();
+          const email = String(u?.email || '').trim().toLowerCase();
+          return key && (userId === key || email === key);
+        });
         if (rec && rec.password === pw) {
           if (rec.blocked) {
             logEvent('auth.login.blocked', 'user', id, null, { id, blocked: true }, rec.name || id);
@@ -2359,24 +2396,6 @@ Phone: +91-7047157510`;
           setActiveTab('Dashboard');
           setDashMode('summary');
           logEvent('auth.login', 'user', id, null, { id }, rec.name || id);
-          return true;
-        }
-        // Fallback to legacy demo users for backward compatibility
-        const legacyAllowed = id === 'Bis' || id === 'Raja';
-        const legacy = legacyAllowed ? DEMO_USERS[id] : null;
-        if (legacy && legacy.password === pw) {
-          const nowIso = new Date().toISOString();
-          const newUser = { id, name: legacy.name, email: legacy.email, sections: [...ALL_SECTIONS], access: { ...DEFAULT_ACCESS }, blocked: false, blockedReason: '', blockedAt: '', updatedBy: '', photo: null, lastLoginAt: nowIso, lastLogoutAt: '' };
-          setUser(newUser);
-          // Persist this user so they can log in again
-          setUsers(prev => {
-            if (!prev.find(u => u.id === id)) return [...prev, newUser];
-            return prev;
-          });
-          markLoginAttendance(newUser, nowIso);
-          setActiveTab('Dashboard');
-          setDashMode('summary');
-          logEvent('auth.login', 'user', id, null, { id }, legacy.name || id);
           return true;
         }
         return false;
@@ -3502,6 +3521,12 @@ Please pay by: ${formattedLastDate}`;
             setMembersView={setMembersView}
           />
           <main className="flex-1 overflow-y-auto pt-[112px] md:pt-0 pb-28 md:pb-0 w-full bg-[#F8FAFC] md:bg-transparent">
+            {openedFromFileProtocol && (
+              <div className="mx-3 mt-3 md:mx-8 md:mt-6 rounded-xl border border-amber-300 bg-amber-50 px-3 py-2 text-xs md:text-sm text-amber-900">
+                File mode detected (`file://`). Backend sync and shared data may not work here. Open
+                <span className="font-semibold"> https://app.gymactionplus.com</span> for live synced data.
+              </div>
+            )}
             <div className="hidden md:block px-8 pt-6 space-y-3">
               <div className="rounded-2xl border border-slate-200 bg-white p-3 shadow-sm apg-card">
                 <div className="flex items-center justify-between gap-3">
@@ -4444,7 +4469,7 @@ Please pay by: ${formattedLastDate}`;
                       setId(e.target.value);
                       if (err) setErr('');
                     }}
-                    placeholder="admin, manager, trainer"
+                    placeholder="Enter your username"
                     className="w-full bg-transparent border-0 border-b border-[#57858f] px-0 py-2 text-base text-[#9bb5bc] placeholder:text-[#6f949d] focus:outline-none"
                   />
                 </div>
@@ -4488,7 +4513,7 @@ Please pay by: ${formattedLastDate}`;
               </form>
 
               <p className="mt-6 text-sm text-[#7e9ca3] leading-relaxed">
-                Demo roles: <b>Admin</b>, <b>Manager</b>, <b>Trainer</b>
+                Please use your assigned staff credentials.
               </p>
             </div>
           </div>
@@ -7084,6 +7109,7 @@ function EditMemberModal({ member, onClose, onSave, planOptions, statusOptions, 
         if (target) setExpandedId(target.id);
         if (onFocusHandled) onFocusHandled();
       }, [focusVisitorId, onFocusHandled, rows]);
+      const visitorListTodayKey = localTodayCalendarKey();
       return (
         <div className="p-3 md:p-8 space-y-4">
           <div className="flex items-center justify-between gap-2">
@@ -7098,7 +7124,9 @@ function EditMemberModal({ member, onClose, onSave, planOptions, statusOptions, 
               <tbody>
                 {rows.map((v) => {
                   const expanded = expandedId === v.id;
-                  const calledToday = iso(v.lastCalledAt || '') === iso(new Date());
+                  const tentativeToday = localCalendarDateKey(v.tentativeJoiningDate) === visitorListTodayKey;
+                  const calledToday = localCalendarDateKey(v.lastCalledAt || '') === visitorListTodayKey;
+                  const canMarkCalled = v.callBackRequired || tentativeToday;
                   return (
                     <React.Fragment key={v.id}>
                       <tr
@@ -7125,11 +7153,11 @@ function EditMemberModal({ member, onClose, onSave, planOptions, statusOptions, 
                             </div>
                             <div className="mt-3 flex flex-wrap gap-2">
                               <button
-                                disabled={!v.callBackRequired || calledToday}
+                                disabled={!canMarkCalled || calledToday}
                                 onClick={() => onMarkCalled && onMarkCalled(v.id)}
                                 className={cx(
                                   'rounded-full border px-3 py-1.5 text-xs font-semibold',
-                                  (!v.callBackRequired || calledToday)
+                                  (!canMarkCalled || calledToday)
                                     ? 'border-slate-300 bg-slate-100 text-slate-500 cursor-not-allowed'
                                     : 'border-emerald-300 bg-emerald-50 text-emerald-700'
                                 )}
@@ -9314,7 +9342,6 @@ function SettingsPage({ settings, updateSetting, members, access, storageInfo, b
                   <div><label className="text-sm font-medium">Name</label><input value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm" /></div>
                   <div><label className="text-sm font-medium">Email</label><input value={form.email || ''} onChange={(e) => setForm({ ...form, email: e.target.value })} className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm" /></div>
                   <div><label className="text-sm font-medium">Role</label><select value={form.role || ''} onChange={(e) => setForm({ ...form, role: e.target.value })} className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm">
-                    <option value="admin">admin</option>
                     <option value="staff-basic">staff-basic</option>
                     <option value="staff-extended">staff-extended</option>
                   </select></div>
@@ -11049,7 +11076,7 @@ function SettingsPage({ settings, updateSetting, members, access, storageInfo, b
         const ts = new Date().toLocaleTimeString([], { hour12: false });
         let apiUp = false;
         try {
-          const res = await fetch(`${BACKEND_API_BASE_URL}/health`, { cache: 'no-store' });
+          const res = await fetch(`${getBackendApiBaseUrl()}/health`, { cache: 'no-store' });
           apiUp = res.ok;
         } catch {
           apiUp = false;
@@ -11102,7 +11129,7 @@ function SettingsPage({ settings, updateSetting, members, access, storageInfo, b
         };
         const tryApi = async () => {
           try {
-            const res = await fetch(`${BACKEND_API_BASE_URL}${apiPaths[action]}`, {
+            const res = await fetch(`${getBackendApiBaseUrl()}${apiPaths[action]}`, {
               method: 'POST',
               headers: { 'Content-Type': 'application/json', ...controlHeaders() },
             });
