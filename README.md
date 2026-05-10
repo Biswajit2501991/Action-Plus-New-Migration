@@ -181,8 +181,10 @@ To automatically start app + tunnel after login:
    - `logs/autostart.out.log`
    - `logs/autostart.err.log`
    - `logs/health-check.log` (single post-boot `OK/FAIL` line)
+   - `logs/watchdog.log` (continuous health + auto-restart events)
 3. Remove auto-start later:
    - `npm run autostart:uninstall`
 
 This uses `launchd` with label `com.actionplus.gym.autostart` and runs `npm run dev:all:tunnel`.
 You can also run health check manually with `npm run health:check`.
+You can run the watchdog manually with `npm run watchdog:start`.

@@ -128,6 +128,11 @@
     .apg-force-light .border-slate-200, .apg-force-light .border-slate-300 { border-color: #e2e8f0 !important; }
     .apg-force-light .text-slate-900, .apg-force-light .text-slate-800, .apg-force-light .text-slate-700 { color: #0f172a !important; }
     .apg-force-light .text-slate-600, .apg-force-light .text-slate-500, .apg-force-light .text-slate-400 { color: #475569 !important; }
+    /* Force light look even when components still carry dark:* utility classes. */
+    .apg-force-light [class*="dark:bg-slate-"] { background-color: #ffffff !important; }
+    .apg-force-light [class*="dark:text-slate-"] { color: #0f172a !important; }
+    .apg-force-light [class*="dark:border-slate-"] { border-color: #e2e8f0 !important; }
+    .apg-force-light [class*="dark:hover:bg-slate-"]:hover { background-color: #f8fafc !important; }
     html.dark .apg-members-list-shell {
       background: #0f172a !important;
       border-color: #243247 !important;
@@ -339,11 +344,17 @@
       if (d) return d;
       return asUTC(m.paymentBy) || asUTC(m.billingDate);
     };
-    const normalizePhone = (v) => String(v || '').replace(/\D/g, '');
+    const normalizePhone = (v) => {
+      const raw = String(v || '').trim();
+      if (/^\+91\d{10}$/.test(raw)) return raw.slice(3);
+      const digits = raw.replace(/\D/g, '');
+      if (digits.length === 12 && digits.startsWith('91')) return digits.slice(2);
+      return digits;
+    };
     const isValidEmail = (v) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(v || '').trim());
     const isValidPhone = (v) => {
-      const p = normalizePhone(v);
-      return p.length >= 10 && p.length <= 15;
+      const raw = String(v || '').trim();
+      return /^\d{10}$/.test(raw) || /^\+91\d{10}$/.test(raw);
     };
     const normalizeCsvHeader = (v) => String(v || '').toLowerCase().replace(/[^a-z0-9]/g, '');
     const readCsvCells = (line) => {
@@ -2170,7 +2181,7 @@ Phone: +91-7047157510`;
       const dashboardTopTabs = React.useMemo(() => {
         const ordered = ['Dashboard', 'Members', 'PT Clients', 'WhatsApp SMS', 'Finance', 'Staff', 'Attendance', 'Leave Tracker', 'Settings', 'Logs', 'Support', 'Backend'];
         const allowed = user && Array.isArray(user.sections) ? user.sections : ALL_SECTIONS;
-        return ordered.filter((key) => (allowed.includes(key) || key === 'Support') && canViewSectionByAccess(key));
+        return ordered.filter((key) => (allowed.includes(key) || key === 'Support' || key === 'Logs') && canViewSectionByAccess(key));
       }, [user, canViewSectionByAccess]);
       React.useEffect(() => {
         if (!dashboardTopTabs.includes(activeTab) && dashboardTopTabs.length) {
@@ -2418,15 +2429,27 @@ Phone: +91-7047157510`;
       };
 
       // Authentication handler
-      const login = (id, pw) => {
+      const login = async (id, pw) => {
         // Match by username or email so staff can sign in with either credential.
         const raw = String(id || '').trim();
         const key = raw.toLowerCase();
-        const rec = users.find((u) => {
+        const findInList = (list) => (Array.isArray(list) ? list.find((u) => {
           const userId = String(u?.id || '').trim().toLowerCase();
           const email = String(u?.email || '').trim().toLowerCase();
           return key && (userId === key || email === key);
-        });
+        }) : null);
+        let rec = findInList(users);
+        // Mobile users may hit login before backend users hydrate; pull once before failing.
+        if (!rec && dataSyncMode === 'backend') {
+          try {
+            const remoteUsers = await backendJson('/users');
+            if (Array.isArray(remoteUsers)) {
+              const normalizedRemoteUsers = remoteUsers.map((u) => ({ ...u, access: normalizeAccess(u?.access) }));
+              setUsers(normalizedRemoteUsers);
+              rec = findInList(normalizedRemoteUsers);
+            }
+          } catch {}
+        }
         if (rec && rec.password === pw) {
           if (rec.blocked) {
             logEvent('auth.login.blocked', 'user', id, null, { id, blocked: true }, rec.name || id);
@@ -2763,7 +2786,7 @@ Please pay by: ${formattedLastDate}`;
           return false;
         }
         if (changed('mobile') && !isValidPhone(toSave.mobile)) {
-          setToast('Please enter a valid mobile number.');
+          setToast('Enter 10 digits, or +91 followed by 10 digits (total 13 chars).');
           setTimeout(() => setToast(''), 2500);
           return false;
         }
@@ -2946,7 +2969,7 @@ Please pay by: ${formattedLastDate}`;
           return false;
         }
         if (!isValidPhone(next.mobile)) {
-          setToast('Please enter a valid visitor mobile number.');
+          setToast('Visitor mobile must be 10 digits, or +91 followed by 10 digits.');
           setTimeout(() => setToast(''), 2200);
           return false;
         }
@@ -4009,6 +4032,7 @@ Please pay by: ${formattedLastDate}`;
                 updateSetting={updateSettingValue}
                 access={normalizeAccess(user?.access)}
                 displayTimeZone={displayTimeZone}
+                theme={theme}
               />
             )}
             {activeTab === 'Staff' && (
@@ -4492,9 +4516,9 @@ Please pay by: ${formattedLastDate}`;
       const [id, setId] = React.useState('');
       const [pw, setPw] = React.useState('');
       const [err, setErr] = React.useState('');
-      const handleSubmit = (e) => {
+      const handleSubmit = async (e) => {
         if (e && e.preventDefault) e.preventDefault();
-        const ok = onSubmit(id.trim(), pw);
+        const ok = await Promise.resolve(onSubmit(id.trim(), pw));
         setErr(ok ? '' : 'Invalid credential');
       };
       return (
@@ -4591,7 +4615,7 @@ function Sidebar({ user, active, onSelect, theme, setTheme, onLogout, onUndo, on
         if (sectionKey === 'Support') return access?.support?.viewSupportTemplates !== false;
         return true;
       };
-      const navItems = NAV.filter(item => (allowedSections.includes(item.key) || item.key === 'Support') && canViewSectionByAccess(item.key));
+      const navItems = NAV.filter(item => (allowedSections.includes(item.key) || item.key === 'Support' || item.key === 'Logs') && canViewSectionByAccess(item.key));
       const [membersExpanded, setMembersExpanded] = React.useState(true);
       const canViewVisitors = normalizeAccess(user?.access).members?.viewVisitors !== false;
       const sectionOrder = ['', 'MEMBERS & CLIENTS', 'COMMUNICATION', 'OPERATIONS', 'FINANCE', 'STAFF & MANAGEMENT', 'SYSTEM'];
@@ -4666,7 +4690,7 @@ function Sidebar({ user, active, onSelect, theme, setTheme, onLogout, onUndo, on
                                     onCloseMobile && onCloseMobile();
                                   }}
                                   className={cx(
-                                    'w-full rounded-xl px-3 py-1.5 text-left text-[11px] font-medium',
+                                    'w-full rounded-2xl px-3 py-2 text-left text-[10px] font-semibold',
                                     active === 'Members' && membersView === 'all'
                                       ? 'bg-blue-50 text-blue-700 dark:bg-blue-900/35 dark:text-blue-200'
                                       : 'text-slate-600 hover:bg-slate-50 dark:text-slate-200 dark:hover:bg-slate-800/80'
@@ -4682,7 +4706,7 @@ function Sidebar({ user, active, onSelect, theme, setTheme, onLogout, onUndo, on
                                       onCloseMobile && onCloseMobile();
                                     }}
                                     className={cx(
-                                      'w-full rounded-xl px-3 py-1.5 text-left text-[11px] font-medium',
+                                      'w-full rounded-2xl px-3 py-2 text-left text-[10px] font-semibold',
                                       active === 'Members' && membersView === 'visitors'
                                         ? 'bg-blue-50 text-blue-700 dark:bg-blue-900/35 dark:text-blue-200'
                                         : 'text-slate-600 hover:bg-slate-50 dark:text-slate-200 dark:hover:bg-slate-800/80'
@@ -6779,7 +6803,7 @@ function EditMemberModal({ member, onClose, onSave, planOptions, statusOptions, 
                 </div>
                 <div>
                   <label className={labelBase}><ReqLabel>Mobile Number</ReqLabel></label>
-                  <input value={edit.mobile} onChange={(e) => setEdit({ ...edit, mobile: e.target.value })} className={fieldClass('mobile')} />
+                  <input value={edit.mobile} onChange={(e) => setEdit({ ...edit, mobile: e.target.value })} placeholder="e.g. 9876543210 or +919876543210" className={fieldClass('mobile')} />
                   <ValidationHint fieldKey="mobile" />
                 </div>
                 <div>
@@ -7096,7 +7120,7 @@ function EditMemberModal({ member, onClose, onSave, planOptions, statusOptions, 
               </div>
               <div>
                 <label className="text-sm font-medium">Mobile Number*</label>
-                <input inputMode="numeric" value={form.mobile} onBlur={() => setTouched((p) => ({ ...p, mobile: true }))} onChange={(e) => setForm((p) => ({ ...p, mobile: e.target.value }))} className={inputCls('mobile')} />
+                <input inputMode="numeric" value={form.mobile} onBlur={() => setTouched((p) => ({ ...p, mobile: true }))} onChange={(e) => setForm((p) => ({ ...p, mobile: e.target.value }))} placeholder="e.g. 9876543210 or +919876543210" className={inputCls('mobile')} />
                 {showErr('mobile') && <div className="mt-1 text-xs text-rose-600">{errors.mobile}</div>}
               </div>
               <div>
@@ -7829,7 +7853,7 @@ function EditMemberModal({ member, onClose, onSave, planOptions, statusOptions, 
                     <option value="">Select gender</option>
                     {settings.genders.map(g => <option key={g} value={g}>{g}</option>)}
                   </select></div>
-                  <div><label className="text-sm font-medium">Mobile Number{reqMark}</label><input id="add-member-mobile" inputMode="numeric" value={form.mobile} onChange={(e) => setForm({ ...form, mobile: e.target.value })} className={reqCls(req1.mobile)} /></div>
+                  <div><label className="text-sm font-medium">Mobile Number{reqMark}</label><input id="add-member-mobile" inputMode="numeric" value={form.mobile} onChange={(e) => setForm({ ...form, mobile: e.target.value })} placeholder="e.g. 9876543210 or +919876543210" className={reqCls(req1.mobile)} /></div>
                   <div className="sm:col-span-2"><label className="text-sm font-medium">Address{reqMark}</label><input id="add-member-address" value={form.address} onChange={(e) => setForm({ ...form, address: e.target.value })} className={reqCls(req1.address)} /></div>
                 </div>
               )}
@@ -9391,7 +9415,7 @@ function SettingsPage({ settings, updateSetting, members, access, storageInfo, b
                     <option value="staff-basic">staff-basic</option>
                     <option value="staff-extended">staff-extended</option>
                   </select></div>
-                  <div><label className="text-sm font-medium">Phone</label><input value={form.phone || ''} onChange={(e) => setForm({ ...form, phone: e.target.value })} className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm" /></div>
+                  <div><label className="text-sm font-medium">Phone</label><input value={form.phone || ''} onChange={(e) => setForm({ ...form, phone: e.target.value })} placeholder="e.g. 9876543210 or +919876543210" className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm" /></div>
                 </div>
                 <div className="flex flex-col-reverse sm:flex-row justify-end gap-3 px-4 sm:px-6 py-4">
                   <button onClick={() => setModalOpen(false)} className="rounded-xl px-4 py-2 border border-slate-300 bg-white text-sm font-medium w-full sm:w-auto">Cancel</button>
@@ -10400,7 +10424,7 @@ function SettingsPage({ settings, updateSetting, members, access, storageInfo, b
     }
 
     // ---- Finance Page ----
-    function FinancePage({ members, settings, logs, financeTransactions = [], setFinanceTransactions, updateSetting, access, openExpenseSignal = 0, displayTimeZone = 'IST' }) {
+    function FinancePage({ members, settings, logs, financeTransactions = [], setFinanceTransactions, updateSetting, access, openExpenseSignal = 0, displayTimeZone = 'IST', theme = 'light' }) {
       const [query, setQuery] = React.useState('');
       const [appliedQuery, setAppliedQuery] = React.useState('');
       const [showFilter, setShowFilter] = React.useState(false);
@@ -10682,7 +10706,11 @@ function SettingsPage({ settings, updateSetting, members, access, storageInfo, b
         return '-';
       };
 
-      const cardBase = 'rounded-2xl border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-700 dark:bg-slate-900';
+      const isFinanceDark = theme === 'dark';
+      const cardBase = isFinanceDark
+        ? 'rounded-2xl border border-slate-700 bg-slate-900 p-4 shadow-sm'
+        : 'rounded-2xl border border-slate-200 bg-white p-4 shadow-sm';
+      const forceLightClass = theme === 'dark' ? '' : 'apg-force-light';
       const canFinanceRevenue = access?.finance?.viewRevenueAutoMembers !== false;
       const canFinanceTrend = access?.finance?.viewRevenueTrend4Months !== false;
       const canFinancePlan = access?.finance?.viewPlanPopularity !== false;
@@ -10693,7 +10721,7 @@ function SettingsPage({ settings, updateSetting, members, access, storageInfo, b
         const upcoming = incomeRows.filter((t) => t.status !== 'pending').slice(0, 5);
         const overdue = incomeRows.filter((t) => t.status === 'pending').slice(0, 5);
         return (
-          <div className="p-4 space-y-4 bg-[#F8FAFC]">
+          <div className={cx("p-4 space-y-4 bg-[#F8FAFC] text-slate-900", forceLightClass)}>
             <div className="text-xl font-semibold text-slate-900">Billing & Payments</div>
             <div className="grid grid-cols-2 gap-3">
               <div className="rounded-2xl border border-blue-200 bg-blue-50 p-4">
@@ -10760,7 +10788,11 @@ function SettingsPage({ settings, updateSetting, members, access, storageInfo, b
         );
       }
       return (
-          <div className="p-3 md:p-8 space-y-5 bg-slate-100 dark:bg-slate-950 text-slate-900 dark:text-slate-100">
+          <div className={cx(
+            "p-3 md:p-8 space-y-5 text-slate-900",
+            isFinanceDark ? 'bg-slate-950 text-slate-100' : 'bg-[#F8FAFC]',
+            forceLightClass
+          )}>
           <div className="flex items-center justify-between gap-3 flex-wrap">
             <h1 className="text-2xl font-semibold text-slate-900 dark:text-slate-100">Finance</h1>
             <div className="flex gap-2 flex-wrap">
