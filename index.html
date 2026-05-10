@@ -676,6 +676,9 @@
         viewRevenueTrend4Months: true,
         viewPlanPopularity: true,
         viewTransactionsAutoMembers: true,
+        viewPendingPayments: true,
+        viewExpenseCard: true,
+        viewProfitCard: true,
         manageExpenses: true,
       },
       settings: {
@@ -749,6 +752,9 @@
         viewRevenueTrend4Months: access?.finance?.viewRevenueTrend4Months !== false,
         viewPlanPopularity: access?.finance?.viewPlanPopularity !== false,
         viewTransactionsAutoMembers: access?.finance?.viewTransactionsAutoMembers !== false,
+        viewPendingPayments: access?.finance?.viewPendingPayments !== false,
+        viewExpenseCard: access?.finance?.viewExpenseCard !== false,
+        viewProfitCard: access?.finance?.viewProfitCard !== false,
         manageExpenses: access?.finance?.manageExpenses !== false,
       },
       settings: {
@@ -10715,6 +10721,9 @@ function SettingsPage({ settings, updateSetting, members, access, storageInfo, b
       const canFinanceTrend = access?.finance?.viewRevenueTrend4Months !== false;
       const canFinancePlan = access?.finance?.viewPlanPopularity !== false;
       const canFinanceTransactions = access?.finance?.viewTransactionsAutoMembers !== false;
+      const canFinancePendingPayments = access?.finance?.viewPendingPayments !== false;
+      const canFinanceExpenseCard = access?.finance?.viewExpenseCard !== false;
+      const canFinanceProfitCard = access?.finance?.viewProfitCard !== false;
       const canFinanceManageExpenses = access?.finance?.manageExpenses !== false;
       const isMobile = useIsMobile();
       if (isMobile) {
@@ -10891,25 +10900,31 @@ function SettingsPage({ settings, updateSetting, members, access, storageInfo, b
               <div className="text-sm text-emerald-700">Auto from Members</div>
             </div>
             )}
-            <div className={cardBase}>
-              <div className="text-sm text-slate-500">Pending Payments</div>
-              <div className="mt-1 text-3xl font-bold text-amber-700">${pendingAmount.toLocaleString()}</div>
-              <div className="text-sm text-amber-700">({pendingRows.length} pending)</div>
-            </div>
-            <button
-              type="button"
-              onClick={() => setShowExpenseLedger(true)}
-              className={cx(cardBase, 'text-left hover:bg-rose-50/50 transition-colors dark:hover:bg-slate-800')}
-            >
-              <div className="text-sm text-slate-500">Expenses</div>
-              <div className="mt-1 text-3xl font-bold text-rose-700">${expense.toLocaleString()}</div>
-              <div className="text-sm text-rose-700">{useEstimatedExpense ? 'Estimated (26%)' : 'Actual expense rows'}</div>
-            </button>
-            <div className={cardBase}>
-              <div className="text-sm text-slate-500">Profit</div>
-              <div className={cx('mt-1 text-3xl font-bold', profit >= 0 ? 'text-emerald-700' : 'text-rose-700')}>${profit.toLocaleString()}</div>
-              <div className="text-sm text-slate-600">Revenue - expense</div>
-            </div>
+            {canFinancePendingPayments && (
+              <div className={cardBase}>
+                <div className="text-sm text-slate-500">Pending Payments</div>
+                <div className="mt-1 text-3xl font-bold text-amber-700">${pendingAmount.toLocaleString()}</div>
+                <div className="text-sm text-amber-700">({pendingRows.length} pending)</div>
+              </div>
+            )}
+            {canFinanceExpenseCard && (
+              <button
+                type="button"
+                onClick={() => setShowExpenseLedger(true)}
+                className={cx(cardBase, 'text-left hover:bg-rose-50/50 transition-colors dark:hover:bg-slate-800')}
+              >
+                <div className="text-sm text-slate-500">Expenses</div>
+                <div className="mt-1 text-3xl font-bold text-rose-700">${expense.toLocaleString()}</div>
+                <div className="text-sm text-rose-700">{useEstimatedExpense ? 'Estimated (26%)' : 'Actual expense rows'}</div>
+              </button>
+            )}
+            {canFinanceProfitCard && (
+              <div className={cardBase}>
+                <div className="text-sm text-slate-500">Profit</div>
+                <div className={cx('mt-1 text-3xl font-bold', profit >= 0 ? 'text-emerald-700' : 'text-rose-700')}>${profit.toLocaleString()}</div>
+                <div className="text-sm text-slate-600">Revenue - expense</div>
+              </div>
+            )}
           </div>
 
           <div className="grid grid-cols-1 xl:grid-cols-3 gap-4">
@@ -10959,7 +10974,7 @@ function SettingsPage({ settings, updateSetting, members, access, storageInfo, b
             <div className="overflow-x-auto">
               <table className="min-w-full text-sm hidden md:table">
                 <thead>
-                  <tr className="bg-blue-50 text-blue-700 dark:bg-slate-800 dark:text-blue-200">
+                  <tr className="bg-slate-100 text-slate-900 dark:bg-slate-800 dark:text-blue-200">
                     <th className="px-3 py-2 text-left"><button onClick={() => toggleSort('date')} className="font-semibold hover:text-blue-900">Date <span className="text-[11px]">{sortIndicator('date')}</span></button></th>
                     <th className="px-3 py-2 text-left"><button onClick={() => toggleSort('memberName')} className="font-semibold hover:text-blue-900">Member <span className="text-[11px]">{sortIndicator('memberName')}</span></button></th>
                     <th className="px-3 py-2 text-left"><button onClick={() => toggleSort('plan')} className="font-semibold hover:text-blue-900">Plan <span className="text-[11px]">{sortIndicator('plan')}</span></button></th>
@@ -11639,6 +11654,9 @@ function SettingsPage({ settings, updateSetting, members, access, storageInfo, b
       };
       const FINANCE_CHILD_PERMISSIONS = [
         { key: 'viewRevenueAutoMembers', label: 'Finance - Revenue (Auto from Members)' },
+        { key: 'viewPendingPayments', label: 'Finance - Pending Payments Card' },
+        { key: 'viewExpenseCard', label: 'Finance - Expenses Card' },
+        { key: 'viewProfitCard', label: 'Finance - Profit Card' },
         { key: 'viewRevenueTrend4Months', label: 'Revenue Trend (Last 4 Months)' },
         { key: 'viewPlanPopularity', label: 'Plan Popularity' },
         { key: 'viewTransactionsAutoMembers', label: 'Transactions (Auto from Members)' },
@@ -11877,7 +11895,7 @@ function SettingsPage({ settings, updateSetting, members, access, storageInfo, b
             access: allSelected
               ? normalizeAccess({
                 dashboard: { viewDashboardCore: false, viewOverdueRetentionAlerts: false, viewRevenueMonthly: false, viewRevenueTrend: false, viewMembershipTrends: false },
-                finance: { viewRevenueAutoMembers: false, viewRevenueTrend4Months: false, viewPlanPopularity: false, viewTransactionsAutoMembers: false, manageExpenses: false },
+                finance: { viewRevenueAutoMembers: false, viewPendingPayments: false, viewExpenseCard: false, viewProfitCard: false, viewRevenueTrend4Months: false, viewPlanPopularity: false, viewTransactionsAutoMembers: false, manageExpenses: false },
                 settings: { managePlans: false, manageStatuses: false, managePaymentMethods: false, manageExpenseCategories: false, manageHoldDurations: false, manageGenders: false, manageFineRule: false },
                 whatsapp: { viewReminder: false, viewMonthReminder: false, viewSuccess: false, viewFine: false, viewDeactivate: false, viewHold: false, viewWelcome: false, viewTemplates: false },
                 leave: { viewCreateLeaveRequest: false, viewLeaveRequests: false, viewAnnualLeaveBalance: false, viewLeaveHistory: false },
