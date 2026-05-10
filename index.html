@@ -5839,8 +5839,8 @@ function MemberRowDesktopView({ m, selectable, selected, onSelectToggle, onToggl
             <span className="truncate">{m.name}</span>
           </div>
           <div className="col-span-2 truncate">{m.plan}</div>
-          <div className="col-span-2">{fmt(m.billingDate)}</div>
-          <div className="col-span-2">{fmt(retentionPaymentDeadline(m) || m.billingDate) || '-'}</div>
+          <div className={cx('col-span-2', billingToday ? 'bg-emerald-50 text-emerald-800 font-semibold rounded-md px-2 py-1' : '')}>{fmt(m.billingDate)}</div>
+          <div className={cx('col-span-2', fineHighlight ? 'bg-rose-50 text-rose-800 font-semibold rounded-md px-2 py-1' : '')}>{fmt(retentionPaymentDeadline(m) || m.billingDate) || '-'}</div>
           <div className={cx('col-span-3 flex items-center gap-2 pr-2', isCompactTablet ? 'gap-1 pr-1' : '', isIpadLandscapeCompact ? 'overflow-hidden' : '')}>
             <Badge tone={toneForStatus(m.status)} className={cx('text-center flex-shrink-0', isCompactTablet ? 'w-20 text-[10px]' : 'w-24', isIpadLandscapeCompact ? 'w-[72px] px-1' : '')}>{shortStatus(m.status)}</Badge>
             {canEdit && (
