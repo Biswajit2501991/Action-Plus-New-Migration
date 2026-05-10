@@ -314,9 +314,15 @@
     };
     const fineRuleConfigFromSettings = (settingsLike) => {
       const rawGrace = Number(settingsLike?.fineSmsGraceDays ?? 0);
+      const immediateRoles = Array.isArray(settingsLike?.fineSmsImmediateRoles)
+        ? settingsLike.fineSmsImmediateRoles
+            .map((r) => String(r || '').trim().toLowerCase())
+            .filter(Boolean)
+        : [];
       return {
         enabled: settingsLike?.fineSmsEnabled !== false,
         graceDays: Number.isFinite(rawGrace) && rawGrace > 0 ? Math.floor(rawGrace) : 0,
+        immediateRoles,
       };
     };
     const elapsedHoldMonthsFromBillingDate = (memberLike, todayValue = new Date()) => {
@@ -430,7 +436,7 @@
     // - billingDate <= today => Reminder (becomes "Reminder Sent" once used)
     // - otherwise => Welcome SMS
     // For other statuses, keep status-based mapping.
-    const primaryMessageActionForMember = (member, isOwner = false, fineRule = { enabled: true, graceDays: 0 }) => {
+    const primaryMessageActionForMember = (member, isOwner = false, fineRule = { enabled: true, graceDays: 0, immediateRoles: [] }, actorRole = '') => {
       if (!member) return { key: 'none', label: '', disabled: true };
       const today = asUTC(new Date());
       const joiningDate = asUTC(member.joiningDate);
@@ -438,7 +444,11 @@
       // Use same canonical deadline as dashboard "retention overdue" (billing + 7), then fallbacks.
       const paymentBy = retentionPaymentDeadline(member);
       const graceDays = Number(fineRule?.graceDays || 0);
-      const fineCheckDate = paymentBy ? addDays(paymentBy, graceDays) : null;
+      const roleKey = String(actorRole || '').trim().toLowerCase();
+      const immediateRoles = Array.isArray(fineRule?.immediateRoles) ? fineRule.immediateRoles : [];
+      const bypassGraceForRole = immediateRoles.includes(roleKey);
+      const effectiveGraceDays = bypassGraceForRole ? 0 : graceDays;
+      const fineCheckDate = paymentBy ? addDays(paymentBy, effectiveGraceDays) : null;
       const overdueDays = paymentBy && today ? Math.max(0, Math.floor((today.getTime() - paymentBy.getTime()) / (1000 * 60 * 60 * 24))) : 0;
       const sameJoinAndBillingDay = Boolean(
         joiningDate && billingDate && iso(joiningDate) === iso(billingDate)
@@ -450,7 +460,7 @@
             label: 'Fine SMS',
             disabled: false,
             overdueDays,
-            reason: `Payment By ${fmt(paymentBy)} crossed${graceDays > 0 ? ` (+${graceDays} day grace)` : ''}.`,
+            reason: `Payment By ${fmt(paymentBy)} crossed${effectiveGraceDays > 0 ? ` (+${effectiveGraceDays} day grace)` : ''}.`,
           };
         }
         if (sameJoinAndBillingDay && billingDate && today && billingDate <= today) {
@@ -1294,6 +1304,7 @@ Phone: +91-7047157510`;
       smsTemplates: { ...SMS_TEMPLATE_DEFAULTS },
       fineSmsEnabled: true,
       fineSmsGraceDays: 0,
+      fineSmsImmediateRoles: ['owner'],
       financeUseEstimatedExpense: true,
       medicalQuestionnaireTemplate: MEDICAL_QUESTIONNAIRE_TEMPLATE_DEFAULT,
       acknowledgementTemplate: ACKNOWLEDGEMENT_TEMPLATE_DEFAULT,
@@ -2785,6 +2796,18 @@ Please pay by: ${formattedLastDate}`;
         setMembers(prev => prev.map(m => m.memberId === member.memberId ? {
           ...m,
           reminderSentAt: resolvedKey === 'reminder' ? sentAt : m.reminderSentAt,
+          ...(resolvedKey === 'success'
+            ? {
+                paymentReceivedAt: sentAt,
+                paymentHistory: [{
+                  id: crypto.randomUUID(),
+                  receivedAt: sentAt,
+                  amount: Number(member.amount || 0),
+                  method: member.paymentMethod || '',
+                  by: sentBy,
+                }, ...(Array.isArray(m.paymentHistory) ? m.paymentHistory : [])].slice(0, 120),
+              }
+            : {}),
           lastSmsSent: {
             ...(m.lastSmsSent || {}),
             [resolvedKey]: { sentAt, sentBy },
@@ -3438,6 +3461,7 @@ Please pay by: ${formattedLastDate}`;
       const canAddMembers = membersAccess?.addMembers !== false;
       const canEditMembers = membersAccess?.editMembers !== false;
       const canDeleteMembers = (user?.id === 'owner') && membersAccess?.deleteMembers !== false;
+      const currentUserRole = String(user?.role || (user?.id === 'owner' ? 'owner' : '')).trim().toLowerCase();
       const financeAccess = normalizeAccess(user?.access).finance;
       const canManageExpenses = financeAccess?.manageExpenses !== false;
       const refreshBackendBackupMeta = async () => {
@@ -3913,6 +3937,7 @@ Please pay by: ${formattedLastDate}`;
                   members={members}
                   access={normalizeAccess(user?.access)}
                   isOwner={user?.id === 'owner'}
+                  currentUserRole={currentUserRole}
                   fineRuleConfig={fineRuleConfig}
                   onOpenFilters={() => setFilterOpen(true)}
                   onSelectStatus={(s) => {
@@ -3956,6 +3981,7 @@ Please pay by: ${formattedLastDate}`;
                     genders: settings.genders || [],
                   }}
                   isOwner={user && user.id === 'owner'}
+                  currentUserRole={currentUserRole}
                   fineRuleConfig={fineRuleConfig}
                   canEdit={canEditMembers}
                   displayTimeZone={displayTimeZone}
@@ -4010,6 +4036,7 @@ Please pay by: ${formattedLastDate}`;
                       genders: settings.genders || [],
                     }}
                     isOwner={user && user.id === 'owner'}
+                    currentUserRole={currentUserRole}
                     fineRuleConfig={fineRuleConfig}
                     canEdit={canEditMembers}
                     onImportCsv={openCsvImportDialog}
@@ -4041,6 +4068,7 @@ Please pay by: ${formattedLastDate}`;
                 settings={settings}
                 updateSetting={updateSettingValue}
                 members={members}
+                users={users}
                 access={normalizeAccess(user?.access)}
                 storageInfo={storageInfo}
                 backendStorageInfo={backendStorageInfo}
@@ -4753,6 +4781,36 @@ function Sidebar({ user, active, onSelect, theme, setTheme, onLogout, onUndo, on
       };
       const navItems = NAV.filter(item => (allowedSections.includes(item.key) || item.key === 'Support' || item.key === 'Logs') && canViewSectionByAccess(item.key));
       const [membersExpanded, setMembersExpanded] = React.useState(true);
+      const sidebarCollapseStorageKey = React.useMemo(
+        () => `apg.sidebar.collapsed.${String(user?.id || 'anonymous')}`,
+        [user?.id]
+      );
+      const [collapsed, setCollapsed] = React.useState(() => {
+        try {
+          return localStorage.getItem('apg.sidebar.collapsed.default') === '1';
+        } catch {
+          return false;
+        }
+      });
+      React.useEffect(() => {
+        try {
+          const raw = localStorage.getItem(sidebarCollapseStorageKey);
+          if (raw === null) {
+            const fallback = localStorage.getItem('apg.sidebar.collapsed.default');
+            setCollapsed(fallback === '1');
+            return;
+          }
+          setCollapsed(raw === '1');
+        } catch {
+          setCollapsed(false);
+        }
+      }, [sidebarCollapseStorageKey]);
+      React.useEffect(() => {
+        try {
+          localStorage.setItem(sidebarCollapseStorageKey, collapsed ? '1' : '0');
+          localStorage.setItem('apg.sidebar.collapsed.default', collapsed ? '1' : '0');
+        } catch {}
+      }, [collapsed, sidebarCollapseStorageKey]);
       const canViewVisitors = normalizeAccess(user?.access).members?.viewVisitors !== false;
       const sectionOrder = ['', 'MEMBERS & CLIENTS', 'COMMUNICATION', 'OPERATIONS', 'FINANCE', 'STAFF & MANAGEMENT', 'SYSTEM'];
       const groupedNav = React.useMemo(() => {
@@ -4766,40 +4824,63 @@ function Sidebar({ user, active, onSelect, theme, setTheme, onLogout, onUndo, on
       }, [navItems]);
       const navButtonClass = (isActive) => cx(
         'w-full flex items-center gap-2.5 rounded-2xl px-3 py-2 text-left text-[10px] font-semibold transition-all duration-150',
+        collapsed ? 'justify-center px-2.5' : '',
         isActive
           ? 'bg-gradient-to-r from-blue-50 to-indigo-50 text-blue-600 shadow-sm border border-blue-100 dark:from-blue-900/40 dark:to-indigo-900/40 dark:text-blue-200 dark:border-blue-700/70'
           : 'text-slate-700 hover:bg-slate-50/90 border border-transparent dark:text-slate-200 dark:hover:bg-slate-800/80'
       );
       return (
         <aside className={cx(
-          'w-72 bg-[#fcfdff] border-r border-slate-200 text-slate-900 flex flex-col h-screen overflow-hidden dark:bg-slate-900 dark:border-slate-700 dark:text-slate-100',
+          collapsed ? 'w-20' : 'w-72',
+          'bg-[#fcfdff] border-r border-slate-200 text-slate-900 flex flex-col h-screen overflow-hidden dark:bg-slate-900 dark:border-slate-700 dark:text-slate-100',
           'fixed inset-y-0 left-0 z-40 transform transition-transform duration-200',
           mobileOpen ? 'translate-x-0' : '-translate-x-full',
           'md:static md:translate-x-0 md:shrink-0'
         )}>
-          <div className="px-5 pt-4 pb-3 border-b border-slate-100 bg-white/80 backdrop-blur dark:bg-slate-900/90 dark:border-slate-700">
-            <div className="flex items-center gap-3">
+          <div className={cx('pt-4 pb-3 border-b border-slate-100 bg-white/80 backdrop-blur dark:bg-slate-900/90 dark:border-slate-700', collapsed ? 'px-3' : 'px-5')}>
+            <button
+              type="button"
+              onClick={() => setCollapsed((v) => !v)}
+              className={cx('w-full flex items-center rounded-2xl hover:bg-slate-100/70 dark:hover:bg-slate-800/80', collapsed ? 'justify-center p-2' : 'gap-3 p-1.5')}
+              title={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
+            >
               <div className="h-9 w-9 rounded-full bg-blue-50 p-1 ring-1 ring-blue-100 overflow-hidden dark:bg-slate-800 dark:ring-slate-600">
                 <img src="./assets/action-plus-logo.png" alt="Action Plus Gym logo" className="h-full w-full rounded-full object-cover" />
               </div>
-              <div className="min-w-0">
+              {!collapsed && <div className="min-w-0 text-left">
                 <div className="truncate text-[13px] font-semibold text-slate-900 tracking-tight dark:text-slate-100">Action Plus Gym</div>
                 <div className="truncate text-[11px] text-slate-500 dark:text-slate-300">{user?.name || 'User'}</div>
-              </div>
-            </div>
+              </div>}
+            </button>
           </div>
-          <nav className="flex-1 px-4 py-3 overflow-y-auto">
+          <nav className={cx('flex-1 py-3 overflow-y-auto', collapsed ? 'px-2.5' : 'px-4')}>
             {sectionOrder.map((section) => {
               const items = groupedNav[section] || [];
               if (items.length === 0) return null;
               return (
                 <div key={section || 'main'} className="mb-3.5">
-                  {section ? (
+                  {section && !collapsed ? (
                     <div className="px-2 pb-1.5 text-[10px] font-bold tracking-[0.18em] text-slate-400 dark:text-slate-300">{section}</div>
                   ) : null}
                   <div className="space-y-1">
                     {items.map((item) => {
                       if (item.key === 'Members') {
+                        if (collapsed) {
+                          return (
+                            <button
+                              key={item.key}
+                              onClick={() => {
+                                onSelect('Members');
+                                setMembersView && setMembersView('all');
+                                onCloseMobile && onCloseMobile();
+                              }}
+                              className={navButtonClass(active === 'Members')}
+                              title="Members"
+                            >
+                              <AppIcon name={item.icon} className="h-4 w-4 shrink-0" />
+                            </button>
+                          );
+                        }
                         return (
                           <div key={item.key} className="space-y-1">
                             <button
@@ -4864,9 +4945,10 @@ function Sidebar({ user, active, onSelect, theme, setTheme, onLogout, onUndo, on
                             onCloseMobile && onCloseMobile();
                           }}
                           className={navButtonClass(active === item.key)}
+                          title={collapsed ? item.label : undefined}
                         >
                           <AppIcon name={item.icon} className="h-4 w-4 shrink-0" />
-                          <span>{item.label}</span>
+                          {!collapsed && <span>{item.label}</span>}
                         </button>
                       );
                     })}
@@ -4875,15 +4957,15 @@ function Sidebar({ user, active, onSelect, theme, setTheme, onLogout, onUndo, on
               );
             })}
           </nav>
-          <div className="px-4 py-3 border-t border-slate-100 bg-white/80 backdrop-blur space-y-2 dark:bg-slate-900/90 dark:border-slate-700">
-            <div className="grid grid-cols-2 gap-2">
+          <div className={cx('py-3 border-t border-slate-100 bg-white/80 backdrop-blur space-y-2 dark:bg-slate-900/90 dark:border-slate-700', collapsed ? 'px-2.5' : 'px-4')}>
+            <div className={cx('gap-2', collapsed ? 'grid grid-cols-1' : 'grid grid-cols-2')}>
               <button
                 onClick={onUndo}
                 disabled={!canUndo}
                 className={cx('rounded-xl px-3 py-1.5 text-[12px] font-semibold border', canUndo ? 'bg-white text-slate-700 border-slate-300 hover:bg-slate-50 dark:bg-slate-800 dark:text-slate-100 dark:border-slate-600 dark:hover:bg-slate-700' : 'bg-slate-100 text-slate-400 border-slate-200 cursor-not-allowed dark:bg-slate-800/70 dark:text-slate-500 dark:border-slate-700')}
                 title="Undo (up to 5 steps)"
               >
-                ↶ Back
+                {collapsed ? '↶' : '↶ Back'}
               </button>
               <button
                 onClick={onRedo}
@@ -4891,15 +4973,16 @@ function Sidebar({ user, active, onSelect, theme, setTheme, onLogout, onUndo, on
                 className={cx('rounded-xl px-3 py-1.5 text-[12px] font-semibold border', canRedo ? 'bg-white text-slate-700 border-slate-300 hover:bg-slate-50 dark:bg-slate-800 dark:text-slate-100 dark:border-slate-600 dark:hover:bg-slate-700' : 'bg-slate-100 text-slate-400 border-slate-200 cursor-not-allowed dark:bg-slate-800/70 dark:text-slate-500 dark:border-slate-700')}
                 title="Redo (up to 5 steps)"
               >
-                ↷ Forward
+                {collapsed ? '↷' : '↷ Forward'}
               </button>
             </div>
             <button
               onClick={onLogout}
-              className="w-full flex items-center justify-center gap-2 rounded-xl px-4 py-2 text-[13px] font-semibold bg-rose-600 hover:bg-rose-700 text-white"
+              className={cx('w-full flex items-center justify-center rounded-xl px-4 py-2 text-[13px] font-semibold bg-rose-600 hover:bg-rose-700 text-white', collapsed ? 'gap-0' : 'gap-2')}
+              title={collapsed ? 'Logout' : undefined}
             >
               <AppIcon name="logout" className="h-4 w-4" />
-              <span>Logout</span>
+              {!collapsed && <span>Logout</span>}
             </button>
           </div>
         </aside>
@@ -4907,7 +4990,7 @@ function Sidebar({ user, active, onSelect, theme, setTheme, onLogout, onUndo, on
     }
 
     // ---- Dashboard Summary Component ----
-    function DashboardSummary({ members, access, isOwner = false, fineRuleConfig, onSelectStatus, onAddNew, onAddExpense, onSearch, onOpenMember, onWelcome, onOpenFilters }) {
+    function DashboardSummary({ members, access, isOwner = false, currentUserRole = '', fineRuleConfig, onSelectStatus, onAddNew, onAddExpense, onSearch, onOpenMember, onWelcome, onOpenFilters }) {
       const counts = React.useMemo(() => {
         return {
           Active: members.filter(m => m.status === 'Active').length,
@@ -4922,29 +5005,68 @@ function Sidebar({ user, active, onSelect, theme, setTheme, onLogout, onUndo, on
       const [expandedOverdueId, setExpandedOverdueId] = React.useState('');
       const today = new Date();
       const todayKey = iso(new Date());
-      const monthlyRevenue = members
-        .filter(m => {
-          const bd = asUTC(m.billingDate);
-          return bd && bd.getFullYear() === today.getFullYear() && bd.getMonth() === today.getMonth();
+      const collectedRevenueEntries = React.useMemo(() => {
+        return (members || []).flatMap((m) => {
+          const history = Array.isArray(m.paymentHistory) ? m.paymentHistory : [];
+          if (history.length > 0) {
+            return history
+              .map((h) => ({
+                receivedAt: h.receivedAt || h.date || '',
+                amount: Number(h.amount ?? m.amount ?? 0),
+              }))
+              .filter((h) => h.receivedAt && Number(h.amount || 0) > 0);
+          }
+          const messageDerived = Array.isArray(m.messageHistory)
+            ? Array.from(
+                m.messageHistory
+                  .filter((ev) => ev && ev.templateKey === 'success' && (ev.sentAt || ev.ts))
+                  .reduce((acc, ev) => {
+                    const key = localCalendarDateKey(ev.sentAt || ev.ts);
+                    if (!key) return acc;
+                    if (!acc.has(key)) {
+                      acc.set(key, {
+                        receivedAt: ev.sentAt || ev.ts,
+                        amount: Number(m.amount || 0),
+                      });
+                    }
+                    return acc;
+                  }, new Map())
+                  .values()
+              ).filter((h) => h.receivedAt && Number(h.amount || 0) > 0)
+            : [];
+          if (messageDerived.length > 0) return messageDerived;
+          if (m.paymentReceivedAt) {
+            return [{
+              receivedAt: m.paymentReceivedAt,
+              amount: Number(m.amount || 0),
+            }];
+          }
+          return [];
+        });
+      }, [members]);
+      const monthlyRevenue = collectedRevenueEntries
+        .filter((r) => {
+          const rd = asUTC(r.receivedAt);
+          return rd && rd.getFullYear() === today.getFullYear() && rd.getMonth() === today.getMonth();
         })
-        .reduce((sum, m) => sum + Number(m.amount || 0), 0);
+        .reduce((sum, r) => sum + Number(r.amount || 0), 0);
       const growthRate = React.useMemo(() => {
-        const current = members
-          .filter(m => {
-            const bd = asUTC(m.billingDate);
-            return bd && bd.getFullYear() === today.getFullYear() && bd.getMonth() === today.getMonth();
+        const current = collectedRevenueEntries
+          .filter((r) => {
+            const rd = asUTC(r.receivedAt);
+            return rd && rd.getFullYear() === today.getFullYear() && rd.getMonth() === today.getMonth();
           })
-          .reduce((sum, m) => sum + Number(m.amount || 0), 0);
+          .reduce((sum, r) => sum + Number(r.amount || 0), 0);
         const prevDt = new Date(today.getFullYear(), today.getMonth() - 1, 1);
-        const prev = members
-          .filter(m => {
-            const bd = asUTC(m.billingDate);
-            return bd && bd.getFullYear() === prevDt.getFullYear() && bd.getMonth() === prevDt.getMonth();
+        const prev = collectedRevenueEntries
+          .filter((r) => {
+            const rd = asUTC(r.receivedAt);
+            return rd && rd.getFullYear() === prevDt.getFullYear() && rd.getMonth() === prevDt.getMonth();
           })
-          .reduce((sum, m) => sum + Number(m.amount || 0), 0);
+          .reduce((sum, r) => sum + Number(r.amount || 0), 0);
         if (!prev) return current ? 100 : 0;
         return Math.round(((current - prev) / prev) * 100);
-      }, [members, today]);
+      }, [collectedRevenueEntries, today]);
       const overdueList = React.useMemo(() => {
         const todayUtc = asUTC(todayKey);
         return members
@@ -4964,7 +5086,7 @@ function Sidebar({ user, active, onSelect, theme, setTheme, onLogout, onUndo, on
           .sort((a, b) => b.overdueDays - a.overdueDays);
       }, [members, todayKey]);
       const allMonthTrend = React.useMemo(() => {
-        const dates = members.map(m => asUTC(m.billingDate)).filter(Boolean);
+        const dates = collectedRevenueEntries.map((r) => asUTC(r.receivedAt)).filter(Boolean);
         const start = dates.length
           ? new Date(Math.min(...dates.map(d => d.getTime())))
           : new Date(today.getFullYear(), today.getMonth() - 5, 1);
@@ -4981,14 +5103,14 @@ function Sidebar({ user, active, onSelect, theme, setTheme, onLogout, onUndo, on
         }
         return labels.map(x => ({
           label: `${x.label}-${String(x.year).slice(-2)}`,
-          total: members.reduce((sum, m) => {
-            const bd = asUTC(m.billingDate);
-            if (!bd) return sum;
-            if (bd.getFullYear() !== x.year || bd.getMonth() !== x.month) return sum;
-            return sum + Number(m.amount || 0);
+          total: collectedRevenueEntries.reduce((sum, r) => {
+            const rd = asUTC(r.receivedAt);
+            if (!rd) return sum;
+            if (rd.getFullYear() !== x.year || rd.getMonth() !== x.month) return sum;
+            return sum + Number(r.amount || 0);
           }, 0),
         }));
-      }, [members, today]);
+      }, [collectedRevenueEntries, today]);
       const monthTrend = React.useMemo(() => allMonthTrend.slice(-6), [allMonthTrend]);
       const historicalTrend = React.useMemo(() => allMonthTrend.slice(0, -6), [allMonthTrend]);
       const maxTrend = Math.max(1, ...monthTrend.map(x => x.total));
@@ -5071,7 +5193,7 @@ function Sidebar({ user, active, onSelect, theme, setTheme, onLogout, onUndo, on
                     onClick={() => {
                       const target = overdueList[0];
                       if (!target || !onWelcome) return;
-                      const a = primaryMessageActionForMember(target, isOwner, fineRuleConfig);
+                      const a = primaryMessageActionForMember(target, isOwner, fineRuleConfig, currentUserRole);
                       onWelcome(target, a.key);
                     }}
                     className="rounded-2xl border border-violet-200 bg-violet-50 p-3 text-xs font-semibold text-violet-700"
@@ -5301,7 +5423,7 @@ function Sidebar({ user, active, onSelect, theme, setTheme, onLogout, onUndo, on
                         <td className="px-3 py-2 whitespace-nowrap">
                           <div className="flex items-center gap-2">
                             {(() => {
-                              const action = primaryMessageActionForMember(m, isOwner, fineRuleConfig);
+                              const action = primaryMessageActionForMember(m, isOwner, fineRuleConfig, currentUserRole);
                               const canSend = Boolean(String(m.mobile || '').trim()) && !action.disabled;
                               return (
                                 <>
@@ -5357,7 +5479,7 @@ function Sidebar({ user, active, onSelect, theme, setTheme, onLogout, onUndo, on
                     <div className="text-xs text-slate-600">Overdue: {m.overdueDays} days</div>
                     <div className="mt-2 flex gap-2 flex-wrap items-center">
                       {(() => {
-                        const action = primaryMessageActionForMember(m, isOwner, fineRuleConfig);
+                        const action = primaryMessageActionForMember(m, isOwner, fineRuleConfig, currentUserRole);
                         const canSend = Boolean(String(m.mobile || '').trim()) && !action.disabled;
                         return (
                           <>
@@ -5401,7 +5523,7 @@ function Sidebar({ user, active, onSelect, theme, setTheme, onLogout, onUndo, on
     }
 
     // ---- Members List (Dashboard list mode) ----
-function MembersList({ title, list, onBack, onEdit, onStatusChange, holdOptions, logs, onWelcome, onWhatsAppCall, onWelcomeMail, onAddAttachment, onQuickFieldEdit, editOptions, isOwner, fineRuleConfig, canEdit = true, displayTimeZone = 'IST' }) {
+function MembersList({ title, list, onBack, onEdit, onStatusChange, holdOptions, logs, onWelcome, onWhatsAppCall, onWelcomeMail, onAddAttachment, onQuickFieldEdit, editOptions, isOwner, currentUserRole = '', fineRuleConfig, canEdit = true, displayTimeZone = 'IST' }) {
       const [openId, setOpenId] = React.useState(null);
       const [mobileDetailMemberId, setMobileDetailMemberId] = React.useState('');
       const [page, setPage] = React.useState(1);
@@ -5429,7 +5551,7 @@ function MembersList({ title, list, onBack, onEdit, onStatusChange, holdOptions,
               <div className="col-span-2">Name</div>
               <div className="col-span-2">Plan</div>
               <div className="col-span-2">Billing Date</div>
-              <div className="col-span-2">Next Payment Date</div>
+              <div className="col-span-2">Payment By</div>
               <div className="col-span-3">Status / Action / Welcome</div>
             </div>
             <div className="lg:hidden px-1 pb-2 text-xs text-slate-500 dark:text-slate-300">Tap a member card to view full details and actions.</div>
@@ -5453,6 +5575,7 @@ function MembersList({ title, list, onBack, onEdit, onStatusChange, holdOptions,
                 onQuickFieldEdit={onQuickFieldEdit}
                 editOptions={editOptions}
                 isOwner={isOwner}
+                currentUserRole={currentUserRole}
                 fineRuleConfig={fineRuleConfig}
                 onOpenMobileDetail={(member) => setMobileDetailMemberId(member?.memberId || '')}
                 canEdit={canEdit}
@@ -5496,6 +5619,7 @@ function MembersList({ title, list, onBack, onEdit, onStatusChange, holdOptions,
               canDelete={false}
               onDelete={() => {}}
               isOwner={isOwner}
+              currentUserRole={currentUserRole}
               fineRuleConfig={fineRuleConfig}
               onQuickFieldEdit={onQuickFieldEdit}
               editOptions={editOptions}
@@ -5507,12 +5631,12 @@ function MembersList({ title, list, onBack, onEdit, onStatusChange, holdOptions,
     }
 
     // ---- Member Row ----
-function MemberRow({ m, expanded, onToggle, onEdit, onStatusChange, holdOptions, onDelete, canDelete, onWelcome, onWhatsAppCall, onWelcomeMail, onAddAttachment, logs, selected, onSelectToggle, selectable, onQuickFieldEdit, editOptions, isOwner, fineRuleConfig, onOpenMobileDetail, canEdit = true, displayTimeZone = 'IST' }) {
+function MemberRow({ m, expanded, onToggle, onEdit, onStatusChange, holdOptions, onDelete, canDelete, onWelcome, onWhatsAppCall, onWelcomeMail, onAddAttachment, logs, selected, onSelectToggle, selectable, onQuickFieldEdit, editOptions, isOwner, currentUserRole = '', fineRuleConfig, onOpenMobileDetail, canEdit = true, displayTimeZone = 'IST' }) {
       const todayHighlight = fmt(m.billingDate) === fmt(new Date());
       // Determine if we can open WhatsApp welcome/payment reminder.
       // Active members with mobile number and billing date qualify.
       const canWelcome = m.mobile && String(m.mobile).trim();
-      const statusTemplate = primaryMessageActionForMember(m, isOwner, fineRuleConfig);
+      const statusTemplate = primaryMessageActionForMember(m, isOwner, fineRuleConfig, currentUserRole);
       const hasPrimaryMessageAction = statusTemplate.key !== 'none';
       const statusSentText = hasPrimaryMessageAction ? getSmsSentInfoText(m, statusTemplate.key, displayTimeZone) : '';
       const callInfoText = getLastWhatsAppCallText(m, displayTimeZone);
@@ -5632,7 +5756,7 @@ function MemberRowDesktopView({ m, selectable, selected, onSelectToggle, onToggl
           </div>
           <div className="col-span-2 truncate">{m.plan}</div>
           <div className="col-span-2">{fmt(m.billingDate)}</div>
-          <div className="col-span-2">{fmt(m.nextPaymentDate || nextPaymentDateFromBillingDate(m)) || '-'}</div>
+          <div className="col-span-2">{fmt(retentionPaymentDeadline(m) || m.billingDate) || '-'}</div>
           <div className="col-span-3 flex items-center gap-2 pr-2">
             <Badge tone={toneForStatus(m.status)} className="w-24 text-center flex-shrink-0">{shortStatus(m.status)}</Badge>
             {canEdit && (
@@ -5716,13 +5840,34 @@ function MemberRowDesktopView({ m, selectable, selected, onSelectToggle, onToggl
         </button>
       );
     }
-    function MobileMemberDetailView({ m, onBack, onEdit, onWelcome, onWhatsAppCall, onStatusChange, holdOptions, canDelete, onDelete, isOwner, fineRuleConfig, onQuickFieldEdit, editOptions, canEdit = true }) {
-      const statusTemplate = primaryMessageActionForMember(m, isOwner, fineRuleConfig);
+function MobileMemberDetailView({ m, onBack, onEdit, onWelcome, onWhatsAppCall, onStatusChange, holdOptions, canDelete, onDelete, isOwner, currentUserRole = '', fineRuleConfig, onQuickFieldEdit, editOptions, canEdit = true }) {
+      const statusTemplate = primaryMessageActionForMember(m, isOwner, fineRuleConfig, currentUserRole);
       const canWelcome = Boolean(String(m.mobile || '').trim()) && !statusTemplate.disabled;
       const dueAmount = Number(m.amount || 0);
       const holdMonths = elapsedHoldMonthsFromBillingDate(m);
       const holdNote = holdPolicyNote(holdMonths);
       const isHoldMember = String(m.status || '').trim().toLowerCase() === 'hold';
+      const [copiedTopAction, setCopiedTopAction] = React.useState('');
+      const copyTopActionValue = async (key, value) => {
+        const text = String(value === '-' ? '' : (value ?? ''));
+        try {
+          if (navigator?.clipboard?.writeText) {
+            await navigator.clipboard.writeText(text);
+          } else {
+            const helper = document.createElement('textarea');
+            helper.value = text;
+            helper.setAttribute('readonly', 'readonly');
+            helper.style.position = 'absolute';
+            helper.style.left = '-9999px';
+            document.body.appendChild(helper);
+            helper.select();
+            document.execCommand('copy');
+            document.body.removeChild(helper);
+          }
+          setCopiedTopAction(key);
+          setTimeout(() => setCopiedTopAction((prev) => (prev === key ? '' : prev)), 1200);
+        } catch {}
+      };
       const triggerQuickFieldEdit = (fieldKey, label, type = 'text', options = [], rawValue) => {
         if (!onQuickFieldEdit) return;
         // Close mobile detail overlay first so quick-edit modal is visible.
@@ -5774,7 +5919,7 @@ function MemberRowDesktopView({ m, selectable, selected, onSelectToggle, onToggl
                   </div>
                 </div>
               </div>
-              <div className="mt-5 grid grid-cols-4 gap-2">
+              <div className="mt-5 grid grid-cols-3 gap-2">
                 {statusTemplate.key !== 'none' && (
                   <button
                     onClick={() => canWelcome && onWelcome && onWelcome(m, statusTemplate.key)}
@@ -5794,6 +5939,18 @@ function MemberRowDesktopView({ m, selectable, selected, onSelectToggle, onToggl
                 </button>
                 {canEdit && <button onClick={() => onEdit && onEdit(m)} className="rounded-2xl px-2 py-3 text-[11px] font-semibold border border-indigo-300 bg-indigo-50 text-indigo-700">Edit</button>}
                 {canEdit && <button onClick={() => onStatusChange && onStatusChange(m.memberId, 'Active')} className="rounded-2xl px-2 py-3 text-[11px] font-semibold border border-emerald-300 bg-emerald-50 text-emerald-700">Activate</button>}
+                <button
+                  onClick={() => copyTopActionValue('memberId', m.memberId || '-')}
+                  className="rounded-2xl px-2 py-3 text-[11px] font-semibold border border-emerald-300 bg-emerald-50 text-emerald-700"
+                >
+                  {copiedTopAction === 'memberId' ? 'Copied ID' : 'Copy ID'}
+                </button>
+                <button
+                  onClick={() => copyTopActionValue('mobile', m.mobile || '-')}
+                  className="rounded-2xl px-2 py-3 text-[11px] font-semibold border border-emerald-300 bg-emerald-50 text-emerald-700"
+                >
+                  {copiedTopAction === 'mobile' ? 'Copied Mobile' : 'Copy Mobile'}
+                </button>
                 <button onClick={onBack} className="rounded-2xl px-2 py-3 text-[11px] font-semibold border border-slate-300 bg-white text-slate-700">Close</button>
               </div>
               {statusTemplate.key !== 'none' && (
@@ -6081,6 +6238,7 @@ function MemberRowDesktopView({ m, selectable, selected, onSelectToggle, onToggl
 
     // ---- Member Details (expanded row) ----
     function MemberDetails({ m, logs, onQuickFieldEdit, editOptions, isOwner = false, displayTimeZone = 'IST' }) {
+      const [copiedKey, setCopiedKey] = React.useState('');
       // Normalise undefined/empty values to a dash to avoid displaying
       // "undefined" or other undesired text in the details panel.
       const normal = (val) => {
@@ -6133,6 +6291,26 @@ function MemberRowDesktopView({ m, selectable, selected, onSelectToggle, onToggl
         'Payment Method'
       ]);
       const memberLogs = (logs || []).filter(l => l.entityId === m.memberId).slice(0, 2);
+      const copyFieldValue = async (fieldKey, value) => {
+        const text = String(value === '—' ? '' : (value ?? ''));
+        try {
+          if (navigator?.clipboard?.writeText) {
+            await navigator.clipboard.writeText(text);
+          } else {
+            const helper = document.createElement('textarea');
+            helper.value = text;
+            helper.setAttribute('readonly', 'readonly');
+            helper.style.position = 'absolute';
+            helper.style.left = '-9999px';
+            document.body.appendChild(helper);
+            helper.select();
+            document.execCommand('copy');
+            document.body.removeChild(helper);
+          }
+          setCopiedKey(fieldKey);
+          setTimeout(() => setCopiedKey((prev) => (prev === fieldKey ? '' : prev)), 1200);
+        } catch {}
+      };
       const attachmentsBlock = Array.isArray(m.attachments) && m.attachments.length > 0 ? (
         <div className="pb-2 border-b border-slate-200 space-y-1">
           <div className="text-xs font-semibold text-slate-600">Uploaded Documents</div>
@@ -6208,6 +6386,19 @@ function MemberRowDesktopView({ m, selectable, selected, onSelectToggle, onToggl
               <span className="rounded-full border border-blue-200 bg-blue-50 px-1.5 py-0.5 text-[9px] font-semibold text-blue-700">
                 EDIT
               </span>
+            )}
+            {row.editable && (
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  copyFieldValue(row.key, row.value);
+                }}
+                className="rounded-full border border-emerald-200 bg-emerald-50 px-1.5 py-0.5 text-[9px] font-semibold text-emerald-700 hover:bg-emerald-100"
+                title={`Copy ${row.label}`}
+              >
+                {copiedKey === row.key ? 'COPIED' : 'COPY'}
+              </button>
             )}
           </div>
           <div className="mt-0.5 font-semibold text-slate-900 break-words">{String(row.value)}</div>
@@ -6301,7 +6492,7 @@ function QuickActions({ m, onStatusChange, holdOptions, canDelete, onDelete, can
     }
 
     // ---- Dashboard View (Members grouped by status) ----
-function DashboardView({ members, onEdit, onStatusChange, holdOptions, logs, filters, filterOpen, setFilterOpen, anyFilterActive, canDelete, onDelete, billingMonthOptions, onWelcome, onWhatsAppCall, onWelcomeMail, onAddAttachment, onQuickFieldEdit, editOptions, isOwner, fineRuleConfig, canEdit = true, onImportCsv = null, onAddExpense = null, displayTimeZone = 'IST' }) {
+function DashboardView({ members, onEdit, onStatusChange, holdOptions, logs, filters, filterOpen, setFilterOpen, anyFilterActive, canDelete, onDelete, billingMonthOptions, onWelcome, onWhatsAppCall, onWelcomeMail, onAddAttachment, onQuickFieldEdit, editOptions, isOwner, currentUserRole = '', fineRuleConfig, canEdit = true, onImportCsv = null, onAddExpense = null, displayTimeZone = 'IST' }) {
       // Single expanded row across all statuses. Only one memberId may be expanded at a time.
       const [expandedId, setExpandedId] = React.useState(null);
       const [mobileDetailMemberId, setMobileDetailMemberId] = React.useState('');
@@ -6359,9 +6550,9 @@ function DashboardView({ members, onEdit, onStatusChange, holdOptions, logs, fil
         const sorted = [...list];
         sorted.sort((a, b) => {
           const dir = sortDirection === 'asc' ? 1 : -1;
-          if (sortField === 'billingDate' || sortField === 'nextPaymentDate') {
-            const av = asUTC(a[sortField]);
-            const bv = asUTC(b[sortField]);
+          if (sortField === 'billingDate' || sortField === 'nextPaymentDate' || sortField === 'paymentBy') {
+            const av = asUTC(sortField === 'paymentBy' ? (retentionPaymentDeadline(a) || a.billingDate) : a[sortField]);
+            const bv = asUTC(sortField === 'paymentBy' ? (retentionPaymentDeadline(b) || b.billingDate) : b[sortField]);
             const at = av ? av.getTime() : 0;
             const bt = bv ? bv.getTime() : 0;
             return (at - bt) * dir;
@@ -6510,6 +6701,7 @@ function DashboardView({ members, onEdit, onStatusChange, holdOptions, logs, fil
                   onQuickFieldEdit={onQuickFieldEdit}
                   editOptions={editOptions}
                   isOwner={isOwner}
+                  currentUserRole={currentUserRole}
                   fineRuleConfig={fineRuleConfig}
                   onOpenMobileDetail={(member) => setMobileDetailMemberId(member?.memberId || '')}
                   canEdit={canEdit}
@@ -6532,6 +6724,7 @@ function DashboardView({ members, onEdit, onStatusChange, holdOptions, logs, fil
                 canDelete={canDelete}
                 onDelete={onDelete}
                 isOwner={isOwner}
+                currentUserRole={currentUserRole}
                 fineRuleConfig={fineRuleConfig}
                 onQuickFieldEdit={onQuickFieldEdit}
                 editOptions={editOptions}
@@ -6663,7 +6856,7 @@ function DashboardView({ members, onEdit, onStatusChange, holdOptions, logs, fil
                     <button onClick={() => toggleSort('name')} className="col-span-2 text-left hover:text-blue-900">Name <span className="text-[11px]">{sortIndicator('name')}</span></button>
                     <button onClick={() => toggleSort('plan')} className="col-span-2 text-left hover:text-blue-900">Plan <span className="text-[11px]">{sortIndicator('plan')}</span></button>
                     <button onClick={() => toggleSort('billingDate')} className="col-span-2 text-left hover:text-blue-900">Bill Date <span className="text-[11px]">{sortIndicator('billingDate')}</span></button>
-                    <button onClick={() => toggleSort('nextPaymentDate')} className="col-span-2 text-left hover:text-blue-900">Next Pay Date <span className="text-[11px]">{sortIndicator('nextPaymentDate')}</span></button>
+                    <button onClick={() => toggleSort('paymentBy')} className="col-span-2 text-left hover:text-blue-900">Payment By <span className="text-[11px]">{sortIndicator('paymentBy')}</span></button>
                     <div className="col-span-3">Status / Action / Welcome</div>
                   </div>
                   {pageList.map(m => (
@@ -6688,6 +6881,7 @@ function DashboardView({ members, onEdit, onStatusChange, holdOptions, logs, fil
                       onQuickFieldEdit={onQuickFieldEdit}
                       editOptions={editOptions}
                       isOwner={isOwner}
+                      currentUserRole={currentUserRole}
                       fineRuleConfig={fineRuleConfig}
                       onOpenMobileDetail={(member) => setMobileDetailMemberId(member?.memberId || '')}
                       canEdit={canEdit}
@@ -6745,6 +6939,7 @@ function DashboardView({ members, onEdit, onStatusChange, holdOptions, logs, fil
               canDelete={canDelete}
               onDelete={onDelete}
               isOwner={isOwner}
+              currentUserRole={currentUserRole}
               fineRuleConfig={fineRuleConfig}
               onQuickFieldEdit={onQuickFieldEdit}
               editOptions={editOptions}
@@ -9104,7 +9299,7 @@ function PTClientsPage({ members, users, settings, updateSetting, currentUser, a
       };
 
     // ---- Settings Page ----
-function SettingsPage({ settings, updateSetting, members, access, storageInfo, backendStorageInfo, dataSyncMode, offlineQueueCount = 0, canResetFreshStart = false, availableBackups = [], onExport, onImport, onResetFreshStart, onRestoreFromBackup, onDeleteBackup, onDeleteBackupsOlderThan, onKeepLatestBackups }) {
+    function SettingsPage({ settings, updateSetting, members, users = [], access, storageInfo, backendStorageInfo, dataSyncMode, offlineQueueCount = 0, canResetFreshStart = false, availableBackups = [], onExport, onImport, onResetFreshStart, onRestoreFromBackup, onDeleteBackup, onDeleteBackupsOlderThan, onKeepLatestBackups }) {
       const [newValues, setNewValues] = React.useState({ plans: '', statuses: '', paymentMethods: '', holdDurations: '', genders: '' });
       const [openSettingKey, setOpenSettingKey] = React.useState('');
       const importRef = React.useRef(null);
@@ -9176,6 +9371,14 @@ function SettingsPage({ settings, updateSetting, members, access, storageInfo, b
         updateSetting(key, currentValues.filter(x => x !== val));
       };
       const settingsAccess = normalizeAccess(access).settings;
+      const fineImmediateRoleOptions = React.useMemo(() => {
+        const fromUsers = (users || []).map((u) => String(u?.role || '').trim()).filter(Boolean);
+        const fromTemplates = Array.isArray(settings?.roleTemplates) ? settings.roleTemplates.map((r) => String(r?.title || '').trim()).filter(Boolean) : [];
+        return Array.from(new Set(['owner', 'reception', ...fromUsers, ...fromTemplates].map((r) => r.toLowerCase())));
+      }, [users, settings?.roleTemplates]);
+      const fineImmediateRoles = Array.isArray(settings?.fineSmsImmediateRoles)
+        ? settings.fineSmsImmediateRoles.map((r) => String(r || '').trim().toLowerCase()).filter(Boolean)
+        : [];
       const settingItems = [
         { key: 'plans', label: 'Plans', allowed: settingsAccess.managePlans },
         { key: 'statuses', label: 'Statuses', allowed: settingsAccess.manageStatuses },
@@ -9421,8 +9624,29 @@ function SettingsPage({ settings, updateSetting, members, access, storageInfo, b
                       className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900"
                     />
                   </label>
+                  <div className="text-sm text-slate-700 space-y-1">
+                    <span className="block font-medium">Immediate Fine Roles (ignore grace)</span>
+                    <div className="rounded-xl border border-slate-300 bg-white px-3 py-2 space-y-2 max-h-40 overflow-auto">
+                      {fineImmediateRoleOptions.map((roleKey) => (
+                        <label key={roleKey} className="flex items-center gap-2 text-xs">
+                          <input
+                            type="checkbox"
+                            checked={fineImmediateRoles.includes(roleKey)}
+                            onChange={(e) => {
+                              const enabled = Boolean(e.target.checked);
+                              const next = enabled
+                                ? Array.from(new Set([...fineImmediateRoles, roleKey]))
+                                : fineImmediateRoles.filter((r) => r !== roleKey);
+                              updateSetting('fineSmsImmediateRoles', next);
+                            }}
+                          />
+                          <span className="uppercase">{roleKey}</span>
+                        </label>
+                      ))}
+                    </div>
+                  </div>
                   <div className="rounded-2xl border border-rose-200 bg-rose-50 px-3 py-2 text-xs text-rose-700">
-                    Fine SMS is shown when member is Active and Payment By date is crossed by configured grace days.
+                    Fine SMS is shown when member is Active and Payment By date is crossed. Selected immediate roles bypass grace days.
                   </div>
                 </div>
               </div>
@@ -9953,8 +10177,9 @@ function SettingsPage({ settings, updateSetting, members, access, storageInfo, b
       const todayUtc = asUTC(todayKey);
       const activeMembers = members.filter(m => m.status === 'Active');
       const isOwnerForSmsTab = currentUser?.id === 'owner';
+      const currentUserRoleForSmsTab = String(currentUser?.role || (isOwnerForSmsTab ? 'owner' : '')).trim().toLowerCase();
       const fineRuleConfig = React.useMemo(() => fineRuleConfigFromSettings(settings), [settings]);
-      const primaryTemplateKeyForTab = (m) => primaryMessageActionForMember(m, isOwnerForSmsTab, fineRuleConfig).key;
+      const primaryTemplateKeyForTab = (m) => primaryMessageActionForMember(m, isOwnerForSmsTab, fineRuleConfig, currentUserRoleForSmsTab).key;
       const billingD5 = activeMembers.filter(m => {
         const due = retentionPaymentDeadline(m);
         if (!due || !todayUtc) return false;
@@ -9975,12 +10200,12 @@ function SettingsPage({ settings, updateSetting, members, access, storageInfo, b
         return bd && todayUtc && bd.getUTCMonth() === todayUtc.getUTCMonth() && bd.getUTCFullYear() === todayUtc.getUTCFullYear();
       }).length;
       const membersByType = React.useMemo(() => ({
-        reminder: activeMembers.filter((m) => primaryMessageActionForMember(m, isOwnerForSmsTab, fineRuleConfig).key === 'reminder'),
+        reminder: activeMembers.filter((m) => primaryMessageActionForMember(m, isOwnerForSmsTab, fineRuleConfig, currentUserRoleForSmsTab).key === 'reminder'),
         monthReminder: activeMembers.filter(m => {
           const bd = asUTC(m.billingDate);
           return bd && todayUtc && bd.getUTCMonth() === todayUtc.getUTCMonth() && bd.getUTCFullYear() === todayUtc.getUTCFullYear();
         }),
-        fine: activeMembers.filter((m) => primaryMessageActionForMember(m, isOwnerForSmsTab, fineRuleConfig).key === 'fine'),
+        fine: activeMembers.filter((m) => primaryMessageActionForMember(m, isOwnerForSmsTab, fineRuleConfig, currentUserRoleForSmsTab).key === 'fine'),
         success: members
           .filter((m) => Boolean(getLastWhatsAppSendMeta(m, 'success')?.sentAt))
           .sort((a, b) => {
@@ -9995,7 +10220,7 @@ function SettingsPage({ settings, updateSetting, members, access, storageInfo, b
           const bd = asUTC(m.billingDate);
           return Boolean(jd && bd && todayUtc && iso(jd) === iso(bd) && bd <= todayUtc);
         }),
-      }), [activeMembers, members, todayKey, currentUser?.id, fineRuleConfig]);
+      }), [activeMembers, members, todayKey, currentUser?.id, currentUser?.role, fineRuleConfig]);
       const rows = React.useMemo(() => {
         const q = search.toLowerCase().trim();
         const base = membersByType[activeType] || [];
@@ -10226,7 +10451,7 @@ function SettingsPage({ settings, updateSetting, members, access, storageInfo, b
                       <td className="px-3 py-2">{fmt(retentionPaymentDeadline(m) || m.billingDate)}</td>
                       <td className="px-3 py-2">
                         {(() => {
-                          const suggested = primaryMessageActionForMember(m, currentUser?.id === 'owner', fineRuleConfig);
+                          const suggested = primaryMessageActionForMember(m, currentUser?.id === 'owner', fineRuleConfig, currentUserRoleForSmsTab);
                           const sentLabel = isSuccessAuditTab ? 'Success SMS Sent' : suggested.label;
                           const canSendSuggested = Boolean(String(m.mobile || '').trim()) && !suggested.disabled && canActInSuccessTab;
                           return (
@@ -10289,13 +10514,13 @@ function SettingsPage({ settings, updateSetting, members, access, storageInfo, b
                     <div className="text-xs text-slate-600">
                       What Message To Send:{' '}
                       {(() => {
-                        const suggested = primaryMessageActionForMember(m, currentUser?.id === 'owner', fineRuleConfig);
+                        const suggested = primaryMessageActionForMember(m, currentUser?.id === 'owner', fineRuleConfig, currentUserRoleForSmsTab);
                         return isSuccessAuditTab ? 'Success SMS Sent' : suggested.label;
                       })()}
                     </div>
                     <div>
                       {(() => {
-                        const suggested = primaryMessageActionForMember(m, currentUser?.id === 'owner', fineRuleConfig);
+                        const suggested = primaryMessageActionForMember(m, currentUser?.id === 'owner', fineRuleConfig, currentUserRoleForSmsTab);
                         const canSendSuggested = Boolean(String(m.mobile || '').trim()) && !suggested.disabled && canActInSuccessTab;
                         return (
                           <button
