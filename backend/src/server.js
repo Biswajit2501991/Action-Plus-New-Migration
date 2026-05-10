@@ -21,7 +21,7 @@ app.use((req, res, next) => {
   res.setHeader('Access-Control-Allow-Methods', 'GET,POST,PUT,PATCH,DELETE,OPTIONS');
   res.setHeader(
     'Access-Control-Allow-Headers',
-    'Content-Type, Authorization, x-apg-process-token, X-APG-Process-Token',
+    'Content-Type, Authorization, x-apg-process-token, X-APG-Process-Token, x-apg-user-id, x-apg-sandbox-id, x-apg-test-profile',
   );
   if (req.method === 'OPTIONS') return res.status(204).end();
   return next();
@@ -335,6 +335,64 @@ async function writeJsonCollection(key, value) {
   );
 }
 
+function readSandboxScope(req) {
+  const testProfile = String(req.headers['x-apg-test-profile'] || '').trim() === '1';
+  const sandboxId = String(req.headers['x-apg-sandbox-id'] || '').trim();
+  const userId = String(req.headers['x-apg-user-id'] || '').trim();
+  if (!testProfile || !sandboxId) return null;
+  return { sandboxId, userId };
+}
+
+async function readScopedCollection(req, key, fallback = []) {
+  const allRows = await readJsonCollection(key, fallback);
+  const scope = readSandboxScope(req);
+  if (!scope) return allRows;
+  return allRows.filter((row) => String(row?.sandboxId || '') === scope.sandboxId);
+}
+
+async function writeScopedCollection(req, key, incomingRows = []) {
+  const scope = readSandboxScope(req);
+  if (!scope) {
+    await writeJsonCollection(key, incomingRows);
+    return;
+  }
+  const allRows = await readJsonCollection(key, []);
+  const kept = allRows.filter((row) => String(row?.sandboxId || '') !== scope.sandboxId);
+  const scopedRows = (Array.isArray(incomingRows) ? incomingRows : []).map((row) => ({
+    ...(row && typeof row === 'object' ? row : {}),
+    sandboxId: scope.sandboxId,
+    createdByTestUserId: scope.userId || (row && row.createdByTestUserId) || '',
+  }));
+  await writeJsonCollection(key, [...kept, ...scopedRows]);
+}
+
+async function readScopedSettings(req) {
+  const scope = readSandboxScope(req);
+  if (!scope) return readJsonValue('apg.settings', {});
+  return readJsonValue(`apg.settings.sandbox.${scope.sandboxId}`, {});
+}
+
+async function writeScopedSettings(req, value) {
+  const scope = readSandboxScope(req);
+  if (!scope) {
+    await writeJsonValue('apg.settings', value || {});
+    return;
+  }
+  await writeJsonValue(`apg.settings.sandbox.${scope.sandboxId}`, value || {});
+}
+
+async function purgeSandboxData(sandboxId) {
+  const id = String(sandboxId || '').trim();
+  if (!id) return;
+  const keys = ['apg.members', 'apg.visitors', 'apg.logs', 'apg.finance', 'apg.sms.events'];
+  for (const key of keys) {
+    const rows = await readJsonCollection(key, []);
+    const nextRows = rows.filter((row) => String(row?.sandboxId || '') !== id);
+    await writeJsonCollection(key, nextRows);
+  }
+  await writeJsonValue(`apg.settings.sandbox.${id}`, {});
+}
+
 async function readJsonValue(key, fallback = null) {
   const result = await query(
     `select value_json
@@ -449,24 +507,24 @@ app.post('/api/process/start', (req, res) => {
   }
 });
 
-app.get('/api/members', async (_req, res) => {
-  const members = await readJsonCollection('apg.members', []);
+app.get('/api/members', async (req, res) => {
+  const members = await readScopedCollection(req, 'apg.members', []);
   res.json(members);
 });
 
 app.put('/api/members/bulk', async (req, res) => {
-  await writeJsonCollection('apg.members', req.body?.members || []);
+  await writeScopedCollection(req, 'apg.members', req.body?.members || []);
   queueDatabaseBackup('members-bulk');
   res.json({ ok: true });
 });
 
-app.get('/api/visitors', async (_req, res) => {
-  const visitors = await readJsonCollection('apg.visitors', []);
+app.get('/api/visitors', async (req, res) => {
+  const visitors = await readScopedCollection(req, 'apg.visitors', []);
   res.json(visitors);
 });
 
 app.put('/api/visitors/bulk', async (req, res) => {
-  await writeJsonCollection('apg.visitors', req.body?.visitors || []);
+  await writeScopedCollection(req, 'apg.visitors', req.body?.visitors || []);
   queueDatabaseBackup('visitors-bulk');
   res.json({ ok: true });
 });
@@ -482,48 +540,57 @@ app.put('/api/users/bulk', async (req, res) => {
   res.json({ ok: true });
 });
 
-app.get('/api/settings', async (_req, res) => {
-  const settings = await readJsonValue('apg.settings', null);
+app.get('/api/settings', async (req, res) => {
+  const settings = await readScopedSettings(req);
   res.json(settings || {});
 });
 
 app.put('/api/settings/bulk', async (req, res) => {
-  await writeJsonValue('apg.settings', req.body?.settings || {});
+  await writeScopedSettings(req, req.body?.settings || {});
   queueDatabaseBackup('settings-bulk');
   res.json({ ok: true });
 });
 
-app.get('/api/logs', async (_req, res) => {
-  const logs = await readJsonCollection('apg.logs', []);
+app.get('/api/logs', async (req, res) => {
+  const logs = await readScopedCollection(req, 'apg.logs', []);
   res.json(logs);
 });
 
 app.put('/api/logs/bulk', async (req, res) => {
-  await writeJsonCollection('apg.logs', req.body?.logs || []);
+  await writeScopedCollection(req, 'apg.logs', req.body?.logs || []);
   queueDatabaseBackup('logs-bulk');
   res.json({ ok: true });
 });
 
-app.get('/api/finance', async (_req, res) => {
-  const finance = await readJsonCollection('apg.finance', []);
+app.get('/api/finance', async (req, res) => {
+  const finance = await readScopedCollection(req, 'apg.finance', []);
   res.json(finance);
 });
 
 app.put('/api/finance/bulk', async (req, res) => {
-  await writeJsonCollection('apg.finance', req.body?.finance || []);
+  await writeScopedCollection(req, 'apg.finance', req.body?.finance || []);
   queueDatabaseBackup('finance-bulk');
   res.json({ ok: true });
 });
 
-app.get('/api/sms-events', async (_req, res) => {
-  const events = await readJsonCollection('apg.sms.events', []);
+app.get('/api/sms-events', async (req, res) => {
+  const events = await readScopedCollection(req, 'apg.sms.events', []);
   res.json(events);
 });
 
 app.put('/api/sms-events/bulk', async (req, res) => {
-  await writeJsonCollection('apg.sms.events', req.body?.smsEvents || []);
+  await writeScopedCollection(req, 'apg.sms.events', req.body?.smsEvents || []);
   queueDatabaseBackup('sms-events-bulk');
   res.json({ ok: true });
+});
+
+app.post('/api/test-users/purge', async (req, res) => {
+  const sandboxId = String(req.body?.sandboxId || '').trim();
+  const userId = String(req.body?.userId || '').trim();
+  if (!sandboxId) return res.status(400).json({ error: 'sandbox-id-required' });
+  await purgeSandboxData(sandboxId);
+  queueDatabaseBackup('test-user-purge', { force: true });
+  return res.json({ ok: true, sandboxId, userId });
 });
 
 app.get('/api/storage', async (_req, res) => {

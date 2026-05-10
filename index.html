@@ -1146,8 +1146,17 @@ Phone: +91-7047157510`;
       }
     };
     const backendJson = async (path, init = {}) => {
+      const syncCtx = (typeof window !== 'undefined' && window.__APG_SYNC_CONTEXT__ && typeof window.__APG_SYNC_CONTEXT__ === 'object')
+        ? window.__APG_SYNC_CONTEXT__
+        : {};
       const res = await fetch(`${getBackendApiBaseUrl()}${path}`, {
-        headers: { 'Content-Type': 'application/json', ...(init.headers || {}) },
+        headers: {
+          'Content-Type': 'application/json',
+          ...(syncCtx.userId ? { 'x-apg-user-id': String(syncCtx.userId) } : {}),
+          ...(syncCtx.sandboxId ? { 'x-apg-sandbox-id': String(syncCtx.sandboxId) } : {}),
+          ...(syncCtx.testProfile ? { 'x-apg-test-profile': '1' } : {}),
+          ...(init.headers || {}),
+        },
         ...init,
       });
       if (!res.ok) throw new Error(`backend-${res.status}`);
@@ -1334,6 +1343,8 @@ Phone: +91-7047157510`;
       blockedAt: '',
       updatedBy: '',
       photo: null,
+      testProfile: false,
+      sandboxId: '',
     });
     const RESET_SELECTION_DEFAULTS = {
       members: true,
@@ -1406,7 +1417,7 @@ Phone: +91-7047157510`;
         } catch {}
         return [
           buildOwnerOnlyUser(),
-          { id: 'reception', password: 'reception', name: 'Reception', email: 'reception@example.com', sections: ['Members'], access: { ...DEFAULT_ACCESS }, blocked: false, blockedReason: '', blockedAt: '', updatedBy: '', photo: null },
+          { id: 'reception', password: 'reception', name: 'Reception', email: 'reception@example.com', sections: ['Members'], access: { ...DEFAULT_ACCESS }, blocked: false, blockedReason: '', blockedAt: '', updatedBy: '', photo: null, testProfile: false, sandboxId: '' },
         ];
       });
       // Theme: we enforce a single light theme across the app. Previously the app
@@ -3486,6 +3497,15 @@ Please pay by: ${formattedLastDate}`;
       const canEditMembers = membersAccess?.editMembers !== false;
       const canDeleteMembers = (user?.id === 'owner') && membersAccess?.deleteMembers !== false;
       const currentUserRole = String(user?.role || (user?.id === 'owner' ? 'owner' : '')).trim().toLowerCase();
+      if (typeof window !== 'undefined') {
+        window.__APG_SYNC_CONTEXT__ = user?.id
+          ? {
+              userId: String(user.id),
+              testProfile: Boolean(user.testProfile),
+              sandboxId: String(user.sandboxId || ''),
+            }
+          : {};
+      }
       const financeAccess = normalizeAccess(user?.access).finance;
       const canManageExpenses = financeAccess?.manageExpenses !== false;
       const refreshBackendBackupMeta = async () => {
@@ -11836,7 +11856,7 @@ function PTClientsPage({ members, users, settings, updateSetting, currentUser, a
     // This page allows the owner to add new staff and assign which sections they can access.
     function UserManagementPage({ users, setUsers, settings, setSettings, currentUser, logEvent }) {
       const [modalOpen, setModalOpen] = React.useState(false);
-      const [form, setForm] = React.useState({ id: '', password: '', name: '', email: '', sections: [], access: { ...DEFAULT_ACCESS }, blocked: false, blockedReason: '', blockedAt: '', updatedBy: '', photo: null });
+      const [form, setForm] = React.useState({ id: '', password: '', name: '', email: '', sections: [], access: { ...DEFAULT_ACCESS }, blocked: false, blockedReason: '', blockedAt: '', updatedBy: '', photo: null, testProfile: false, sandboxId: '' });
       const [error, setError] = React.useState('');
       const [editingId, setEditingId] = React.useState(null);
       const [shownPasswords, setShownPasswords] = React.useState({});
@@ -11893,7 +11913,7 @@ function PTClientsPage({ members, users, settings, updateSetting, currentUser, a
       });
 
       const openAdd = () => {
-        setForm({ id: '', password: '', name: '', email: '', sections: [], access: { ...DEFAULT_ACCESS }, blocked: false, blockedReason: '', blockedAt: '', updatedBy: '', photo: null });
+        setForm({ id: '', password: '', name: '', email: '', sections: [], access: { ...DEFAULT_ACCESS }, blocked: false, blockedReason: '', blockedAt: '', updatedBy: '', photo: null, testProfile: false, sandboxId: '' });
         setError('');
         setEditingId(null);
         setSelectedRole('');
@@ -11924,6 +11944,8 @@ function PTClientsPage({ members, users, settings, updateSetting, currentUser, a
           blockedAt: u.blockedAt || '',
           updatedBy: u.updatedBy || '',
           photo: u.photo || null,
+          testProfile: Boolean(u.testProfile),
+          sandboxId: u.sandboxId || '',
         });
         setError('');
         setEditingId(u.id);
@@ -12345,10 +12367,21 @@ function PTClientsPage({ members, users, settings, updateSetting, currentUser, a
         logEvent && logEvent('staff.block_toggled', 'user', u.id, u, { ...u, blocked: nextBlocked, blockedReason, blockedAt: nextBlocked ? now : '', unblockNote });
       };
 
-      const handleDelete = (u) => {
+      const handleDelete = async (u) => {
         if (!isOwner || u.id === 'owner') return;
         const ok = window.confirm(`Delete staff "${u.id}"? This cannot be undone.`);
         if (!ok) return;
+        if (u.testProfile && u.sandboxId) {
+          const purgeOk = window.confirm('This is a test profile. Delete all sandbox data created by this test profile as well?');
+          if (purgeOk) {
+            try {
+              await backendJson('/test-users/purge', {
+                method: 'POST',
+                body: JSON.stringify({ userId: u.id, sandboxId: u.sandboxId }),
+              });
+            } catch {}
+          }
+        }
         setUsers(prev => prev.filter(x => x.id !== u.id));
         setSettings(prev => {
           const staffList = prev.staff || [];
@@ -12389,6 +12422,8 @@ function PTClientsPage({ members, users, settings, updateSetting, currentUser, a
           blockedAt: form.blockedAt || '',
           updatedBy: currentUser?.id || currentUser?.name || '',
           photo: form.photo || null,
+          testProfile: Boolean(form.testProfile),
+          sandboxId: form.testProfile ? (form.sandboxId || crypto.randomUUID()) : '',
         };
         if (editingId) {
           setUsers(prev => prev.map(u => (u.id === editingId ? updatedUser : u)));
@@ -12471,6 +12506,7 @@ function PTClientsPage({ members, users, settings, updateSetting, currentUser, a
                   <th className="px-3 py-2 text-left">Email</th>
                   <th className="px-3 py-2 text-left">Password</th>
                   <th className="px-3 py-2 text-left">Status</th>
+                  <th className="px-3 py-2 text-left">Profile Type</th>
                   <th className="px-3 py-2 text-left">Sections</th>
                   <th className="px-3 py-2 text-left">Actions</th>
                 </tr>
@@ -12502,6 +12538,11 @@ function PTClientsPage({ members, users, settings, updateSetting, currentUser, a
                         {u.blocked ? 'Blocked' : 'Active'}
                       </span>
                     </td>
+                    <td className="px-3 py-2 whitespace-nowrap text-slate-900">
+                      <span className={cx('text-xs font-medium px-2 py-1 rounded-full border', u.testProfile ? 'bg-violet-50 text-violet-700 border-violet-200' : 'bg-slate-100 text-slate-700 border-slate-200')}>
+                        {u.testProfile ? 'Test' : 'Production'}
+                      </span>
+                    </td>
                     <td className="px-3 py-2 whitespace-nowrap text-xs max-w-xs truncate text-slate-900">{u.sections && u.sections.join(', ')}</td>
                     <td className="px-3 py-2 whitespace-nowrap text-slate-900">
                       {isOwner ? (
@@ -12525,7 +12566,7 @@ function PTClientsPage({ members, users, settings, updateSetting, currentUser, a
                   </tr>
                 ))}
                 {users.length === 0 && (
-                  <tr><td colSpan={8} className="text-center px-3 py-4 text-slate-500">No staff members yet.</td></tr>
+                  <tr><td colSpan={9} className="text-center px-3 py-4 text-slate-500">No staff members yet.</td></tr>
                 )}
               </tbody>
             </table>
@@ -12547,6 +12588,7 @@ function PTClientsPage({ members, users, settings, updateSetting, currentUser, a
                   </div>
                   <div className="text-xs text-slate-600 truncate">Email: {u.email || '-'}</div>
                   <div className="text-xs text-slate-600 truncate">Sections: {u.sections && u.sections.join(', ')}</div>
+                  <div className="text-xs text-slate-600">Profile: {u.testProfile ? 'Test' : 'Production'}</div>
                   <div className="text-xs text-slate-600 font-mono">
                     Password: {shownPasswords[u.id] ? (u.password || '') : '••••••••'}
                   </div>
@@ -12609,6 +12651,29 @@ function PTClientsPage({ members, users, settings, updateSetting, currentUser, a
                   </div>
                   <div><label className="text-sm font-medium text-slate-700">Name</label><input value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900" /></div>
                   <div><label className="text-sm font-medium text-slate-700">Email</label><input value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900" /></div>
+                  <div className="rounded-xl border border-violet-200 bg-violet-50 p-3 space-y-2">
+                    <label className="inline-flex items-center gap-2 text-sm font-medium text-violet-800">
+                      <input
+                        type="checkbox"
+                        checked={Boolean(form.testProfile)}
+                        onChange={(e) => {
+                          const next = Boolean(e.target.checked);
+                          setForm((prev) => ({
+                            ...prev,
+                            testProfile: next,
+                            sandboxId: next ? (prev.sandboxId || crypto.randomUUID()) : '',
+                          }));
+                        }}
+                      />
+                      Test profile (isolated sandbox data)
+                    </label>
+                    {form.testProfile && (
+                      <div>
+                        <label className="text-xs font-medium text-violet-700">Sandbox ID</label>
+                        <input value={form.sandboxId || ''} readOnly className="w-full rounded-xl border border-violet-300 bg-white px-3 py-2 text-xs text-violet-900" />
+                      </div>
+                    )}
+                  </div>
                   <div>
                     <label className="text-sm font-medium text-slate-700">Role Template</label>
                     <select
