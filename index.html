@@ -5578,23 +5578,38 @@ function MembersList({ title, list, onBack, onEdit, onStatusChange, holdOptions,
       const isTabletView = useIsTabletView();
       const isCompactTablet = isTabletView && tableDensity === 'compact';
       const pageSize = 10;
-      const totalPages = Math.max(1, Math.ceil((list || []).length / pageSize));
+      const prioritizedList = React.useMemo(() => {
+        const rows = Array.isArray(list) ? [...list] : [];
+        const priority = (m) => {
+          const action = primaryMessageActionForMember(m, isOwner, fineRuleConfig, currentUserRole);
+          if (action.key === 'fine') return 2;
+          if (localCalendarDateKey(m?.billingDate) === localTodayCalendarKey()) return 1;
+          return 0;
+        };
+        rows.sort((a, b) => {
+          const p = priority(b) - priority(a);
+          if (p !== 0) return p;
+          return String(a?.name || '').localeCompare(String(b?.name || ''));
+        });
+        return rows;
+      }, [list, isOwner, fineRuleConfig, currentUserRole]);
+      const totalPages = Math.max(1, Math.ceil((prioritizedList || []).length / pageSize));
       const safePage = page > totalPages ? 1 : page;
       const start = (safePage - 1) * pageSize;
-      const pageList = (list || []).slice(start, start + pageSize);
+      const pageList = (prioritizedList || []).slice(start, start + pageSize);
       const mobileDetailMember = React.useMemo(
-        () => (list || []).find((m) => m.memberId === mobileDetailMemberId) || null,
-        [list, mobileDetailMemberId]
+        () => (prioritizedList || []).find((m) => m.memberId === mobileDetailMemberId) || null,
+        [prioritizedList, mobileDetailMemberId]
       );
       React.useEffect(() => {
         setPage(1);
-      }, [list]);
+      }, [prioritizedList]);
       return (
         <div className="p-2 md:p-8 space-y-4 text-slate-900 dark:text-slate-100">
           <div className="flex items-center justify-between gap-3 mb-4">
             <div className="flex items-center gap-3">
             <button onClick={onBack} className="p-2 rounded-xl hover:bg-slate-200 dark:hover:bg-slate-800"><span className="text-xl">←</span></button>
-            <h1 className="text-xl md:text-2xl font-semibold text-slate-900 dark:text-slate-100">{title} ({list.length})</h1>
+            <h1 className="text-xl md:text-2xl font-semibold text-slate-900 dark:text-slate-100">{title} ({prioritizedList.length})</h1>
             </div>
             {isTabletView && (
               <div className="inline-flex items-center rounded-xl border border-slate-300 bg-white p-1">
@@ -5640,7 +5655,7 @@ function MembersList({ title, list, onBack, onEdit, onStatusChange, holdOptions,
                 displayTimeZone={displayTimeZone}
               />
             ))}
-            {(list || []).length > pageSize && (
+            {(prioritizedList || []).length > pageSize && (
               <div className="flex items-center justify-between mt-2 text-sm text-slate-700 dark:text-slate-200">
                 <div>Page {safePage} of {totalPages}</div>
                 <div className="flex gap-2">
@@ -5690,11 +5705,12 @@ function MembersList({ title, list, onBack, onEdit, onStatusChange, holdOptions,
 
     // ---- Member Row ----
 function MemberRow({ m, expanded, onToggle, onEdit, onStatusChange, holdOptions, onDelete, canDelete, onWelcome, onWhatsAppCall, onWelcomeMail, onAddAttachment, logs, selected, onSelectToggle, selectable, onQuickFieldEdit, editOptions, isOwner, currentUserRole = '', fineRuleConfig, onOpenMobileDetail, canEdit = true, displayTimeZone = 'IST', isCompactTablet = false }) {
-      const todayHighlight = localCalendarDateKey(m.billingDate) === localTodayCalendarKey();
+      const billingToday = localCalendarDateKey(m.billingDate) === localTodayCalendarKey();
       // Determine if we can open WhatsApp welcome/payment reminder.
       // Active members with mobile number and billing date qualify.
       const canWelcome = m.mobile && String(m.mobile).trim();
       const statusTemplate = primaryMessageActionForMember(m, isOwner, fineRuleConfig, currentUserRole);
+      const fineHighlight = statusTemplate.key === 'fine';
       const hasPrimaryMessageAction = statusTemplate.key !== 'none';
       const statusSentText = hasPrimaryMessageAction ? getSmsSentInfoText(m, statusTemplate.key, displayTimeZone) : '';
       const callInfoText = getLastWhatsAppCallText(m, displayTimeZone);
@@ -5731,7 +5747,8 @@ function MemberRow({ m, expanded, onToggle, onEdit, onStatusChange, holdOptions,
             onWhatsAppCall={onWhatsAppCall}
             canWelcome={canWelcome}
             statusTemplate={statusTemplate}
-            todayHighlight={todayHighlight}
+            billingToday={billingToday}
+            fineHighlight={fineHighlight}
             statusSentText={statusSentText}
             callInfoText={callInfoText}
             canEdit={canEdit}
@@ -5744,7 +5761,8 @@ function MemberRow({ m, expanded, onToggle, onEdit, onStatusChange, holdOptions,
             onSelectToggle={onSelectToggle}
             onToggle={onToggle}
             expanded={expanded}
-            todayHighlight={todayHighlight}
+            billingToday={billingToday}
+            fineHighlight={fineHighlight}
             onOpenMobileDetail={onOpenMobileDetail}
           />
           {expanded && (
@@ -5793,7 +5811,7 @@ function MemberRow({ m, expanded, onToggle, onEdit, onStatusChange, holdOptions,
     }
 
     // Phase A split: desktop-specific member row presentation.
-function MemberRowDesktopView({ m, selectable, selected, onSelectToggle, onToggle, onEdit, onWelcome, onWhatsAppCall, canWelcome, statusTemplate, todayHighlight, statusSentText, callInfoText, canEdit = true, isCompactTablet = false }) {
+function MemberRowDesktopView({ m, selectable, selected, onSelectToggle, onToggle, onEdit, onWelcome, onWhatsAppCall, canWelcome, statusTemplate, billingToday = false, fineHighlight = false, statusSentText, callInfoText, canEdit = true, isCompactTablet = false }) {
       const isIpadLandscapeCompact = isCompactTablet && typeof window !== 'undefined' && window.innerWidth >= 1024 && window.innerWidth <= 1366;
       return (
         <button onClick={onToggle} className={cx('apg-member-row-desktop hidden lg:grid w-full grid-cols-12 items-center gap-4 px-2 py-3 text-left text-slate-700 hover:bg-slate-100', isCompactTablet ? 'gap-2 px-1.5 py-2 text-[12px]' : '')}>
@@ -5811,12 +5829,17 @@ function MemberRowDesktopView({ m, selectable, selected, onSelectToggle, onToggl
             )}
             <span className="truncate">{m.memberId}</span>
           </div>
-          <div className={cx('col-span-2 flex items-center gap-2', todayHighlight && 'bg-amber-50 text-amber-800 font-semibold rounded-md px-2 py-1')}>
+          <div className={cx(
+            'col-span-2 flex items-center gap-2',
+            fineHighlight
+              ? 'bg-rose-50 text-rose-800 font-semibold rounded-md px-2 py-1'
+              : (billingToday ? 'bg-emerald-50 text-emerald-800 font-semibold rounded-md px-2 py-1' : '')
+          )}>
             <Avatar name={m.name} photo={m.photo} className="h-7 w-7" />
             <span className="truncate">{m.name}</span>
           </div>
           <div className="col-span-2 truncate">{m.plan}</div>
-          <div className={cx('col-span-2', todayHighlight && 'bg-amber-50 text-amber-800 font-semibold rounded-md px-2 py-1')}>{fmt(m.billingDate)}</div>
+          <div className="col-span-2">{fmt(m.billingDate)}</div>
           <div className="col-span-2">{fmt(retentionPaymentDeadline(m) || m.billingDate) || '-'}</div>
           <div className={cx('col-span-3 flex items-center gap-2 pr-2', isCompactTablet ? 'gap-1 pr-1' : '', isIpadLandscapeCompact ? 'overflow-hidden' : '')}>
             <Badge tone={toneForStatus(m.status)} className={cx('text-center flex-shrink-0', isCompactTablet ? 'w-20 text-[10px]' : 'w-24', isIpadLandscapeCompact ? 'w-[72px] px-1' : '')}>{shortStatus(m.status)}</Badge>
@@ -5863,7 +5886,7 @@ function MemberRowDesktopView({ m, selectable, selected, onSelectToggle, onToggl
     }
 
     // Phase A split: mobile-specific member row presentation.
-    function MemberRowMobileView({ m, selectable, selected, onSelectToggle, onToggle, expanded, todayHighlight = false, onOpenMobileDetail }) {
+    function MemberRowMobileView({ m, selectable, selected, onSelectToggle, onToggle, expanded, billingToday = false, fineHighlight = false, onOpenMobileDetail }) {
       return (
         <button
           onClick={() => {
@@ -5890,9 +5913,9 @@ function MemberRowDesktopView({ m, selectable, selected, onSelectToggle, onToggl
                   />
                 )}
                 <Avatar name={m.name} photo={m.photo} className="h-9 w-9 rounded-xl" />
-                <span className="font-semibold truncate text-slate-900">{m.name}</span>
+                <span className={cx('font-semibold truncate', fineHighlight ? 'text-rose-700' : (billingToday ? 'text-emerald-700' : 'text-slate-900'))}>{m.name}</span>
               </div>
-              <div className={cx('text-[11px] mt-1', todayHighlight ? 'text-amber-800 font-semibold' : 'text-slate-500')}>Billing Date: {fmt(m.billingDate) || '-'}</div>
+              <div className="text-[11px] mt-1 text-slate-500">Billing Date: {fmt(m.billingDate) || '-'}</div>
               <div className="text-[11px] text-slate-500">Next Payment Date: {fmt(m.nextPaymentDate || nextPaymentDateFromBillingDate(m)) || '-'}</div>
             </div>
             <div className="flex flex-col items-end gap-1">
@@ -6611,7 +6634,15 @@ function DashboardView({ members, onEdit, onStatusChange, holdOptions, logs, fil
       }, [sortDirection, sortField]);
       const sortMembers = React.useCallback((list) => {
         const sorted = [...list];
+        const getPriority = (m) => {
+          const action = primaryMessageActionForMember(m, isOwner, fineRuleConfig, currentUserRole);
+          if (action.key === 'fine') return 2;
+          if (localCalendarDateKey(m?.billingDate) === localTodayCalendarKey()) return 1;
+          return 0;
+        };
         sorted.sort((a, b) => {
+          const pr = getPriority(b) - getPriority(a);
+          if (pr !== 0) return pr;
           const dir = sortDirection === 'asc' ? 1 : -1;
           if (sortField === 'billingDate' || sortField === 'nextPaymentDate' || sortField === 'paymentBy') {
             const av = asUTC(sortField === 'paymentBy' ? (retentionPaymentDeadline(a) || a.billingDate) : a[sortField]);
@@ -6626,7 +6657,7 @@ function DashboardView({ members, onEdit, onStatusChange, holdOptions, logs, fil
           return (av > bv ? 1 : -1) * dir;
         });
         return sorted;
-      }, [sortDirection, sortField]);
+      }, [sortDirection, sortField, isOwner, fineRuleConfig, currentUserRole]);
       // Apply filters to the full member list. All filters are AND'ed.
       const applyFilters = React.useCallback((list) => {
         return list.filter(m => {
