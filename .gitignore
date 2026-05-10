@@ -1,0 +1,3 @@
+.env
+backend/.env
+tools/cloudflared/cloudflared.tgz

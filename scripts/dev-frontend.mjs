@@ -39,9 +39,11 @@ parseEnvFile(path.join(rootDir, '.env'));
 const frontendPort = Number(process.env.FRONTEND_PORT || 5500);
 const frontendHost = process.env.FRONTEND_HOST || '127.0.0.1';
 const backendPort = Number(process.env.BACKEND_PORT || process.env.PORT || 4000);
-const apiBaseUrl = process.env.API_BASE_URL || `http://localhost:${backendPort}/api`;
+const apiBaseUrl = process.env.API_BASE_URL || '/api';
+const backendHost = process.env.BACKEND_HOST || '127.0.0.1';
 const supervisorPort = Number(process.env.APG_SUPERVISOR_PORT || 4010);
 const SUPERVISOR_PROXY_PREFIX = '/__apg_supervisor';
+const API_PROXY_PREFIX = '/api';
 
 let supervisorChild = null;
 let supervisorChildOwned = false;
@@ -141,6 +143,55 @@ function proxyToSupervisor(clientReq, clientRes) {
   clientReq.pipe(proxyReq);
 }
 
+function proxyToBackend(clientReq, clientRes) {
+  const u = new URL(clientReq.url || '/', `http://${frontendHost}:${frontendPort}`);
+  const hopHeaders = new Set([
+    'connection',
+    'keep-alive',
+    'proxy-authenticate',
+    'proxy-authorization',
+    'te',
+    'trailers',
+    'transfer-encoding',
+    'upgrade',
+    'host',
+  ]);
+  const outHeaders = {};
+  for (const [k, v] of Object.entries(clientReq.headers)) {
+    if (!v) continue;
+    if (hopHeaders.has(k.toLowerCase())) continue;
+    outHeaders[k] = v;
+  }
+
+  const proxyReq = http.request(
+    {
+      hostname: backendHost,
+      port: backendPort,
+      path: u.pathname + u.search,
+      method: clientReq.method,
+      headers: outHeaders,
+      timeout: 120000,
+    },
+    (proxyRes) => {
+      clientRes.writeHead(proxyRes.statusCode || 502, proxyRes.headers);
+      proxyRes.pipe(clientRes);
+    },
+  );
+  proxyReq.on('error', (err) => {
+    if (clientRes.headersSent) return;
+    clientRes.writeHead(502, { 'Content-Type': 'application/json; charset=utf-8' });
+    clientRes.end(JSON.stringify({ error: 'backend-proxy-failed', message: String(err?.message || err) }));
+  });
+  proxyReq.on('timeout', () => {
+    proxyReq.destroy();
+    if (!clientRes.headersSent) {
+      clientRes.writeHead(504, { 'Content-Type': 'application/json; charset=utf-8' });
+      clientRes.end(JSON.stringify({ error: 'backend-proxy-timeout' }));
+    }
+  });
+  clientReq.pipe(proxyReq);
+}
+
 const mimeByExt = {
   '.html': 'text/html; charset=utf-8',
   '.js': 'application/javascript; charset=utf-8',
@@ -198,6 +249,11 @@ const server = http.createServer((req, res) => {
     return;
   }
 
+  if (reqPath === API_PROXY_PREFIX || reqPath.startsWith(`${API_PROXY_PREFIX}/`)) {
+    proxyToBackend(req, res);
+    return;
+  }
+
   const abs = safeResolveFile(reqPath);
   if (!abs || !fs.existsSync(abs) || fs.statSync(abs).isDirectory()) {
     res.writeHead(404, { 'Content-Type': 'text/plain; charset=utf-8' });
@@ -216,6 +272,8 @@ server.listen(frontendPort, frontendHost, async () => {
   console.log(`Frontend running at http://${frontendHost}:${frontendPort}/index.html`);
   // eslint-disable-next-line no-console
   console.log(`Frontend API base URL: ${apiBaseUrl}`);
+  // eslint-disable-next-line no-console
+  console.log(`Backend API proxy: http://${frontendHost}:${frontendPort}${API_PROXY_PREFIX} → ${backendHost}:${backendPort}`);
   // eslint-disable-next-line no-console
   console.log(`Supervisor proxy: http://${frontendHost}:${frontendPort}${SUPERVISOR_PROXY_PREFIX} → 127.0.0.1:${supervisorPort}`);
 });
