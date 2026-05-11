@@ -530,6 +530,9 @@
       'staff.deleted': 'Staff deleted',
       'staff.updated': 'Staff updated',
       'staff.created': 'Staff added',
+      'staff.password_reset.requested': 'Password reset requested',
+      'staff.password_reset.approved': 'Password reset approved',
+      'staff.password_changed.self': 'Password changed (self)',
       'sms.status_triggered': 'Auto SMS (status change)',
       'whatsapp.call.opened': 'WhatsApp call/chat',
       'history.undo': 'Undo',
@@ -2311,7 +2314,18 @@ Phone: +91-7047157510`;
           })
           .slice(0, 20);
       }, [user?.access, visitors]);
-      const pendingLeaveCount = leaveNotifications.length + callbackNotifications.length;
+      const isOwnerForResetFlow = React.useMemo(() => {
+        const idKey = String(user?.id || '').trim().toLowerCase();
+        const roleKey = String(user?.role || '').trim().toLowerCase();
+        return idKey === 'owner' || roleKey === 'owner';
+      }, [user?.id, user?.role]);
+      const passwordResetNotifications = React.useMemo(() => {
+        if (!isOwnerForResetFlow) return [];
+        return (users || [])
+          .filter((u) => u && u.id !== 'owner' && String(u.passwordResetStatus || '') === 'pending')
+          .slice(0, 20);
+      }, [isOwnerForResetFlow, users]);
+      const pendingNotificationCount = leaveNotifications.length + callbackNotifications.length + passwordResetNotifications.length;
       const openVisitorFromNotification = (visitorId) => {
         if (!visitorId) return;
         if (normalizeAccess(user?.access).members?.viewVisitors === false) return;
@@ -2730,6 +2744,89 @@ Phone: +91-7047157510`;
           return true;
         }
         return false;
+      };
+      const requestPasswordReset = async (loginId) => {
+        const raw = String(loginId || '').trim();
+        if (!raw) {
+          setToast('Enter username or email first, then tap Forgot Password.');
+          setTimeout(() => setToast(''), 2600);
+          return false;
+        }
+        const key = raw.toLowerCase();
+        const findInList = (list) => (Array.isArray(list) ? list.find((u) => {
+          const userId = String(u?.id || '').trim().toLowerCase();
+          const email = String(u?.email || '').trim().toLowerCase();
+          return key && (userId === key || email === key);
+        }) : null);
+        let rec = findInList(users);
+        if (!rec && dataSyncMode === 'backend') {
+          try {
+            const remoteUsers = await backendJson('/users');
+            if (Array.isArray(remoteUsers)) {
+              const normalizedRemoteUsers = remoteUsers.map((u) => ({ ...u, access: normalizeAccess(u?.access) }));
+              setUsers(normalizedRemoteUsers);
+              rec = findInList(normalizedRemoteUsers);
+            }
+          } catch {}
+        }
+        if (!rec || rec.id === 'owner') {
+          setToast('No matching staff account found for reset request.');
+          setTimeout(() => setToast(''), 2600);
+          return false;
+        }
+        const nowIso = new Date().toISOString();
+        setUsers((prev) => prev.map((u) => (u.id === rec.id ? {
+          ...u,
+          passwordResetStatus: 'pending',
+          passwordResetRequestedAt: nowIso,
+          passwordResetRequestedByLogin: raw,
+          updatedBy: rec.id || rec.name || '',
+        } : u)));
+        logEvent('staff.password_reset.requested', 'user', rec.id, null, {
+          staffId: rec.id,
+          staffName: rec.name || '',
+          requestedByLogin: raw,
+          requestedAt: nowIso,
+        });
+        setToast(`Reset request sent for ${rec.name || rec.id}. Owner approval needed.`);
+        setTimeout(() => setToast(''), 2800);
+        return true;
+      };
+      const approvePasswordResetRequest = (staffUserId) => {
+        if (!isOwnerForResetFlow) return false;
+        const targetId = String(staffUserId || '').trim();
+        if (!targetId || targetId === 'owner') return false;
+        const targetUser = (users || []).find((u) => String(u?.id || '') === targetId);
+        if (!targetUser) return false;
+        if (String(targetUser.passwordResetStatus || '') !== 'pending') {
+          setToast('No pending reset request for this staff.');
+          setTimeout(() => setToast(''), 2200);
+          return false;
+        }
+        const nextPassword = String(window.prompt(`Set new password for ${targetUser.name || targetUser.id}:`) || '').trim();
+        if (!nextPassword) return false;
+        const now = new Date().toISOString();
+        const actor = user?.id || user?.name || 'owner';
+        setUsers((prev) => prev.map((x) => (x.id === targetUser.id ? {
+          ...x,
+          password: nextPassword,
+          passwordUpdatedAt: now,
+          passwordUpdatedBy: actor,
+          passwordResetStatus: 'approved',
+          passwordResetApprovedAt: now,
+          passwordResetApprovedBy: actor,
+          passwordResetRequestedAt: '',
+          passwordResetRequestedByLogin: '',
+        } : x)));
+        logEvent('staff.password_reset.approved', 'user', targetUser.id, null, {
+          staffId: targetUser.id,
+          staffName: targetUser.name || '',
+          approvedAt: now,
+          approvedBy: actor,
+        });
+        setToast(`Password reset approved for ${targetUser.name || targetUser.id}.`);
+        setTimeout(() => setToast(''), 2400);
+        return true;
       };
 
       // Keep live user details (like photo) in sync after Settings updates.
@@ -3678,9 +3775,10 @@ Please pay by: ${formattedLastDate}`;
       // If no user, show login screen
       if (!user) {
         return (
-          <LoginPage onSubmit={(id, pw) => {
-            return login(id, pw);
-          }} />
+          <LoginPage
+            onSubmit={(id, pw) => login(id, pw)}
+            onForgotPassword={(id) => requestPasswordReset(id)}
+          />
         );
       }
 
@@ -3847,14 +3945,45 @@ Please pay by: ${formattedLastDate}`;
                   aria-label="Notifications"
                 >
                   <AppIcon name="bell" className="h-4 w-4" />
-                  {pendingLeaveCount > 0 && (
-                    <span className="absolute -top-1 -right-1 rounded-full bg-rose-600 px-1.5 py-0.5 text-[9px] font-semibold text-white">{pendingLeaveCount}</span>
+                  {pendingNotificationCount > 0 && (
+                    <span className="absolute -top-1 -right-1 rounded-full bg-rose-600 px-1.5 py-0.5 text-[9px] font-semibold text-white">{pendingNotificationCount}</span>
                   )}
                 </button>
                 {notificationOpen && (
                   <div onClick={(e) => e.stopPropagation()} className="absolute right-0 mt-1 w-72 rounded-xl border border-slate-200 bg-white shadow-xl p-2 z-50">
-                    {user?.id === 'owner' && (
+                    {isOwnerForResetFlow && (
                       <>
+                        <div className="px-2 py-1 text-xs font-semibold text-slate-600">Password Reset Requests</div>
+                        {passwordResetNotifications.length === 0 ? (
+                          <div className="px-2 py-2 text-xs text-slate-500">No pending password reset requests.</div>
+                        ) : (
+                          <div className="max-h-64 overflow-auto space-y-1 mb-1">
+                            {passwordResetNotifications.map((u) => (
+                              <button
+                                key={`pwd-reset-mobile-${u.id}`}
+                                onClick={() => {
+                                  setNotificationOpen(false);
+                                  setActiveTab('Staff');
+                                }}
+                                className="w-full rounded-lg border border-blue-200 bg-blue-50 px-2 py-2 text-left hover:bg-blue-100"
+                              >
+                                <div className="text-xs font-semibold text-blue-800">{u.name || u.id} requested password reset</div>
+                                <div className="text-[11px] text-blue-700 mb-1">User: {u.id} • {formatDateTimeTz(u.passwordResetRequestedAt, displayTimeZone)}</div>
+                                <button
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    e.preventDefault();
+                                    const ok = approvePasswordResetRequest(u.id);
+                                    if (ok) setNotificationOpen(false);
+                                  }}
+                                  className="rounded-full border border-blue-300 bg-white px-2.5 py-1 text-[11px] font-semibold text-blue-700 hover:bg-blue-50"
+                                >
+                                  Approve Reset
+                                </button>
+                              </button>
+                            ))}
+                          </div>
+                        )}
                         <div className="px-2 py-1 text-xs font-semibold text-slate-600">Leave Notifications</div>
                         {leaveNotifications.length === 0 ? (
                           <div className="px-2 py-2 text-xs text-slate-500">No pending leave approvals.</div>
@@ -4033,14 +4162,45 @@ Please pay by: ${formattedLastDate}`;
                         className="relative rounded-xl border border-slate-200 bg-white px-2.5 py-2 text-slate-700 hover:bg-slate-50 shadow-[inset_0_1px_0_rgba(255,255,255,0.8)]"
                       >
                         <AppIcon name="bell" className="h-4 w-4" />
-                        {pendingLeaveCount > 0 && (
-                          <span className="absolute -top-1 -right-1 rounded-full bg-rose-600 px-1.5 py-0.5 text-[10px] font-semibold text-white">{pendingLeaveCount}</span>
+                        {pendingNotificationCount > 0 && (
+                          <span className="absolute -top-1 -right-1 rounded-full bg-rose-600 px-1.5 py-0.5 text-[10px] font-semibold text-white">{pendingNotificationCount}</span>
                         )}
                       </button>
                       {notificationOpen && (
                         <div onClick={(e) => e.stopPropagation()} className="absolute right-0 mt-2 w-80 rounded-xl border border-slate-200 bg-white shadow-xl p-2 z-50">
-                        {user?.id === 'owner' && (
+                        {isOwnerForResetFlow && (
                           <>
+                            <div className="px-2 py-1 text-xs font-semibold text-slate-600">Password Reset Requests</div>
+                            {passwordResetNotifications.length === 0 ? (
+                              <div className="px-2 py-2 text-xs text-slate-500">No pending password reset requests.</div>
+                            ) : (
+                              <div className="max-h-72 overflow-auto space-y-1 mb-1">
+                                {passwordResetNotifications.map((u) => (
+                                  <button
+                                    key={`pwd-reset-desktop-${u.id}`}
+                                    onClick={() => {
+                                      setNotificationOpen(false);
+                                      setActiveTab('Staff');
+                                    }}
+                                    className="w-full rounded-lg border border-blue-200 bg-blue-50 px-2 py-2 text-left hover:bg-blue-100"
+                                  >
+                                    <div className="text-xs font-semibold text-blue-800">{u.name || u.id} requested password reset</div>
+                                    <div className="text-[11px] text-blue-700 mb-1">User: {u.id} • {formatDateTimeTz(u.passwordResetRequestedAt, displayTimeZone)}</div>
+                                    <button
+                                      onClick={(e) => {
+                                        e.stopPropagation();
+                                        e.preventDefault();
+                                        const ok = approvePasswordResetRequest(u.id);
+                                        if (ok) setNotificationOpen(false);
+                                      }}
+                                      className="rounded-full border border-blue-300 bg-white px-2.5 py-1 text-[11px] font-semibold text-blue-700 hover:bg-blue-50"
+                                    >
+                                      Approve Reset
+                                    </button>
+                                  </button>
+                                ))}
+                              </div>
+                            )}
                             <div className="px-2 py-1 text-xs font-semibold text-slate-600">Pending Leave Approvals</div>
                             {leaveNotifications.length === 0 ? (
                               <div className="px-2 py-2 text-xs text-slate-500">No pending leave approvals.</div>
@@ -4449,6 +4609,7 @@ Please pay by: ${formattedLastDate}`;
                 setSettings={setSettings}
                 currentUser={user}
                 logEvent={logEvent}
+                onApprovePasswordReset={approvePasswordResetRequest}
               />
             )}
             {activeTab === 'Attendance' && (
@@ -4918,13 +5079,17 @@ Please pay by: ${formattedLastDate}`;
     }
 
     // ---- Login Page ----
-    function LoginPage({ onSubmit }) {
+    function LoginPage({ onSubmit, onForgotPassword }) {
       const [id, setId] = React.useState('');
       const [pw, setPw] = React.useState('');
+      const [showId, setShowId] = React.useState(false);
+      const [showPw, setShowPw] = React.useState(false);
       const [err, setErr] = React.useState('');
+      const [info, setInfo] = React.useState('');
       const handleSubmit = async (e) => {
         if (e && e.preventDefault) e.preventDefault();
         const ok = await Promise.resolve(onSubmit(id.trim(), pw));
+        setInfo('');
         setErr(ok ? '' : 'Invalid credential');
       };
       return (
@@ -4939,32 +5104,58 @@ Please pay by: ${formattedLastDate}`;
               <form className="space-y-6" onSubmit={handleSubmit}>
                 <div>
                   <label className="block text-lg text-[#6f949d] mb-1.5">✉&nbsp;&nbsp;Email ID</label>
-                  <input
-                    value={id}
-                    onChange={(e) => {
-                      setId(e.target.value);
-                      if (err) setErr('');
-                    }}
-                    placeholder="Enter your username"
-                    className="w-full bg-transparent border-0 border-b border-[#57858f] px-0 py-2 text-base text-[#9bb5bc] placeholder:text-[#6f949d] focus:outline-none"
-                  />
+                  <div className="relative">
+                    <input
+                      type={showId ? 'text' : 'password'}
+                      value={id}
+                      onChange={(e) => {
+                        setId(e.target.value);
+                        if (err) setErr('');
+                        if (info) setInfo('');
+                      }}
+                      placeholder="Enter your username"
+                      className="w-full bg-transparent border-0 border-b border-[#57858f] px-0 py-2 pr-10 text-base text-[#9bb5bc] placeholder:text-[#6f949d] focus:outline-none"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setShowId((v) => !v)}
+                      aria-label={showId ? 'Hide user ID' : 'Show user ID'}
+                      className="absolute right-0 top-1/2 -translate-y-1/2 text-[#8ca8af] hover:text-[#b6c8cd]"
+                    >
+                      {showId ? '🙈' : '👁️'}
+                    </button>
+                  </div>
                 </div>
 
                 <div>
                   <label className="block text-lg text-[#6f949d] mb-1.5">🔒&nbsp;&nbsp;Password</label>
-                  <input
-                    type="password"
-                    value={pw}
-                    onChange={(e) => {
-                      setPw(e.target.value);
-                      if (err) setErr('');
-                    }}
-                    placeholder="••••"
-                    className="w-full bg-transparent border-0 border-b border-[#57858f] px-0 py-2 text-base text-[#9bb5bc] placeholder:text-[#6f949d] focus:outline-none"
-                  />
+                  <div className="relative">
+                    <input
+                      type={showPw ? 'text' : 'password'}
+                      value={pw}
+                      onChange={(e) => {
+                        setPw(e.target.value);
+                        if (err) setErr('');
+                        if (info) setInfo('');
+                      }}
+                      placeholder="••••"
+                      className="w-full bg-transparent border-0 border-b border-[#57858f] px-0 py-2 pr-10 text-base text-[#9bb5bc] placeholder:text-[#6f949d] focus:outline-none"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setShowPw((v) => !v)}
+                      aria-label={showPw ? 'Hide password' : 'Show password'}
+                      className="absolute right-0 top-1/2 -translate-y-1/2 text-[#8ca8af] hover:text-[#b6c8cd]"
+                    >
+                      {showPw ? '🙈' : '👁️'}
+                    </button>
+                  </div>
                 </div>
                 {err && (
                   <div className="text-sm text-rose-300">{err}</div>
+                )}
+                {info && (
+                  <div className="text-sm text-emerald-300">{info}</div>
                 )}
                 <div className="mt-1 flex items-center justify-between text-sm text-[#7397a0]">
                   <label className="flex items-center gap-2 select-none">
@@ -4973,7 +5164,21 @@ Please pay by: ${formattedLastDate}`;
                   </label>
                   <button
                     type="button"
-                    onClick={() => window.alert('Please call or check with Admin to reset your password.')}
+                    onClick={async () => {
+                      if (!id.trim()) {
+                        setInfo('');
+                        setErr('Enter username or email first, then tap Forgot Password.');
+                        return;
+                      }
+                      const ok = await Promise.resolve(onForgotPassword ? onForgotPassword(id.trim()) : false);
+                      if (ok) {
+                        setErr('');
+                        setInfo('Reset request sent. Please ask owner to approve it from Staff page.');
+                      } else {
+                        setInfo('');
+                        setErr('Could not create reset request. Check username/email and try again.');
+                      }
+                    }}
                     className="hover:text-[#9eb8be]"
                   >
                     Forgot Password?
@@ -10275,6 +10480,15 @@ function PTClientsPage({ members, users, settings, updateSetting, currentUser, a
         if (act === 'staff.password.view_toggled') {
           return [l.entityId, a.shown ? 'password shown' : 'password hidden'].filter(Boolean).join(' · ');
         }
+        if (act === 'staff.password_reset.requested') {
+          return [a.staffName || a.staffId || l.entityId, `requested by ${a.requestedByLogin || 'login page'}`].filter(Boolean).join(' · ');
+        }
+        if (act === 'staff.password_reset.approved') {
+          return [a.staffName || a.staffId || l.entityId, `approved by ${a.approvedBy || 'owner'}`].filter(Boolean).join(' · ');
+        }
+        if (act === 'staff.password_changed.self') {
+          return [a.staffName || a.staffId || l.entityId, 'self changed password'].filter(Boolean).join(' · ');
+        }
         if (act === 'staff.role_template.created' || act === 'staff.role_template.updated' || act === 'staff.role_template.deleted') {
           return [a.title || b.title || a.id || b.id || l.entityId].filter(Boolean).join(' · ');
         }
@@ -12244,7 +12458,7 @@ function PTClientsPage({ members, users, settings, updateSetting, currentUser, a
 
     // ---- User Management Page ----
     // This page allows the owner to add new staff and assign which sections they can access.
-    function UserManagementPage({ users, setUsers, settings, setSettings, currentUser, logEvent }) {
+    function UserManagementPage({ users, setUsers, settings, setSettings, currentUser, logEvent, onApprovePasswordReset }) {
       const [modalOpen, setModalOpen] = React.useState(false);
       const [form, setForm] = React.useState({ id: '', password: '', name: '', email: '', sections: [], access: { ...DEFAULT_ACCESS }, blocked: false, blockedReason: '', blockedAt: '', updatedBy: '', photo: null, testProfile: false, sandboxId: '' });
       const [error, setError] = React.useState('');
@@ -12734,6 +12948,44 @@ function PTClientsPage({ members, users, settings, updateSetting, currentUser, a
         setShownPasswords(prev => ({ ...prev, [u.id]: !prev[u.id] }));
         logEvent && logEvent('staff.password.view_toggled', 'user', u.id, null, { shown: !shownPasswords[u.id] });
       };
+      const approveResetRequest = (u) => {
+        if (!isOwner || !u || u.id === 'owner') return;
+        if (typeof onApprovePasswordReset === 'function') {
+          onApprovePasswordReset(u.id);
+        }
+      };
+      const changeOwnPassword = (u) => {
+        if (!u || !currentUser || u.id !== currentUser.id) return;
+        const currentPw = String(window.prompt('Enter current password:') || '');
+        if (!currentPw) return;
+        if (String(u.password || '') !== currentPw) {
+          window.alert('Current password is incorrect.');
+          return;
+        }
+        const nextPassword = String(window.prompt('Enter new password:') || '').trim();
+        if (!nextPassword) return;
+        const confirmPassword = String(window.prompt('Confirm new password:') || '').trim();
+        if (nextPassword !== confirmPassword) {
+          window.alert('New password and confirm password do not match.');
+          return;
+        }
+        const now = new Date().toISOString();
+        setUsers((prev) => prev.map((x) => (x.id === u.id ? {
+          ...x,
+          password: nextPassword,
+          passwordUpdatedAt: now,
+          passwordUpdatedBy: u.id,
+          passwordResetStatus: '',
+          passwordResetRequestedAt: '',
+          passwordResetRequestedByLogin: '',
+        } : x)));
+        logEvent && logEvent('staff.password_changed.self', 'user', u.id, null, {
+          staffId: u.id,
+          staffName: u.name || '',
+          changedAt: now,
+        });
+        window.alert('Password updated successfully.');
+      };
 
       const toggleBlocked = (u) => {
         if (!isOwner || u.id === 'owner') return;
@@ -12921,12 +13173,19 @@ function PTClientsPage({ members, users, settings, updateSetting, currentUser, a
                       </div>
                     </td>
                     <td className="px-3 py-2 whitespace-nowrap text-slate-900">
-                      <span
-                        title={u.blocked && u.blockedReason ? `Reason: ${u.blockedReason}` : ''}
-                        className={cx('text-xs font-medium px-2 py-1 rounded-full border', u.blocked ? 'bg-rose-50 text-rose-700 border-rose-200' : 'bg-emerald-50 text-emerald-700 border-emerald-200')}
-                      >
-                        {u.blocked ? 'Blocked' : 'Active'}
-                      </span>
+                      <div className="flex items-center gap-2">
+                        <span
+                          title={u.blocked && u.blockedReason ? `Reason: ${u.blockedReason}` : ''}
+                          className={cx('text-xs font-medium px-2 py-1 rounded-full border', u.blocked ? 'bg-rose-50 text-rose-700 border-rose-200' : 'bg-emerald-50 text-emerald-700 border-emerald-200')}
+                        >
+                          {u.blocked ? 'Blocked' : 'Active'}
+                        </span>
+                        {String(u.passwordResetStatus || '') === 'pending' && (
+                          <span className="text-[11px] font-medium px-2 py-1 rounded-full border border-amber-200 bg-amber-50 text-amber-700">
+                            Reset pending
+                          </span>
+                        )}
+                      </div>
                     </td>
                     <td className="px-3 py-2 whitespace-nowrap text-slate-900">
                       <span className={cx('text-xs font-medium px-2 py-1 rounded-full border', u.testProfile ? 'bg-violet-50 text-violet-700 border-violet-200' : 'bg-slate-100 text-slate-700 border-slate-200')}>
@@ -12942,11 +13201,21 @@ function PTClientsPage({ members, users, settings, updateSetting, currentUser, a
                           </button>
                           {u.id !== 'owner' && (
                             <>
+                              {String(u.passwordResetStatus || '') === 'pending' && (
+                                <button onClick={() => approveResetRequest(u)} className="text-blue-700 hover:underline text-xs font-medium">
+                                  Approve Reset
+                                </button>
+                              )}
                               <button onClick={() => toggleBlocked(u)} className={cx('hover:underline text-xs font-medium', u.blocked ? 'text-emerald-600' : 'text-amber-700')}>
                                 {u.blocked ? 'Unblock' : 'Block'}
                               </button>
                               <button onClick={() => handleDelete(u)} className="text-rose-600 hover:underline text-xs font-medium">Delete</button>
                             </>
+                          )}
+                          {u.id === currentUser?.id && (
+                            <button onClick={() => changeOwnPassword(u)} className="text-indigo-700 hover:underline text-xs font-medium">
+                              Change My Password
+                            </button>
                           )}
                         </div>
                       ) : (
@@ -12979,6 +13248,9 @@ function PTClientsPage({ members, users, settings, updateSetting, currentUser, a
                   <div className="text-xs text-slate-600 truncate">Email: {u.email || '-'}</div>
                   <div className="text-xs text-slate-600 truncate">Sections: {u.sections && u.sections.join(', ')}</div>
                   <div className="text-xs text-slate-600">Profile: {u.testProfile ? 'Test' : 'Production'}</div>
+                  {String(u.passwordResetStatus || '') === 'pending' && (
+                    <div className="text-xs text-amber-700 font-medium">Password reset request pending owner approval</div>
+                  )}
                   <div className="text-xs text-slate-600 font-mono">
                     Password: {shownPasswords[u.id] ? (u.password || '') : '••••••••'}
                   </div>
@@ -12998,11 +13270,21 @@ function PTClientsPage({ members, users, settings, updateSetting, currentUser, a
                         </button>
                         {u.id !== 'owner' && (
                           <>
+                            {String(u.passwordResetStatus || '') === 'pending' && (
+                              <button onClick={() => approveResetRequest(u)} className="rounded-lg border border-blue-300 bg-blue-50 px-3 py-2 min-h-[44px] text-xs font-medium text-blue-700 hover:bg-blue-100">
+                                Approve Reset
+                              </button>
+                            )}
                             <button onClick={() => toggleBlocked(u)} className={cx('rounded-lg border px-3 py-2 min-h-[44px] text-xs font-medium', u.blocked ? 'border-emerald-300 bg-emerald-50 text-emerald-700 hover:bg-emerald-100' : 'border-amber-300 bg-amber-50 text-amber-700 hover:bg-amber-100')}>
                               {u.blocked ? 'Unblock' : 'Block'}
                             </button>
                             <button onClick={() => handleDelete(u)} className="rounded-lg border border-rose-300 bg-rose-50 px-3 py-2 min-h-[44px] text-xs font-medium text-rose-700 hover:bg-rose-100">Delete</button>
                           </>
+                        )}
+                        {u.id === currentUser?.id && (
+                          <button onClick={() => changeOwnPassword(u)} className="rounded-lg border border-indigo-300 bg-indigo-50 px-3 py-2 min-h-[44px] text-xs font-medium text-indigo-700 hover:bg-indigo-100">
+                            Change My Password
+                          </button>
                         )}
                       </>
                     ) : (
