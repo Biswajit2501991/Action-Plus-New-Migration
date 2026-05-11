@@ -6500,13 +6500,13 @@ function MembersList({ title, list, onBack, onEdit, onStatusChange, holdOptions,
             )}
           </div>
           <div className={cx('apg-members-list-shell rounded-3xl bg-white border border-slate-200 p-2 md:p-4 shadow-sm overflow-hidden dark:bg-slate-900 dark:border-slate-700', isCompactTablet ? 'text-[12px]' : '')}>
-            <div className={cx('apg-members-list-head hidden lg:grid grid-cols-12 gap-4 px-3 py-2.5 text-sm font-semibold bg-indigo-50/70 text-slate-700 border border-slate-200 rounded-2xl dark:bg-slate-800 dark:text-slate-100 dark:border-slate-700', isCompactTablet ? 'gap-2 px-2 py-2 text-xs' : '')}>
+            <div className={cx('apg-members-list-head hidden lg:grid grid-cols-12 gap-2 px-3 py-2.5 text-sm font-semibold bg-indigo-50/70 text-slate-700 border border-slate-200 rounded-2xl dark:bg-slate-800 dark:text-slate-100 dark:border-slate-700', isCompactTablet ? 'gap-1.5 px-2 py-2 text-xs' : '')}>
               <div className="col-span-1">ID</div>
               <div className="col-span-2">Name</div>
-              <div className="col-span-2">Plan</div>
-              <div className="col-span-2">Billing Date</div>
-              <div className="col-span-2">Payment By</div>
-              <div className="col-span-3">Status / Action / Welcome</div>
+              <div className="col-span-1">Plan</div>
+              <div className="col-span-1">Billing Date</div>
+              <div className="col-span-1">Payment By</div>
+              <div className="col-span-6 pl-2">Status / Action / Welcome</div>
             </div>
             <div className="lg:hidden px-1 pb-2 text-xs text-slate-500 dark:text-slate-300">Tap a member card to view full details and actions.</div>
             {pageList.map(m => (
@@ -6700,7 +6700,7 @@ function MemberRow({ m, expanded, onToggle, onEdit, onStatusChange, holdOptions,
 function MemberRowDesktopView({ m, selectable, selected, onSelectToggle, onToggle, onEdit, onWelcome, onWhatsAppCall, canWelcome, statusTemplate, billingToday = false, fineHighlight = false, statusSentText, callInfoText, canEdit = true, isCompactTablet = false }) {
       const isIpadLandscapeCompact = isCompactTablet && typeof window !== 'undefined' && window.innerWidth >= 1024 && window.innerWidth <= 1366;
       return (
-        <button onClick={onToggle} className={cx('apg-member-row-desktop hidden lg:grid w-full grid-cols-12 items-center gap-4 rounded-2xl border border-slate-200/90 bg-white px-3 py-3.5 text-left text-slate-700 shadow-[0_1px_0_rgba(15,23,42,0.02)] transition hover:border-slate-300 hover:bg-slate-50/70 hover:shadow-[0_6px_20px_rgba(15,23,42,0.06)]', isCompactTablet ? 'gap-2 px-2 py-2.5 text-[12px]' : '')}>
+        <button onClick={onToggle} className={cx('apg-member-row-desktop hidden lg:grid w-full grid-cols-12 items-center gap-2 rounded-2xl border border-slate-200/90 bg-white px-3 py-3.5 text-left text-slate-700 shadow-[0_1px_0_rgba(15,23,42,0.02)] transition hover:border-slate-300 hover:bg-slate-50/70 hover:shadow-[0_6px_20px_rgba(15,23,42,0.06)]', isCompactTablet ? 'gap-1.5 px-2 py-2.5 text-[12px]' : '')}>
           <div className="col-span-1 font-medium flex items-center gap-2 min-w-0">
             {selectable && (
               <input
@@ -6718,16 +6718,16 @@ function MemberRowDesktopView({ m, selectable, selected, onSelectToggle, onToggl
           <div className={cx(
             'col-span-2 flex items-center gap-2',
             fineHighlight
-              ? 'bg-rose-50 text-rose-800 font-semibold rounded-md px-2 py-1'
-              : (billingToday ? 'bg-emerald-50 text-emerald-800 font-semibold rounded-md px-2 py-1' : '')
+              ? 'text-rose-800 font-semibold'
+              : (billingToday ? 'text-emerald-800 font-semibold' : '')
           )}>
             <Avatar name={m.name} photo={m.photo} className="h-7 w-7" />
             <span className="truncate">{m.name}</span>
           </div>
-          <div className="col-span-2 truncate">{m.plan}</div>
-          <div className={cx('col-span-2', billingToday ? 'bg-emerald-50 text-emerald-800 font-semibold rounded-md px-2 py-1' : '')}>{fmt(m.billingDate)}</div>
-          <div className={cx('col-span-2', fineHighlight ? 'bg-rose-50 text-rose-800 font-semibold rounded-md px-2 py-1' : '')}>{fmt(retentionPaymentDeadline(m) || m.billingDate) || '-'}</div>
-          <div className={cx('col-span-3 flex items-center gap-2 pr-2', isCompactTablet ? 'gap-1 pr-1' : '', isIpadLandscapeCompact ? 'overflow-hidden' : '')}>
+          <div className="col-span-1 truncate">{m.plan}</div>
+          <div className={cx('col-span-1', billingToday ? 'text-emerald-800 font-semibold' : '')}>{fmt(m.billingDate)}</div>
+          <div className={cx('col-span-1', fineHighlight ? 'text-rose-800 font-semibold' : '')}>{fmt(retentionPaymentDeadline(m) || m.billingDate) || '-'}</div>
+          <div className={cx('col-span-6 pl-2 flex items-center gap-2 pr-2', isCompactTablet ? 'gap-1 pr-1' : '', isIpadLandscapeCompact ? 'overflow-hidden' : '')}>
             <Badge tone={toneForStatus(m.status)} className={cx('text-center flex-shrink-0', isCompactTablet ? 'w-20 text-[10px]' : 'w-24', isIpadLandscapeCompact ? 'w-[72px] px-1' : '')}>{shortStatus(m.status)}</Badge>
             {canEdit && (
               <button
@@ -8205,13 +8205,13 @@ function DashboardView({ members, onEdit, onStatusChange, holdOptions, logs, fil
                 </div>
                 {!hiddenSections[key] && (
                   <div className={cx('rounded-3xl bg-white p-4 shadow-sm', isCompactTablet ? 'p-3' : '')}>
-                  <div className={cx('hidden md:grid grid-cols-12 gap-4 px-3 py-2.5 text-sm font-semibold bg-indigo-50/70 text-slate-700 border border-slate-200 rounded-2xl', isCompactTablet ? 'gap-2 px-2 py-2 text-xs' : '')}>
+                  <div className={cx('hidden md:grid grid-cols-12 gap-2 px-3 py-2.5 text-sm font-semibold bg-indigo-50/70 text-slate-700 border border-slate-200 rounded-2xl', isCompactTablet ? 'gap-1.5 px-2 py-2 text-xs' : '')}>
                     <button onClick={() => toggleSort('memberId')} className="col-span-1 text-left hover:text-blue-900">ID <span className="text-[11px]">{sortIndicator('memberId')}</span></button>
                     <button onClick={() => toggleSort('name')} className="col-span-2 text-left hover:text-blue-900">Name <span className="text-[11px]">{sortIndicator('name')}</span></button>
-                    <button onClick={() => toggleSort('plan')} className="col-span-2 text-left hover:text-blue-900">Plan <span className="text-[11px]">{sortIndicator('plan')}</span></button>
-                    <button onClick={() => toggleSort('billingDate')} className="col-span-2 text-left hover:text-blue-900">Bill Date <span className="text-[11px]">{sortIndicator('billingDate')}</span></button>
-                    <button onClick={() => toggleSort('paymentBy')} className="col-span-2 text-left hover:text-blue-900">Payment By <span className="text-[11px]">{sortIndicator('paymentBy')}</span></button>
-                    <div className="col-span-3">Status / Action / Welcome</div>
+                    <button onClick={() => toggleSort('plan')} className="col-span-1 text-left hover:text-blue-900">Plan <span className="text-[11px]">{sortIndicator('plan')}</span></button>
+                    <button onClick={() => toggleSort('billingDate')} className="col-span-1 text-left hover:text-blue-900">Bill Date <span className="text-[11px]">{sortIndicator('billingDate')}</span></button>
+                    <button onClick={() => toggleSort('paymentBy')} className="col-span-1 text-left hover:text-blue-900">Payment By <span className="text-[11px]">{sortIndicator('paymentBy')}</span></button>
+                    <div className="col-span-6 pl-2">Status / Action / Welcome</div>
                   </div>
                   {pageList.map(m => (
                     <MemberRow
