@@ -6335,6 +6335,24 @@ function MobileMemberDetailView({ m, onBack, onEdit, onWelcome, onWhatsAppCall, 
       const holdMonths = elapsedHoldMonthsFromBillingDate(m);
       const holdNote = holdPolicyNote(holdMonths);
       const isHoldMember = String(m.status || '').trim().toLowerCase() === 'hold';
+      const isActiveMember = String(m.status || '').trim().toLowerCase() === 'active';
+      const injuriesNotesValue = React.useMemo(() => {
+        const med = (m && typeof m.medicalAnswers === 'object' && m.medicalAnswers) ? m.medicalAnswers : {};
+        const notes = String(med.extraInfo || '').trim();
+        const injuries = med && typeof med.injuries === 'object' ? med.injuries : {};
+        const labels = [];
+        if (injuries.knees) labels.push('Knees');
+        if (injuries.lowerBack) labels.push('Lower Back');
+        if (injuries.neckShoulders) labels.push('Neck/Shoulders');
+        if (injuries.hipsPelvis) labels.push('Hips/Pelvis');
+        if (injuries.flexibility) labels.push('Flexibility');
+        const other = String(injuries.other || '').trim();
+        if (other) labels.push(`Other: ${other}`);
+        const parts = [];
+        if (labels.length) parts.push(`Injuries: ${labels.join(', ')}`);
+        if (notes) parts.push(`Notes: ${notes}`);
+        return parts.join(' | ') || '—';
+      }, [m]);
       const rows = [
         { label: 'Form #', key: 'formNo', value: normal(m.formNo), editable: false },
         { label: 'ID', key: 'memberId', value: normal(m.memberId), editable: false },
@@ -6352,6 +6370,7 @@ function MobileMemberDetailView({ m, onBack, onEdit, onWelcome, onWhatsAppCall, 
         { label: 'Next Payment Date', key: 'nextPaymentDate', value: fmt(m.nextPaymentDate || nextPaymentDateFromBillingDate(m)) || '—', editable: false },
         { label: 'Payment By', key: 'paymentBy', value: fmt(retentionPaymentDeadline(m) || m.billingDate) || '—', editable: false },
         { label: 'Status', key: 'status', value: normal(m.status), editable: quickEditableKeys.has('status'), type: 'select', options: editOptions?.statuses || [] },
+        ...(isActiveMember ? [{ label: 'Injuries / Notes', key: 'injuriesNotes', value: injuriesNotesValue, editable: false }] : []),
         { label: 'Hold Duration', key: 'holdDuration', value: normal(m.holdDuration), editable: false, type: 'select', options: ['', ...(editOptions?.holdDurations || [])] },
         ...(isHoldMember ? [{ label: 'Total Hold Months', key: 'totalHoldMonths', value: `${holdMonths} Month${holdMonths === 1 ? '' : 's'}`, editable: false }] : []),
         ...(isHoldMember && holdNote ? [{ label: 'Hold Note', key: 'holdNote', value: holdNote, editable: false }] : []),
