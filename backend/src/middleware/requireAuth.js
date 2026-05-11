@@ -18,11 +18,10 @@ export function requireAuth(req, res, next) {
   const token = auth.startsWith('Bearer ') ? auth.slice(7).trim() : '';
   const claims = decodeToken(token);
   if (!claims) return res.status(401).json({ error: 'unauthorized' });
-  if (!claims.tenantId || !claims.userId) return res.status(401).json({ error: 'invalid-token' });
+  if (!claims.userId) return res.status(401).json({ error: 'invalid-token' });
 
   req.auth = {
     token,
-    tenantId: claims.tenantId,
     userId: claims.userId,
     roles: claims.roles || [],
     permissions: claims.permissions || [],
