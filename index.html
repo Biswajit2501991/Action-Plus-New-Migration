@@ -6718,15 +6718,15 @@ function MemberRowDesktopView({ m, selectable, selected, onSelectToggle, onToggl
           <div className={cx(
             'col-span-2 flex items-center gap-2',
             fineHighlight
-              ? 'text-rose-800 font-semibold'
-              : (billingToday ? 'text-emerald-800 font-semibold' : '')
+              ? 'rounded-md bg-[#F08080] px-2 py-1 text-black font-semibold animate-pulse'
+              : (billingToday ? 'rounded-md bg-lime-300 px-2 py-1 text-black font-semibold animate-pulse' : '')
           )}>
             <Avatar name={m.name} photo={m.photo} className="h-7 w-7" />
             <span className="truncate">{m.name}</span>
           </div>
           <div className="col-span-1 truncate">{m.plan}</div>
-          <div className={cx('col-span-1', billingToday ? 'text-emerald-800 font-semibold' : '')}>{fmt(m.billingDate)}</div>
-          <div className={cx('col-span-1', fineHighlight ? 'text-rose-800 font-semibold' : '')}>{fmt(retentionPaymentDeadline(m) || m.billingDate) || '-'}</div>
+          <div className={cx('col-span-1', billingToday ? 'rounded-md bg-lime-300 px-2 py-1 text-black font-semibold animate-pulse' : '')}>{fmt(m.billingDate)}</div>
+          <div className={cx('col-span-1', fineHighlight ? 'rounded-md bg-[#F08080] px-2 py-1 text-black font-semibold animate-pulse' : '')}>{fmt(retentionPaymentDeadline(m) || m.billingDate) || '-'}</div>
           <div className={cx('col-span-6 pl-2 flex items-center gap-2 pr-2', isCompactTablet ? 'gap-1 pr-1' : '', isIpadLandscapeCompact ? 'overflow-hidden' : '')}>
             <Badge tone={toneForStatus(m.status)} className={cx('text-center flex-shrink-0', isCompactTablet ? 'w-20 text-[10px]' : 'w-24', isIpadLandscapeCompact ? 'w-[72px] px-1' : '')}>{shortStatus(m.status)}</Badge>
             {canEdit && (
