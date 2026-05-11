@@ -484,32 +484,103 @@
       if (member.status === 'Cancelled') return { key: 'fine', label: 'Fine SMS', disabled: false };
       return { key: 'none', label: '', disabled: true };
     };
+    const smsTemplateLogLabel = (key) => {
+      const map = {
+        reminder: 'Reminder',
+        monthReminder: 'Month-Based Reminder',
+        success: 'Success SMS',
+        fine: 'Fine SMS',
+        deactivate: 'Deactivate SMS',
+        hold: 'Hold SMS',
+        welcome: 'Welcome SMS',
+        templates: 'WhatsApp Template',
+        call: 'WhatsApp call/chat',
+      };
+      return map[key] || String(key || '');
+    };
+    /** Audit log action for WhatsApp template sends, e.g. sms.reminder.opened, sms.fine.opened */
+    const smsTemplateOpenedAction = (templateKey) => {
+      const raw = String(templateKey || 'unknown').trim() || 'unknown';
+      const safe = raw.replace(/[^a-zA-Z0-9_-]/g, '_');
+      return `sms.${safe}.opened`;
+    };
+    const AUDIT_ACTION_LABEL_OVERRIDES = {
+      'member.updated': 'Member updated',
+      'member.created': 'Member created',
+      'member.deleted': 'Member deleted',
+      'status.changed': 'Member status changed',
+      'settings.updated': 'Settings updated',
+      'visitor.created': 'Visitor created',
+      'visitor.updated': 'Visitor updated',
+      'visitor.deleted': 'Visitor deleted',
+      'visitor.called': 'Visitor call logged',
+      'auth.login': 'Sign in',
+      'auth.logout': 'Sign out',
+      'auth.login.blocked': 'Sign in blocked',
+      'backup.exported': 'Backup exported',
+      'backup.imported': 'Backup imported',
+      'leave.requested': 'Leave requested',
+      'leave.status.updated': 'Leave status updated',
+      'attendance.leave_synced': 'Attendance (leave sync)',
+      'staff.role_template.updated': 'Role template updated',
+      'staff.role_template.created': 'Role template created',
+      'staff.role_template.deleted': 'Role template deleted',
+      'staff.password.view_toggled': 'Staff password visibility',
+      'staff.block_toggled': 'Staff block toggled',
+      'staff.deleted': 'Staff deleted',
+      'staff.updated': 'Staff updated',
+      'staff.created': 'Staff added',
+      'sms.status_triggered': 'Auto SMS (status change)',
+      'whatsapp.call.opened': 'WhatsApp call/chat',
+      'history.undo': 'Undo',
+      'history.redo': 'Redo',
+    };
+    const humanizeDottedAction = (action) => String(action || '')
+      .split('.')
+      .map((seg) => seg.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase()))
+      .join(' · ');
+    const formatAuditActionLabel = (action) => {
+      const act = String(action || '');
+      const m = /^sms\.([a-zA-Z0-9_-]+)\.opened$/.exec(act);
+      if (m) return `${smsTemplateLogLabel(m[1])} (WhatsApp)`;
+      if (act === 'welcome.whatsapp.opened' || act === 'sms.whatsapp.opened' || act === 'sms.send_now.opened') return 'WhatsApp (legacy)';
+      if (AUDIT_ACTION_LABEL_OVERRIDES[act]) return AUDIT_ACTION_LABEL_OVERRIDES[act];
+      return humanizeDottedAction(act);
+    };
     const formatSmsSentAt = (value, tz = 'IST') => {
       if (!value) return '';
       return formatDateTimeTz(value, tz);
     };
     const getLastWhatsAppSendMeta = (member, templateKey) => {
       if (!member) return null;
-      const direct = member.lastSmsSent && typeof member.lastSmsSent === 'object'
-        ? (templateKey ? member.lastSmsSent[templateKey] : null)
-        : null;
-      if (direct && (direct.sentAt || direct.ts)) {
-        return {
-          sentAt: direct.sentAt || direct.ts || '',
-          sentBy: direct.sentBy || direct.by || '',
-        };
-      }
       const history = Array.isArray(member.messageHistory) ? member.messageHistory : [];
-      const entry = history.find((ev) => {
-        if (!ev || ev.channel !== 'whatsapp' || ev.status !== 'opened') return false;
-        if (!templateKey) return true;
-        return ev.templateKey === templateKey;
-      });
-      if (!entry) return null;
-      return {
-        sentAt: entry.sentAt || entry.ts || '',
-        sentBy: entry.sentBy || entry.by || '',
+      if (!templateKey) {
+        const entry = history.find((ev) => ev && ev.channel === 'whatsapp' && ev.status === 'opened');
+        if (!entry) return null;
+        return { sentAt: entry.sentAt || entry.ts || '', sentBy: entry.sentBy || entry.by || '' };
+      }
+      // Prefer the latest timestamp across lastSmsSent and all matching history rows (handles out-of-order history).
+      const candidates = [];
+      const pushCand = (sentAt, sentBy) => {
+        const raw = String(sentAt || '').trim();
+        if (!raw) return;
+        const ms = new Date(raw).getTime();
+        if (!Number.isFinite(ms)) return;
+        candidates.push({ ms, sentAt: raw, sentBy: String(sentBy || '').trim() });
       };
+      if (member.lastSmsSent && typeof member.lastSmsSent === 'object') {
+        const d = member.lastSmsSent[templateKey];
+        if (d && (d.sentAt || d.ts)) pushCand(d.sentAt || d.ts, d.sentBy || d.by);
+      }
+      for (const ev of history) {
+        if (!ev || ev.channel !== 'whatsapp' || ev.status !== 'opened') continue;
+        if (ev.templateKey !== templateKey) continue;
+        if (ev.sentAt || ev.ts) pushCand(ev.sentAt || ev.ts, ev.sentBy || ev.by);
+      }
+      if (!candidates.length) return null;
+      candidates.sort((a, b) => b.ms - a.ms);
+      const best = candidates[0];
+      return { sentAt: best.sentAt, sentBy: best.sentBy };
     };
     const getSmsSentInfoText = (member, templateKey, tz = 'IST') => {
       const meta = getLastWhatsAppSendMeta(member, templateKey);
@@ -1162,6 +1233,104 @@ Phone: +91-7047157510`;
       if (!res.ok) throw new Error(`backend-${res.status}`);
       return res.json();
     };
+    const parseApgTimeMs = (v) => {
+      const t = new Date(String(v || '').trim()).getTime();
+      return Number.isFinite(t) ? t : 0;
+    };
+    const mergeLastSmsSentMaps = (a, b) => {
+      const A = a && typeof a === 'object' ? a : {};
+      const B = b && typeof b === 'object' ? b : {};
+      const keys = new Set([...Object.keys(A), ...Object.keys(B)]);
+      const out = {};
+      for (const k of keys) {
+        const va = A[k];
+        const vb = B[k];
+        if (!va || !(va.sentAt || va.ts)) {
+          if (vb) out[k] = vb;
+          continue;
+        }
+        if (!vb || !(vb.sentAt || vb.ts)) {
+          out[k] = va;
+          continue;
+        }
+        const ta = parseApgTimeMs(va.sentAt || va.ts);
+        const tb = parseApgTimeMs(vb.sentAt || vb.ts);
+        out[k] = ta >= tb ? va : vb;
+      }
+      return out;
+    };
+    const messageHistoryDedupeKey = (ev) => {
+      if (!ev || typeof ev !== 'object') return '';
+      if (ev.id) return `id:${ev.id}`;
+      return `sig:${ev.channel || ''}|${ev.templateKey || ''}|${ev.sentAt || ev.ts || ''}|${ev.sentBy || ev.by || ''}`;
+    };
+    const mergeMessageHistoryArrays = (a, b, cap = 50) => {
+      const A = Array.isArray(a) ? a : [];
+      const B = Array.isArray(b) ? b : [];
+      const seen = new Set();
+      const out = [];
+      const push = (ev) => {
+        const k = messageHistoryDedupeKey(ev);
+        if (!k || seen.has(k)) return;
+        seen.add(k);
+        out.push(ev);
+      };
+      for (const ev of A) push(ev);
+      for (const ev of B) push(ev);
+      out.sort((u, v) => parseApgTimeMs(v?.sentAt || v?.ts) - parseApgTimeMs(u?.sentAt || u?.ts));
+      return out.slice(0, cap);
+    };
+    const paymentHistoryDedupeKey = (h) => {
+      if (!h || typeof h !== 'object') return '';
+      if (h.id) return `id:${h.id}`;
+      return `sig:${h.receivedAt || h.date || ''}|${Number(h.amount || 0)}|${h.by || ''}`;
+    };
+    const mergePaymentHistoryArrays = (a, b, cap = 120) => {
+      const A = Array.isArray(a) ? a : [];
+      const B = Array.isArray(b) ? b : [];
+      const seen = new Set();
+      const out = [];
+      const push = (h) => {
+        const k = paymentHistoryDedupeKey(h);
+        if (!k || seen.has(k)) return;
+        seen.add(k);
+        out.push(h);
+      };
+      for (const h of A) push(h);
+      for (const h of B) push(h);
+      out.sort((u, v) => parseApgTimeMs(v?.receivedAt || v?.date) - parseApgTimeMs(u?.receivedAt || u?.date));
+      return out.slice(0, cap);
+    };
+    const newerIsoPrefer = (x, y) => {
+      const tx = parseApgTimeMs(x);
+      const ty = parseApgTimeMs(y);
+      if (!tx && !ty) return y != null && y !== '' ? y : x;
+      if (!tx) return y != null && y !== '' ? y : x;
+      if (!ty) return x != null && x !== '' ? x : y;
+      return tx >= ty ? x : y;
+    };
+    /**
+     * Backend GET can briefly lag behind a local PUT. Replacing React state with that payload
+     * was wiping lastSmsSent / messageHistory and the next autosave persisted the loss.
+     */
+    const mergeRemoteMembersWithLocal = (localMembers, remoteMembers) => {
+      const locals = Array.isArray(localMembers) ? localMembers : [];
+      const remotes = Array.isArray(remoteMembers) ? remoteMembers : [];
+      const byId = new Map(locals.map((m) => [String(m?.memberId || ''), m]));
+      return remotes.map((r) => {
+        const id = String(r?.memberId || '');
+        const p = id ? byId.get(id) : null;
+        if (!p) return r;
+        return {
+          ...r,
+          lastSmsSent: mergeLastSmsSentMaps(p.lastSmsSent, r.lastSmsSent),
+          messageHistory: mergeMessageHistoryArrays(p.messageHistory, r.messageHistory, 50),
+          reminderSentAt: newerIsoPrefer(p.reminderSentAt, r.reminderSentAt),
+          paymentReceivedAt: newerIsoPrefer(p.paymentReceivedAt, r.paymentReceivedAt),
+          paymentHistory: mergePaymentHistoryArrays(p.paymentHistory, r.paymentHistory, 120),
+        };
+      });
+    };
     const APG_SYNC_DB = 'apg-sync-v1';
     const APG_SYNC_STORE = 'pending';
     const openSyncDb = () => new Promise((resolve, reject) => {
@@ -1559,7 +1728,9 @@ Phone: +91-7047157510`;
             setOfflineQueueCount(0);
             setDataSyncMode('backend');
             if (Array.isArray(remoteUsers) && remoteUsers.length > 0) setUsers(remoteUsers);
-            if (Array.isArray(remoteMembers) && remoteMembers.length > 0) setMembers(remoteMembers);
+            if (Array.isArray(remoteMembers) && remoteMembers.length > 0) {
+              setMembers((prev) => mergeRemoteMembersWithLocal(prev, remoteMembers));
+            }
             if (Array.isArray(remoteVisitors) && remoteVisitors.length > 0) setVisitors(remoteVisitors);
             if (remoteSettings && typeof remoteSettings === 'object' && Object.keys(remoteSettings).length > 0) setSettings(remoteSettings);
             if (Array.isArray(remoteLogs) && remoteLogs.length > 0) setLogs(remoteLogs);
@@ -1940,9 +2111,10 @@ Phone: +91-7047157510`;
             .then((remoteMembers) => {
               if (!alive || !Array.isArray(remoteMembers)) return;
               setMembers((prev) => {
+                const merged = mergeRemoteMembersWithLocal(prev, remoteMembers);
                 const prevSig = JSON.stringify(Array.isArray(prev) ? prev : []);
-                const nextSig = JSON.stringify(remoteMembers);
-                return prevSig === nextSig ? prev : remoteMembers;
+                const nextSig = JSON.stringify(merged);
+                return prevSig === nextSig ? prev : merged;
               });
             })
             .catch(() => {});
@@ -2371,7 +2543,14 @@ Phone: +91-7047157510`;
           ts: new Date().toISOString(),
         };
         setSmsEvents(prev => [event, ...prev].slice(0, 300));
-        logEvent('sms.status_triggered', 'member', member.memberId, { fromStatus, toStatus, templateKey: key }, { message });
+        logEvent('sms.status_triggered', 'member', member.memberId, null, {
+          memberName: member.name || '',
+          fromStatus,
+          toStatus,
+          templateKey: key,
+          templateLabel: smsTemplateLogLabel(key),
+          messagePreview: String(message || '').slice(0, 200),
+        });
       };
       React.useEffect(() => {
         if (skipHistoryCaptureRef.current) return;
@@ -2849,7 +3028,13 @@ Please pay by: ${formattedLastDate}`;
           },
           messageHistory: [{ id: crypto.randomUUID(), channel: 'whatsapp', templateKey: resolvedKey, status: 'opened', ts: sentAt, sentAt, sentBy }, ...(m.messageHistory || [])].slice(0, 50),
         } : m));
-        logEvent('welcome.whatsapp.opened', 'member', member.memberId, null, { templateKey: resolvedKey });
+        logEvent(smsTemplateOpenedAction(resolvedKey), 'member', member.memberId, null, {
+          memberName: member.name || '',
+          templateKey: resolvedKey,
+          templateLabel: smsTemplateLogLabel(resolvedKey),
+          source: 'members_or_dashboard',
+          mobile: finalPhone,
+        });
         setToast('WhatsApp message opened.');
         setTimeout(() => setToast(''), 2500);
       };
@@ -2884,7 +3069,12 @@ Please pay by: ${formattedLastDate}`;
           waUrl: callUrl,
           ts: callAt,
         }, ...prev]).slice(0, 300));
-        logEvent('whatsapp.call.opened', 'member', member.memberId, null, { calledAt: callAt, calledBy, mobile: finalPhone });
+        logEvent('whatsapp.call.opened', 'member', member.memberId, null, {
+          memberName: member.name || '',
+          calledAt: callAt,
+          calledBy,
+          mobile: finalPhone,
+        });
         setToast('WhatsApp opened for call.');
         setTimeout(() => setToast(''), 2500);
       };
@@ -3075,11 +3265,15 @@ Please pay by: ${formattedLastDate}`;
       const deleteMember = (memberId) => {
         if (!canDeleteMembers) return;
         const previousMembers = Array.isArray(members) ? members.map((m) => ({ ...m })) : [];
+        const deletedRow = previousMembers.find((m) => m.memberId === memberId) || null;
         setMembers(prev => prev.filter(m => m.memberId !== memberId));
         // Remove any open details rows or pages referencing this member
         // No need to adjust pagination here; DashboardView recalculates
         // pages on members change. Log the deletion for audit purposes.
-        logEvent('member.deleted', 'member', memberId, null, null);
+        logEvent('member.deleted', 'member', memberId, deletedRow, {
+          memberId,
+          name: deletedRow?.name || '',
+        });
         showMemberUndoToast('Member deleted — Undo', previousMembers);
       };
 
@@ -9942,7 +10136,14 @@ function PTClientsPage({ members, users, settings, updateSetting, currentUser, a
           if (actionFilter && l.action !== actionFilter) return false;
           if (entityFilter && l.entityType !== entityFilter) return false;
           if (!q) return true;
-          return (l.entityId || '').toLowerCase().includes(q) || (l.action || '').toLowerCase().includes(q) || (l.actor || '').toLowerCase().includes(q);
+          const blob = [
+            l.entityId,
+            l.action,
+            l.actor,
+            JSON.stringify(l.before || {}),
+            JSON.stringify(l.after || {}),
+          ].join(' ').toLowerCase();
+          return blob.includes(q);
         });
       }, [logs, filter, actorFilter, actionFilter, entityFilter, sinceTs]);
       React.useEffect(() => {
@@ -9982,6 +10183,117 @@ function PTClientsPage({ members, users, settings, updateSetting, currentUser, a
           .filter((k) => JSON.stringify(beforeFlat[k]) !== JSON.stringify(afterFlat[k]))
           .map((k) => ({ key: k, before: beforeFlat[k], after: afterFlat[k] }));
       }, [flattenForDiff]);
+      const logEntrySummary = React.useCallback((l) => {
+        const a = l.after || {};
+        const b = l.before || {};
+        const act = String(l.action || '');
+        const openedMatch = /^sms\.([a-zA-Z0-9_-]+)\.opened$/.exec(act);
+        if (
+          openedMatch
+          || act === 'sms.whatsapp.opened'
+          || act === 'welcome.whatsapp.opened'
+          || act === 'sms.send_now.opened'
+        ) {
+          const parts = [];
+          if (a.memberName) parts.push(a.memberName);
+          if (a.templateLabel || a.templateKey) parts.push(a.templateLabel || a.templateKey);
+          else if (openedMatch) parts.push(smsTemplateLogLabel(openedMatch[1]));
+          if (a.source) parts.push(`via ${String(a.source).replace(/_/g, ' ')}`);
+          if (parts.length) return parts.join(' · ');
+        }
+        if (act === 'sms.status_triggered') {
+          const parts = [];
+          if (a.memberName) parts.push(a.memberName);
+          if (a.templateLabel || a.templateKey) parts.push(a.templateLabel || a.templateKey);
+          if (a.fromStatus && a.toStatus) parts.push(`${a.fromStatus}→${a.toStatus}`);
+          if (parts.length) return parts.join(' · ');
+        }
+        if (act === 'whatsapp.call.opened') {
+          const parts = [];
+          if (a.memberName) parts.push(a.memberName);
+          if (a.calledBy) parts.push(`by ${a.calledBy}`);
+          if (parts.length) return parts.join(' · ');
+        }
+        if (act === 'member.created') {
+          return [a.name, a.memberId || l.entityId, 'new member'].filter(Boolean).join(' · ');
+        }
+        if (act === 'member.deleted') {
+          return [a.name || b.name || 'Member', l.entityId || a.memberId || ''].filter(Boolean).join(' · ');
+        }
+        if (act === 'member.updated') {
+          const name = a.name || b.name || '';
+          const ch = getChangedFields(l);
+          const heavy = (k) => k.startsWith('messageHistory') || k.startsWith('paymentHistory') || k === 'photo';
+          const light = ch.filter((c) => !heavy(c.key));
+          const labels = light.slice(0, 8).map((c) => (c.key.includes('.') ? c.key.replace(/^[^.]*\./, '') : c.key));
+          const more = light.length > 8 ? '…' : '';
+          return [name, labels.length ? `${light.length} field(s): ${labels.join(', ')}${more}` : 'record saved'].filter(Boolean).join(' · ');
+        }
+        if (act === 'status.changed') {
+          return [a.name || b.name, b.status && a.status ? `${b.status}→${a.status}` : a.status || b.status].filter(Boolean).join(' · ');
+        }
+        if (act === 'settings.updated') {
+          const key = l.entityId || '';
+          return key ? `Setting “${key}”` : 'Settings';
+        }
+        if (act === 'visitor.created' || act === 'visitor.updated') {
+          return [a.name || a.email || l.entityId, a.mobile && `${a.mobile}`].filter(Boolean).join(' · ');
+        }
+        if (act === 'visitor.deleted') {
+          return [b.name || b.email || 'Visitor', 'removed'].filter(Boolean).join(' · ');
+        }
+        if (act === 'visitor.called') {
+          return [a.name || b.name, 'marked called'].filter(Boolean).join(' · ');
+        }
+        if (act === 'auth.login') return a.id ? `User ${a.id}` : 'Sign in';
+        if (act === 'auth.login.blocked') return a.id ? `Blocked: ${a.id}` : 'Sign in blocked';
+        if (act === 'auth.logout') return (b.id || a.id) ? `User ${b.id || a.id}` : 'Sign out';
+        if (act === 'backup.exported') return 'Local backup file';
+        if (act === 'backup.imported') {
+          return `Imported · ${Number(a.members || 0)} members, ${Number(a.users || 0)} users`;
+        }
+        if (act === 'leave.requested') {
+          const rsn = a.reason && `“${String(a.reason).slice(0, 36)}${String(a.reason).length > 36 ? '…' : ''}”`;
+          return [`${a.startDate || '?'}→${a.endDate || '?'}`, `${a.days || '?'} days`, rsn].filter(Boolean).join(' · ');
+        }
+        if (act === 'leave.status.updated') {
+          return [a.userId && `staff ${a.userId}`, a.status || b.status, a.startDate && `${a.startDate}→${a.endDate || ''}`].filter(Boolean).join(' · ');
+        }
+        if (act === 'attendance.leave_synced') {
+          return [`User ${l.entityId || ''}`, `${a.syncedDays ?? 0} day(s) synced`, a.startDate && `${a.startDate}→${a.endDate || ''}`].filter(Boolean).join(' · ');
+        }
+        if (act === 'staff.created' || act === 'staff.updated') {
+          return [a.name || b.name || l.entityId, a.id || b.id || l.entityId].filter(Boolean).join(' · ');
+        }
+        if (act === 'staff.deleted') {
+          return [b.name || a.name || l.entityId, 'removed'].filter(Boolean).join(' · ');
+        }
+        if (act === 'staff.block_toggled') {
+          const blk = a.blocked != null ? a.blocked : b.blocked;
+          return [a.name || b.name || l.entityId, blk ? 'blocked' : 'unblocked'].filter(Boolean).join(' · ');
+        }
+        if (act === 'staff.password.view_toggled') {
+          return [l.entityId, a.shown ? 'password shown' : 'password hidden'].filter(Boolean).join(' · ');
+        }
+        if (act === 'staff.role_template.created' || act === 'staff.role_template.updated' || act === 'staff.role_template.deleted') {
+          return [a.title || b.title || a.id || b.id || l.entityId].filter(Boolean).join(' · ');
+        }
+        if (act === 'history.undo' || act === 'history.redo') {
+          const step = a.step != null ? a.step : b.step;
+          return [act === 'history.undo' ? 'Undo' : 'Redo', step != null && `step ${step}`].filter(Boolean).join(' · ');
+        }
+        const changes = getChangedFields(l);
+        if (!changes.length) {
+          if (l.after && typeof l.after === 'object' && Object.keys(l.after).length) {
+            return Object.entries(l.after)
+              .map(([k, v]) => `${k}: ${typeof v === 'object' ? '…' : String(v)}`)
+              .slice(0, 5)
+              .join(' · ');
+          }
+          return '';
+        }
+        return `${changes.length} changed: ${changes.slice(0, 3).map((c) => c.key).join(', ')}${changes.length > 3 ? '…' : ''}`;
+      }, [getChangedFields]);
       const prettyDiffValue = (v) => {
         if (v === undefined) return '—';
         if (v === null) return 'null';
@@ -10054,7 +10366,9 @@ function PTClientsPage({ members, users, settings, updateSetting, currentUser, a
             </select>
             <select value={actionFilter} onChange={(e) => setActionFilter(e.target.value)} className="rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm">
               <option value="">Select Actions</option>
-              {actions.map(a => <option key={a} value={a}>{a}</option>)}
+              {actions.map((a) => (
+                <option key={a} value={a} title={a}>{formatAuditActionLabel(a)}</option>
+              ))}
             </select>
             <select value={entityFilter} onChange={(e) => setEntityFilter(e.target.value)} className="rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm">
               <option value="">Select Entity</option>
@@ -10066,7 +10380,7 @@ function PTClientsPage({ members, users, settings, updateSetting, currentUser, a
               <option value="30d">Time Range: Last 30 Days</option>
               <option value="all">Time Range: All</option>
             </select>
-            <input value={filter} onChange={(e) => setFilter(e.target.value)} placeholder="Search logs..." className="rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm" />
+            <input value={filter} onChange={(e) => setFilter(e.target.value)} placeholder="Search actor, action, IDs, member name, template…" className="rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm" />
           </div>
           <div className="overflow-x-auto rounded-2xl border border-slate-200 bg-white">
             <table className="min-w-full text-sm hidden md:table">
@@ -10087,21 +10401,25 @@ function PTClientsPage({ members, users, settings, updateSetting, currentUser, a
                       <td className="px-3 py-2 whitespace-nowrap">{formatDateTimeTz(l.ts, displayTimeZone)} <span className="text-[10px] uppercase text-slate-500">{displayTimeZone}</span></td>
                       <td className="px-3 py-2 whitespace-nowrap">{l.actor}</td>
                       <td className="px-3 py-2 whitespace-nowrap">
-                        <span className="inline-flex rounded-full bg-blue-100 px-2 py-0.5 text-xs font-semibold text-blue-700">{l.action}</span>
+                        <span className="inline-flex max-w-[220px] truncate rounded-full bg-blue-100 px-2 py-0.5 text-xs font-semibold text-blue-700" title={l.action}>
+                          {formatAuditActionLabel(l.action)}
+                        </span>
                       </td>
                       <td className="px-3 py-2 whitespace-nowrap">{l.entityType}</td>
                       <td className="px-3 py-2 whitespace-nowrap">{l.entityId}</td>
-                      <td className="px-3 py-2 text-xs max-w-xs truncate">
-                        {(() => {
-                          const changes = getChangedFields(l);
-                          if (!changes.length) return l.after ? Object.keys(l.after).join(', ') : '';
-                          return `${changes.length} changed: ${changes.slice(0, 3).map(c => c.key).join(', ')}${changes.length > 3 ? '…' : ''}`;
-                        })()}
+                      <td className="px-3 py-2 text-xs max-w-md truncate" title={logEntrySummary(l)}>
+                        {logEntrySummary(l) || '—'}
                       </td>
                     </tr>
                     {expandedId === l.id && (
                       <tr className="bg-slate-50 border-b border-slate-200">
                         <td colSpan={6} className="px-3 py-2">
+                          {logEntrySummary(l) ? (
+                            <div className="mb-2 rounded-lg border border-slate-200 bg-white px-2 py-1.5 text-xs text-slate-800">
+                              <span className="font-semibold text-slate-500">Summary: </span>
+                              {logEntrySummary(l)}
+                            </div>
+                          ) : null}
                           {(() => {
                             const changes = getChangedFields(l);
                             if (!changes.length) return null;
@@ -10143,6 +10461,12 @@ function PTClientsPage({ members, users, settings, updateSetting, currentUser, a
             <div className="md:hidden divide-y divide-slate-200">
               {pageRows.map(l => (
                 <div key={l.id} className="p-3">
+                  {logEntrySummary(l) ? (
+                    <div className="mb-2 rounded-lg border border-slate-200 bg-slate-50 p-2 text-xs text-slate-800">
+                      <span className="font-semibold text-slate-600">Summary: </span>
+                      {logEntrySummary(l)}
+                    </div>
+                  ) : null}
                   {(() => {
                     const changes = getChangedFields(l);
                     if (!changes.length) return null;
@@ -10165,7 +10489,9 @@ function PTClientsPage({ members, users, settings, updateSetting, currentUser, a
                   })()}
                   <div className="flex items-center justify-between gap-2">
                     <div className="font-medium text-slate-900 truncate">{l.actor || 'Unknown'}</div>
-                    <span className="inline-flex rounded-full bg-blue-100 px-2 py-0.5 text-xs font-semibold text-blue-700">{l.action}</span>
+                    <span className="inline-flex max-w-[140px] shrink-0 truncate rounded-full bg-blue-100 px-2 py-0.5 text-xs font-semibold text-blue-700" title={l.action}>
+                      {formatAuditActionLabel(l.action)}
+                    </span>
                   </div>
                   <div className="text-xs text-slate-500 mt-1">{formatDateTimeTz(l.ts, displayTimeZone)} <span className="text-[10px] uppercase">{displayTimeZone}</span></div>
                   <div className="text-xs text-slate-600 mt-1">Entity: {l.entityType} / {l.entityId}</div>
@@ -10458,7 +10784,13 @@ function PTClientsPage({ members, users, settings, updateSetting, currentUser, a
             messageHistory: [{ id: crypto.randomUUID(), channel: 'whatsapp', templateKey, status: 'opened', ts: sentAt, sentAt, sentBy }, ...(m.messageHistory || [])].slice(0, 50),
           } : m));
         }
-        logEvent && logEvent('sms.send_now.opened', 'member', member.memberId || '', null, { templateKey, mobile: finalPhone });
+        logEvent && logEvent(smsTemplateOpenedAction(templateKey), 'member', member.memberId || '', null, {
+          memberName: member.name || '',
+          templateKey,
+          templateLabel: smsTemplateLogLabel(templateKey),
+          source: 'whatsapp_sms_page',
+          mobile: finalPhone,
+        });
       };
       return (
         <div className="p-3 md:p-8 space-y-5 bg-slate-100">
@@ -10538,7 +10870,14 @@ function PTClientsPage({ members, users, settings, updateSetting, currentUser, a
           {hasMessagingTabs && activeType !== 'templates' && (
           <div ref={messageCenterRef} className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm space-y-3">
             <div className="flex items-center justify-between gap-3 flex-wrap">
-              <div className="text-xl font-semibold">Search Section: whom to send what SMS</div>
+              <div className="space-y-1">
+                <div className="text-xl font-semibold">Search Section: whom to send what SMS</div>
+                {isSuccessAuditTab && (
+                  <p className="text-xs text-slate-600 max-w-3xl leading-relaxed">
+                    This list only includes members where a <strong className="font-medium text-slate-700">Success SMS</strong> send was recorded in this app (WhatsApp SMS tab or the member card &quot;WhatsApp Message Types&quot; → Success SMS). The main green button on a member row sends Reminder / Welcome / Fine by rules, not Success SMS. Messages sent only in WhatsApp or under another type are not shown here.
+                  </p>
+                )}
+              </div>
               <div className="flex items-center gap-2">
                 <select value={activeType} onChange={(e) => setActiveType(e.target.value)} className="rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm">
                   {allowedSmsTypes.filter((s) => s.key !== 'templates').map(s => <option key={s.key} value={s.key}>{s.label}</option>)}
