@@ -4359,8 +4359,20 @@ Please pay by: ${formattedLastDate}`;
             </div>
             </div>
             <div className="mt-2 flex items-center gap-2">
-              <div className="flex min-w-0 flex-1 items-center gap-2 rounded-xl border border-slate-200 bg-slate-50 px-3 py-2">
-                <span className="text-slate-400">🔎</span>
+              <div
+                className={cx(
+                  'flex min-w-0 flex-1 items-stretch overflow-hidden rounded-xl border-2 bg-emerald-50 transition-colors duration-150 dark:border-emerald-900/60 dark:bg-emerald-950/35',
+                  dashSearch.trim()
+                    ? 'border-emerald-500 shadow-sm dark:border-emerald-400 dark:bg-emerald-950/45'
+                    : 'border-emerald-200 focus-within:border-emerald-400 dark:border-emerald-800 dark:focus-within:border-emerald-400',
+                )}
+              >
+                <div
+                  className="flex w-10 shrink-0 items-center justify-center border-r border-emerald-200/90 bg-emerald-100/80 dark:border-emerald-800 dark:bg-emerald-900/50"
+                  aria-hidden
+                >
+                  <span className="text-[15px] leading-none text-emerald-600 dark:text-emerald-300">🔎</span>
+                </div>
                 <input
                   value={dashSearch}
                   onChange={(e) => setDashSearch(e.target.value)}
@@ -4371,8 +4383,8 @@ Please pay by: ${formattedLastDate}`;
                       if (activeTab !== 'Dashboard') setActiveTab('Dashboard');
                     }
                   }}
-                  placeholder="Search..."
-                  className="w-full bg-transparent text-xs text-slate-700 placeholder:text-slate-400 focus:outline-none"
+                  placeholder="Search members, phone, plan, invoice…"
+                  className="min-w-0 flex-1 border-0 bg-transparent px-3 py-2.5 text-xs text-slate-800 placeholder:text-black focus:outline-none focus:ring-0 dark:text-slate-100 dark:placeholder:text-emerald-50"
                 />
               </div>
               <button
@@ -4425,8 +4437,20 @@ Please pay by: ${formattedLastDate}`;
               <div className="rounded-2xl border border-slate-200 bg-white p-3 shadow-sm apg-card">
                 <div className="flex items-center justify-between gap-3">
                   <div className="flex items-center gap-2 min-w-0 flex-1">
-                    <div className="flex items-center gap-2 rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 w-full max-w-md shadow-[inset_0_1px_0_rgba(255,255,255,0.7)]">
-                      <span className="text-slate-400">🔎</span>
+                    <div
+                      className={cx(
+                        'flex w-full max-w-md items-stretch overflow-hidden rounded-xl border-2 bg-emerald-50 transition-colors duration-150 dark:border-emerald-900/60 dark:bg-emerald-950/35',
+                        dashSearch.trim()
+                          ? 'border-emerald-500 shadow-sm dark:border-emerald-400 dark:bg-emerald-950/45'
+                          : 'border-emerald-200 focus-within:border-emerald-400 dark:border-emerald-800 dark:focus-within:border-emerald-400',
+                      )}
+                    >
+                      <div
+                        className="flex w-11 shrink-0 items-center justify-center border-r border-emerald-200/90 bg-emerald-100/80 dark:border-emerald-800 dark:bg-emerald-900/50"
+                        aria-hidden
+                      >
+                        <span className="text-[16px] leading-none text-emerald-600 dark:text-emerald-300">🔎</span>
+                      </div>
                       <input
                         value={dashSearch}
                         onChange={(e) => setDashSearch(e.target.value)}
@@ -4437,8 +4461,8 @@ Please pay by: ${formattedLastDate}`;
                             if (activeTab !== 'Dashboard') setActiveTab('Dashboard');
                           }
                         }}
-                        placeholder="Search members, invoices, attendance..."
-                        className="w-full bg-transparent text-sm text-slate-700 placeholder:text-slate-400 focus:outline-none"
+                        placeholder="Search members, phone, plan, invoice…"
+                        className="min-w-0 flex-1 border-0 bg-transparent px-3 py-2.5 text-sm text-slate-800 placeholder:text-black focus:outline-none focus:ring-0 dark:text-slate-100 dark:placeholder:text-emerald-50"
                       />
                     </div>
                   </div>
@@ -12413,7 +12437,15 @@ function PTClientsPage({ members, users, settings, updateSetting, currentUser, a
         .filter((t) => t.type === 'expense')
         .reduce((sum, t) => sum + Number(t.amount || 0), 0);
       const estimatedExpense = Math.round(revenue * 0.26);
-      const expense = useEstimatedExpense ? estimatedExpense : actualExpense;
+      // In "Actual rows" mode with zero matching expense rows, profit would wrongly equal revenue.
+      // Fall back to the same 26% estimate until at least one expense row exists in the current filter.
+      const hasExpenseRows = actualExpense > 0;
+      const expense = useEstimatedExpense
+        ? estimatedExpense
+        : (hasExpenseRows ? actualExpense : estimatedExpense);
+      const expenseSubtitle = useEstimatedExpense
+        ? 'Estimated (26% of revenue)'
+        : (hasExpenseRows ? 'Actual expense rows' : '26% estimate (no expense rows match filter)');
       const profit = revenue - expense;
       const addExpenseRow = () => {
         if (!canFinanceManageExpenses) return;
@@ -12790,14 +12822,14 @@ function PTClientsPage({ members, users, settings, updateSetting, currentUser, a
               >
                 <div className="text-sm text-slate-500">Expenses</div>
                 <div className="mt-1 text-3xl font-bold text-rose-700">${expense.toLocaleString()}</div>
-                <div className="text-sm text-rose-700">{useEstimatedExpense ? 'Estimated (26%)' : 'Actual expense rows'}</div>
+                <div className="text-sm text-rose-700">{expenseSubtitle}</div>
               </button>
             )}
             {canFinanceProfitCard && (
               <div className={cardBase}>
                 <div className="text-sm text-slate-500">Profit</div>
                 <div className={cx('mt-1 text-3xl font-bold', profit >= 0 ? 'text-emerald-700' : 'text-rose-700')}>${profit.toLocaleString()}</div>
-                <div className="text-sm text-slate-600">Revenue - expense</div>
+                <div className="text-sm text-slate-600">Revenue − expense{!useEstimatedExpense && !hasExpenseRows ? ' (26% until expenses logged)' : ''}</div>
               </div>
             )}
           </div>
