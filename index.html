@@ -6649,8 +6649,8 @@ function MemberRow({ m, expanded, onToggle, onEdit, onStatusChange, holdOptions,
             onOpenMobileDetail={onOpenMobileDetail}
           />
           {expanded && (
-            <div className="px-0 lg:px-2 pt-2 pb-4">
-              <div className="rounded-2xl border border-slate-200 bg-white/95 shadow-sm p-3 sm:p-4 space-y-3">
+            <div className="px-0 lg:px-2 pt-1 pb-2">
+              <div className="rounded-2xl border border-slate-200 bg-white/95 shadow-sm p-2 sm:p-3 space-y-2">
                 <ExpandedActionsMobileView
                   m={m}
                   onEdit={onEdit}
@@ -6995,11 +6995,11 @@ function MobileMemberDetailView({ m, onBack, onEdit, onWelcome, onWhatsAppCall, 
     }
 
     const MEMBER_UI = {
-      stripCard: 'rounded-xl border border-slate-200 bg-white px-3.5 py-3 sm:px-4 sm:py-3.5',
-      sectionCard: 'rounded-xl border px-3.5 py-3 sm:px-4 sm:py-3.5 space-y-3.5',
+      stripCard: 'rounded-xl border border-slate-200 bg-white px-2.5 py-2 sm:px-3 sm:py-2',
+      sectionCard: 'rounded-xl border px-2.5 py-2 sm:px-3 sm:py-2.5 space-y-2',
       sectionTitle: 'text-xs font-semibold uppercase tracking-wide text-slate-700',
-      sectionToggle: 'rounded-full border border-slate-300 bg-white px-2.5 h-7 text-[10px] font-semibold text-slate-600 hover:bg-slate-50',
-      buttonBase: 'inline-flex items-center justify-center gap-1.5 rounded-xl border px-3 h-8 text-[11px] font-semibold leading-none transition-colors',
+      sectionToggle: 'rounded-full border border-slate-300 bg-white px-2 h-6 text-[10px] font-semibold text-slate-600 hover:bg-slate-50',
+      buttonBase: 'inline-flex items-center justify-center gap-1 rounded-lg border px-2.5 h-7 text-[11px] font-semibold leading-none transition-colors',
       buttonPrimary: 'border-blue-300 bg-blue-50 text-blue-700 hover:bg-blue-100',
       buttonSecondary: 'border-slate-300 bg-white text-slate-700 hover:bg-slate-100',
       buttonIndigo: 'border-indigo-300 bg-indigo-50 text-indigo-700 hover:bg-indigo-100',
@@ -7007,15 +7007,15 @@ function MobileMemberDetailView({ m, onBack, onEdit, onWelcome, onWhatsAppCall, 
       buttonAmber: 'border-amber-300 bg-amber-50 text-amber-700 hover:bg-amber-100',
       buttonRose: 'border-rose-300 bg-rose-50 text-rose-700 hover:bg-rose-100',
       buttonDisabled: 'bg-slate-200 text-slate-500 border-slate-300 cursor-not-allowed',
-      segmentedWrap: 'inline-flex items-center rounded-xl border border-slate-300 bg-white p-0.5',
-      segmentedBtn: 'rounded-lg px-3 h-8 text-[11px] font-semibold transition-colors',
-      selectBase: 'rounded-xl border border-slate-300 bg-white px-3 h-8 text-sm',
+      segmentedWrap: 'inline-flex items-center rounded-lg border border-slate-300 bg-white p-0.5',
+      segmentedBtn: 'rounded-md px-2.5 h-7 text-[11px] font-semibold transition-colors',
+      selectBase: 'rounded-lg border border-slate-300 bg-white px-2.5 h-7 text-sm',
     };
 
     // Phase A.2 split: mobile-only quick action strip in expanded panel.
     function ExpandedActionsMobileView({ m, onEdit, onWelcome, onWhatsAppCall, canWelcome, statusTemplate, statusSentText, canEdit = true }) {
       return (
-        <div className={cx('lg:hidden flex flex-wrap items-center gap-2', MEMBER_UI.stripCard)}>
+        <div className={cx('lg:hidden flex flex-wrap items-center gap-1.5', MEMBER_UI.stripCard)}>
           {canEdit && (
             <button
               onClick={() => onEdit && onEdit(m)}
@@ -7025,7 +7025,7 @@ function MobileMemberDetailView({ m, onBack, onEdit, onWelcome, onWhatsAppCall, 
             </button>
           )}
           {statusTemplate.key !== 'none' && (
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-1.5">
               <button
                 onClick={() => onWelcome && onWelcome(m, statusTemplate.key)}
                 disabled={!canWelcome || statusTemplate.disabled}
@@ -7048,7 +7048,7 @@ function MobileMemberDetailView({ m, onBack, onEdit, onWelcome, onWhatsAppCall, 
                 onClick={() => onWhatsAppCall && onWhatsAppCall(m)}
                 disabled={!canWelcome}
                 className={cx(
-                  'inline-flex h-8 w-8 items-center justify-center rounded-xl border transition-colors',
+                  'inline-flex h-7 w-7 items-center justify-center rounded-lg border transition-colors',
                   canWelcome
                     ? MEMBER_UI.buttonEmerald
                     : MEMBER_UI.buttonDisabled
@@ -7067,7 +7067,7 @@ function MobileMemberDetailView({ m, onBack, onEdit, onWelcome, onWhatsAppCall, 
     // Phase A.2 split: desktop-only quick action strip in expanded panel.
     function ExpandedActionsDesktopView({ m, onEdit, onWelcome, onWhatsAppCall, canWelcome, statusTemplate, statusSentText, canEdit = true }) {
       return (
-        <div className={cx('hidden lg:flex flex-wrap items-center gap-2', MEMBER_UI.stripCard)}>
+        <div className={cx('hidden lg:flex flex-wrap items-center gap-1.5', MEMBER_UI.stripCard)}>
           {canEdit && (
             <button
               onClick={() => onEdit && onEdit(m)}
@@ -7077,7 +7077,7 @@ function MobileMemberDetailView({ m, onBack, onEdit, onWelcome, onWhatsAppCall, 
             </button>
           )}
           {statusTemplate.key !== 'none' && (
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-1.5">
               <button
                 onClick={() => onWelcome && onWelcome(m, statusTemplate.key)}
                 disabled={!canWelcome || statusTemplate.disabled}
@@ -7100,7 +7100,7 @@ function MobileMemberDetailView({ m, onBack, onEdit, onWelcome, onWhatsAppCall, 
                 onClick={() => onWhatsAppCall && onWhatsAppCall(m)}
                 disabled={!canWelcome}
                 className={cx(
-                  'inline-flex h-8 w-8 items-center justify-center rounded-xl border transition-colors',
+                  'inline-flex h-7 w-7 items-center justify-center rounded-lg border transition-colors',
                   canWelcome
                     ? MEMBER_UI.buttonEmerald
                     : MEMBER_UI.buttonDisabled
@@ -7130,10 +7130,10 @@ function MobileMemberDetailView({ m, onBack, onEdit, onWelcome, onWhatsAppCall, 
       ];
       return (
         <div className={MEMBER_UI.stripCard}>
-          <div className="text-xs font-semibold text-slate-600 mb-2">WhatsApp Message Types</div>
-          <div className="flex flex-wrap gap-2">
+          <div className="text-xs font-semibold text-slate-600 mb-1">WhatsApp Message Types</div>
+          <div className="flex flex-wrap gap-1.5">
             {types.map(t => (
-              <div key={t.key} className="flex items-center gap-2">
+              <div key={t.key} className="flex items-center gap-1.5">
                 <button
                   onClick={() => onWelcome && onWelcome(m, t.key)}
                   disabled={!canWelcome}
@@ -7155,7 +7155,7 @@ function MobileMemberDetailView({ m, onBack, onEdit, onWelcome, onWhatsAppCall, 
 
     function GmailUploadActionsBlock({ m, onWelcomeMail, uploadDoc }) {
       return (
-        <div className={cx(MEMBER_UI.stripCard, 'flex flex-wrap items-center gap-2')}>
+        <div className={cx(MEMBER_UI.stripCard, 'flex flex-wrap items-center gap-1.5')}>
           {m.status === 'Active' && (
             <button
               onClick={() => onWelcomeMail && onWelcomeMail(m)}
@@ -7369,7 +7369,7 @@ function MemberDetails({ m, logs, onQuickFieldEdit, editOptions, isOwner = false
         } catch {}
       }, [detailsViewMode]);
       const attachmentsBlock = Array.isArray(m.attachments) && m.attachments.length > 0 ? (
-        <div className="pb-2 border-b border-slate-200 space-y-1">
+        <div className="pb-1 border-b border-slate-200 space-y-0.5">
           <div className="text-xs font-semibold text-slate-600">Uploaded Documents</div>
           <div className="flex flex-wrap gap-2">
             {m.attachments.map((a) => (
@@ -7390,8 +7390,8 @@ function MemberDetails({ m, logs, onQuickFieldEdit, editOptions, isOwner = false
         </div>
       ) : null;
       const activityBlock = (
-        <div className="pt-2 border-t border-slate-200">
-          <div className="text-xs font-semibold text-slate-600 mb-2">Recent Activity</div>
+        <div className="pt-1 border-t border-slate-200">
+          <div className="text-xs font-semibold text-slate-600 mb-1">Recent Activity</div>
           <div className="space-y-1">
             {memberLogs.map(l => (
               <div key={l.id} className="text-xs text-slate-600 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-1">
@@ -7406,10 +7406,10 @@ function MemberDetails({ m, logs, onQuickFieldEdit, editOptions, isOwner = false
         </div>
       );
       const paymentHistoryBlock = (
-        <div className="rounded-xl border border-emerald-200 bg-emerald-50/40 p-3 space-y-2">
-          <div className="flex items-center justify-between gap-2">
+        <div className="rounded-xl border border-emerald-200 bg-emerald-50/40 p-2 space-y-1.5">
+          <div className="flex items-center justify-between gap-1.5">
             <div className="text-xs font-semibold text-emerald-800">Payment History (Month-wise)</div>
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-1.5 flex-wrap justify-end">
               <span className="text-[11px] font-semibold text-emerald-700">
                 Total Paid: ₹{Number(paymentTotal || 0).toLocaleString()}
               </span>
@@ -7439,26 +7439,26 @@ function MemberDetails({ m, logs, onQuickFieldEdit, editOptions, isOwner = false
                 <table className="min-w-full text-xs">
                   <thead>
                     <tr className="bg-emerald-50 text-emerald-800">
-                      <th className="px-2 py-1.5 text-left">Billing Month</th>
-                      <th className="px-2 py-1.5 text-left">Amount</th>
-                      <th className="px-2 py-1.5 text-left">Payment Date</th>
-                      <th className="px-2 py-1.5 text-left">Method</th>
-                      <th className="px-2 py-1.5 text-left">Recorded By</th>
-                      <th className="px-2 py-1.5 text-left">Source</th>
-                      {isOwner && onDeletePaymentEntry && <th className="px-2 py-1.5 text-right">Action</th>}
+                      <th className="px-2 py-1 text-left">Billing Month</th>
+                      <th className="px-2 py-1 text-left">Amount</th>
+                      <th className="px-2 py-1 text-left">Payment Date</th>
+                      <th className="px-2 py-1 text-left">Method</th>
+                      <th className="px-2 py-1 text-left">Recorded By</th>
+                      <th className="px-2 py-1 text-left">Source</th>
+                      {isOwner && onDeletePaymentEntry && <th className="px-2 py-1 text-right">Action</th>}
                     </tr>
                   </thead>
                   <tbody>
                     {paymentRows.map((row) => (
                       <tr key={row.id} className="border-t border-emerald-100">
-                        <td className="px-2 py-1.5 whitespace-nowrap">{billingMonthLabel(row)}</td>
-                        <td className="px-2 py-1.5 whitespace-nowrap">₹{Number(row.amount || 0).toLocaleString()}</td>
-                        <td className="px-2 py-1.5 whitespace-nowrap">{formatDateTimeTz(row.paidAt, displayTimeZone)} <span className="text-[10px] uppercase text-slate-500">{displayTimeZone}</span></td>
-                        <td className="px-2 py-1.5 whitespace-nowrap">{row.method || '—'}</td>
-                        <td className="px-2 py-1.5 whitespace-nowrap">{row.recordedBy || '—'}</td>
-                        <td className="px-2 py-1.5 whitespace-nowrap capitalize">{row.source || '—'}</td>
+                        <td className="px-2 py-1 whitespace-nowrap">{billingMonthLabel(row)}</td>
+                        <td className="px-2 py-1 whitespace-nowrap">₹{Number(row.amount || 0).toLocaleString()}</td>
+                        <td className="px-2 py-1 whitespace-nowrap">{formatDateTimeTz(row.paidAt, displayTimeZone)} <span className="text-[10px] uppercase text-slate-500">{displayTimeZone}</span></td>
+                        <td className="px-2 py-1 whitespace-nowrap">{row.method || '—'}</td>
+                        <td className="px-2 py-1 whitespace-nowrap">{row.recordedBy || '—'}</td>
+                        <td className="px-2 py-1 whitespace-nowrap capitalize">{row.source || '—'}</td>
                         {isOwner && onDeletePaymentEntry && (
-                          <td className="px-2 py-1.5 text-right">
+                          <td className="px-2 py-1 text-right">
                             <button
                               type="button"
                               onClick={() => onDeletePaymentEntry(m.memberId, row.id)}
@@ -7478,7 +7478,7 @@ function MemberDetails({ m, logs, onQuickFieldEdit, editOptions, isOwner = false
         </div>
       );
       const communicationBlock = (
-        <div className="space-y-2.5">
+        <div className="space-y-1.5">
           <WhatsAppMessageTypesBlock
             m={m}
             onWelcome={onWelcome}
@@ -7519,7 +7519,7 @@ function MemberDetails({ m, logs, onQuickFieldEdit, editOptions, isOwner = false
             });
           }}
           className={cx(
-            'rounded-lg border px-2.5 py-2 min-w-0',
+            'rounded-lg border px-2.5 py-1.5 min-w-0',
             (row.key === 'totalHoldMonths' || row.key === 'holdNote') ? 'border-rose-200 bg-rose-50/70' : '',
             requiredLabels.has(row.label) ? 'border-amber-200 bg-amber-50/40' : 'border-slate-200 bg-white',
             row.editable ? 'cursor-pointer hover:border-blue-300 hover:bg-blue-50/40 transition-colors' : ''
@@ -7587,7 +7587,7 @@ function MemberDetails({ m, logs, onQuickFieldEdit, editOptions, isOwner = false
             <button
               type="button"
               onClick={() => toggleSection(sectionId)}
-              className="w-full flex items-center justify-between gap-2 text-left"
+              className="w-full flex items-center justify-between gap-2 text-left py-0.5"
             >
               <div className={MEMBER_UI.sectionTitle}>{title}</div>
               <span className={MEMBER_UI.sectionToggle}>{open ? 'Hide' : 'Expand'}</span>
@@ -7597,8 +7597,8 @@ function MemberDetails({ m, logs, onQuickFieldEdit, editOptions, isOwner = false
         );
       };
       return (
-        <div className="rounded-xl border border-slate-200 bg-slate-50 p-3.5 sm:p-4 text-sm space-y-3.5">
-          <div className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-slate-200 bg-white p-2.5">
+        <div className="rounded-xl border border-slate-200 bg-slate-50 p-2.5 sm:p-3 text-sm space-y-2">
+          <div className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-slate-200 bg-white p-2">
             <div className="text-xs font-semibold text-slate-600">Member Details View</div>
             <div className={MEMBER_UI.segmentedWrap}>
               <button
@@ -7620,9 +7620,9 @@ function MemberDetails({ m, logs, onQuickFieldEdit, editOptions, isOwner = false
           {sectionCard(
             'summary',
             'Quick Summary',
-            <div className="grid grid-cols-2 lg:grid-cols-3 gap-2.5">
+            <div className="grid grid-cols-2 lg:grid-cols-3 gap-2">
               {summaryItems.map((item) => (
-                <div key={item.label} className="rounded-lg border border-slate-200 bg-white px-2.5 py-2">
+                <div key={item.label} className="rounded-lg border border-slate-200 bg-white px-2.5 py-1.5">
                   <div className="text-[10px] uppercase tracking-wide text-slate-500">{item.label}</div>
                   <div className="mt-0.5 text-xs font-semibold text-slate-800">{item.value}</div>
                 </div>
@@ -7633,14 +7633,14 @@ function MemberDetails({ m, logs, onQuickFieldEdit, editOptions, isOwner = false
           {sectionCard(
             'profile',
             'Profile',
-            <div className={cx('grid gap-2.5', detailsViewMode === 'compact' ? 'grid-cols-1 md:grid-cols-2' : 'grid-cols-1 md:grid-cols-2 lg:grid-cols-3')}>
+            <div className={cx('grid gap-2', detailsViewMode === 'compact' ? 'grid-cols-1 md:grid-cols-2' : 'grid-cols-1 md:grid-cols-2 lg:grid-cols-3')}>
               {sectionRows('profile').map(renderRowCard)}
             </div>
           )}
           {sectionCard(
             'membership',
             'Membership',
-            <div className={cx('grid gap-2.5', detailsViewMode === 'compact' ? 'grid-cols-1 md:grid-cols-2' : 'grid-cols-1 md:grid-cols-2 lg:grid-cols-3')}>
+            <div className={cx('grid gap-2', detailsViewMode === 'compact' ? 'grid-cols-1 md:grid-cols-2' : 'grid-cols-1 md:grid-cols-2 lg:grid-cols-3')}>
               {sectionRows('membership').map(renderRowCard)}
             </div>
           )}
@@ -7654,10 +7654,10 @@ function MemberDetails({ m, logs, onQuickFieldEdit, editOptions, isOwner = false
 
     function MemberDetailsMobileView({ rowCards, attachmentsBlock, paymentHistoryBlock, activityBlock }) {
       return (
-        <div className="md:hidden space-y-3">
+        <div className="md:hidden space-y-2">
           {attachmentsBlock}
           {paymentHistoryBlock}
-          <div className="grid grid-cols-1 gap-2.5">
+          <div className="grid grid-cols-1 gap-2">
             {rowCards}
           </div>
           {activityBlock}
@@ -7667,10 +7667,10 @@ function MemberDetails({ m, logs, onQuickFieldEdit, editOptions, isOwner = false
 
     function MemberDetailsDesktopView({ rowCards, attachmentsBlock, paymentHistoryBlock, activityBlock }) {
       return (
-        <div className="hidden md:block space-y-3">
+        <div className="hidden md:block space-y-2">
           {attachmentsBlock}
           {paymentHistoryBlock}
-          <div className="grid grid-cols-2 lg:grid-cols-3 gap-2.5 sm:gap-3">
+          <div className="grid grid-cols-2 lg:grid-cols-3 gap-2 sm:gap-2.5">
             {rowCards}
           </div>
           {activityBlock}
@@ -7682,7 +7682,7 @@ function MemberDetails({ m, logs, onQuickFieldEdit, editOptions, isOwner = false
 function QuickActions({ m, onStatusChange, holdOptions, canDelete, onDelete, canEdit = true }) {
       const [sel, setSel] = React.useState(holdOptions[0] || '1 Month');
       return (
-        <div className={cx('flex flex-wrap items-center gap-2', MEMBER_UI.stripCard)}>
+        <div className={cx('flex flex-wrap items-center gap-1.5', MEMBER_UI.stripCard)}>
           {/* Activate button shown when member is not already active */}
           {canEdit && m.status !== 'Active' && (
             <button
