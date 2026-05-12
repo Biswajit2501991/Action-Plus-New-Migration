@@ -28,6 +28,29 @@ This project uses **Cloudflare-routed hosting** as the production source of trut
    - Open `https://app.gymactionplus.com/`
    - Smoke test login, dashboard, member updates, and settings.
 
+## Daily Startup (One Command)
+
+From project root, run:
+
+- `npm run prod:start`
+
+What it does:
+
+- verifies/install dependencies when missing
+- runs DB migrate + seed safely
+- starts frontend + backend + Cloudflare tunnel
+- opens the app locally for quick verification
+
+Optional (recommended): set `APG_CAFFEINATE=1` in `.env` to reduce sleep interruptions on macOS.
+
+## Daily Health Check
+
+- `npm run prod:health`
+
+## Stop Production Session
+
+- Press `Ctrl + C` in the terminal running `npm run prod:start`.
+
 ## Hotfix Process
 
 1. Create `hotfix/<issue>` from `main`.

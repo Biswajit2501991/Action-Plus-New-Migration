@@ -118,6 +118,16 @@ Production for this project is Cloudflare-routed at:
 GitHub Pages is not used as the production deployment source.
 See `PROD_DEPLOYMENT.md` for the authoritative release and rollback process.
 
+### Daily Production Startup (One Command)
+
+From project root:
+
+- `npm run prod:start`
+
+Health check:
+
+- `npm run prod:health`
+
 ## Cloudflare Tunnel (Share Local App Securely)
 
 Use this when app runs on your local machine (for example in Australia) and members access from anywhere (for example India).
