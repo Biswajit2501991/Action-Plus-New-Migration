@@ -109,25 +109,14 @@ npm test
 
 If `npm` fails due to local Node/ICU mismatch, update or reinstall Node on your machine and run again.
 
-## GitHub Pages (HTTPS Hosting)
+## Production Hosting
 
-This repo includes:
+Production for this project is Cloudflare-routed at:
 
-- `.github/workflows/deploy-pages.yml` (GitHub Actions deploy workflow)
-- `.nojekyll` (prevents Jekyll processing issues on static projects)
+- `https://app.gymactionplus.com/`
 
-To host and share over HTTPS:
-
-1. Push the project to a GitHub repo on `main`.
-2. Open GitHub repo -> `Settings` -> `Pages`.
-3. Set `Source` to `GitHub Actions`.
-4. Wait for the workflow to complete in the `Actions` tab.
-
-Your app URL will be:
-
-- `https://<your-username>.github.io/<your-repo>/`
-
-Note: this app stores data in browser `localStorage`, so data is per browser/device and not shared in real time across users.
+GitHub Pages is not used as the production deployment source.
+See `PROD_DEPLOYMENT.md` for the authoritative release and rollback process.
 
 ## Cloudflare Tunnel (Share Local App Securely)
 
@@ -188,3 +177,33 @@ To automatically start app + tunnel after login:
 This uses `launchd` with label `com.actionplus.gym.autostart` and runs `npm run dev:all:tunnel`.
 You can also run health check manually with `npm run health:check`.
 You can run the watchdog manually with `npm run watchdog:start`.
+
+## Safe Production Workflow (Recommended)
+
+Use this flow to avoid direct production breakage:
+
+1. Create a branch from `main` (`feature/*`, `fix/*`, `hotfix/*`).
+2. Implement and test locally.
+3. Open a Pull Request to `main`.
+4. Wait for CI (`.github/workflows/ci.yml`) to pass.
+5. Merge PR to `main`.
+6. Run the Cloudflare/origin release step defined in `PROD_DEPLOYMENT.md`.
+
+### Required GitHub Settings
+
+In repository settings, protect `main` with:
+
+- Require a pull request before merging.
+- Require status checks to pass before merging:
+  - `Run tests`
+- Block direct pushes to `main`.
+- (Optional) Require at least 1 approval.
+
+### Emergency Hotfix Flow
+
+When production is down:
+
+1. Branch from `main` as `hotfix/<issue>`.
+2. Apply the smallest possible fix.
+3. Open PR to `main` and pass CI.
+4. Merge, then run the Cloudflare/origin release step.
