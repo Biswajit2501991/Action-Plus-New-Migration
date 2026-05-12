@@ -296,6 +296,53 @@
         timeZone: zone,
       }).format(dt);
     };
+    /** DD/MM/YYYY hh:mm AM/PM in the selected display timezone (Success SMS system line). */
+    const formatSuccessSmsSystemTimestamp = (value, tz = 'IST') => {
+      if (!value) return '';
+      const dt = value instanceof Date ? value : new Date(value);
+      if (Number.isNaN(dt.getTime())) return '';
+      const zone = DISPLAY_TIME_ZONES[tz] || DISPLAY_TIME_ZONES.IST;
+      try {
+        const parts = new Intl.DateTimeFormat('en-GB', {
+          day: '2-digit',
+          month: '2-digit',
+          year: 'numeric',
+          hour: '2-digit',
+          minute: '2-digit',
+          hour12: true,
+          timeZone: zone,
+        }).formatToParts(dt);
+        const pick = (type) => (parts.find((p) => p.type === type) || {}).value || '';
+        const day = pick('day');
+        const month = pick('month');
+        const year = pick('year');
+        const hour = pick('hour');
+        const minute = pick('minute');
+        const ap = (pick('dayPeriod') || '').toUpperCase();
+        if (!day || !month || !year) return formatDateTimeTz(value, tz);
+        return `${day}/${month}/${year} ${hour}:${minute}${ap ? ` ${ap}` : ''}`;
+      } catch {
+        return formatDateTimeTz(value, tz);
+      }
+    };
+    /** Ensures one “System Details” line under Mode of Payment for Success SMS / WhatsApp. */
+    const upsertSuccessSmsSystemDetailsLine = (message, ts) => {
+      const s = String(message || '');
+      if (!ts || /System Details\s*:/i.test(s)) return s;
+      const mop = /\*Mode of Payment\*[^\n\r]*/i;
+      const m = s.match(mop);
+      const line = `*(System Details: ${ts})*`;
+      if (m && m.index !== undefined) {
+        const end = m.index + m[0].length;
+        return `${s.slice(0, end)}\n${line}${s.slice(end)}`;
+      }
+      return `${s.replace(/\s+$/, '')}\n\n${line}`;
+    };
+    const finalizeSuccessWhatsAppMessage = (message, tz, at = new Date()) => {
+      const ts = formatSuccessSmsSystemTimestamp(at, tz);
+      const withPlaceholders = String(message || '').split('[SystemDetails]').join(ts);
+      return upsertSuccessSmsSystemDetailsLine(withPlaceholders, ts);
+    };
     // Derive pay month label (Mon‑YYYY) from a date.
     const payMonthLabel = (d) => {
       const dt = asUTC(d);
@@ -1074,6 +1121,7 @@ For the amount of INR [Amount] on [TodaysDate].
 Your next payment date would be on *[NextPaymentDate].*
 
 *Mode of Payment* : *[PaymentMethod]*
+*(System Details: [SystemDetails])*
 
 *OFFER FOR YOU*
 
@@ -3177,6 +3225,7 @@ Please pay by: ${formattedLastDate}`;
           Cancelled: 'fine',
         };
         const resolvedKey = templateKey || keyByStatus[member.status] || 'reminder';
+        const composeAt = new Date();
         const smsTemplates = {
           ...SMS_TEMPLATE_DEFAULTS,
           ...(settings.smsTemplates || {}),
@@ -3203,11 +3252,17 @@ Please pay by: ${formattedLastDate}`;
           '[NextPaymentDate]': fmt(member.nextPaymentDate || nextPaymentDateFromBillingDate(member)) || '',
           '[ModeOfPayment]': member.paymentMethod || '',
           '[PaymentMethod]': member.paymentMethod || '',
+          ...(resolvedKey === 'success'
+            ? { '[SystemDetails]': formatSuccessSmsSystemTimestamp(composeAt, displayTimeZone) }
+            : {}),
         };
         let message = smsTemplates[resolvedKey] || smsTemplates.reminder || '';
         Object.keys(replacements).forEach((k) => {
           message = message.split(k).join(replacements[k]);
         });
+        if (resolvedKey === 'success') {
+          message = finalizeSuccessWhatsAppMessage(message, displayTimeZone, composeAt);
+        }
         const cleanPhone = String(member.mobile || '').replace(/\D/g, '');
         if (!cleanPhone) {
           setMembers(prev => prev.map(m => m.memberId === member.memberId ? {
@@ -3221,7 +3276,7 @@ Please pay by: ${formattedLastDate}`;
         const finalPhone = cleanPhone.length === 10 ? `91${cleanPhone}` : cleanPhone;
         const url = `https://api.whatsapp.com/send?phone=${finalPhone}&text=${encodeURIComponent(message)}`;
         safeOpenExternal(url);
-        const sentAt = new Date().toISOString();
+        const sentAt = composeAt.toISOString();
         const sentBy = user?.name || user?.id || 'Staff';
         setMembers(prev => prev.map(m => m.memberId === member.memberId ? {
           ...m,
@@ -11630,7 +11685,7 @@ function PTClientsPage({ members, users, settings, updateSetting, currentUser, a
       const [templateEditor, setTemplateEditor] = React.useState({ open: false, key: '', value: '' });
       const messageCenterRef = React.useRef(null);
       const [preview, setPreview] = React.useState({ open: false, member: null, templateKey: '' });
-      const VARIABLE_KEYS = ['[CustomerName]','[PLAN]','[CurrentPlan]','[Amount]','[BillingDate]','[PaymentBy]','[GymStartdate]','[NextPaymentDate]'];
+      const VARIABLE_KEYS = ['[CustomerName]','[PLAN]','[CurrentPlan]','[Amount]','[BillingDate]','[PaymentBy]','[GymStartdate]','[NextPaymentDate]','[PaymentMethod]','[SystemDetails]'];
       React.useEffect(() => {
         if (settings.smsTemplatePresetVersion === '2026-04-27') return;
         updateSetting('smsTemplates', { ...SMS_TEMPLATE_DEFAULTS });
@@ -11809,8 +11864,9 @@ function PTClientsPage({ members, users, settings, updateSetting, currentUser, a
         const curr = templates[key] || '';
         setTemplateEditor({ open: true, key, value: curr });
       };
-      const renderSms = (template, m) => {
+      const renderSms = (template, m, templateKey, composeAt) => {
         if (!m) return '';
+        const at = composeAt instanceof Date && !Number.isNaN(composeAt.getTime()) ? composeAt : new Date();
         const billing = asUTC(m.billingDate);
         const paymentBy = retentionPaymentDeadline(m);
         const totalAmountWithFine = Number(m.amount || 0) + 100;
@@ -11832,11 +11888,18 @@ function PTClientsPage({ members, users, settings, updateSetting, currentUser, a
           '[NextBillingDate]': billing ? fmt(addMonths(billing, 1)) : '',
           '[NextPaymentDate]': fmt(m.nextPaymentDate || nextPaymentDateFromBillingDate(m)) || '',
           '[ModeOfPayment]': m.paymentMethod || '',
+          '[PaymentMethod]': m.paymentMethod || '',
+          ...(templateKey === 'success'
+            ? { '[SystemDetails]': formatSuccessSmsSystemTimestamp(at, displayTimeZone) }
+            : {}),
         };
         let out = template || '';
         Object.keys(replacements).forEach(key => {
           out = out.split(key).join(replacements[key]);
         });
+        if (templateKey === 'success') {
+          out = finalizeSuccessWhatsAppMessage(out, displayTimeZone, at);
+        }
         return out;
       };
       const sendNow = (member, templateKey, prebuiltMessage) => {
@@ -11844,7 +11907,11 @@ function PTClientsPage({ members, users, settings, updateSetting, currentUser, a
           window.alert('Member not found for this event.');
           return;
         }
-        const message = prebuiltMessage || renderSms(templates[templateKey] || '', member);
+        const composeAt = new Date();
+        let message = prebuiltMessage || renderSms(templates[templateKey] || '', member, templateKey, composeAt);
+        if (templateKey === 'success') {
+          message = finalizeSuccessWhatsAppMessage(message, displayTimeZone, composeAt);
+        }
         const cleanPhone = String(member.mobile || '').replace(/\D/g, '');
         if (!cleanPhone) {
           window.alert('Member mobile number is missing.');
@@ -11853,7 +11920,7 @@ function PTClientsPage({ members, users, settings, updateSetting, currentUser, a
         const finalPhone = cleanPhone.length === 10 ? `91${cleanPhone}` : cleanPhone;
         const url = `https://api.whatsapp.com/send?phone=${finalPhone}&text=${encodeURIComponent(message)}`;
         safeOpenExternal(url);
-        const sentAt = new Date().toISOString();
+        const sentAt = composeAt.toISOString();
         const sentBy = currentUser?.name || currentUser?.id || 'Staff';
         if (setMembers) {
           setMembers(prev => prev.map((m) => m.memberId === member.memberId ? {
@@ -12315,7 +12382,7 @@ function PTClientsPage({ members, users, settings, updateSetting, currentUser, a
                 </div>
                 <div className="text-xs text-slate-500">Variables: {VARIABLE_KEYS.join(', ')}</div>
                 <div className="max-h-72 overflow-auto whitespace-pre-wrap rounded-xl border border-slate-200 bg-slate-50 p-3 text-sm">
-                  {renderSms(templates[preview.templateKey] || '', preview.member)}
+                  {renderSms(templates[preview.templateKey] || '', preview.member, preview.templateKey)}
                 </div>
                 <div className="flex justify-end gap-2">
                   <button onClick={() => setPreview({ open: false, member: null, templateKey: '' })} className="rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm">Cancel</button>
