@@ -57,13 +57,13 @@ const localOverrides = parseEnvFile(localEnvPath);
 const isolatedEnv = {
   ...process.env,
   ...localOverrides,
-  FRONTEND_HOST: localOverrides.FRONTEND_HOST || '127.0.0.1',
-  FRONTEND_PORT: localOverrides.FRONTEND_PORT || '5501',
-  BACKEND_PORT: localOverrides.BACKEND_PORT || '4001',
-  PORT: localOverrides.PORT || localOverrides.BACKEND_PORT || '4001',
-  APG_SUPERVISOR_PORT: localOverrides.APG_SUPERVISOR_PORT || '4011',
-  API_BASE_URL: localOverrides.API_BASE_URL || '/api',
-  DATABASE_PATH: localOverrides.DATABASE_PATH || './data/app.local.db',
+  FRONTEND_HOST: '127.0.0.1',
+  FRONTEND_PORT: '5501',
+  BACKEND_PORT: '4001',
+  PORT: '4001',
+  APG_SUPERVISOR_PORT: '4011',
+  API_BASE_URL: '/api',
+  DATABASE_PATH: './data/app.local.db',
 };
 
 if (!fs.existsSync(localEnvPath)) {

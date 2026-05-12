@@ -6499,8 +6499,8 @@ function MembersList({ title, list, onBack, onEdit, onStatusChange, holdOptions,
               </div>
             )}
           </div>
-          <div className={cx('apg-members-list-shell rounded-3xl bg-white border border-slate-200 p-2 md:p-4 shadow-sm overflow-hidden dark:bg-slate-900 dark:border-slate-700', isCompactTablet ? 'text-[12px]' : '')}>
-            <div className={cx('apg-members-list-head hidden lg:grid grid-cols-12 gap-2 px-3 py-2.5 text-sm font-semibold bg-indigo-50/70 text-slate-700 border border-slate-200 rounded-2xl dark:bg-slate-800 dark:text-slate-100 dark:border-slate-700', isCompactTablet ? 'gap-1.5 px-2 py-2 text-xs' : '')}>
+          <div className={cx('apg-members-list-shell rounded-3xl bg-white border border-slate-200 p-2 md:p-4 shadow-sm overflow-hidden dark:bg-slate-900 dark:border-slate-700 text-[10px]', isCompactTablet ? 'text-[9px]' : '')}>
+            <div className={cx('apg-members-list-head hidden lg:grid grid-cols-12 gap-1.5 px-2.5 py-2 text-sm font-semibold bg-indigo-50/70 text-slate-700 border border-slate-200 rounded-xl dark:bg-slate-800 dark:text-slate-100 dark:border-slate-700', isCompactTablet ? 'gap-1.5 px-2 py-1.5 text-xs' : '')}>
               <div className="col-span-1">ID</div>
               <div className="col-span-2">Name</div>
               <div className="col-span-1">Plan</div>
@@ -6618,7 +6618,7 @@ function MemberRow({ m, expanded, onToggle, onEdit, onStatusChange, holdOptions,
         reader.readAsDataURL(file);
       };
       return (
-        <div className="apg-member-row-wrap py-1 md:py-1.5">
+        <div className="apg-member-row-wrap py-0.5 md:py-1">
           <MemberRowDesktopView
             m={m}
             selectable={selectable}
@@ -6700,7 +6700,7 @@ function MemberRow({ m, expanded, onToggle, onEdit, onStatusChange, holdOptions,
 function MemberRowDesktopView({ m, selectable, selected, onSelectToggle, onToggle, onEdit, onWelcome, onWhatsAppCall, canWelcome, statusTemplate, billingToday = false, fineHighlight = false, statusSentText, callInfoText, canEdit = true, isCompactTablet = false }) {
       const isIpadLandscapeCompact = isCompactTablet && typeof window !== 'undefined' && window.innerWidth >= 1024 && window.innerWidth <= 1366;
       return (
-        <button onClick={onToggle} className={cx('apg-member-row-desktop hidden lg:grid w-full grid-cols-12 items-center gap-2 rounded-2xl border border-slate-200/90 bg-white px-3 py-3.5 text-left text-slate-700 shadow-[0_1px_0_rgba(15,23,42,0.02)] transition hover:border-slate-300 hover:bg-slate-50/70 hover:shadow-[0_6px_20px_rgba(15,23,42,0.06)]', isCompactTablet ? 'gap-1.5 px-2 py-2.5 text-[12px]' : '')}>
+        <button onClick={onToggle} className={cx('apg-member-row-desktop hidden lg:grid w-full grid-cols-12 items-center gap-1.5 rounded-xl border border-slate-200/90 bg-white px-2.5 py-1.5 text-left text-slate-700 shadow-[0_1px_0_rgba(15,23,42,0.02)] transition hover:border-slate-300 hover:bg-slate-50/70 hover:shadow-[0_6px_20px_rgba(15,23,42,0.06)] text-[10px]', isCompactTablet ? 'gap-1 px-2 py-1 text-[9px]' : '')}>
           <div className="col-span-1 font-medium flex items-center gap-2 min-w-0">
             {selectable && (
               <input
@@ -6716,26 +6716,26 @@ function MemberRowDesktopView({ m, selectable, selected, onSelectToggle, onToggl
             <span className="truncate">{m.memberId}</span>
           </div>
           <div className={cx(
-            'col-span-2 flex items-center gap-2',
+            'col-span-2 flex items-center gap-1.5',
             fineHighlight
-              ? 'rounded-md bg-[#F08080] px-2 py-1 text-black font-semibold animate-pulse'
-              : (billingToday ? 'rounded-md bg-lime-300 px-2 py-1 text-black font-semibold animate-pulse' : '')
+              ? 'rounded-md bg-[#F08080] px-1.5 py-0.5 text-black font-semibold animate-pulse'
+              : (billingToday ? 'rounded-md bg-lime-300 px-1.5 py-0.5 text-black font-semibold animate-pulse' : '')
           )}>
-            <Avatar name={m.name} photo={m.photo} className="h-7 w-7" />
+            <Avatar name={m.name} photo={m.photo} className="h-6 w-6" />
             <span className="truncate">{m.name}</span>
           </div>
           <div className="col-span-1 truncate">{m.plan}</div>
-          <div className={cx('col-span-1', billingToday ? 'rounded-md bg-lime-300 px-2 py-1 text-black font-semibold animate-pulse' : '')}>{fmt(m.billingDate)}</div>
-          <div className={cx('col-span-1', fineHighlight ? 'rounded-md bg-[#F08080] px-2 py-1 text-black font-semibold animate-pulse' : '')}>{fmt(retentionPaymentDeadline(m) || m.billingDate) || '-'}</div>
-          <div className={cx('col-span-6 pl-2 flex items-center gap-2 pr-2', isCompactTablet ? 'gap-1 pr-1' : '', isIpadLandscapeCompact ? 'overflow-hidden' : '')}>
-            <Badge tone={toneForStatus(m.status)} className={cx('text-center flex-shrink-0', isCompactTablet ? 'w-20 text-[10px]' : 'w-24', isIpadLandscapeCompact ? 'w-[72px] px-1' : '')}>{shortStatus(m.status)}</Badge>
+          <div className={cx('col-span-1', billingToday ? 'rounded-md bg-lime-300 px-1.5 py-0.5 text-black font-semibold animate-pulse' : '')}>{fmt(m.billingDate)}</div>
+          <div className={cx('col-span-1', fineHighlight ? 'rounded-md bg-[#F08080] px-1.5 py-0.5 text-black font-semibold animate-pulse' : '')}>{fmt(retentionPaymentDeadline(m) || m.billingDate) || '-'}</div>
+          <div className={cx('col-span-6 pl-1.5 flex items-center gap-1.5 pr-1.5', isCompactTablet ? 'gap-1 pr-1' : '', isIpadLandscapeCompact ? 'overflow-hidden' : '')}>
+            <Badge tone={toneForStatus(m.status)} className={cx('text-center flex-shrink-0 py-0.5 px-2 text-[10px] leading-tight', isCompactTablet ? 'w-20' : 'w-24', isIpadLandscapeCompact ? 'w-[72px] px-1' : '')}>{shortStatus(m.status)}</Badge>
             {canEdit && (
               <button
                 onClick={(e) => { e.stopPropagation(); onEdit && onEdit(m); }}
                 className={cx(
                   MEMBER_UI.buttonBase,
                   MEMBER_UI.buttonIndigo,
-                  'flex-shrink-0 whitespace-nowrap',
+                  'h-7 !h-7 min-h-0 px-2.5 text-[10px] flex-shrink-0 whitespace-nowrap',
                   isCompactTablet ? 'px-2 text-[10px]' : '',
                   isIpadLandscapeCompact ? 'px-1.5 text-[9px]' : ''
                 )}
@@ -6759,7 +6759,7 @@ function MemberRowDesktopView({ m, selectable, selected, onSelectToggle, onToggl
                     : 'Cannot open (missing mobile number)'}
                   className={cx(
                     MEMBER_UI.buttonBase,
-                    'flex-shrink-0 whitespace-nowrap',
+                    'h-7 !h-7 min-h-0 px-2.5 text-[10px] flex-shrink-0 whitespace-nowrap',
                     isCompactTablet ? 'px-2 text-[10px]' : '',
                     isIpadLandscapeCompact ? 'px-1.5 text-[9px]' : '',
                     canWelcome && !statusTemplate.disabled

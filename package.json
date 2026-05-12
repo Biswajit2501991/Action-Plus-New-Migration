@@ -4,6 +4,9 @@
   "private": true,
   "type": "module",
   "scripts": {
+    "start:local": "ENV_FILE=.env.local npm run dev:all:isolated",
+    "start:local:tunnel": "ENV_FILE=.env.local node scripts/dev-all-isolated-with-tunnel.mjs",
+    "start:prod": "ENV_FILE=.env.prod npm run prod:start",
     "prod:start": "node scripts/bootstrap-and-run.mjs",
     "dev:all": "node scripts/dev-all.mjs",
     "dev:all:isolated": "node scripts/dev-all-isolated.mjs",
@@ -11,7 +14,7 @@
     "dev:tunnel": "node scripts/cloudflare-tunnel.mjs",
     "dev:all:tunnel": "node scripts/dev-all-with-tunnel.mjs",
     "prod:health": "zsh scripts/health-check-after-boot.sh",
-    "local:health": "zsh scripts/health-check-after-boot.sh http://127.0.0.1:5500/index.html http://127.0.0.1:5500/index.html",
+    "local:health": "zsh scripts/health-check-after-boot.sh http://127.0.0.1:5501/index.html http://127.0.0.1:5501/index.html",
     "local:test": "npm test && npm run local:health",
     "health:check": "zsh scripts/health-check-after-boot.sh",
     "watchdog:start": "zsh scripts/watchdog-autorestart.sh",

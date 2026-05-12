@@ -2,6 +2,7 @@ import { spawn } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { loadEnvFromFile, resolveEnvFilePath } from './load-env-file.mjs';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -13,7 +14,7 @@ const CAFF_TRUTHY = new Set(['1', 'y', 'yes', 'true']);
 /** Same semantics as scripts/run-autostart.sh: read APG_CAFFEINATE from .env only if unset in the environment. */
 function loadApgCaffeinateFromDotenv() {
   if ('APG_CAFFEINATE' in process.env) return;
-  const envPath = path.join(rootDir, '.env');
+  const envPath = resolveEnvFilePath(rootDir);
   if (!fs.existsSync(envPath)) return;
   const text = fs.readFileSync(envPath, 'utf8');
   let found;
@@ -100,6 +101,7 @@ function openBrowser(url) {
 
 async function main() {
   const npmCmd = process.platform === 'win32' ? 'npm.cmd' : 'npm';
+  loadEnvFromFile(rootDir);
   console.log('[bootstrap] Checking and installing dependencies...');
   await ensureDeps();
   console.log('[bootstrap] Preparing local SQLite database...');

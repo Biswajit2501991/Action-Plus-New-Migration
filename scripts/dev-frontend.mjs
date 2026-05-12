@@ -3,38 +3,13 @@ import path from 'node:path';
 import http from 'node:http';
 import { spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
+import { loadEnvFromFile } from './load-env-file.mjs';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const rootDir = path.resolve(__dirname, '..');
 
-function parseEnvFile(filePath) {
-  try {
-    const raw = fs.readFileSync(filePath, 'utf8');
-    const out = {};
-    for (const line of raw.split(/\r?\n/)) {
-      const trimmed = line.trim();
-      if (!trimmed || trimmed.startsWith('#')) continue;
-      const idx = trimmed.indexOf('=');
-      if (idx <= 0) continue;
-      const key = trimmed.slice(0, idx).trim();
-      let value = trimmed.slice(idx + 1).trim();
-      if (
-        (value.startsWith('"') && value.endsWith('"')) ||
-        (value.startsWith("'") && value.endsWith("'"))
-      ) {
-        value = value.slice(1, -1);
-      }
-      if (!(key in process.env)) process.env[key] = value;
-      out[key] = value;
-    }
-    return out;
-  } catch {
-    return {};
-  }
-}
-
-parseEnvFile(path.join(rootDir, '.env'));
+loadEnvFromFile(rootDir);
 
 const frontendPort = Number(process.env.FRONTEND_PORT || 5500);
 const frontendHost = process.env.FRONTEND_HOST || '127.0.0.1';

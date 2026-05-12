@@ -47,6 +47,24 @@ For new users who want frontend + local SQLite backend:
 
 Tip: In the app header, check the `Backend Sync` badge. `Connected` means SQLite sync is active.
 
+## Environment Switching (Local vs Prod)
+
+Use separate env files so endpoints do not need manual edits:
+
+1. Create env files from templates:
+   - `cp .env.local.example .env.local`
+   - `cp .env.prod.example .env.prod`
+2. Start local mode:
+   - `npm run start:local`
+3. Start production-origin mode:
+   - `npm run start:prod`
+
+Notes:
+- The scripts now respect `ENV_FILE` automatically.
+- `start:local` uses `.env.local`; `start:prod` uses `.env.prod`.
+- Tunnel variant for local mode: `npm run start:local:tunnel`.
+- Local mode is permanently isolated to `5501/4001/4011` with `backend/data/app.local.db` to avoid clashing with production runtime.
+
 ### Quick Troubleshooting
 
 - **Port already in use**: change `FRONTEND_PORT` or `BACKEND_PORT` in `.env`, then restart `npm run dev:all`.
@@ -127,6 +145,23 @@ From project root:
 Health check:
 
 - `npm run prod:health`
+
+### Isolated Local Development (Different Ports)
+
+Use this when production is running on your machine and you still want to test changes locally.
+
+1. Keep production as-is (`npm run prod:start`).
+2. Start isolated local stack in another terminal:
+   - `npm run dev:all:isolated`
+3. Open isolated local app:
+   - `http://127.0.0.1:5501/index.html`
+
+Defaults are stored in `.env.local`:
+
+- Frontend: `5501`
+- Backend: `4001`
+- Supervisor: `4011`
+- Local isolated DB: `backend/data/app.local.db`
 
 ## Cloudflare Tunnel (Share Local App Securely)
 
