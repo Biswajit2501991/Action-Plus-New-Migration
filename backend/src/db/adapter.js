@@ -50,29 +50,38 @@ function openDatabaseWithRecovery() {
 
 db = openDatabaseWithRecovery();
 
-function normalizeSql(text) {
-  // Keep common PG syntax compatible with SQLite.
-  return String(text || '')
-    .replace(/\$\d+/g, '?')
+function normalizeSqlAndParams(text, params = []) {
+  const source = String(text || '');
+  const bound = [];
+  // Keep common PG syntax compatible with SQLite while preserving repeated placeholders.
+  const sql = source
+    .replace(/\$(\d+)/g, (_match, n) => {
+      const idx = Number(n) - 1;
+      bound.push(params[idx]);
+      return '?';
+    })
     .replace(/\bnow\(\)/gi, 'CURRENT_TIMESTAMP');
+  return { sql, params: bound };
 }
 
 function mapResult(statement, params = []) {
-  const sql = normalizeSql(statement);
+  const normalized = normalizeSqlAndParams(statement, params);
+  const sql = normalized.sql;
+  const sqliteParams = normalized.params;
   const trimmed = sql.trim().toLowerCase();
   if (trimmed.startsWith('select') || trimmed.startsWith('with') || trimmed.includes(' returning ')) {
     const stmt = db.prepare(sql);
     if (trimmed.includes(' returning ')) {
-      const row = stmt.get(...params);
+      const row = stmt.get(...sqliteParams);
       const rows = row ? [row] : [];
       return { rows, rowCount: rows.length };
     }
-    const rows = stmt.all(...params);
+    const rows = stmt.all(...sqliteParams);
     return { rows, rowCount: rows.length };
   }
 
   const stmt = db.prepare(sql);
-  const info = stmt.run(...params);
+  const info = stmt.run(...sqliteParams);
   return { rows: [], rowCount: info.changes || 0 };
 }
 

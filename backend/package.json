@@ -4,7 +4,7 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "node --watch src/server.js",
+    "dev": "node src/server.js",
     "start": "node src/server.js",
     "db:migrate": "node scripts/run-sql.js migrations/0001_init_multitenant.sql",
     "db:seed": "node scripts/run-sql.js seeds/0001_seed_permissions.sql",
