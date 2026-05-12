@@ -9,6 +9,7 @@
     "dev:tunnel": "node scripts/cloudflare-tunnel.mjs",
     "dev:all:tunnel": "node scripts/dev-all-with-tunnel.mjs",
     "health:check": "zsh scripts/health-check-after-boot.sh",
+    "watchdog:start": "zsh scripts/watchdog-autorestart.sh",
     "autostart:install": "zsh scripts/install-autostart-macos.sh",
     "autostart:uninstall": "zsh scripts/uninstall-autostart-macos.sh",
     "dev:supervisor": "node scripts/apg-supervisor.mjs",

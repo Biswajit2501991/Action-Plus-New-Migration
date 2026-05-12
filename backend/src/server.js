@@ -1,7 +1,6 @@
 import express from 'express';
 import bcrypt from 'bcryptjs';
 import Database from 'better-sqlite3';
-import crypto from 'node:crypto';
 import fs from 'node:fs/promises';
 import jwt from 'jsonwebtoken';
 import path from 'node:path';
@@ -10,9 +9,9 @@ import { spawn } from 'node:child_process';
 import { gzip, gunzip } from 'node:zlib';
 import { promisify } from 'node:util';
 import { env } from './config/env.js';
-import { query, withTransaction } from './db/adapter.js';
+import { query } from './db/adapter.js';
 import { requireAuth } from './middleware/requireAuth.js';
-import { resolveTenant, requirePermission } from './middleware/resolveTenant.js';
+import { requirePermission } from './middleware/permissions.js';
 
 const app = express();
 app.use(express.json({ limit: '1mb' }));
@@ -21,90 +20,24 @@ app.use((req, res, next) => {
   res.setHeader('Access-Control-Allow-Methods', 'GET,POST,PUT,PATCH,DELETE,OPTIONS');
   res.setHeader(
     'Access-Control-Allow-Headers',
-    'Content-Type, Authorization, x-apg-process-token, X-APG-Process-Token',
+    'Content-Type, Authorization, x-apg-process-token, X-APG-Process-Token, x-apg-user-id, x-apg-sandbox-id, x-apg-test-profile',
   );
   if (req.method === 'OPTIONS') return res.status(204).end();
   return next();
 });
 
-function normalizeHost(rawHost) {
-  return (rawHost || '').toLowerCase().split(',')[0].trim().replace(/:\d+$/, '');
-}
-
-function tokenHash(rawToken) {
-  return crypto.createHash('sha256').update(rawToken).digest('hex');
-}
-
-function parseBranchIds(rawValue) {
-  if (Array.isArray(rawValue)) return rawValue.filter(Boolean);
-  if (typeof rawValue !== 'string' || !rawValue.trim()) return [];
-  try {
-    const parsed = JSON.parse(rawValue);
-    return Array.isArray(parsed) ? parsed.filter(Boolean) : [];
-  } catch {
-    return [];
-  }
-}
-
-async function resolveTenantIdForLogin(req, identifier) {
-  const host = normalizeHost(req.headers['x-forwarded-host'] || req.headers.host);
-  if (host && host !== 'localhost' && host !== '127.0.0.1') {
-    const domainResult = await query(
-      `select tenant_id
-       from tenant_domains
-       where lower(host) = $1
-       limit 1`,
-      [host],
-    );
-    if (domainResult.rowCount) return domainResult.rows[0].tenant_id;
-  }
-
-  const providedTenantSlug = (req.body?.tenantSlug || '').trim().toLowerCase();
-  if (providedTenantSlug) {
-    const tenantResult = await query(`select id from tenants where lower(slug) = $1 limit 1`, [
-      providedTenantSlug,
-    ]);
-    if (tenantResult.rowCount) return tenantResult.rows[0].id;
-  }
-
-  const singleTenantResult = await query(
-    `select tenant_id
-     from users
-     where lower(email) = lower($1) or lower(username) = lower($1)
-     group by tenant_id
-     limit 2`,
-    [identifier],
-  );
-  if (singleTenantResult.rowCount === 1) return singleTenantResult.rows[0].tenant_id;
-
-  return null;
-}
-
-async function loadUserClaims(userId, executor = query) {
-  const rolesResult = await executor(
-    `select distinct r.name
-     from user_roles ur
-     join roles r on r.id = ur.role_id
-     where ur.user_id = $1`,
-    [userId],
-  );
-  const permissionsResult = await executor(
-    `select distinct p.code
-     from user_roles ur
-     join role_permissions rp on rp.role_id = ur.role_id
-     join permissions p on p.id = rp.permission_id
-     where ur.user_id = $1`,
-    [userId],
-  );
-
+function buildSingleTenantClaims(user) {
+  const fallbackRole = String(user?.username || '').toLowerCase() === 'owner' || String(user?.id || '').toLowerCase() === 'owner'
+    ? 'owner'
+    : 'staff';
   return {
-    roles: rolesResult.rows.map((row) => row.name),
-    permissions: permissionsResult.rows.map((row) => row.code),
+    roles: [fallbackRole],
+    permissions: ['*'],
   };
 }
 
-function signAuthToken({ tenantId, userId, roles, permissions }) {
-  return jwt.sign({ tenantId, userId, roles, permissions }, env.JWT_SECRET, {
+function signAuthToken({ userId, roles, permissions }) {
+  return jwt.sign({ userId, roles, permissions }, env.JWT_SECRET, {
     expiresIn: env.JWT_EXPIRES_IN,
   });
 }
@@ -335,6 +268,64 @@ async function writeJsonCollection(key, value) {
   );
 }
 
+function readSandboxScope(req) {
+  const testProfile = String(req.headers['x-apg-test-profile'] || '').trim() === '1';
+  const sandboxId = String(req.headers['x-apg-sandbox-id'] || '').trim();
+  const userId = String(req.headers['x-apg-user-id'] || '').trim();
+  if (!testProfile || !sandboxId) return null;
+  return { sandboxId, userId };
+}
+
+async function readScopedCollection(req, key, fallback = []) {
+  const allRows = await readJsonCollection(key, fallback);
+  const scope = readSandboxScope(req);
+  if (!scope) return allRows;
+  return allRows.filter((row) => String(row?.sandboxId || '') === scope.sandboxId);
+}
+
+async function writeScopedCollection(req, key, incomingRows = []) {
+  const scope = readSandboxScope(req);
+  if (!scope) {
+    await writeJsonCollection(key, incomingRows);
+    return;
+  }
+  const allRows = await readJsonCollection(key, []);
+  const kept = allRows.filter((row) => String(row?.sandboxId || '') !== scope.sandboxId);
+  const scopedRows = (Array.isArray(incomingRows) ? incomingRows : []).map((row) => ({
+    ...(row && typeof row === 'object' ? row : {}),
+    sandboxId: scope.sandboxId,
+    createdByTestUserId: scope.userId || (row && row.createdByTestUserId) || '',
+  }));
+  await writeJsonCollection(key, [...kept, ...scopedRows]);
+}
+
+async function readScopedSettings(req) {
+  const scope = readSandboxScope(req);
+  if (!scope) return readJsonValue('apg.settings', {});
+  return readJsonValue(`apg.settings.sandbox.${scope.sandboxId}`, {});
+}
+
+async function writeScopedSettings(req, value) {
+  const scope = readSandboxScope(req);
+  if (!scope) {
+    await writeJsonValue('apg.settings', value || {});
+    return;
+  }
+  await writeJsonValue(`apg.settings.sandbox.${scope.sandboxId}`, value || {});
+}
+
+async function purgeSandboxData(sandboxId) {
+  const id = String(sandboxId || '').trim();
+  if (!id) return;
+  const keys = ['apg.members', 'apg.visitors', 'apg.logs', 'apg.finance', 'apg.sms.events'];
+  for (const key of keys) {
+    const rows = await readJsonCollection(key, []);
+    const nextRows = rows.filter((row) => String(row?.sandboxId || '') !== id);
+    await writeJsonCollection(key, nextRows);
+  }
+  await writeJsonValue(`apg.settings.sandbox.${id}`, {});
+}
+
 async function readJsonValue(key, fallback = null) {
   const result = await query(
     `select value_json
@@ -449,24 +440,24 @@ app.post('/api/process/start', (req, res) => {
   }
 });
 
-app.get('/api/members', async (_req, res) => {
-  const members = await readJsonCollection('apg.members', []);
+app.get('/api/members', async (req, res) => {
+  const members = await readScopedCollection(req, 'apg.members', []);
   res.json(members);
 });
 
 app.put('/api/members/bulk', async (req, res) => {
-  await writeJsonCollection('apg.members', req.body?.members || []);
+  await writeScopedCollection(req, 'apg.members', req.body?.members || []);
   queueDatabaseBackup('members-bulk');
   res.json({ ok: true });
 });
 
-app.get('/api/visitors', async (_req, res) => {
-  const visitors = await readJsonCollection('apg.visitors', []);
+app.get('/api/visitors', async (req, res) => {
+  const visitors = await readScopedCollection(req, 'apg.visitors', []);
   res.json(visitors);
 });
 
 app.put('/api/visitors/bulk', async (req, res) => {
-  await writeJsonCollection('apg.visitors', req.body?.visitors || []);
+  await writeScopedCollection(req, 'apg.visitors', req.body?.visitors || []);
   queueDatabaseBackup('visitors-bulk');
   res.json({ ok: true });
 });
@@ -482,48 +473,57 @@ app.put('/api/users/bulk', async (req, res) => {
   res.json({ ok: true });
 });
 
-app.get('/api/settings', async (_req, res) => {
-  const settings = await readJsonValue('apg.settings', null);
+app.get('/api/settings', async (req, res) => {
+  const settings = await readScopedSettings(req);
   res.json(settings || {});
 });
 
 app.put('/api/settings/bulk', async (req, res) => {
-  await writeJsonValue('apg.settings', req.body?.settings || {});
+  await writeScopedSettings(req, req.body?.settings || {});
   queueDatabaseBackup('settings-bulk');
   res.json({ ok: true });
 });
 
-app.get('/api/logs', async (_req, res) => {
-  const logs = await readJsonCollection('apg.logs', []);
+app.get('/api/logs', async (req, res) => {
+  const logs = await readScopedCollection(req, 'apg.logs', []);
   res.json(logs);
 });
 
 app.put('/api/logs/bulk', async (req, res) => {
-  await writeJsonCollection('apg.logs', req.body?.logs || []);
+  await writeScopedCollection(req, 'apg.logs', req.body?.logs || []);
   queueDatabaseBackup('logs-bulk');
   res.json({ ok: true });
 });
 
-app.get('/api/finance', async (_req, res) => {
-  const finance = await readJsonCollection('apg.finance', []);
+app.get('/api/finance', async (req, res) => {
+  const finance = await readScopedCollection(req, 'apg.finance', []);
   res.json(finance);
 });
 
 app.put('/api/finance/bulk', async (req, res) => {
-  await writeJsonCollection('apg.finance', req.body?.finance || []);
+  await writeScopedCollection(req, 'apg.finance', req.body?.finance || []);
   queueDatabaseBackup('finance-bulk');
   res.json({ ok: true });
 });
 
-app.get('/api/sms-events', async (_req, res) => {
-  const events = await readJsonCollection('apg.sms.events', []);
+app.get('/api/sms-events', async (req, res) => {
+  const events = await readScopedCollection(req, 'apg.sms.events', []);
   res.json(events);
 });
 
 app.put('/api/sms-events/bulk', async (req, res) => {
-  await writeJsonCollection('apg.sms.events', req.body?.smsEvents || []);
+  await writeScopedCollection(req, 'apg.sms.events', req.body?.smsEvents || []);
   queueDatabaseBackup('sms-events-bulk');
   res.json({ ok: true });
+});
+
+app.post('/api/test-users/purge', async (req, res) => {
+  const sandboxId = String(req.body?.sandboxId || '').trim();
+  const userId = String(req.body?.userId || '').trim();
+  if (!sandboxId) return res.status(400).json({ error: 'sandbox-id-required' });
+  await purgeSandboxData(sandboxId);
+  queueDatabaseBackup('test-user-purge', { force: true });
+  return res.json({ ok: true, sandboxId, userId });
 });
 
 app.get('/api/storage', async (_req, res) => {
@@ -592,18 +592,12 @@ app.post('/api/v1/auth/login', async (req, res) => {
     return res.status(400).json({ error: 'identifier-password-required' });
   }
 
-  const tenantId = await resolveTenantIdForLogin(req, identifier);
-  if (!tenantId) {
-    return res.status(400).json({ error: 'tenant-unresolved', message: 'Provide tenantSlug or valid host' });
-  }
-
   const userResult = await query(
-    `select id, tenant_id, email, username, full_name, password_hash, status
+    `select id, email, username, full_name, password_hash, status
      from users
-     where tenant_id = $1
-       and (lower(email) = lower($2) or lower(username) = lower($2))
+     where lower(email) = lower($1) or lower(username) = lower($1)
      limit 1`,
-    [tenantId, identifier],
+    [identifier],
   );
   if (!userResult.rowCount) return res.status(401).json({ error: 'invalid-credentials' });
 
@@ -613,8 +607,8 @@ app.post('/api/v1/auth/login', async (req, res) => {
   const isValid = await bcrypt.compare(password, user.password_hash);
   if (!isValid) return res.status(401).json({ error: 'invalid-credentials' });
 
-  const { roles, permissions } = await loadUserClaims(user.id);
-  const token = signAuthToken({ tenantId: user.tenant_id, userId: user.id, roles, permissions });
+  const { roles, permissions } = buildSingleTenantClaims(user);
+  const token = signAuthToken({ userId: user.id, roles, permissions });
 
   await query(`update users set last_login_at = now(), updated_at = now() where id = $1`, [user.id]);
 
@@ -622,7 +616,6 @@ app.post('/api/v1/auth/login', async (req, res) => {
     token,
     user: {
       id: user.id,
-      tenantId: user.tenant_id,
       email: user.email,
       username: user.username,
       fullName: user.full_name,
@@ -632,9 +625,8 @@ app.post('/api/v1/auth/login', async (req, res) => {
   });
 });
 
-app.get('/api/v1/auth/me', requireAuth, resolveTenant, (req, res) => {
+app.get('/api/v1/auth/me', requireAuth, (req, res) => {
   res.json({
-    tenantId: req.tenant.id,
     userId: req.auth.userId,
     roles: req.auth.roles,
     permissions: req.auth.permissions,
@@ -644,126 +636,12 @@ app.get('/api/v1/auth/me', requireAuth, resolveTenant, (req, res) => {
 app.get(
   '/api/v1/settings',
   requireAuth,
-  resolveTenant,
-  requirePermission('settings.managePlans'),
+  requirePermission('*'),
   (_req, res) => {
-    // TODO: read tenant_settings from database
+    // TODO: read app settings from database
     res.json({ data: {} });
   },
 );
-
-app.post('/api/v1/invites/accept', async (req, res) => {
-  const rawToken = (req.body?.token || '').trim();
-  const password = req.body?.password || '';
-  const fullName = (req.body?.fullName || '').trim();
-
-  if (!rawToken || !password) {
-    return res.status(400).json({ error: 'token-password-required' });
-  }
-
-  const hashedInviteToken = tokenHash(rawToken);
-
-  const accepted = await withTransaction(async (client) => {
-    const inviteResult = await client.query(
-      `select id, tenant_id, email, role_id, branch_ids, expires_at, accepted_at
-       from invites
-       where token_hash = $1
-       limit 1`,
-      [hashedInviteToken],
-    );
-    if (!inviteResult.rowCount) return { error: 'invalid-invite', status: 400 };
-
-    const invite = inviteResult.rows[0];
-    if (invite.accepted_at) return { error: 'invite-already-accepted', status: 409 };
-    if (new Date(invite.expires_at).getTime() < Date.now()) return { error: 'invite-expired', status: 400 };
-
-    const passwordHash = await bcrypt.hash(password, 12);
-    const existingUserResult = await client.query(
-      `select id, username
-       from users
-       where tenant_id = $1 and lower(email) = lower($2)
-       limit 1`,
-      [invite.tenant_id, invite.email],
-    );
-
-    let userId;
-    if (existingUserResult.rowCount) {
-      userId = existingUserResult.rows[0].id;
-      await client.query(
-        `update users
-         set password_hash = $1,
-             full_name = coalesce(nullif($2, ''), full_name),
-             status = 'active',
-             blocked_reason = null,
-             updated_at = now()
-         where id = $3`,
-        [passwordHash, fullName, userId],
-      );
-    } else {
-      const usernameBase = invite.email.split('@')[0].replace(/[^a-z0-9_.-]/gi, '').toLowerCase() || 'user';
-      const username = `${usernameBase}_${Math.floor(1000 + Math.random() * 9000)}`;
-      const insertedUser = await client.query(
-        `insert into users (tenant_id, email, username, password_hash, full_name, status)
-         values ($1, $2, $3, $4, $5, 'active')
-         returning id`,
-        [invite.tenant_id, invite.email, username, passwordHash, fullName || invite.email],
-      );
-      userId = insertedUser.rows[0].id;
-    }
-
-    await client.query(
-      `insert into user_roles (user_id, role_id)
-       values ($1, $2)
-       on conflict (user_id, role_id) do nothing`,
-      [userId, invite.role_id],
-    );
-
-    const branchIds = parseBranchIds(invite.branch_ids);
-    for (const branchId of branchIds) {
-      await client.query(
-        `insert into user_branches (user_id, branch_id)
-         values ($1, $2)
-         on conflict (user_id, branch_id) do nothing`,
-        [userId, branchId],
-      );
-    }
-
-    await client.query(`update invites set accepted_at = now() where id = $1`, [invite.id]);
-
-    const userResult = await client.query(
-      `select id, tenant_id, email, username, full_name
-       from users
-       where id = $1`,
-      [userId],
-    );
-    const user = userResult.rows[0];
-    const claims = await loadUserClaims(user.id, (text, params) => client.query(text, params));
-    const token = signAuthToken({
-      tenantId: user.tenant_id,
-      userId: user.id,
-      roles: claims.roles,
-      permissions: claims.permissions,
-    });
-
-    return {
-      token,
-      user: {
-        id: user.id,
-        tenantId: user.tenant_id,
-        email: user.email,
-        username: user.username,
-        fullName: user.full_name,
-        roles: claims.roles,
-        permissions: claims.permissions,
-      },
-    };
-  });
-
-  if (accepted.error) {
-    return res.status(accepted.status).json({ error: accepted.error });
-  }
-  return res.json(accepted);
-});
 
 app.listen(env.PORT, () => {
   // eslint-disable-next-line no-console
