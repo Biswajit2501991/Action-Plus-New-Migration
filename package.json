@@ -4,10 +4,12 @@
   "private": true,
   "type": "module",
   "scripts": {
+    "prod:start": "node scripts/bootstrap-and-run.mjs",
     "dev:all": "node scripts/dev-all.mjs",
     "dev:web": "node scripts/dev-frontend.mjs",
     "dev:tunnel": "node scripts/cloudflare-tunnel.mjs",
     "dev:all:tunnel": "node scripts/dev-all-with-tunnel.mjs",
+    "prod:health": "zsh scripts/health-check-after-boot.sh",
     "health:check": "zsh scripts/health-check-after-boot.sh",
     "watchdog:start": "zsh scripts/watchdog-autorestart.sh",
     "autostart:install": "zsh scripts/install-autostart-macos.sh",
