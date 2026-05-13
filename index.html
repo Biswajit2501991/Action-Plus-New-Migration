@@ -718,6 +718,123 @@
       ['goutFamilyHistory', 'Gout Family Hx of Heart Disease'],
       ['otherCondition', 'Other Condition'],
     ];
+    const parseInjuryNotesLog = (med) => {
+      const raw = med && typeof med === 'object' ? med.injuryNotesLog : null;
+      if (!Array.isArray(raw)) return [];
+      return raw
+        .filter((e) => e && typeof e === 'object' && String(e.text || '').trim())
+        .map((e) => ({
+          id: String(e.id || '').trim() || `n-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+          text: String(e.text || '').trim(),
+          at: String(e.at || '').trim() || new Date().toISOString(),
+          by: String(e.by || '').trim(),
+          byId: String(e.byId || '').trim(),
+        }));
+    };
+    function InjuryNotesLogSection({ medicalAnswers, onChangeMedicalAnswers, currentUser }) {
+      const log = parseInjuryNotesLog(medicalAnswers || {});
+      const legacy = String(medicalAnswers?.extraInfo || '').trim();
+      const isOwner = String(currentUser?.id || '').trim().toLowerCase() === 'owner'
+        || String(currentUser?.role || '').trim().toLowerCase() === 'owner';
+      const [draft, setDraft] = React.useState('');
+      const sorted = React.useMemo(() => [...log].sort((a, b) => String(a.at).localeCompare(String(b.at))), [log]);
+      const fmtNoteTime = (t) => {
+        try {
+          return formatDateTimeTz(t, 'IST');
+        } catch {
+          return String(t || '').slice(0, 16);
+        }
+      };
+      const addNote = () => {
+        const text = String(draft || '').trim();
+        if (!text) return;
+        const id = (typeof crypto !== 'undefined' && crypto.randomUUID) ? crypto.randomUUID() : `n-${Date.now()}`;
+        const entry = {
+          id,
+          text,
+          at: new Date().toISOString(),
+          by: String(currentUser?.name || currentUser?.id || 'Staff').trim() || 'Staff',
+          byId: String(currentUser?.id || '').trim(),
+        };
+        onChangeMedicalAnswers((med) => ({
+          ...(med || {}),
+          injuryNotesLog: [...parseInjuryNotesLog(med || {}), entry],
+        }));
+        setDraft('');
+      };
+      const deleteNote = (id) => {
+        if (!isOwner) return;
+        onChangeMedicalAnswers((med) => ({
+          ...(med || {}),
+          injuryNotesLog: parseInjuryNotesLog(med || {}).filter((e) => e.id !== id),
+        }));
+      };
+      const removeLegacy = () => {
+        if (!isOwner) return;
+        onChangeMedicalAnswers((med) => ({ ...(med || {}), extraInfo: '' }));
+      };
+      return (
+        <div className="md:col-span-2 space-y-3 rounded-xl border-2 border-amber-300 bg-amber-50 p-3 shadow-md ring-2 ring-amber-200/70 transition-colors hover:bg-amber-100/90 active:bg-amber-100">
+          <div className="flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
+            <label className="text-sm font-semibold text-amber-950">Injuries / Notes <span className="font-normal text-amber-900/90">(log)</span></label>
+            <span className="text-[11px] font-semibold text-amber-950 rounded-full bg-amber-200/90 px-2 py-0.5 w-fit border border-amber-400/60">Staff add · Owner deletes</span>
+          </div>
+          {legacy ? (
+            <div className="rounded-lg border border-amber-200 bg-white px-3 py-2 text-sm text-slate-800 shadow-sm">
+              <div className="flex items-start justify-between gap-2">
+                <div className="min-w-0">
+                  <div className="text-[11px] font-semibold uppercase tracking-wide text-amber-800">Earlier note (legacy)</div>
+                  <div className="mt-1 whitespace-pre-wrap break-words">{legacy}</div>
+                </div>
+                {isOwner ? (
+                  <button type="button" onClick={removeLegacy} className="shrink-0 rounded-lg border border-rose-300 bg-rose-50 px-2 py-1 text-[11px] font-semibold text-rose-700 hover:bg-rose-100">
+                    Remove
+                  </button>
+                ) : null}
+              </div>
+            </div>
+          ) : null}
+          <div className="max-h-56 space-y-2 overflow-y-auto pr-1">
+            {sorted.length === 0 && !legacy ? (
+              <div className="rounded-lg border border-dashed border-amber-300 bg-white/80 px-3 py-2 text-xs text-amber-900/85">No notes yet. Add the first entry below.</div>
+            ) : null}
+            {sorted.map((e) => (
+              <div
+                key={e.id}
+                className="rounded-lg border border-amber-200 bg-white px-3 py-2 text-sm text-slate-800 shadow-sm transition-colors hover:bg-amber-100 active:bg-amber-200/90"
+              >
+                <div className="flex items-start justify-between gap-2">
+                  <div className="min-w-0 flex-1">
+                    <div className="text-[11px] font-semibold text-amber-900/90">{fmtNoteTime(e.at)} · <span className="font-medium text-slate-600">{e.by || '—'}</span></div>
+                    <div className="mt-1 whitespace-pre-wrap break-words">{e.text}</div>
+                  </div>
+                  {isOwner ? (
+                    <button type="button" onClick={() => deleteNote(e.id)} className="shrink-0 rounded-lg border border-rose-300 bg-rose-50 px-2 py-1 text-[11px] font-semibold text-rose-700 hover:bg-rose-100">
+                      Delete
+                    </button>
+                  ) : null}
+                </div>
+              </div>
+            ))}
+          </div>
+          <div className="rounded-lg border-2 border-amber-300 bg-amber-50/90 px-3 py-2 shadow-inner focus-within:border-amber-500 focus-within:bg-amber-100/90 focus-within:ring-2 focus-within:ring-amber-400">
+            <label className="text-[11px] font-semibold text-amber-950">Add a note</label>
+            <textarea
+              value={draft}
+              onChange={(ev) => setDraft(ev.target.value)}
+              rows={2}
+              placeholder="Type a new note, then tap Add note (saved with the form)."
+              className="mt-1 w-full resize-y rounded-md border border-slate-200 bg-white px-2 py-1.5 text-sm text-slate-900 placeholder:text-slate-500 focus:border-amber-500 focus:outline-none focus:ring-2 focus:ring-amber-300"
+            />
+            <div className="mt-2 flex justify-end">
+              <button type="button" onClick={addNote} className="rounded-lg bg-amber-600 px-3 py-1.5 text-xs font-semibold text-white shadow hover:bg-amber-700 active:bg-amber-800">
+                Add note
+              </button>
+            </div>
+          </div>
+        </div>
+      );
+    }
     function AppIcon({ name, className = 'h-4 w-4' }) {
       const common = { className, viewBox: '0 0 24 24', fill: 'none', stroke: 'currentColor', strokeWidth: 2, strokeLinecap: 'round', strokeLinejoin: 'round', 'aria-hidden': 'true' };
       if (name === 'home') return <svg {...common}><path d="M3 10.5 12 3l9 7.5" /><path d="M5 9.5V21h14V9.5" /></svg>;
@@ -5535,6 +5652,7 @@ Please pay by: ${formattedLastDate}`;
               paymentOptions={settings.paymentMethods}
               canEditFormNo={user && user.id === 'owner'}
               settings={settings}
+              currentUser={user}
             />
           )}
           {quickFieldEdit && (
@@ -5552,6 +5670,7 @@ Please pay by: ${formattedLastDate}`;
               onSave={addMember}
               settings={settings}
               staffName={user.name}
+              currentUser={user}
               members={members}
               canEditFormNo={user && user.id === 'owner'}
               smartDefaults={lastMemberDefaults}
@@ -7575,6 +7694,17 @@ function MemberDetails({ m, logs, onQuickFieldEdit, editOptions, isOwner = false
       const injuriesNotesValue = React.useMemo(() => {
         const med = (m && typeof m.medicalAnswers === 'object' && m.medicalAnswers) ? m.medicalAnswers : {};
         const notes = String(med.extraInfo || '').trim();
+        const log = parseInjuryNotesLog(med);
+        const logSummary = log.length
+          ? [...log]
+            .sort((a, b) => String(a.at).localeCompare(String(b.at)))
+            .map((e) => {
+              let when = String(e.at || '').slice(0, 16);
+              try { when = formatDateTimeTz(e.at, 'IST'); } catch {}
+              return `${when}: ${e.text}${e.by ? ` (${e.by})` : ''}`;
+            })
+            .join(' | ')
+          : '';
         const injuries = med && typeof med.injuries === 'object' ? med.injuries : {};
         const labels = [];
         if (injuries.knees) labels.push('Knees');
@@ -7587,6 +7717,7 @@ function MemberDetails({ m, logs, onQuickFieldEdit, editOptions, isOwner = false
         const parts = [];
         if (labels.length) parts.push(`Injuries: ${labels.join(', ')}`);
         if (notes) parts.push(`Notes: ${notes}`);
+        if (logSummary) parts.push(`Note log: ${logSummary}`);
         return parts.join(' | ') || '—';
       }, [m]);
       const rows = [
@@ -8617,26 +8748,31 @@ function DashboardView({ members, memberSyncPending = {}, onEdit, onStatusChange
     }
 
     // ---- Edit Member Modal ----
-function EditMemberModal({ member, onClose, onSave, planOptions, statusOptions, holdOptions, paymentOptions, canEditFormNo, settings }) {
+function EditMemberModal({ member, onClose, onSave, planOptions, statusOptions, holdOptions, paymentOptions, canEditFormNo, settings, currentUser }) {
       const [edit, setEdit] = React.useState(() => ({
         ...member,
-        medicalAnswers: {
-          heartDisease: '',
-          cardiovascularCondition: '',
-          bloodPressure: '',
-          arthritis: '',
-          goutFamilyHistory: '',
-          otherCondition: '',
-          injuries: { knees: false, lowerBack: false, neckShoulders: false, hipsPelvis: false, flexibility: false, other: '' },
-          pregnant: 'No',
-          pregnantWeeks: '',
-          physicalActivity: '',
-          surgeryHistory: '',
-          smoking: '',
-          medication: '',
-          extraInfo: '',
-          ...(member?.medicalAnswers || {}),
-        },
+        medicalAnswers: (() => {
+          const merged = {
+            heartDisease: '',
+            cardiovascularCondition: '',
+            bloodPressure: '',
+            arthritis: '',
+            goutFamilyHistory: '',
+            otherCondition: '',
+            injuries: { knees: false, lowerBack: false, neckShoulders: false, hipsPelvis: false, flexibility: false, other: '' },
+            pregnant: 'No',
+            pregnantWeeks: '',
+            physicalActivity: '',
+            surgeryHistory: '',
+            smoking: '',
+            medication: '',
+            extraInfo: '',
+            injuryNotesLog: [],
+            ...(member?.medicalAnswers || {}),
+          };
+          merged.injuryNotesLog = parseInjuryNotesLog(merged);
+          return merged;
+        })(),
       }));
       const markAllMedicalNo = React.useCallback(() => {
         setEdit((prev) => ({
@@ -8929,7 +9065,14 @@ function EditMemberModal({ member, onClose, onSave, planOptions, statusOptions, 
                     ))}
                   </div>
                   <div className="mt-3 grid grid-cols-1 md:grid-cols-2 gap-3">
-                    <div className="md:col-span-2"><label className="text-sm font-medium">Injuries / Notes</label><textarea value={edit.medicalAnswers?.extraInfo || ''} onChange={(e) => setEdit(prev => ({ ...prev, medicalAnswers: { ...(prev.medicalAnswers || {}), extraInfo: e.target.value } }))} rows={3} className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm" /></div>
+                    <InjuryNotesLogSection
+                      medicalAnswers={edit.medicalAnswers}
+                      onChangeMedicalAnswers={(fn) => setEdit((prev) => ({
+                        ...prev,
+                        medicalAnswers: fn({ ...(prev.medicalAnswers || {}) }),
+                      }))}
+                      currentUser={currentUser}
+                    />
                     <div><label className="text-sm font-medium">Pregnant (Yes/No) and weeks</label><input value={`${edit.medicalAnswers?.pregnant || 'No'} ${edit.medicalAnswers?.pregnantWeeks || ''}`.trim()} onChange={(e) => setEdit(prev => ({ ...prev, medicalAnswers: { ...(prev.medicalAnswers || {}), pregnant: e.target.value.includes('Yes') ? 'Yes' : 'No', pregnantWeeks: e.target.value } }))} className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm" /></div>
                     <div><label className="text-sm font-medium">Physical activity</label><input value={edit.medicalAnswers?.physicalActivity || ''} onChange={(e) => setEdit(prev => ({ ...prev, medicalAnswers: { ...(prev.medicalAnswers || {}), physicalActivity: e.target.value } }))} className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm" /></div>
                     <div><label className="text-sm font-medium">Surgery history</label><input value={edit.medicalAnswers?.surgeryHistory || ''} onChange={(e) => setEdit(prev => ({ ...prev, medicalAnswers: { ...(prev.medicalAnswers || {}), surgeryHistory: e.target.value } }))} className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm" /></div>
@@ -9247,7 +9390,7 @@ function EditMemberModal({ member, onClose, onSave, planOptions, statusOptions, 
     }
 
     // ---- Add Member Wizard ----
-    function AddMemberWizard({ open, onClose, onSave, settings, staffName, members, canEditFormNo, smartDefaults = {}, prefillData = null }) {
+    function AddMemberWizard({ open, onClose, onSave, settings, staffName, currentUser = null, members, canEditFormNo, smartDefaults = {}, prefillData = null }) {
       const defaultJoiningDate = smartDefaults.joiningDate || iso(new Date());
       const defaultBillingDate = smartDefaults.billingDate || iso(new Date());
       const formScrollRef = React.useRef(null);
@@ -9279,6 +9422,7 @@ function EditMemberModal({ member, onClose, onSave, planOptions, statusOptions, 
           heartDisease: '', cardiovascularCondition: '', bloodPressure: '', arthritis: '', goutFamilyHistory: '', otherCondition: '',
           injuries: { knees: false, lowerBack: false, neckShoulders: false, hipsPelvis: false, flexibility: false, other: '' },
           pregnant: 'No', pregnantWeeks: '', physicalActivity: '', surgeryHistory: '', smoking: '', medication: '', extraInfo: '',
+          injuryNotesLog: [],
         },
         ackAccepted: false,
         ackSignature: '',
@@ -9420,6 +9564,7 @@ function EditMemberModal({ member, onClose, onSave, planOptions, statusOptions, 
         const membershipDetailsDone = !Object.values(req2).some(Boolean);
         const paymentDetailsDone = !Object.values(req3).some(Boolean);
         const hasMedicalInput = MEDICAL_YES_NO_FIELDS.some(([k]) => String(form.medicalAnswers?.[k] || '').trim())
+          || parseInjuryNotesLog(form.medicalAnswers || {}).length > 0
           || String(form.medicalAnswers?.extraInfo || '').trim()
           || String(form.medicalAnswers?.pregnantWeeks || '').trim()
           || String(form.medicalAnswers?.physicalActivity || '').trim()
@@ -9496,6 +9641,7 @@ function EditMemberModal({ member, onClose, onSave, planOptions, statusOptions, 
               smoking: '',
               medication: '',
               extraInfo: '',
+              injuryNotesLog: [],
             },
           }));
           return;
@@ -9750,6 +9896,7 @@ function EditMemberModal({ member, onClose, onSave, planOptions, statusOptions, 
             heartDisease: '', cardiovascularCondition: '', bloodPressure: '', arthritis: '', goutFamilyHistory: '', otherCondition: '',
             injuries: { knees: false, lowerBack: false, neckShoulders: false, hipsPelvis: false, flexibility: false, other: '' },
             pregnant: 'No', pregnantWeeks: '', physicalActivity: '', surgeryHistory: '', smoking: '', medication: '', extraInfo: '',
+            injuryNotesLog: [],
           },
           ackAccepted: false,
           ackSignature: '',
@@ -9952,7 +10099,14 @@ function EditMemberModal({ member, onClose, onSave, planOptions, statusOptions, 
                       </div>
                     ))}
                   </div>
-                  <div><label className="text-sm font-medium">Injuries / Notes</label><textarea value={form.medicalAnswers.extraInfo} onChange={(e) => setForm({ ...form, medicalAnswers: { ...form.medicalAnswers, extraInfo: e.target.value } })} rows={3} className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm" /></div>
+                  <InjuryNotesLogSection
+                    medicalAnswers={form.medicalAnswers}
+                    onChangeMedicalAnswers={(fn) => setForm((prev) => ({
+                      ...prev,
+                      medicalAnswers: fn({ ...(prev.medicalAnswers || {}) }),
+                    }))}
+                    currentUser={currentUser || { id: '', name: staffName || '', role: '' }}
+                  />
                   <div><label className="text-sm font-medium">Pregnant (Yes/No) and weeks</label><input value={`${form.medicalAnswers.pregnant || 'No'} ${form.medicalAnswers.pregnantWeeks || ''}`.trim()} onChange={(e) => setForm({ ...form, medicalAnswers: { ...form.medicalAnswers, pregnant: e.target.value.includes('Yes') ? 'Yes' : 'No', pregnantWeeks: e.target.value } })} className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm" /></div>
                   <div><label className="text-sm font-medium">Physical activity</label><input value={form.medicalAnswers.physicalActivity} onChange={(e) => setForm({ ...form, medicalAnswers: { ...form.medicalAnswers, physicalActivity: e.target.value } })} className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm" /></div>
                   <div><label className="text-sm font-medium">Surgery history</label><input value={form.medicalAnswers.surgeryHistory} onChange={(e) => setForm({ ...form, medicalAnswers: { ...form.medicalAnswers, surgeryHistory: e.target.value } })} className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm" /></div>
