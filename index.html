@@ -1462,23 +1462,131 @@ Phone: +91-7047157510`;
      * Backend GET can briefly lag behind a local PUT. Replacing React state with that payload
      * was wiping lastSmsSent / messageHistory and the next autosave persisted the loss.
      */
+    const memberSortTimestamp = (memberLike) => {
+      if (!memberLike || typeof memberLike !== 'object') return 0;
+      return Math.max(
+        parseApgTimeMs(memberLike.updatedAt),
+        parseApgTimeMs(memberLike.createdAt),
+        parseApgTimeMs(memberLike.addedAt),
+      );
+    };
     const mergeRemoteMembersWithLocal = (localMembers, remoteMembers) => {
       const locals = Array.isArray(localMembers) ? localMembers : [];
       const remotes = Array.isArray(remoteMembers) ? remoteMembers : [];
-      const byId = new Map(locals.map((m) => [String(m?.memberId || ''), m]));
-      return remotes.map((r) => {
-        const id = String(r?.memberId || '');
-        const p = id ? byId.get(id) : null;
-        if (!p) return r;
-        return {
-          ...r,
-          lastSmsSent: mergeLastSmsSentMaps(p.lastSmsSent, r.lastSmsSent),
-          messageHistory: mergeMessageHistoryArrays(p.messageHistory, r.messageHistory, 50),
-          reminderSentAt: newerIsoPrefer(p.reminderSentAt, r.reminderSentAt),
-          paymentReceivedAt: newerIsoPrefer(p.paymentReceivedAt, r.paymentReceivedAt),
-          paymentHistory: mergePaymentHistoryArrays(p.paymentHistory, r.paymentHistory, 120),
-        };
+      const remoteById = new Map(remotes.map((m) => [String(m?.memberId || ''), m]));
+      const localById = new Map(locals.map((m) => [String(m?.memberId || ''), m]));
+      const allIds = new Set([
+        ...Array.from(remoteById.keys()).filter(Boolean),
+        ...Array.from(localById.keys()).filter(Boolean),
+      ]);
+      const mergedRows = [];
+      allIds.forEach((id) => {
+        const localRow = localById.get(id) || null;
+        const remoteRow = remoteById.get(id) || null;
+        if (!localRow && remoteRow) {
+          mergedRows.push(remoteRow);
+          return;
+        }
+        if (localRow && !remoteRow) {
+          // Keep optimistic local rows until backend catches up.
+          mergedRows.push(localRow);
+          return;
+        }
+        const localTs = memberSortTimestamp(localRow);
+        const remoteTs = memberSortTimestamp(remoteRow);
+        const base = localTs >= remoteTs ? localRow : remoteRow;
+        const counterpart = base === localRow ? remoteRow : localRow;
+        mergedRows.push({
+          ...(counterpart || {}),
+          ...(base || {}),
+          lastSmsSent: mergeLastSmsSentMaps(localRow?.lastSmsSent, remoteRow?.lastSmsSent),
+          messageHistory: mergeMessageHistoryArrays(localRow?.messageHistory, remoteRow?.messageHistory, 50),
+          reminderSentAt: newerIsoPrefer(localRow?.reminderSentAt, remoteRow?.reminderSentAt),
+          paymentReceivedAt: newerIsoPrefer(localRow?.paymentReceivedAt, remoteRow?.paymentReceivedAt),
+          paymentHistory: mergePaymentHistoryArrays(localRow?.paymentHistory, remoteRow?.paymentHistory, 120),
+        });
       });
+      mergedRows.sort((a, b) => memberSortTimestamp(b) - memberSortTimestamp(a));
+      return mergedRows;
+    };
+    const visitorSortTimestamp = (v) => {
+      if (!v || typeof v !== 'object') return 0;
+      return Math.max(
+        parseApgTimeMs(v.updatedAt),
+        parseApgTimeMs(v.addedAt),
+        parseApgTimeMs(v.createdAt),
+      );
+    };
+    const mergeRemoteVisitorsWithLocal = (localVisitors, remoteVisitors) => {
+      const locals = Array.isArray(localVisitors) ? localVisitors : [];
+      const remotes = Array.isArray(remoteVisitors) ? remoteVisitors : [];
+      const remoteById = new Map(remotes.map((row) => [String(row?.id || ''), row]));
+      const localById = new Map(locals.map((row) => [String(row?.id || ''), row]));
+      const allIds = new Set([
+        ...Array.from(remoteById.keys()).filter(Boolean),
+        ...Array.from(localById.keys()).filter(Boolean),
+      ]);
+      const mergedRows = [];
+      allIds.forEach((id) => {
+        const localRow = localById.get(id) || null;
+        const remoteRow = remoteById.get(id) || null;
+        if (!localRow && remoteRow) {
+          mergedRows.push(remoteRow);
+          return;
+        }
+        if (localRow && !remoteRow) {
+          mergedRows.push(localRow);
+          return;
+        }
+        const localTs = visitorSortTimestamp(localRow);
+        const remoteTs = visitorSortTimestamp(remoteRow);
+        const base = localTs >= remoteTs ? localRow : remoteRow;
+        const other = base === localRow ? remoteRow : localRow;
+        mergedRows.push({ ...(other || {}), ...(base || {}) });
+      });
+      mergedRows.sort((a, b) => visitorSortTimestamp(b) - visitorSortTimestamp(a));
+      return mergedRows;
+    };
+    const userSortTimestamp = (u) => {
+      if (!u || typeof u !== 'object') return 0;
+      return Math.max(
+        parseApgTimeMs(u.updatedAt),
+        parseApgTimeMs(u.createdAt),
+      );
+    };
+    const mergeRemoteUsersWithLocal = (localUsers, remoteUsers) => {
+      const locals = Array.isArray(localUsers) ? localUsers : [];
+      const remotes = Array.isArray(remoteUsers) ? remoteUsers : [];
+      const remoteById = new Map(remotes.map((row) => [String(row?.id || ''), row]));
+      const localById = new Map(locals.map((row) => [String(row?.id || ''), row]));
+      const allIds = new Set([
+        ...Array.from(remoteById.keys()).filter(Boolean),
+        ...Array.from(localById.keys()).filter(Boolean),
+      ]);
+      const mergedRows = [];
+      allIds.forEach((id) => {
+        const localRow = localById.get(id) || null;
+        const remoteRow = remoteById.get(id) || null;
+        if (!localRow && remoteRow) {
+          mergedRows.push(remoteRow);
+          return;
+        }
+        if (localRow && !remoteRow) {
+          mergedRows.push(localRow);
+          return;
+        }
+        const localTs = userSortTimestamp(localRow);
+        const remoteTs = userSortTimestamp(remoteRow);
+        const base = localTs >= remoteTs ? localRow : remoteRow;
+        const other = base === localRow ? remoteRow : localRow;
+        const merged = { ...(other || {}), ...(base || {}) };
+        if (!String(merged.password || '').trim() && String(other?.password || '').trim()) {
+          merged.password = other.password;
+        }
+        mergedRows.push(merged);
+      });
+      mergedRows.sort((a, b) => userSortTimestamp(b) - userSortTimestamp(a));
+      return mergedRows;
     };
     const APG_SYNC_DB = 'apg-sync-v1';
     const APG_SYNC_STORE = 'pending';
@@ -1879,11 +1987,19 @@ Phone: +91-7047157510`;
             await clearQueuedSnapshots().catch(() => {});
             setOfflineQueueCount(0);
             setDataSyncMode('backend');
-            if (Array.isArray(remoteUsers) && remoteUsers.length > 0) setUsers(remoteUsers);
+            if (Array.isArray(remoteUsers) && remoteUsers.length > 0) {
+              const normalizedRemoteUsers = remoteUsers.map((u) => ({
+                ...u,
+                access: normalizeAccess(u && u.access),
+              }));
+              setUsers((prev) => mergeRemoteUsersWithLocal(prev, normalizedRemoteUsers));
+            }
             if (Array.isArray(remoteMembers) && remoteMembers.length > 0) {
               setMembers((prev) => mergeRemoteMembersWithLocal(prev, remoteMembers));
             }
-            if (Array.isArray(remoteVisitors) && remoteVisitors.length > 0) setVisitors(remoteVisitors);
+            if (Array.isArray(remoteVisitors) && remoteVisitors.length > 0) {
+              setVisitors((prev) => mergeRemoteVisitorsWithLocal(prev, remoteVisitors));
+            }
             if (remoteSettings && typeof remoteSettings === 'object' && Object.keys(remoteSettings).length > 0) setSettings(remoteSettings);
             if (Array.isArray(remoteLogs) && remoteLogs.length > 0) setLogs(remoteLogs);
             if (Array.isArray(remoteFinance) && remoteFinance.length > 0) setFinanceTransactions(remoteFinance);
@@ -1991,6 +2107,49 @@ Phone: +91-7047157510`;
       const [offlineQueueCount, setOfflineQueueCount] = React.useState(0);
       const [syncRuntimeReady, setSyncRuntimeReady] = React.useState(false);
       const [backendHydrated, setBackendHydrated] = React.useState(false);
+      const [memberSyncPending, setMemberSyncPending] = React.useState({});
+      const markMemberAwaitingBackendSync = React.useCallback((memberId, memberRow) => {
+        if (dataSyncMode !== 'backend') return;
+        const id = String(memberId || '').trim();
+        if (!id) return;
+        const rowTs = memberSortTimestamp(memberRow);
+        const localTs = Math.max(rowTs, Date.now());
+        setMemberSyncPending((prev) => ({ ...prev, [id]: { localTs, markedAt: Date.now() } }));
+      }, [dataSyncMode]);
+      const clearMemberAwaitingBackendSync = React.useCallback((memberId) => {
+        const id = String(memberId || '').trim();
+        if (!id) return;
+        setMemberSyncPending((prev) => {
+          if (!prev[id]) return prev;
+          const next = { ...prev };
+          delete next[id];
+          return next;
+        });
+      }, []);
+      const pruneMemberAwaitingBackendSync = React.useCallback((remoteMembers) => {
+        setMemberSyncPending((prev) => {
+          if (!prev || Object.keys(prev).length === 0) return prev;
+          const next = { ...prev };
+          let changed = false;
+          const now = Date.now();
+          const remById = new Map((remoteMembers || []).map((r) => [String(r?.memberId || '').trim(), r]));
+          for (const id of Object.keys(next)) {
+            const info = next[id];
+            const remote = remById.get(id);
+            const remoteTs = remote ? memberSortTimestamp(remote) : 0;
+            const age = now - (info.markedAt || 0);
+            const remoteCaughtUp = Boolean(remote) && remoteTs >= (info.localTs - 2);
+            if (remoteCaughtUp || age > 60000) {
+              delete next[id];
+              changed = true;
+            }
+          }
+          return changed ? next : prev;
+        });
+      }, []);
+      React.useEffect(() => {
+        if (dataSyncMode !== 'backend') setMemberSyncPending({});
+      }, [dataSyncMode]);
       const showStorageWarning = () => {
         const now = Date.now();
         // Rate limit warning to avoid repeated toasts during batched writes.
@@ -2268,6 +2427,7 @@ Phone: +91-7047157510`;
                 const nextSig = JSON.stringify(merged);
                 return prevSig === nextSig ? prev : merged;
               });
+              pruneMemberAwaitingBackendSync(remoteMembers);
             })
             .catch(() => {});
         };
@@ -2287,9 +2447,10 @@ Phone: +91-7047157510`;
             .then((remoteVisitors) => {
               if (!alive || !Array.isArray(remoteVisitors)) return;
               setVisitors((prev) => {
+                const merged = mergeRemoteVisitorsWithLocal(prev, remoteVisitors);
                 const prevSig = JSON.stringify(Array.isArray(prev) ? prev : []);
-                const nextSig = JSON.stringify(remoteVisitors);
-                return prevSig === nextSig ? prev : remoteVisitors;
+                const nextSig = JSON.stringify(merged);
+                return prevSig === nextSig ? prev : merged;
               });
             })
             .catch(() => {});
@@ -2314,9 +2475,10 @@ Phone: +91-7047157510`;
                 access: normalizeAccess(u && u.access),
               }));
               setUsers((prev) => {
+                const merged = mergeRemoteUsersWithLocal(prev, normalizedRemote);
                 const prevSig = JSON.stringify(Array.isArray(prev) ? prev : []);
-                const nextSig = JSON.stringify(normalizedRemote);
-                return prevSig === nextSig ? prev : normalizedRemote;
+                const nextSig = JSON.stringify(merged);
+                return prevSig === nextSig ? prev : merged;
               });
             })
             .catch(() => {});
@@ -2585,6 +2747,7 @@ Phone: +91-7047157510`;
       const applyMemberUndo = React.useCallback(() => {
         if (!undoToast?.previousMembers) return;
         setMembers(undoToast.previousMembers);
+        setMemberSyncPending({});
         setUndoToast(null);
         setToast('Changes reverted.');
         setTimeout(() => setToast(''), 1800);
@@ -3103,36 +3266,38 @@ Phone: +91-7047157510`;
       }, [user?.id, readSessionMinutesLeft]);
 
       const applyMemberStatusChange = React.useCallback((memberId, nextStatus, opts = {}) => {
-        setMembers(prev => prev.map(m => {
-          if (m.memberId === memberId) {
-            const before = { ...m };
-            const updated = {
-              ...m,
-              status: nextStatus,
-              staff: user?.name || m.staff || '',
-              updatedBy: user?.name || user?.id || '',
-            };
-            if (nextStatus === 'Hold') {
-              updated.holdDuration = opts.holdDuration || m.holdDuration || settings.holdDurations[0];
-            } else {
-              updated.holdDuration = '';
-            }
-            if (Object.prototype.hasOwnProperty.call(opts, 'amountOverride')) {
-              updated.amount = opts.amountOverride;
-            }
-            if (Object.prototype.hasOwnProperty.call(opts, 'billingDateOverride') && opts.billingDateOverride) {
-              updated.billingDate = opts.billingDateOverride;
-              updated.nextPaymentDate = nextPaymentDateFromBillingDate(opts.billingDateOverride);
-              updated.paymentBy = paymentByFromBillingDate(opts.billingDateOverride);
-            }
-            // Log
-            logEvent('status.changed', 'member', memberId, before, updated);
-            triggerStatusSms(updated, before.status, updated.status);
-            return updated;
+        const ts = new Date().toISOString();
+        let updatedRow = null;
+        setMembers((prev) => prev.map((m) => {
+          if (m.memberId !== memberId) return m;
+          const before = { ...m };
+          const updated = {
+            ...m,
+            status: nextStatus,
+            staff: user?.name || m.staff || '',
+            updatedBy: user?.name || user?.id || '',
+            updatedAt: ts,
+          };
+          if (nextStatus === 'Hold') {
+            updated.holdDuration = opts.holdDuration || m.holdDuration || settings.holdDurations[0];
+          } else {
+            updated.holdDuration = '';
           }
-          return m;
+          if (Object.prototype.hasOwnProperty.call(opts, 'amountOverride')) {
+            updated.amount = opts.amountOverride;
+          }
+          if (Object.prototype.hasOwnProperty.call(opts, 'billingDateOverride') && opts.billingDateOverride) {
+            updated.billingDate = opts.billingDateOverride;
+            updated.nextPaymentDate = nextPaymentDateFromBillingDate(opts.billingDateOverride);
+            updated.paymentBy = paymentByFromBillingDate(opts.billingDateOverride);
+          }
+          logEvent('status.changed', 'member', memberId, before, updated);
+          triggerStatusSms(updated, before.status, updated.status);
+          updatedRow = updated;
+          return updated;
         }));
-      }, [setMembers, settings.holdDurations, user, logEvent, triggerStatusSms]);
+        if (updatedRow) queueMicrotask(() => markMemberAwaitingBackendSync(memberId, updatedRow));
+      }, [settings.holdDurations, user, logEvent, triggerStatusSms, markMemberAwaitingBackendSync]);
 
       // Status change handler (quick actions)
       const quickStatus = (memberId, nextStatus, opts = {}) => {
@@ -3380,16 +3545,21 @@ Please pay by: ${formattedLastDate}`;
       const addMemberAttachment = (memberId, attachment) => {
         if (!canEditMembers) return;
         if (!memberId || !attachment) return;
-        setMembers(prev => prev.map(m => {
+        const attachTs = new Date().toISOString();
+        let attachUpdatedMember = null;
+        setMembers((prev) => prev.map((m) => {
           if (m.memberId !== memberId) return m;
           const nextAttachments = [...(m.attachments || []), attachment];
-          return {
+          attachUpdatedMember = {
             ...m,
             attachments: nextAttachments,
             staff: user?.name || m.staff || '',
             updatedBy: user?.name || user?.id || '',
+            updatedAt: attachTs,
           };
+          return attachUpdatedMember;
         }));
+        if (attachUpdatedMember) queueMicrotask(() => markMemberAwaitingBackendSync(memberId, attachUpdatedMember));
         setToast('Attachment uploaded.');
         setTimeout(() => setToast(''), 2000);
       };
@@ -3409,6 +3579,7 @@ Please pay by: ${formattedLastDate}`;
           ...toSave,
           staff: user?.name || toSave.staff || '',
           updatedBy: user?.name || user?.id || '',
+          updatedAt: new Date().toISOString(),
         };
         if (toSave.billingDate) {
           const nextPay = nextPaymentDateFromBillingDate(toSave.billingDate);
@@ -3479,6 +3650,7 @@ Please pay by: ${formattedLastDate}`;
           }
           return m;
         }));
+        queueMicrotask(() => markMemberAwaitingBackendSync(toSave.memberId, toSave));
         // Keep status-trigger history aligned with latest member name/mobile for future sends.
         if (beforeMember && (String(beforeMember.mobile || '') !== String(toSave.mobile || '') || String(beforeMember.name || '') !== String(toSave.name || ''))) {
           setSmsEvents(prev => prev.map(ev => {
@@ -3537,6 +3709,7 @@ Please pay by: ${formattedLastDate}`;
         if (!canDeleteMembers) return;
         const previousMembers = Array.isArray(members) ? members.map((m) => ({ ...m })) : [];
         const deletedRow = previousMembers.find((m) => m.memberId === memberId) || null;
+        clearMemberAwaitingBackendSync(memberId);
         setMembers(prev => prev.filter(m => m.memberId !== memberId));
         // Remove any open details rows or pages referencing this member
         // No need to adjust pagination here; DashboardView recalculates
@@ -3556,8 +3729,11 @@ Please pay by: ${formattedLastDate}`;
           ...m,
           staff: user?.name || m.staff || '',
           updatedBy: user?.name || user?.id || '',
+          createdAt: m?.createdAt || new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
         };
         setMembers(prev => [memberWithAudit, ...prev]);
+        queueMicrotask(() => markMemberAwaitingBackendSync(memberWithAudit.memberId, memberWithAudit));
         logEvent('member.created', 'member', memberWithAudit.memberId, null, memberWithAudit);
         if (prefillVisitor?.id) {
           setVisitors((prev) => prev.map((v) => (v.id === prefillVisitor.id
@@ -3620,11 +3796,19 @@ Please pay by: ${formattedLastDate}`;
           billingMonth,
           billingDate: `${billingMonth}-01`,
         };
-        setMembers((prev) => prev.map((x) => (x.memberId === memberId ? {
-          ...x,
-          paymentReceivedAt: parseApgTimeMs(paidAt) >= parseApgTimeMs(x.paymentReceivedAt) ? paidAt : (x.paymentReceivedAt || ''),
-          paymentHistory: [row, ...(Array.isArray(x.paymentHistory) ? x.paymentHistory : [])].slice(0, 240),
-        } : x)));
+        const payTs = new Date().toISOString();
+        let paymentUpdatedMember = null;
+        setMembers((prev) => prev.map((x) => {
+          if (x.memberId !== memberId) return x;
+          paymentUpdatedMember = {
+            ...x,
+            paymentReceivedAt: parseApgTimeMs(paidAt) >= parseApgTimeMs(x.paymentReceivedAt) ? paidAt : (x.paymentReceivedAt || ''),
+            paymentHistory: [row, ...(Array.isArray(x.paymentHistory) ? x.paymentHistory : [])].slice(0, 240),
+            updatedAt: payTs,
+          };
+          return paymentUpdatedMember;
+        }));
+        if (paymentUpdatedMember) queueMicrotask(() => markMemberAwaitingBackendSync(memberId, paymentUpdatedMember));
         logEvent('member.payment.added', 'member', memberId, null, {
           memberName: target.name || '',
           amount,
@@ -3660,6 +3844,8 @@ Please pay by: ${formattedLastDate}`;
           return false;
         }
         setPaymentDeletePrompt({ open: false, memberId: '', memberName: '', paymentId: '', amount: 0, paidAt: '' });
+        const payDelTs = new Date().toISOString();
+        let paymentDeleteUpdatedMember = null;
         setMembers((prev) => prev.map((x) => {
           if (x.memberId !== mId) return x;
           const nextRows = (Array.isArray(x.paymentHistory) ? x.paymentHistory : []).filter((r) => {
@@ -3672,12 +3858,15 @@ Please pay by: ${formattedLastDate}`;
             .map((r) => String(r.paidAt || ''))
             .filter(Boolean)
             .sort((a, b) => parseApgTimeMs(b) - parseApgTimeMs(a))[0] || '';
-          return {
+          paymentDeleteUpdatedMember = {
             ...x,
             paymentHistory: nextRows,
             paymentReceivedAt: clearLegacyOnly ? '' : (nextLatestPaidAt || x.paymentReceivedAt || ''),
+            updatedAt: payDelTs,
           };
+          return paymentDeleteUpdatedMember;
         }));
+        if (paymentDeleteUpdatedMember) queueMicrotask(() => markMemberAwaitingBackendSync(mId, paymentDeleteUpdatedMember));
         logEvent('member.payment.deleted', 'member', mId, removed, {
           memberName: target?.name || '',
           paymentId: pId,
@@ -3919,6 +4108,7 @@ Please pay by: ${formattedLastDate}`;
           setTimeout(() => setToast(''), 2200);
           return;
         }
+        const importTs = new Date().toISOString();
         setMembers((prev) => {
           const next = [...prev];
           upsertRows.forEach((r) => {
@@ -3926,14 +4116,27 @@ Please pay by: ${formattedLastDate}`;
             const idx = next.findIndex((m) => String(m.memberId || '').trim() === String(incoming.memberId || '').trim()
               || normalizePhone(m.mobile) === normalizePhone(incoming.mobile));
             if (idx >= 0) {
-              next[idx] = {
+              const merged = {
                 ...next[idx],
                 ...incoming,
                 attachments: next[idx].attachments || [],
                 photo: next[idx].photo || incoming.photo || '',
+                updatedAt: importTs,
               };
+              next[idx] = merged;
+              if (dataSyncMode === 'backend') {
+                queueMicrotask(() => markMemberAwaitingBackendSync(String(merged.memberId || '').trim(), merged));
+              }
             } else {
-              next.unshift(incoming);
+              const added = {
+                ...incoming,
+                updatedAt: importTs,
+                createdAt: incoming.createdAt || importTs,
+              };
+              next.unshift(added);
+              if (dataSyncMode === 'backend') {
+                queueMicrotask(() => markMemberAwaitingBackendSync(String(added.memberId || '').trim(), added));
+              }
             }
           });
           return next;
@@ -4006,6 +4209,7 @@ Please pay by: ${formattedLastDate}`;
             throw new Error('invalid-schema');
           }
           setMembers(parsed.members);
+          setMemberSyncPending({});
           setVisitors(Array.isArray(parsed.visitors) ? parsed.visitors : []);
           setUsers(parsed.users);
           setLogs(parsed.logs);
@@ -4790,6 +4994,7 @@ Please pay by: ${formattedLastDate}`;
                 <MembersList
                   title={`${dashFilter} Members`}
                   list={filteredMembers}
+                  memberSyncPending={memberSyncPending}
                   onBack={() => setDashMode('summary')}
                   onEdit={canEditMembers ? (m) => setEditMember(m) : null}
                   onStatusChange={canEditMembers ? quickStatus : null}
@@ -4843,6 +5048,7 @@ Please pay by: ${formattedLastDate}`;
                 ) : (
                   <DashboardView
                     members={members}
+                    memberSyncPending={memberSyncPending}
                     onEdit={canEditMembers ? (m) => setEditMember(m) : null}
                     onStatusChange={canEditMembers ? quickStatus : null}
                     holdOptions={settings.holdDurations}
@@ -4896,6 +5102,7 @@ Please pay by: ${formattedLastDate}`;
                 currentUser={user}
                 access={normalizeAccess(user?.access)}
                 displayTimeZone={displayTimeZone}
+                memberSyncPending={memberSyncPending}
               />
             )}
             {activeTab === 'Settings' && (
@@ -4935,6 +5142,7 @@ Please pay by: ${formattedLastDate}`;
                     if (Array.isArray(remoteUsers)) setUsers(remoteUsers);
                     if (Array.isArray(remoteMembers)) setMembers(remoteMembers);
                     if (Array.isArray(remoteVisitors)) setVisitors(remoteVisitors);
+                    setMemberSyncPending({});
                     if (remoteSettings && typeof remoteSettings === 'object') setSettings(remoteSettings);
                     if (Array.isArray(remoteLogs)) setLogs(remoteLogs);
                     if (Array.isArray(remoteFinance)) setFinanceTransactions(remoteFinance);
@@ -5019,6 +5227,8 @@ Please pay by: ${formattedLastDate}`;
                 currentUser={user}
                 access={normalizeAccess(user?.access)}
                 displayTimeZone={displayTimeZone}
+                memberSyncPending={memberSyncPending}
+                markMemberAwaitingBackendSync={markMemberAwaitingBackendSync}
               />
             )}
             {activeTab === 'Finance' && (
@@ -5032,6 +5242,7 @@ Please pay by: ${formattedLastDate}`;
                 access={normalizeAccess(user?.access)}
                 displayTimeZone={displayTimeZone}
                 theme={theme}
+                memberSyncPending={memberSyncPending}
               />
             )}
             {activeTab === 'Staff' && (
@@ -6531,7 +6742,7 @@ function Sidebar({ user, active, onSelect, theme, setTheme, onLogout, onUndo, on
     }
 
     // ---- Members List (Dashboard list mode) ----
-function MembersList({ title, list, onBack, onEdit, onStatusChange, holdOptions, logs, onWelcome, onWhatsAppCall, onWelcomeMail, onAddAttachment, onQuickFieldEdit, editOptions, isOwner, currentUserRole = '', fineRuleConfig, canEdit = true, displayTimeZone = 'IST', tableDensity = 'normal', setTableDensity = () => {}, onAddPaymentEntry = null, onDeletePaymentEntry = null }) {
+function MembersList({ title, list, onBack, onEdit, onStatusChange, holdOptions, logs, onWelcome, onWhatsAppCall, onWelcomeMail, onAddAttachment, onQuickFieldEdit, editOptions, isOwner, currentUserRole = '', fineRuleConfig, canEdit = true, displayTimeZone = 'IST', tableDensity = 'normal', setTableDensity = () => {}, onAddPaymentEntry = null, onDeletePaymentEntry = null, memberSyncPending = {} }) {
       const [openId, setOpenId] = React.useState(null);
       const [mobileDetailMemberId, setMobileDetailMemberId] = React.useState('');
       const [page, setPage] = React.useState(1);
@@ -6592,6 +6803,7 @@ function MembersList({ title, list, onBack, onEdit, onStatusChange, holdOptions,
               <MemberRow
                 key={m.memberId}
                 m={m}
+                memberSyncPending={memberSyncPending}
                 expanded={openId === m.memberId}
                 onToggle={() => setOpenId(openId === m.memberId ? null : m.memberId)}
                 onEdit={() => onEdit && onEdit(m)}
@@ -6666,7 +6878,7 @@ function MembersList({ title, list, onBack, onEdit, onStatusChange, holdOptions,
     }
 
     // ---- Member Row ----
-function MemberRow({ m, expanded, onToggle, onEdit, onStatusChange, holdOptions, onDelete, canDelete, onWelcome, onWhatsAppCall, onWelcomeMail, onAddAttachment, logs, selected, onSelectToggle, selectable, onQuickFieldEdit, editOptions, isOwner, currentUserRole = '', fineRuleConfig, onOpenMobileDetail, canEdit = true, displayTimeZone = 'IST', isCompactTablet = false, onAddPaymentEntry = null, onDeletePaymentEntry = null }) {
+function MemberRow({ m, memberSyncPending = {}, expanded, onToggle, onEdit, onStatusChange, holdOptions, onDelete, canDelete, onWelcome, onWhatsAppCall, onWelcomeMail, onAddAttachment, logs, selected, onSelectToggle, selectable, onQuickFieldEdit, editOptions, isOwner, currentUserRole = '', fineRuleConfig, onOpenMobileDetail, canEdit = true, displayTimeZone = 'IST', isCompactTablet = false, onAddPaymentEntry = null, onDeletePaymentEntry = null }) {
       const billingToday = localCalendarDateKey(m.billingDate) === localTodayCalendarKey();
       // Determine if we can open WhatsApp welcome/payment reminder.
       // Active members with mobile number and billing date qualify.
@@ -6676,6 +6888,7 @@ function MemberRow({ m, expanded, onToggle, onEdit, onStatusChange, holdOptions,
       const hasPrimaryMessageAction = statusTemplate.key !== 'none';
       const statusSentText = hasPrimaryMessageAction ? getSmsSentInfoText(m, statusTemplate.key, displayTimeZone) : '';
       const callInfoText = getLastWhatsAppCallText(m, displayTimeZone);
+      const syncPending = Boolean(memberSyncPending && memberSyncPending[String(m.memberId || '').trim()]);
       const uploadDoc = async (e) => {
         const file = e.target.files?.[0];
         if (!file) return;
@@ -6715,6 +6928,7 @@ function MemberRow({ m, expanded, onToggle, onEdit, onStatusChange, holdOptions,
             callInfoText={callInfoText}
             canEdit={canEdit}
             isCompactTablet={isCompactTablet}
+            syncPending={syncPending}
           />
           <MemberRowMobileView
             m={m}
@@ -6726,6 +6940,7 @@ function MemberRow({ m, expanded, onToggle, onEdit, onStatusChange, holdOptions,
             billingToday={billingToday}
             fineHighlight={fineHighlight}
             onOpenMobileDetail={onOpenMobileDetail}
+            syncPending={syncPending}
           />
           {expanded && (
             <div className="px-0 lg:px-2 pt-1 pb-2">
@@ -6776,7 +6991,7 @@ function MemberRow({ m, expanded, onToggle, onEdit, onStatusChange, holdOptions,
     }
 
     // Phase A split: desktop-specific member row presentation.
-function MemberRowDesktopView({ m, selectable, selected, onSelectToggle, onToggle, onEdit, onWelcome, onWhatsAppCall, canWelcome, statusTemplate, billingToday = false, fineHighlight = false, statusSentText, callInfoText, canEdit = true, isCompactTablet = false }) {
+function MemberRowDesktopView({ m, selectable, selected, onSelectToggle, onToggle, onEdit, onWelcome, onWhatsAppCall, canWelcome, statusTemplate, billingToday = false, fineHighlight = false, statusSentText, callInfoText, canEdit = true, isCompactTablet = false, syncPending = false }) {
       const isIpadLandscapeCompact = isCompactTablet && typeof window !== 'undefined' && window.innerWidth >= 1024 && window.innerWidth <= 1366;
       return (
         <button onClick={onToggle} className={cx('apg-member-row-desktop hidden lg:grid w-full grid-cols-12 items-center gap-1.5 rounded-xl border border-slate-200/90 bg-white px-2.5 py-1.5 text-left text-slate-700 shadow-[0_1px_0_rgba(15,23,42,0.02)] transition hover:border-slate-300 hover:bg-slate-50/70 hover:shadow-[0_6px_20px_rgba(15,23,42,0.06)] text-[10px]', isCompactTablet ? 'gap-1 px-2 py-1 text-[9px]' : '')}>
@@ -6793,6 +7008,14 @@ function MemberRowDesktopView({ m, selectable, selected, onSelectToggle, onToggl
               />
             )}
             <span className="truncate">{m.memberId}</span>
+            {syncPending && (
+              <span
+                className="inline-flex max-w-[5.5rem] shrink-0 items-center rounded-full border border-amber-200 bg-amber-50 px-1 py-0.5 text-[8px] font-semibold uppercase tracking-tight text-amber-800"
+                title="Saving to server — other devices may briefly show older data until sync completes."
+              >
+                Sync pending…
+              </span>
+            )}
           </div>
           <div className={cx(
             'col-span-2 flex items-center gap-1.5',
@@ -6858,7 +7081,7 @@ function MemberRowDesktopView({ m, selectable, selected, onSelectToggle, onToggl
     }
 
     // Phase A split: mobile-specific member row presentation.
-    function MemberRowMobileView({ m, selectable, selected, onSelectToggle, onToggle, expanded, billingToday = false, fineHighlight = false, onOpenMobileDetail }) {
+    function MemberRowMobileView({ m, selectable, selected, onSelectToggle, onToggle, expanded, billingToday = false, fineHighlight = false, onOpenMobileDetail, syncPending = false }) {
       return (
         <button
           onClick={() => {
@@ -6886,6 +7109,11 @@ function MemberRowDesktopView({ m, selectable, selected, onSelectToggle, onToggl
                 )}
                 <Avatar name={m.name} photo={m.photo} className="h-9 w-9 rounded-xl" />
                 <span className={cx('font-semibold truncate', fineHighlight ? 'text-rose-700' : (billingToday ? 'text-emerald-700' : 'text-slate-900'))}>{m.name}</span>
+                {syncPending && (
+                  <span className="inline-flex shrink-0 items-center rounded-full border border-amber-200 bg-amber-50 px-1.5 py-0.5 text-[9px] font-semibold text-amber-800" title="Saving to server — other devices may briefly show older data until sync completes.">
+                    Sync pending…
+                  </span>
+                )}
               </div>
               <div className="text-[11px] mt-1 text-slate-500">Billing Date: {fmt(m.billingDate) || '-'}</div>
               <div className="text-[11px] text-slate-500">Next Payment Date: {fmt(m.nextPaymentDate || nextPaymentDateFromBillingDate(m)) || '-'}</div>
@@ -7810,7 +8038,7 @@ function QuickActions({ m, onStatusChange, holdOptions, canDelete, onDelete, can
     }
 
     // ---- Dashboard View (Members grouped by status) ----
-function DashboardView({ members, onEdit, onStatusChange, holdOptions, logs, filters, filterOpen, setFilterOpen, anyFilterActive, canDelete, onDelete, billingMonthOptions, onWelcome, onWhatsAppCall, onWelcomeMail, onAddAttachment, onQuickFieldEdit, editOptions, isOwner, currentUserRole = '', fineRuleConfig, canEdit = true, onImportCsv = null, onAddExpense = null, displayTimeZone = 'IST', tableDensity = 'normal', setTableDensity = () => {}, onAddPaymentEntry = null, onDeletePaymentEntry = null }) {
+function DashboardView({ members, memberSyncPending = {}, onEdit, onStatusChange, holdOptions, logs, filters, filterOpen, setFilterOpen, anyFilterActive, canDelete, onDelete, billingMonthOptions, onWelcome, onWhatsAppCall, onWelcomeMail, onAddAttachment, onQuickFieldEdit, editOptions, isOwner, currentUserRole = '', fineRuleConfig, canEdit = true, onImportCsv = null, onAddExpense = null, displayTimeZone = 'IST', tableDensity = 'normal', setTableDensity = () => {}, onAddPaymentEntry = null, onDeletePaymentEntry = null }) {
       // Single expanded row across all statuses. Only one memberId may be expanded at a time.
       const [expandedId, setExpandedId] = React.useState(null);
       const [mobileDetailMemberId, setMobileDetailMemberId] = React.useState('');
@@ -8021,6 +8249,7 @@ function DashboardView({ members, onEdit, onStatusChange, holdOptions, logs, fil
                 <MemberRow
                   key={m.memberId}
                   m={m}
+                  memberSyncPending={memberSyncPending}
                   expanded={false}
                   onToggle={() => {}}
                   onEdit={() => onEdit && onEdit(m)}
@@ -8296,6 +8525,7 @@ function DashboardView({ members, onEdit, onStatusChange, holdOptions, logs, fil
                     <MemberRow
                       key={m.memberId}
                       m={m}
+                      memberSyncPending={memberSyncPending}
                       expanded={expandedId === m.memberId}
                       onToggle={() => setExpandedId(prev => (prev === m.memberId ? null : m.memberId))}
                       onEdit={() => onEdit && onEdit(m)}
@@ -9075,6 +9305,14 @@ function EditMemberModal({ member, onClose, onSave, planOptions, statusOptions, 
       }, [open, staffName]);
       React.useEffect(() => {
         if (!open) return;
+        setForm((prev) => {
+          const nextName = String(prev.name || '');
+          if (String(prev.ackSignature || '') === nextName) return prev;
+          return { ...prev, ackSignature: nextName };
+        });
+      }, [open, form.name]);
+      React.useEffect(() => {
+        if (!open) return;
         try {
           localStorage.setItem(DRAFT_KEY, JSON.stringify({ step, form }));
         } catch {}
@@ -9173,7 +9411,7 @@ function EditMemberModal({ member, onClose, onSave, planOptions, statusOptions, 
       const isMinor = ageFromDob(form.dob) !== null && ageFromDob(form.dob) < 18;
       const req5 = {
         ackAccepted: !form.ackAccepted,
-        ackSignature: !String(form.ackSignature || '').trim(),
+        ackSignature: !String(form.name || '').trim(),
         parentGuardianName: isMinor && !String(form.parentGuardianName || '').trim(),
         parentGuardianSignature: isMinor && !String(form.parentGuardianSignature || '').trim(),
       };
@@ -9475,6 +9713,7 @@ function EditMemberModal({ member, onClose, onSave, planOptions, statusOptions, 
         const payMonth = payMonthLabel(addMonths(form.billingDate, 1));
         const newMember = {
           ...form,
+          ackSignature: String(form.name || '').trim(),
           memberId,
           formNo: Number(form.formNo),
           amount: Number(form.amount || 0),
@@ -9613,7 +9852,7 @@ function EditMemberModal({ member, onClose, onSave, planOptions, statusOptions, 
                       className={canEditFormNo ? reqClsXs(req1.formNo) : readOnlyCls}
                     />
                   </div>
-                  <div><label className="text-xs md:text-sm font-medium">Full Name{reqMark}</label><input id="add-member-name" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} className={reqClsXs(req1.name)} /></div>
+                  <div><label className="text-xs md:text-sm font-medium">Full Name{reqMark}</label><input id="add-member-name" value={form.name} onChange={(e) => setForm((prev) => ({ ...prev, name: e.target.value }))} className={reqClsXs(req1.name)} /></div>
                   <div><label className="text-sm font-medium">Gmail{reqMark}</label><input id="add-member-email" type="email" value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} placeholder="example@gmail.com" className={reqCls(req1.email)} /></div>
                   <div><label className="text-sm font-medium">Date of Birth{reqMark}</label><input id="add-member-dob" type="date" value={form.dob} onChange={(e) => setForm({ ...form, dob: e.target.value })} className={reqCls(req1.dob)} /></div>
                   <div><label className="text-sm font-medium">Gender{reqMark}</label><select id="add-member-gender" value={form.gender} onChange={(e) => setForm({ ...form, gender: e.target.value })} className={reqCls(req1.gender)}>
@@ -9726,7 +9965,7 @@ function EditMemberModal({ member, onClose, onSave, planOptions, statusOptions, 
                   <div className="rounded-xl border border-slate-200 bg-slate-50 p-3 text-xs whitespace-pre-wrap">{settings.acknowledgementTemplate || ACKNOWLEDGEMENT_TEMPLATE_DEFAULT}</div>
                   <label className="flex items-center gap-2 text-sm"><input id="add-member-ackAccepted" type="checkbox" checked={form.ackAccepted} onChange={(e) => setForm({ ...form, ackAccepted: e.target.checked })} /> I acknowledge and accept{reqMark}</label>
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                    <div><label className="text-sm font-medium">Signature (Type Full Name){reqMark}</label><input id="add-member-ackSignature" value={form.ackSignature} onChange={(e) => setForm({ ...form, ackSignature: e.target.value })} className={reqCls(req5.ackSignature)} /></div>
+                    <div><label className="text-sm font-medium">Signature (Type Full Name){reqMark}</label><input id="add-member-ackSignature" readOnly tabIndex={-1} aria-readonly="true" value={form.name} className={req5.ackSignature ? reqCls(true) : readOnlyCls} /></div>
                     <div><label className="text-sm font-medium">Date</label><input type="date" value={form.ackDate} onChange={(e) => setForm({ ...form, ackDate: e.target.value })} className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm" /></div>
                   </div>
                   {isMinor && (
@@ -9775,7 +10014,7 @@ function EditMemberModal({ member, onClose, onSave, planOptions, statusOptions, 
     }
 
     // ---- PT Clients Page ----
-function PTClientsPage({ members, users, settings, updateSetting, currentUser, access = {}, displayTimeZone = 'IST' }) {
+function PTClientsPage({ members, users, settings, updateSetting, currentUser, access = {}, displayTimeZone = 'IST', memberSyncPending = {} }) {
       const PT_TABS = ['PT Workout', 'Workout Plan', 'Diet Plan', 'Chat Trainer', 'Today Sessions', 'Weight Progress'];
       const [activeSubTab, setActiveSubTab] = React.useState('PT Workout');
       const ptProfiles = settings.ptClientProfiles || {};
@@ -9952,10 +10191,17 @@ function PTClientsPage({ members, users, settings, updateSetting, currentUser, a
               <button
                 type="button"
                 onClick={() => setClientPickerOpen((v) => !v)}
-                className="mt-1 w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-left text-sm flex items-center justify-between"
+                className="mt-1 w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-left text-sm flex items-center justify-between gap-2"
               >
-                <span className="truncate">{selectedMember ? `${selectedMember.name} - ${selectedMember.plan}` : 'Select PT Client'}</span>
-                <span className="text-slate-500">⌄</span>
+                <span className="truncate min-w-0">{selectedMember ? `${selectedMember.name} - ${selectedMember.plan}` : 'Select PT Client'}</span>
+                <span className="flex shrink-0 items-center gap-1.5">
+                  {selectedMember && memberSyncPending?.[String(selectedMember.memberId || '').trim()] && (
+                    <span className="inline-flex max-w-[5.5rem] items-center rounded-full border border-amber-200 bg-amber-50 px-1 py-0.5 text-[8px] font-semibold uppercase tracking-tight text-amber-800" title="Saving to server — other devices may briefly show older data until sync completes.">
+                      Sync pending…
+                    </span>
+                  )}
+                  <span className="text-slate-500">⌄</span>
+                </span>
               </button>
               {clientPickerOpen && (
                 <div className="absolute z-40 mt-2 w-full rounded-2xl border border-slate-200 bg-white shadow-xl">
@@ -9984,11 +10230,18 @@ function PTClientsPage({ members, users, settings, updateSetting, currentUser, a
                           className={cx('w-full flex items-center gap-3 px-3 py-3 text-left border-b border-slate-100 hover:bg-slate-50', active && 'bg-blue-50')}
                         >
                           <Avatar name={m.name} photo={m.photo} className="h-10 w-10 rounded-full" />
-                          <div className="min-w-0">
-                            <div className="truncate text-sm font-medium text-slate-900">{m.name}</div>
+                          <div className="min-w-0 flex-1">
+                            <div className="flex flex-wrap items-center gap-2">
+                              <div className="truncate text-sm font-medium text-slate-900">{m.name}</div>
+                              {memberSyncPending?.[String(m.memberId || '').trim()] && (
+                                <span className="inline-flex shrink-0 items-center rounded-full border border-amber-200 bg-amber-50 px-1.5 py-0.5 text-[9px] font-semibold text-amber-800" title="Saving to server — other devices may briefly show older data until sync completes.">
+                                  Sync pending…
+                                </span>
+                              )}
+                            </div>
                             <div className="truncate text-xs text-slate-600">{m.plan || 'No plan'}</div>
                           </div>
-                          {active && <span className="ml-auto text-blue-600 text-sm">✓</span>}
+                          {active && <span className="ml-auto shrink-0 text-blue-600 text-sm">✓</span>}
                         </button>
                       );
                     })}
@@ -10016,8 +10269,14 @@ function PTClientsPage({ members, users, settings, updateSetting, currentUser, a
             {!selectedMember && <div className="rounded-xl border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800">No PT client found. Assign PT plan in Members to enable this section.</div>}
             {selectedMember && (
               <div className="space-y-4">
-                <div className="rounded-xl border border-slate-200 bg-slate-50 p-3 text-sm">
-                  <span className="font-semibold">{selectedMember.name}</span> • {selectedMember.plan} • Billing: {fmt(selectedMember.billingDate)}
+                <div className="rounded-xl border border-slate-200 bg-slate-50 p-3 text-sm flex flex-wrap items-center gap-2">
+                  <span className="font-semibold">{selectedMember.name}</span>
+                  {memberSyncPending?.[String(selectedMember.memberId || '').trim()] && (
+                    <span className="inline-flex items-center rounded-full border border-amber-200 bg-amber-50 px-2 py-0.5 text-[10px] font-semibold text-amber-800" title="Saving to server — other devices may briefly show older data until sync completes.">
+                      Sync pending…
+                    </span>
+                  )}
+                  <span className="text-slate-600">• {selectedMember.plan} • Billing: {fmt(selectedMember.billingDate)}</span>
                 </div>
                 {activeSubTab === 'PT Workout' && (
                   <div className="space-y-4">
@@ -11675,7 +11934,7 @@ function PTClientsPage({ members, users, settings, updateSetting, currentUser, a
     }
 
     // ---- WhatsApp SMS Page ----
-    function WhatsAppSmsPage({ members, setMembers, settings, updateSetting, smsEvents, logEvent, currentUser, access, displayTimeZone = 'IST' }) {
+    function WhatsAppSmsPage({ members, setMembers, settings, updateSetting, smsEvents, logEvent, currentUser, access, displayTimeZone = 'IST', memberSyncPending = {}, markMemberAwaitingBackendSync = null }) {
       const [ruleTab, setRuleTab] = React.useState('all');
       const [activeType, setActiveType] = React.useState('reminder');
       const [search, setSearch] = React.useState('');
@@ -11923,15 +12182,19 @@ function PTClientsPage({ members, users, settings, updateSetting, currentUser, a
         const sentAt = composeAt.toISOString();
         const sentBy = currentUser?.name || currentUser?.id || 'Staff';
         if (setMembers) {
-          setMembers(prev => prev.map((m) => m.memberId === member.memberId ? {
-            ...m,
-            reminderSentAt: templateKey === 'reminder' ? sentAt : m.reminderSentAt,
+          setMembers((prev) => prev.map((mm) => (mm.memberId === member.memberId ? {
+            ...mm,
+            reminderSentAt: templateKey === 'reminder' ? sentAt : mm.reminderSentAt,
             lastSmsSent: {
-              ...(m.lastSmsSent || {}),
+              ...(mm.lastSmsSent || {}),
               [templateKey]: { sentAt, sentBy },
             },
-            messageHistory: [{ id: crypto.randomUUID(), channel: 'whatsapp', templateKey, status: 'opened', ts: sentAt, sentAt, sentBy }, ...(m.messageHistory || [])].slice(0, 50),
-          } : m));
+            messageHistory: [{ id: crypto.randomUUID(), channel: 'whatsapp', templateKey, status: 'opened', ts: sentAt, sentAt, sentBy }, ...(mm.messageHistory || [])].slice(0, 50),
+            updatedAt: sentAt,
+          } : mm)));
+          if (markMemberAwaitingBackendSync) {
+            queueMicrotask(() => markMemberAwaitingBackendSync(member.memberId, { ...member, updatedAt: sentAt }));
+          }
         }
         logEvent && logEvent(smsTemplateOpenedAction(templateKey), 'member', member.memberId || '', null, {
           memberName: member.name || '',
@@ -12055,7 +12318,16 @@ function PTClientsPage({ members, users, settings, updateSetting, currentUser, a
                 <tbody>
                   {messagePageRows.map(m => (
                     <tr key={`${activeType}-${m.memberId}`} className="border-b border-slate-200">
-                      <td className="px-3 py-2">{m.name}</td>
+                      <td className="px-3 py-2">
+                        <div className="flex flex-wrap items-center gap-2">
+                          <span>{m.name}</span>
+                          {memberSyncPending[String(m.memberId || '').trim()] && (
+                            <span className="inline-flex items-center rounded-full border border-amber-200 bg-amber-50 px-2 py-0.5 text-[10px] font-semibold text-amber-800" title="Saving to server — other devices may briefly show older data until sync completes.">
+                              Sync pending…
+                            </span>
+                          )}
+                        </div>
+                      </td>
                       <td className="px-3 py-2">{m.mobile || '-'}</td>
                       <td className="px-3 py-2">{m.status || '-'}</td>
                       <td className="px-3 py-2">{fmt(m.nextPaymentDate || nextPaymentDateFromBillingDate(m)) || '-'}</td>
@@ -12115,9 +12387,14 @@ function PTClientsPage({ members, users, settings, updateSetting, currentUser, a
               <div className="md:hidden divide-y divide-slate-200">
                 {messagePageRows.map(m => (
                   <div key={`mobile-${activeType}-${m.memberId}`} className="py-3 space-y-2">
-                    <div className="flex items-center justify-between">
-                      <div className="font-semibold text-slate-900">{m.name}</div>
-                      <span className="text-xs rounded-full px-2 py-1 border border-slate-200 bg-slate-50 text-slate-700">{m.status || '-'}</span>
+                    <div className="flex items-center justify-between gap-2">
+                      <div className="flex flex-wrap items-center gap-2 min-w-0">
+                        <div className="font-semibold text-slate-900 truncate">{m.name}</div>
+                        {memberSyncPending[String(m.memberId || '').trim()] && (
+                          <span className="inline-flex shrink-0 items-center rounded-full border border-amber-200 bg-amber-50 px-1.5 py-0.5 text-[9px] font-semibold text-amber-800">Sync pending…</span>
+                        )}
+                      </div>
+                      <span className="text-xs rounded-full px-2 py-1 border border-slate-200 bg-slate-50 text-slate-700 shrink-0">{m.status || '-'}</span>
                     </div>
                     <div className="text-xs text-slate-600">Mobile: {m.mobile || '-'}</div>
                     <div className="text-xs text-slate-600">Next Payment Date: {fmt(m.nextPaymentDate || nextPaymentDateFromBillingDate(m)) || '-'}</div>
@@ -12396,7 +12673,7 @@ function PTClientsPage({ members, users, settings, updateSetting, currentUser, a
     }
 
     // ---- Finance Page ----
-    function FinancePage({ members, settings, logs, financeTransactions = [], setFinanceTransactions, updateSetting, access, openExpenseSignal = 0, displayTimeZone = 'IST', theme = 'light' }) {
+    function FinancePage({ members, settings, logs, financeTransactions = [], setFinanceTransactions, updateSetting, access, openExpenseSignal = 0, displayTimeZone = 'IST', theme = 'light', memberSyncPending = {} }) {
       const [query, setQuery] = React.useState('');
       const [appliedQuery, setAppliedQuery] = React.useState('');
       const [showFilter, setShowFilter] = React.useState(false);
@@ -12966,7 +13243,16 @@ function PTClientsPage({ members, users, settings, updateSetting, currentUser, a
                         className="border-b border-slate-200 hover:bg-slate-50 cursor-pointer dark:border-slate-700 dark:hover:bg-slate-800"
                       >
                         <td className="px-3 py-2 whitespace-nowrap">{fmt(t.date)}</td>
-                        <td className="px-3 py-2 whitespace-nowrap">{t.memberName || '-'}</td>
+                        <td className="px-3 py-2 whitespace-nowrap">
+                          <div className="flex flex-wrap items-center gap-2">
+                            <span>{t.memberName || '-'}</span>
+                            {String(t.memberId || '').trim() && memberSyncPending?.[String(t.memberId).trim()] && (
+                              <span className="inline-flex max-w-[5.5rem] shrink-0 items-center rounded-full border border-amber-200 bg-amber-50 px-1 py-0.5 text-[8px] font-semibold uppercase tracking-tight text-amber-800" title="Saving to server — other devices may briefly show older data until sync completes.">
+                                Sync pending…
+                              </span>
+                            )}
+                          </div>
+                        </td>
                         <td className="px-3 py-2 whitespace-nowrap">{t.plan || '-'}</td>
                         <td className="px-3 py-2 whitespace-nowrap">{t.method || '-'}</td>
                         <td className="px-3 py-2 whitespace-nowrap capitalize">{t.status}</td>
@@ -13020,8 +13306,15 @@ function PTClientsPage({ members, users, settings, updateSetting, currentUser, a
                 {pageRows.map(t => (
                   <div key={t.id} className="p-3">
                     <div className="flex items-center justify-between gap-2">
-                      <div className="font-medium text-slate-900 truncate">{t.memberName || '-'}</div>
-                      <span className="text-xs rounded-full bg-slate-100 px-2 py-0.5">{t.status}</span>
+                      <div className="flex min-w-0 flex-1 flex-wrap items-center gap-2">
+                        <div className="font-medium text-slate-900 truncate">{t.memberName || '-'}</div>
+                        {String(t.memberId || '').trim() && memberSyncPending?.[String(t.memberId).trim()] && (
+                          <span className="inline-flex shrink-0 items-center rounded-full border border-amber-200 bg-amber-50 px-1.5 py-0.5 text-[9px] font-semibold text-amber-800" title="Saving to server — other devices may briefly show older data until sync completes.">
+                            Sync pending…
+                          </span>
+                        )}
+                      </div>
+                      <span className="shrink-0 text-xs rounded-full bg-slate-100 px-2 py-0.5">{t.status}</span>
                     </div>
                     <div className="text-xs text-slate-500 mt-1">Date: {fmt(t.date)} | Plan: {t.plan || '-'}</div>
                     <div className="text-xs text-slate-600">Method: {t.method || '-'} | Amount: ${Number(t.amount || 0).toLocaleString()}</div>
@@ -13948,6 +14241,7 @@ function PTClientsPage({ members, users, settings, updateSetting, currentUser, a
           blockedAt: nextBlocked ? now : '',
           updatedBy: currentUser?.id || currentUser?.name || 'owner',
           unblockNote: nextBlocked ? '' : unblockNote,
+          updatedAt: now,
         } : x));
         logEvent && logEvent('staff.block_toggled', 'user', u.id, u, { ...u, blocked: nextBlocked, blockedReason, blockedAt: nextBlocked ? now : '', unblockNote });
       };
@@ -14009,6 +14303,7 @@ function PTClientsPage({ members, users, settings, updateSetting, currentUser, a
           photo: form.photo || null,
           testProfile: Boolean(form.testProfile),
           sandboxId: form.testProfile ? (form.sandboxId || crypto.randomUUID()) : '',
+          updatedAt: new Date().toISOString(),
         };
         if (editingId) {
           setUsers(prev => prev.map(u => (u.id === editingId ? updatedUser : u)));
