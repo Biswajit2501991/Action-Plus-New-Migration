@@ -2225,6 +2225,9 @@ Phone: +91-7047157510`;
       const [syncRuntimeReady, setSyncRuntimeReady] = React.useState(false);
       const [backendHydrated, setBackendHydrated] = React.useState(false);
       const [memberSyncPending, setMemberSyncPending] = React.useState({});
+      /** GET /members can return rows a few ms–s behind the client clock; 2ms was too tight and kept "Sync pending" ~60s until the age fallback. */
+      const MEMBER_REMOTE_SYNC_SLACK_MS = 12000;
+      const MEMBER_SYNC_PENDING_MAX_MS = 20000;
       const markMemberAwaitingBackendSync = React.useCallback((memberId, memberRow) => {
         if (dataSyncMode !== 'backend') return;
         const id = String(memberId || '').trim();
@@ -2255,8 +2258,8 @@ Phone: +91-7047157510`;
             const remote = remById.get(id);
             const remoteTs = remote ? memberSortTimestamp(remote) : 0;
             const age = now - (info.markedAt || 0);
-            const remoteCaughtUp = Boolean(remote) && remoteTs >= (info.localTs - 2);
-            if (remoteCaughtUp || age > 60000) {
+            const remoteCaughtUp = Boolean(remote) && remoteTs >= (info.localTs - MEMBER_REMOTE_SYNC_SLACK_MS);
+            if (remoteCaughtUp || age > MEMBER_SYNC_PENDING_MAX_MS) {
               delete next[id];
               changed = true;
             }
@@ -2549,7 +2552,7 @@ Phone: +91-7047157510`;
             .catch(() => {});
         };
         pullMembers();
-        const timer = setInterval(pullMembers, 5000);
+        const timer = setInterval(pullMembers, 2500);
         return () => {
           alive = false;
           clearInterval(timer);
@@ -2573,7 +2576,7 @@ Phone: +91-7047157510`;
             .catch(() => {});
         };
         pullVisitors();
-        const timer = setInterval(pullVisitors, 5000);
+        const timer = setInterval(pullVisitors, 2500);
         return () => {
           alive = false;
           clearInterval(timer);
@@ -2601,7 +2604,7 @@ Phone: +91-7047157510`;
             .catch(() => {});
         };
         pullUsers();
-        const timer = setInterval(pullUsers, 5000);
+        const timer = setInterval(pullUsers, 2500);
         return () => {
           alive = false;
           clearInterval(timer);
