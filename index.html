@@ -1449,25 +1449,44 @@ Phone: +91-7047157510`;
       out.sort((u, v) => parseApgTimeMs(v?.sentAt || v?.ts) - parseApgTimeMs(u?.sentAt || u?.ts));
       return out.slice(0, cap);
     };
-    const paymentHistoryDedupeKey = (h) => {
+    /**
+     * Collapses accidental duplicate payment rows (different random ids, same logical payment).
+     * Uses calendar day when no time component is present on paidAt/receivedAt so date-only rows
+     * merge with full ISO rows from the same calendar day.
+     */
+    const paymentHistoryCanonicalDedupeKey = (h) => {
       if (!h || typeof h !== 'object') return '';
-      if (h.id) return `id:${h.id}`;
-      return `sig:${h.receivedAt || h.date || ''}|${Number(h.amount || 0)}|${h.by || ''}`;
+      const paidRaw = String(h.paidAt || h.receivedAt || h.date || h.ts || '').trim();
+      const dayKey = localCalendarDateKey(paidRaw);
+      const timeKey = /T\d/.test(paidRaw) ? paidRaw : dayKey;
+      const month = String(h.billingMonth || (paidRaw.length >= 7 ? paidRaw.slice(0, 7) : '')).trim();
+      const amt = Number(h.amount || 0);
+      const method = String(h.method || h.paymentMethod || '').trim().toLowerCase();
+      const by = String(h.recordedBy || h.by || '').trim().toLowerCase();
+      const source = String(h.source || '').trim().toLowerCase();
+      const note = String(h.note || '').trim();
+      if (!dayKey && !amt && !method) return '';
+      return `${timeKey}|${month}|${amt}|${method}|${by}|${source}|${note}`;
     };
     const mergePaymentHistoryArrays = (a, b, cap = 120) => {
       const A = Array.isArray(a) ? a : [];
       const B = Array.isArray(b) ? b : [];
-      const seen = new Set();
+      const combined = [...A, ...B];
+      combined.sort((u, v) => {
+        const tu = parseApgTimeMs(u?.paidAt || u?.receivedAt || u?.date || u?.ts);
+        const tv = parseApgTimeMs(v?.paidAt || v?.receivedAt || v?.date || v?.ts);
+        return tv - tu;
+      });
+      const seenCanon = new Set();
       const out = [];
-      const push = (h) => {
-        const k = paymentHistoryDedupeKey(h);
-        if (!k || seen.has(k)) return;
-        seen.add(k);
+      for (const h of combined) {
+        const ck = paymentHistoryCanonicalDedupeKey(h);
+        if (ck) {
+          if (seenCanon.has(ck)) continue;
+          seenCanon.add(ck);
+        }
         out.push(h);
-      };
-      for (const h of A) push(h);
-      for (const h of B) push(h);
-      out.sort((u, v) => parseApgTimeMs(v?.receivedAt || v?.date) - parseApgTimeMs(u?.receivedAt || u?.date));
+      }
       return out.slice(0, cap);
     };
     const newerIsoPrefer = (x, y) => {
@@ -1547,13 +1566,8 @@ Phone: +91-7047157510`;
       const deduped = [];
       const bySignal = new Map();
       out.forEach((row) => {
-        const signal = [
-          String(row.paidAt || '').trim(),
-          String(row.billingMonth || '').trim(),
-          Number(row.amount || 0),
-          String(row.method || '').trim().toLowerCase(),
-        ].join('|');
-        if (!signal.replace(/\|/g, '')) {
+        const signal = paymentHistoryCanonicalDedupeKey(row);
+        if (!signal) {
           deduped.push(row);
           return;
         }
@@ -1567,6 +1581,11 @@ Phone: +91-7047157510`;
         const prevLegacy = String(prev?.source || '').trim().toLowerCase() === 'legacy';
         const nextLegacy = String(row?.source || '').trim().toLowerCase() === 'legacy';
         if (prevLegacy && !nextLegacy) deduped[existingIdx] = row;
+        else if (!prevLegacy && !nextLegacy) {
+          const tNew = parseApgTimeMs(row.paidAt);
+          const tOld = parseApgTimeMs(prev.paidAt);
+          if (tNew > tOld) deduped[existingIdx] = row;
+        }
       });
       const hasRealRows = deduped.some((row) => String(row?.source || '').trim().toLowerCase() !== 'legacy');
       const finalRows = hasRealRows
@@ -2676,6 +2695,8 @@ Phone: +91-7047157510`;
         note: '',
         error: '',
       });
+      const paymentEntrySaveLockRef = React.useRef(false);
+      const [paymentEntrySaving, setPaymentEntrySaving] = React.useState(false);
       const [paymentDeletePrompt, setPaymentDeletePrompt] = React.useState({
         open: false,
         memberId: '',
@@ -3869,6 +3890,8 @@ Please pay by: ${formattedLastDate}`;
       const addMemberPaymentEntry = (memberId) => {
         const target = (members || []).find((x) => x.memberId === memberId);
         if (!target) return false;
+        paymentEntrySaveLockRef.current = false;
+        setPaymentEntrySaving(false);
         setPaymentEntryModal({
           open: true,
           memberId,
@@ -3882,21 +3905,34 @@ Please pay by: ${formattedLastDate}`;
         return true;
       };
       const saveMemberPaymentEntry = () => {
+        if (paymentEntrySaveLockRef.current) return false;
+        paymentEntrySaveLockRef.current = true;
+        setPaymentEntrySaving(true);
+        const unlock = () => {
+          paymentEntrySaveLockRef.current = false;
+          setPaymentEntrySaving(false);
+        };
         const memberId = String(paymentEntryModal.memberId || '');
-        if (!memberId) return false;
+        if (!memberId) {
+          unlock();
+          return false;
+        }
         const target = (members || []).find((x) => x.memberId === memberId);
         if (!target) {
           setPaymentEntryModal((prev) => ({ ...prev, error: 'Member not found.' }));
+          unlock();
           return false;
         }
         const amount = Number(paymentEntryModal.amount || 0);
         if (!Number.isFinite(amount) || amount <= 0) {
           setPaymentEntryModal((prev) => ({ ...prev, error: 'Enter a valid amount.' }));
+          unlock();
           return false;
         }
         const paidAt = iso(String(paymentEntryModal.paidAt || '').trim() || iso(new Date()));
         if (!paidAt) {
           setPaymentEntryModal((prev) => ({ ...prev, error: 'Invalid payment date.' }));
+          unlock();
           return false;
         }
         const method = String(paymentEntryModal.method || '').trim();
@@ -3916,14 +3952,19 @@ Please pay by: ${formattedLastDate}`;
           billingMonth,
           billingDate: `${billingMonth}-01`,
         };
+        const canon = paymentHistoryCanonicalDedupeKey(row);
         const payTs = new Date().toISOString();
         let paymentUpdatedMember = null;
         setMembers((prev) => prev.map((x) => {
           if (x.memberId !== memberId) return x;
+          const baseHist = Array.isArray(x.paymentHistory) ? x.paymentHistory : [];
+          const dedupedHist = canon
+            ? baseHist.filter((p) => paymentHistoryCanonicalDedupeKey(p) !== canon)
+            : baseHist;
           paymentUpdatedMember = {
             ...x,
             paymentReceivedAt: parseApgTimeMs(paidAt) >= parseApgTimeMs(x.paymentReceivedAt) ? paidAt : (x.paymentReceivedAt || ''),
-            paymentHistory: [row, ...(Array.isArray(x.paymentHistory) ? x.paymentHistory : [])].slice(0, 240),
+            paymentHistory: [row, ...dedupedHist].slice(0, 240),
             updatedAt: payTs,
           };
           return paymentUpdatedMember;
@@ -3950,6 +3991,7 @@ Please pay by: ${formattedLastDate}`;
           note: '',
           error: '',
         });
+        unlock();
         return true;
       };
       const confirmDeleteMemberPaymentEntry = () => {
@@ -5509,7 +5551,10 @@ Please pay by: ${formattedLastDate}`;
                   <div className="flex justify-end gap-2 pt-1">
                     <button
                       type="button"
-                      onClick={() => setPaymentEntryModal({
+                      onClick={() => {
+                        paymentEntrySaveLockRef.current = false;
+                        setPaymentEntrySaving(false);
+                        setPaymentEntryModal({
                         open: false,
                         memberId: '',
                         memberName: '',
@@ -5518,16 +5563,23 @@ Please pay by: ${formattedLastDate}`;
                         method: '',
                         note: '',
                         error: '',
-                      })}
+                      });
+                      }}
                       className="rounded-xl border border-slate-300 bg-white px-4 py-2 text-sm font-semibold text-slate-700"
                     >
                       Cancel
                     </button>
                     <button
                       type="submit"
-                      className="rounded-xl border border-emerald-300 bg-emerald-50 px-4 py-2 text-sm font-semibold text-emerald-700 hover:bg-emerald-100"
+                      disabled={paymentEntrySaving}
+                      className={cx(
+                        'rounded-xl border px-4 py-2 text-sm font-semibold',
+                        paymentEntrySaving
+                          ? 'cursor-not-allowed border-slate-200 bg-slate-100 text-slate-400'
+                          : 'border-emerald-300 bg-emerald-50 text-emerald-700 hover:bg-emerald-100'
+                      )}
                     >
-                      Save Payment
+                      {paymentEntrySaving ? 'Saving…' : 'Save Payment'}
                     </button>
                   </div>
                 </form>
