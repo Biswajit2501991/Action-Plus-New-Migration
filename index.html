@@ -1606,6 +1606,18 @@ Phone: +91-7047157510`;
         parseApgTimeMs(memberLike.addedAt),
       );
     };
+    /**
+     * Billing cycle fields must not follow generic updatedAt (payments, SMS, etc. bump updatedAt).
+     * Whichever side has the newer billingDateUpdatedAt wins billingDate / nextPaymentDate / paymentBy.
+     * If neither side has it (legacy rows), keep mergedFallback as-is.
+     */
+    const pickMemberBillingSource = (localRow, remoteRow, mergedFallback) => {
+      const lf = parseApgTimeMs(localRow?.billingDateUpdatedAt);
+      const rf = parseApgTimeMs(remoteRow?.billingDateUpdatedAt);
+      if (lf <= 0 && rf <= 0) return mergedFallback;
+      if (lf >= rf) return localRow;
+      return remoteRow;
+    };
     const mergeRemoteMembersWithLocal = (localMembers, remoteMembers) => {
       const locals = Array.isArray(localMembers) ? localMembers : [];
       const remotes = Array.isArray(remoteMembers) ? remoteMembers : [];
@@ -1632,7 +1644,7 @@ Phone: +91-7047157510`;
         const remoteTs = memberSortTimestamp(remoteRow);
         const base = localTs >= remoteTs ? localRow : remoteRow;
         const counterpart = base === localRow ? remoteRow : localRow;
-        mergedRows.push({
+        const mergedCore = {
           ...(counterpart || {}),
           ...(base || {}),
           lastSmsSent: mergeLastSmsSentMaps(localRow?.lastSmsSent, remoteRow?.lastSmsSent),
@@ -1640,6 +1652,14 @@ Phone: +91-7047157510`;
           reminderSentAt: newerIsoPrefer(localRow?.reminderSentAt, remoteRow?.reminderSentAt),
           paymentReceivedAt: newerIsoPrefer(localRow?.paymentReceivedAt, remoteRow?.paymentReceivedAt),
           paymentHistory: mergePaymentHistoryArrays(localRow?.paymentHistory, remoteRow?.paymentHistory, 120),
+        };
+        const billingSrc = pickMemberBillingSource(localRow, remoteRow, mergedCore);
+        mergedRows.push({
+          ...mergedCore,
+          billingDate: billingSrc.billingDate,
+          nextPaymentDate: billingSrc.nextPaymentDate,
+          paymentBy: billingSrc.paymentBy,
+          billingDateUpdatedAt: billingSrc.billingDateUpdatedAt || mergedCore.billingDateUpdatedAt,
         });
       });
       mergedRows.sort((a, b) => memberSortTimestamp(b) - memberSortTimestamp(a));
@@ -3431,6 +3451,7 @@ Phone: +91-7047157510`;
             updated.billingDate = opts.billingDateOverride;
             updated.nextPaymentDate = nextPaymentDateFromBillingDate(opts.billingDateOverride);
             updated.paymentBy = paymentByFromBillingDate(opts.billingDateOverride);
+            updated.billingDateUpdatedAt = ts;
           }
           logEvent('status.changed', 'member', memberId, before, updated);
           triggerStatusSms(updated, before.status, updated.status);
@@ -3728,6 +3749,11 @@ Please pay by: ${formattedLastDate}`;
           toSave.paymentBy = paymentByFromBillingDate(toSave.billingDate);
         }
         const beforeMember = members.find(m => m.memberId === toSave.memberId) || null;
+        if (beforeMember && String(beforeMember.billingDate || '') !== String(toSave.billingDate || '')) {
+          toSave.billingDateUpdatedAt = toSave.updatedAt;
+        } else if (beforeMember) {
+          toSave.billingDateUpdatedAt = beforeMember.billingDateUpdatedAt || toSave.billingDateUpdatedAt;
+        }
         const changed = (key) => String((beforeMember?.[key] ?? '')) !== String((toSave?.[key] ?? ''));
         // Validate required fields
         if ((!toSave.name && changed('name')) || (!toSave.mobile && changed('mobile')) || (!toSave.plan && changed('plan')) || (!toSave.status && changed('status')) || (!toSave.billingDate && changed('billingDate'))) {
@@ -3866,12 +3892,14 @@ Please pay by: ${formattedLastDate}`;
       const addMember = (m) => {
         if (!canAddMembers) return;
         const previousMembers = Array.isArray(members) ? members.map((x) => ({ ...x })) : [];
+        const createdTs = new Date().toISOString();
         const memberWithAudit = {
           ...m,
           staff: user?.name || m.staff || '',
           updatedBy: user?.name || user?.id || '',
-          createdAt: m?.createdAt || new Date().toISOString(),
-          updatedAt: new Date().toISOString(),
+          createdAt: m?.createdAt || createdTs,
+          updatedAt: createdTs,
+          billingDateUpdatedAt: m?.billingDateUpdatedAt || createdTs,
         };
         setMembers(prev => [memberWithAudit, ...prev]);
         queueMicrotask(() => markMemberAwaitingBackendSync(memberWithAudit.memberId, memberWithAudit));
@@ -4278,12 +4306,15 @@ Please pay by: ${formattedLastDate}`;
             const idx = next.findIndex((m) => String(m.memberId || '').trim() === String(incoming.memberId || '').trim()
               || normalizePhone(m.mobile) === normalizePhone(incoming.mobile));
             if (idx >= 0) {
+              const prevRow = next[idx];
+              const billingIncomingChanged = String(incoming.billingDate || '') !== String(prevRow.billingDate || '');
               const merged = {
-                ...next[idx],
+                ...prevRow,
                 ...incoming,
-                attachments: next[idx].attachments || [],
-                photo: next[idx].photo || incoming.photo || '',
+                attachments: prevRow.attachments || [],
+                photo: prevRow.photo || incoming.photo || '',
                 updatedAt: importTs,
+                billingDateUpdatedAt: billingIncomingChanged ? importTs : (prevRow.billingDateUpdatedAt || ''),
               };
               next[idx] = merged;
               if (dataSyncMode === 'backend') {
@@ -4294,6 +4325,7 @@ Please pay by: ${formattedLastDate}`;
                 ...incoming,
                 updatedAt: importTs,
                 createdAt: incoming.createdAt || importTs,
+                billingDateUpdatedAt: incoming.billingDate ? importTs : (incoming.billingDateUpdatedAt || ''),
               };
               next.unshift(added);
               if (dataSyncMode === 'backend') {
