@@ -404,6 +404,15 @@
       if (digits.length === 12 && digits.startsWith('91')) return digits.slice(2);
       return digits;
     };
+    /** All members (excluding excludeMemberId) sharing the same normalized mobile. */
+    const membersSharingNormalizedPhone = (membersList, phone, excludeMemberId = '') => {
+      const n = normalizePhone(phone);
+      if (!n) return [];
+      const ex = String(excludeMemberId || '').trim();
+      return (Array.isArray(membersList) ? membersList : []).filter(
+        (m) => m && String(m.memberId || '').trim() !== ex && normalizePhone(m.mobile) === n,
+      );
+    };
     const isValidEmail = (v) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(v || '').trim());
     const isValidPhone = (v) => {
       const raw = String(v || '').trim();
@@ -2778,7 +2787,7 @@ Phone: +91-7047157510`;
       // members (see canDelete prop passed to QuickActions below).
       const [deleteCandidate, setDeleteCandidate] = React.useState(null);
       const [holdActivationPrompt, setHoldActivationPrompt] = React.useState(null);
-      const [duplicateMobileConflict, setDuplicateMobileConflict] = React.useState(null);
+      const [familyLinkPrompt, setFamilyLinkPrompt] = React.useState(null);
       const [csvImportState, setCsvImportState] = React.useState({ open: false, fileName: '', rows: [], summary: { added: 0, updated: 0, skipped: 0 } });
       const csvImportInputRef = React.useRef(null);
       const leaveNotifications = React.useMemo(() => {
@@ -3729,7 +3738,7 @@ Please pay by: ${formattedLastDate}`;
       // Accept the updated member as argument to avoid stale state issues. This fixes
       // the bug where plan changes were not persisted because the editMember
       // state had not yet updated when onSave() was called.
-      const saveEdit = (updated) => {
+      const saveEdit = (updated, opts = {}) => {
         if (!canEditMembers) return false;
         const previousMembers = Array.isArray(members) ? members.map((m) => ({ ...m })) : [];
         // Determine which member object we should save. If a member is passed
@@ -3769,19 +3778,26 @@ Please pay by: ${formattedLastDate}`;
           setTimeout(() => setToast(''), 2500);
           return false;
         }
-        const duplicateMobileMember = changed('mobile')
-          ? members.find(m => m.memberId !== toSave.memberId && normalizePhone(m.mobile) === normalizePhone(toSave.mobile))
+        const duplicateMobileMember = changed('mobile') && !opts.skipDuplicateMobile
+          ? members.find((m) => {
+              if (m.memberId === toSave.memberId) return false;
+              if (normalizePhone(m.mobile) !== normalizePhone(toSave.mobile)) return false;
+              const g0 = String(toSave.familyGroupId || '').trim();
+              const g1 = String(m.familyGroupId || '').trim();
+              if (g0 && g1 && g0 === g1) return false;
+              return true;
+            })
           : null;
         if (duplicateMobileMember) {
-          setDuplicateMobileConflict({
-            editedMemberName: toSave.name || '',
-            editedMemberPhone: toSave.mobile || '',
-            existingMemberName: duplicateMobileMember.name || '',
-            existingMemberPhone: duplicateMobileMember.mobile || '',
-            existingMemberStatus: duplicateMobileMember.status || '',
+          const dupMatches = membersSharingNormalizedPhone(members, toSave.mobile, toSave.memberId);
+          setFamilyLinkPrompt({
+            mode: 'edit',
+            draft: { ...toSave },
+            matches: dupMatches,
+            phone: String(toSave.mobile || '').trim(),
+            selectedPrimaryId: dupMatches[0]?.memberId || toSave.memberId,
+            linkSearch: '',
           });
-          setToast('Duplicate mobile number found.');
-          setTimeout(() => setToast(''), 2500);
           return false;
         }
         const duplicateEmail = changed('email') && String(toSave.email || '').trim()
@@ -3889,7 +3905,7 @@ Please pay by: ${formattedLastDate}`;
       };
 
       // Save new member from wizard
-      const addMember = (m) => {
+      const addMember = (m, familyLinkOpts = null) => {
         if (!canAddMembers) return;
         const previousMembers = Array.isArray(members) ? members.map((x) => ({ ...x })) : [];
         const createdTs = new Date().toISOString();
@@ -3901,8 +3917,33 @@ Please pay by: ${formattedLastDate}`;
           updatedAt: createdTs,
           billingDateUpdatedAt: m?.billingDateUpdatedAt || createdTs,
         };
-        setMembers(prev => [memberWithAudit, ...prev]);
-        queueMicrotask(() => markMemberAwaitingBackendSync(memberWithAudit.memberId, memberWithAudit));
+        const otherUpdated = [];
+        setMembers((prev) => {
+          let next = prev;
+          if (familyLinkOpts && familyLinkOpts.groupId && familyLinkOpts.primaryMemberId) {
+            const pn = normalizePhone(m.mobile);
+            next = prev.map((x) => {
+              if (x.memberId === memberWithAudit.memberId) return x;
+              if (normalizePhone(x.mobile) === pn) {
+                const u = {
+                  ...x,
+                  familyGroupId: familyLinkOpts.groupId,
+                  familyPrimaryMemberId: familyLinkOpts.primaryMemberId,
+                  updatedAt: createdTs,
+                  updatedBy: user?.name || user?.id || '',
+                };
+                otherUpdated.push(u);
+                return u;
+              }
+              return x;
+            });
+          }
+          return [memberWithAudit, ...next];
+        });
+        queueMicrotask(() => {
+          markMemberAwaitingBackendSync(memberWithAudit.memberId, memberWithAudit);
+          otherUpdated.forEach((row) => markMemberAwaitingBackendSync(row.memberId, row));
+        });
         logEvent('member.created', 'member', memberWithAudit.memberId, null, memberWithAudit);
         if (prefillVisitor?.id) {
           setVisitors((prev) => prev.map((v) => (v.id === prefillVisitor.id
@@ -3914,6 +3955,57 @@ Please pay by: ${formattedLastDate}`;
         showMemberUndoToast('Member added — Undo', previousMembers);
         setToast(`${memberWithAudit.name} has been saved successfully`);
         setTimeout(() => setToast(''), 2500);
+      };
+      const confirmFamilyLink = () => {
+        const p = familyLinkPrompt;
+        if (!p || !p.draft) {
+          setFamilyLinkPrompt(null);
+          return;
+        }
+        const draft = p.draft;
+        const matches = Array.isArray(p.matches) ? p.matches : [];
+        const primaryId = String(p.selectedPrimaryId || '').trim();
+        const allMemberIds = [...new Set([draft.memberId, ...matches.map((m) => m.memberId)])];
+        if (!primaryId || !allMemberIds.includes(primaryId)) {
+          setToast('Choose a primary member for this family unit.');
+          setTimeout(() => setToast(''), 2500);
+          return;
+        }
+        const primaryRow = primaryId === draft.memberId ? draft : matches.find((x) => x.memberId === primaryId);
+        const groupId = String(primaryRow?.familyGroupId || '').trim()
+          || (typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : `fam-${Date.now()}`);
+        if (p.mode === 'add') {
+          const enriched = { ...draft, familyGroupId: groupId, familyPrimaryMemberId: primaryId };
+          setFamilyLinkPrompt(null);
+          setAddOpen(false);
+          setPrefillVisitor(null);
+          try { localStorage.removeItem(STORAGE_KEYS.addMemberDraft); } catch {}
+          addMember(enriched, { groupId, primaryMemberId: primaryId });
+          return;
+        }
+        const draftEnriched = { ...draft, familyGroupId: groupId, familyPrimaryMemberId: primaryId };
+        setFamilyLinkPrompt(null);
+        saveEdit(draftEnriched, { skipDuplicateMobile: true });
+      };
+      const unlinkFamilyGroup = (groupId) => {
+        const gid = String(groupId || '').trim();
+        if (!gid || !canEditMembers) return;
+        const ok = window.confirm('Remove family link for everyone in this group?');
+        if (!ok) return;
+        const ts = new Date().toISOString();
+        const actor = user?.name || user?.id || '';
+        const updatedRows = [];
+        setMembers((prev) => prev.map((m) => {
+          if (String(m.familyGroupId || '').trim() !== gid) return m;
+          const u = { ...m, updatedAt: ts, updatedBy: actor };
+          delete u.familyGroupId;
+          delete u.familyPrimaryMemberId;
+          updatedRows.push(u);
+          return u;
+        }));
+        queueMicrotask(() => updatedRows.forEach((row) => markMemberAwaitingBackendSync(row.memberId, row)));
+        setToast('Family link removed for all members in this group.');
+        setTimeout(() => setToast(''), 2200);
       };
       const addMemberPaymentEntry = (memberId) => {
         const target = (members || []).find((x) => x.memberId === memberId);
@@ -5188,7 +5280,9 @@ Please pay by: ${formattedLastDate}`;
                 <MembersList
                   title={`${dashFilter} Members`}
                   list={filteredMembers}
+                  allMembers={members}
                   memberSyncPending={memberSyncPending}
+                  onUnlinkFamilyGroup={canEditMembers ? unlinkFamilyGroup : null}
                   onBack={() => setDashMode('summary')}
                   onEdit={canEditMembers ? (m) => setEditMember(m) : null}
                   onStatusChange={canEditMembers ? quickStatus : null}
@@ -5277,6 +5371,7 @@ Please pay by: ${formattedLastDate}`;
                     setTableDensity={setTableDensity}
                     onAddPaymentEntry={addMemberPaymentEntry}
                     onDeletePaymentEntry={deleteMemberPaymentEntry}
+                    onUnlinkFamilyGroup={canEditMembers ? unlinkFamilyGroup : null}
                   />
                 )
               ) : (
@@ -5755,6 +5850,16 @@ Please pay by: ${formattedLastDate}`;
               open={addOpen}
               onClose={() => { setAddOpen(false); setPrefillVisitor(null); }}
               onSave={addMember}
+              onFamilyMobileDuplicate={({ draft, matches }) => {
+                setFamilyLinkPrompt({
+                  mode: 'add',
+                  draft,
+                  matches: Array.isArray(matches) ? matches : [],
+                  phone: String(draft?.mobile || '').trim(),
+                  selectedPrimaryId: (Array.isArray(matches) && matches[0]?.memberId) || String(draft?.memberId || '').trim(),
+                  linkSearch: '',
+                });
+              }}
               settings={settings}
               staffName={user.name}
               currentUser={user}
@@ -6026,28 +6131,88 @@ Please pay by: ${formattedLastDate}`;
             </div>
           )}
 
-          {duplicateMobileConflict && (
-            <div className="fixed inset-0 z-[60] flex items-end sm:items-center justify-center bg-slate-900/55 p-2 sm:p-4">
-              <div className="w-full max-w-md rounded-t-3xl sm:rounded-3xl bg-white border border-slate-200 shadow-xl overflow-hidden">
-                <div className="flex items-center justify-between px-4 sm:px-5 py-4 border-b border-slate-200">
-                  <h3 className="text-base sm:text-lg font-semibold text-rose-700">Duplicate Mobile Number</h3>
-                  <button onClick={() => setDuplicateMobileConflict(null)} className="rounded-xl p-2 hover:bg-slate-100">✕</button>
+          {familyLinkPrompt && familyLinkPrompt.draft && (
+            <div className="fixed inset-0 z-[100] flex items-end sm:items-center justify-center bg-slate-900/55 p-2 sm:p-4">
+              <div className="w-full max-w-lg rounded-t-3xl sm:rounded-3xl bg-white border border-slate-200 shadow-xl overflow-hidden max-h-[90dvh] flex flex-col">
+                <div className="flex items-center justify-between px-4 sm:px-5 py-4 border-b border-slate-200 shrink-0">
+                  <h3 className="text-base sm:text-lg font-semibold text-indigo-800">Link family (shared mobile)</h3>
+                  <button type="button" onClick={() => setFamilyLinkPrompt(null)} className="rounded-xl p-2 hover:bg-slate-100" aria-label="Close">✕</button>
                 </div>
-                <div className="p-4 sm:p-5 space-y-3 text-sm">
+                <div className="p-4 sm:p-5 space-y-3 text-sm overflow-y-auto flex-1 min-h-0">
                   <p className="text-slate-700">
-                    The mobile number you entered for <span className="font-semibold">{duplicateMobileConflict.editedMemberName || 'this member'}</span> is already used.
+                    This mobile number is already registered for another member. Link them as one family unit and choose who is the <span className="font-semibold">primary</span> contact for this number, or cancel to keep your changes unsaved.
                   </p>
-                  <div className="rounded-xl border border-amber-200 bg-amber-50 p-3">
-                    <div className="text-xs font-semibold uppercase tracking-wide text-amber-700 mb-2">Existing Member Using Same Number</div>
-                    <div className="space-y-1">
-                      <div><span className="text-slate-500">Name:</span> <span className="font-semibold text-slate-900">{duplicateMobileConflict.existingMemberName || '-'}</span></div>
-                      <div><span className="text-slate-500">Phone:</span> <span className="font-semibold text-slate-900">{duplicateMobileConflict.existingMemberPhone || '-'}</span></div>
-                      <div><span className="text-slate-500">Status:</span> <span className="font-semibold text-slate-900">{duplicateMobileConflict.existingMemberStatus || '-'}</span></div>
-                    </div>
+                  <div>
+                    <label className="text-xs font-semibold text-slate-600">Search matches</label>
+                    <input
+                      type="search"
+                      value={familyLinkPrompt.linkSearch || ''}
+                      onChange={(e) => setFamilyLinkPrompt((prev) => (prev ? { ...prev, linkSearch: e.target.value } : null))}
+                      placeholder="Name, ID, or phone…"
+                      className="mt-1 w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm"
+                    />
+                  </div>
+                  <div className="text-xs font-semibold uppercase tracking-wide text-slate-600">Primary contact</div>
+                  <div className="space-y-2 max-h-[40vh] overflow-y-auto pr-1">
+                    {(() => {
+                      const p = familyLinkPrompt;
+                      const q = String(p.linkSearch || '').trim().toLowerCase();
+                      const matches = Array.isArray(p.matches) ? p.matches : [];
+                      const filtered = !q
+                        ? matches
+                        : matches.filter((m) => [m.name, m.memberId, m.mobile].some((f) => String(f || '').toLowerCase().includes(q)));
+                      const draftId = String(p.draft?.memberId || '').trim();
+                      const setPrimary = (id) => setFamilyLinkPrompt((prev) => (prev ? { ...prev, selectedPrimaryId: String(id || '').trim() } : null));
+                      return (
+                        <>
+                          {filtered.map((m) => (
+                            <label
+                              key={m.memberId}
+                              className="flex cursor-pointer items-start gap-3 rounded-xl border border-slate-200 bg-slate-50/80 px-3 py-2 hover:bg-slate-100"
+                            >
+                              <input
+                                type="radio"
+                                name="family-primary"
+                                className="mt-1"
+                                checked={String(p.selectedPrimaryId || '') === String(m.memberId)}
+                                onChange={() => setPrimary(m.memberId)}
+                              />
+                              <span className="min-w-0 flex-1">
+                                <span className="font-semibold text-slate-900">{m.name || m.memberId}</span>
+                                <span className="block text-xs text-slate-500">{m.memberId} · {m.mobile || '—'} · {m.status || '—'}</span>
+                              </span>
+                            </label>
+                          ))}
+                          <label className="flex cursor-pointer items-start gap-3 rounded-xl border border-indigo-200 bg-indigo-50/60 px-3 py-2 hover:bg-indigo-100/80">
+                            <input
+                              type="radio"
+                              name="family-primary"
+                              className="mt-1"
+                              checked={String(p.selectedPrimaryId || '') === draftId}
+                              onChange={() => setPrimary(draftId)}
+                            />
+                            <span className="min-w-0 flex-1">
+                              <span className="font-semibold text-indigo-900">
+                                {p.mode === 'add' ? 'New member is primary' : 'This member is primary'}
+                              </span>
+                              <span className="block text-xs text-indigo-800/90">{p.draft?.name || draftId}</span>
+                            </span>
+                          </label>
+                          {filtered.length === 0 && matches.length > 0 && (
+                            <div className="text-xs text-amber-700">No matches for this search — clear the filter to see everyone on this number.</div>
+                          )}
+                        </>
+                      );
+                    })()}
                   </div>
                 </div>
-                <div className="flex justify-end gap-2 px-4 sm:px-5 py-4 border-t border-slate-200">
-                  <button onClick={() => setDuplicateMobileConflict(null)} className="rounded-xl border border-slate-300 bg-white px-4 py-2 text-sm font-medium">OK</button>
+                <div className="flex flex-col-reverse sm:flex-row justify-end gap-2 px-4 sm:px-5 py-4 border-t border-slate-200 shrink-0">
+                  <button type="button" onClick={() => setFamilyLinkPrompt(null)} className="rounded-xl border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-700">
+                    Cancel
+                  </button>
+                  <button type="button" onClick={confirmFamilyLink} className="rounded-xl bg-indigo-600 px-4 py-2 text-sm font-semibold text-white hover:bg-indigo-700">
+                    Link and save
+                  </button>
                 </div>
               </div>
             </div>
@@ -6948,7 +7113,7 @@ function Sidebar({ user, active, onSelect, theme, setTheme, onLogout, onUndo, on
     }
 
     // ---- Members List (Dashboard list mode) ----
-function MembersList({ title, list, onBack, onEdit, onStatusChange, holdOptions, logs, onWelcome, onWhatsAppCall, onWelcomeMail, onAddAttachment, onQuickFieldEdit, editOptions, isOwner, currentUserRole = '', fineRuleConfig, canEdit = true, displayTimeZone = 'IST', tableDensity = 'normal', setTableDensity = () => {}, onAddPaymentEntry = null, onDeletePaymentEntry = null, memberSyncPending = {} }) {
+function MembersList({ title, list, allMembers = [], onBack, onEdit, onStatusChange, holdOptions, logs, onWelcome, onWhatsAppCall, onWelcomeMail, onAddAttachment, onQuickFieldEdit, editOptions, isOwner, currentUserRole = '', fineRuleConfig, canEdit = true, displayTimeZone = 'IST', tableDensity = 'normal', setTableDensity = () => {}, onAddPaymentEntry = null, onDeletePaymentEntry = null, memberSyncPending = {}, onUnlinkFamilyGroup = null }) {
       const [openId, setOpenId] = React.useState(null);
       const [mobileDetailMemberId, setMobileDetailMemberId] = React.useState('');
       const [page, setPage] = React.useState(1);
@@ -7033,6 +7198,9 @@ function MembersList({ title, list, onBack, onEdit, onStatusChange, holdOptions,
                 displayTimeZone={displayTimeZone}
                 onAddPaymentEntry={onAddPaymentEntry}
                 onDeletePaymentEntry={onDeletePaymentEntry}
+                allMembers={allMembers}
+                onFamilyMemberNavigate={(mem) => mem?.memberId && setOpenId(mem.memberId)}
+                onUnlinkFamilyGroup={onUnlinkFamilyGroup}
               />
             ))}
             {(prioritizedList || []).length > pageSize && (
@@ -7083,8 +7251,65 @@ function MembersList({ title, list, onBack, onEdit, onStatusChange, holdOptions,
       );
     }
 
+    // ---- Family unit (shared mobile) strip: desktop expanded row only ----
+    function FamilyUnitStrip({ m, allMembers, onNavigateMember, onUnlinkFamilyGroup, canEdit }) {
+      const gid = String(m?.familyGroupId || '').trim();
+      if (!gid) return null;
+      const list = Array.isArray(allMembers) ? allMembers : [];
+      const primaryId = String(m.familyPrimaryMemberId || '').trim();
+      const primary = list.find((x) => x.memberId === primaryId);
+      const others = list.filter((x) => String(x.familyGroupId || '').trim() === gid && x.memberId !== m.memberId);
+      const phoneDisplay = m.mobile || primary?.mobile || '—';
+      return (
+        <div className="hidden lg:block rounded-xl border border-indigo-200 bg-indigo-50/60 p-3 mb-2 text-sm text-slate-800">
+          <div className="flex flex-wrap items-start justify-between gap-2">
+            <div className="min-w-0 flex-1">
+              <div className="text-xs font-semibold uppercase tracking-wide text-indigo-800">Family unit</div>
+              <div className="mt-1 text-[13px]">
+                {primaryId === m.memberId ? (
+                  <span><span className="font-semibold text-indigo-900">Primary</span> contact for this number ({phoneDisplay}).</span>
+                ) : (
+                  <span>
+                    Linked with: <button type="button" className="font-semibold text-indigo-800 underline hover:text-indigo-950" onClick={() => primary && onNavigateMember && onNavigateMember(primary)}>{primary?.name || primaryId}</button>
+                    {' '}— {phoneDisplay}
+                  </span>
+                )}
+              </div>
+              {others.length > 0 && (
+                <div className="mt-2 text-xs text-slate-600">
+                  <div className="font-semibold text-slate-700">Related members</div>
+                  <ul className="mt-1 flex flex-wrap gap-2">
+                    {others.map((o) => (
+                      <li key={o.memberId}>
+                        <button
+                          type="button"
+                          onClick={() => onNavigateMember && onNavigateMember(o)}
+                          className="rounded-lg border border-indigo-300 bg-white px-2 py-0.5 text-indigo-800 font-semibold hover:bg-indigo-100"
+                        >
+                          {o.name || o.memberId}
+                        </button>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+            </div>
+            {canEdit && onUnlinkFamilyGroup && (
+              <button
+                type="button"
+                onClick={() => onUnlinkFamilyGroup(gid)}
+                className="shrink-0 rounded-lg border border-rose-300 bg-rose-50 px-2 py-1 text-xs font-semibold text-rose-700 hover:bg-rose-100"
+              >
+                Unlink family
+              </button>
+            )}
+          </div>
+        </div>
+      );
+    }
+
     // ---- Member Row ----
-function MemberRow({ m, memberSyncPending = {}, expanded, onToggle, onEdit, onStatusChange, holdOptions, onDelete, canDelete, onWelcome, onWhatsAppCall, onWelcomeMail, onAddAttachment, logs, selected, onSelectToggle, selectable, onQuickFieldEdit, editOptions, isOwner, currentUserRole = '', fineRuleConfig, onOpenMobileDetail, canEdit = true, displayTimeZone = 'IST', isCompactTablet = false, onAddPaymentEntry = null, onDeletePaymentEntry = null }) {
+function MemberRow({ m, memberSyncPending = {}, expanded, onToggle, onEdit, onStatusChange, holdOptions, onDelete, canDelete, onWelcome, onWhatsAppCall, onWelcomeMail, onAddAttachment, logs, selected, onSelectToggle, selectable, onQuickFieldEdit, editOptions, isOwner, currentUserRole = '', fineRuleConfig, onOpenMobileDetail, canEdit = true, displayTimeZone = 'IST', isCompactTablet = false, onAddPaymentEntry = null, onDeletePaymentEntry = null, allMembers = null, onFamilyMemberNavigate = null, onUnlinkFamilyGroup = null }) {
       const billingToday = localCalendarDateKey(m.billingDate) === localTodayCalendarKey();
       // Determine if we can open WhatsApp welcome/payment reminder.
       // Active members with mobile number and billing date qualify.
@@ -7151,6 +7376,13 @@ function MemberRow({ m, memberSyncPending = {}, expanded, onToggle, onEdit, onSt
           {expanded && (
             <div className="px-0 lg:px-2 pt-1 pb-2">
               <div className="rounded-2xl border border-slate-200 bg-white/95 shadow-sm p-2 sm:p-3 space-y-2">
+                <FamilyUnitStrip
+                  m={m}
+                  allMembers={Array.isArray(allMembers) ? allMembers : []}
+                  onNavigateMember={onFamilyMemberNavigate}
+                  onUnlinkFamilyGroup={onUnlinkFamilyGroup}
+                  canEdit={canEdit}
+                />
                 <ExpandedActionsMobileView
                   m={m}
                   onEdit={onEdit}
@@ -8256,7 +8488,7 @@ function QuickActions({ m, onStatusChange, holdOptions, canDelete, onDelete, can
     }
 
     // ---- Dashboard View (Members grouped by status) ----
-function DashboardView({ members, memberSyncPending = {}, onEdit, onStatusChange, holdOptions, logs, filters, filterOpen, setFilterOpen, anyFilterActive, canDelete, onDelete, billingMonthOptions, onWelcome, onWhatsAppCall, onWelcomeMail, onAddAttachment, onQuickFieldEdit, editOptions, isOwner, currentUserRole = '', fineRuleConfig, canEdit = true, onImportCsv = null, onAddExpense = null, displayTimeZone = 'IST', tableDensity = 'normal', setTableDensity = () => {}, onAddPaymentEntry = null, onDeletePaymentEntry = null }) {
+function DashboardView({ members, memberSyncPending = {}, onEdit, onStatusChange, holdOptions, logs, filters, filterOpen, setFilterOpen, anyFilterActive, canDelete, onDelete, billingMonthOptions, onWelcome, onWhatsAppCall, onWelcomeMail, onAddAttachment, onQuickFieldEdit, editOptions, isOwner, currentUserRole = '', fineRuleConfig, canEdit = true, onImportCsv = null, onAddExpense = null, displayTimeZone = 'IST', tableDensity = 'normal', setTableDensity = () => {}, onAddPaymentEntry = null, onDeletePaymentEntry = null, onUnlinkFamilyGroup = null }) {
       // Single expanded row across all statuses. Only one memberId may be expanded at a time.
       const [expandedId, setExpandedId] = React.useState(null);
       const [mobileDetailMemberId, setMobileDetailMemberId] = React.useState('');
@@ -8492,6 +8724,9 @@ function DashboardView({ members, memberSyncPending = {}, onEdit, onStatusChange
                   isCompactTablet={isCompactTablet}
                   onAddPaymentEntry={onAddPaymentEntry}
                   onDeletePaymentEntry={onDeletePaymentEntry}
+                  allMembers={members}
+                  onFamilyMemberNavigate={(mem) => mem?.memberId && setMobileDetailMemberId(mem.memberId)}
+                  onUnlinkFamilyGroup={onUnlinkFamilyGroup}
                 />
               ))}
             </div>
@@ -8770,6 +9005,9 @@ function DashboardView({ members, memberSyncPending = {}, onEdit, onStatusChange
                       isCompactTablet={isCompactTablet}
                       onAddPaymentEntry={onAddPaymentEntry}
                       onDeletePaymentEntry={onDeletePaymentEntry}
+                      allMembers={members}
+                      onFamilyMemberNavigate={(mem) => mem?.memberId && setExpandedId(mem.memberId)}
+                      onUnlinkFamilyGroup={onUnlinkFamilyGroup}
                     />
                   ))}
                   {pageList.length === 0 && (
@@ -9477,7 +9715,7 @@ function EditMemberModal({ member, onClose, onSave, planOptions, statusOptions, 
     }
 
     // ---- Add Member Wizard ----
-    function AddMemberWizard({ open, onClose, onSave, settings, staffName, currentUser = null, members, canEditFormNo, smartDefaults = {}, prefillData = null }) {
+    function AddMemberWizard({ open, onClose, onSave, onFamilyMobileDuplicate = null, settings, staffName, currentUser = null, members, canEditFormNo, smartDefaults = {}, prefillData = null }) {
       const defaultJoiningDate = smartDefaults.joiningDate || iso(new Date());
       const defaultBillingDate = smartDefaults.billingDate || iso(new Date());
       const formScrollRef = React.useRef(null);
@@ -9922,13 +10160,7 @@ function EditMemberModal({ member, onClose, onSave, planOptions, statusOptions, 
           }
           return;
         }
-        // Duplicate mobile check
         const trimmedMobile = form.mobile.trim();
-        const duplicate = (members || []).some(m => String(m.mobile).trim() === trimmedMobile);
-        if (duplicate) {
-          goToStepAndFocus(1, 'add-member-mobile', 'A member with this mobile number already exists. Please use a different mobile number.', 5);
-          return;
-        }
         const trimmedEmail = String(form.email || '').trim().toLowerCase();
         const duplicateEmail = (members || []).some(m => String(m.email || '').trim().toLowerCase() === trimmedEmail);
         if (duplicateEmail) {
@@ -9953,6 +10185,15 @@ function EditMemberModal({ member, onClose, onSave, planOptions, statusOptions, 
           nextPaymentDate: form.nextPaymentDate || nextPaymentDateFromBillingDate(form.billingDate),
           payMonth
         };
+        const dupMatches = membersSharingNormalizedPhone(members, trimmedMobile, memberId);
+        if (dupMatches.length) {
+          if (typeof onFamilyMobileDuplicate === 'function') {
+            onFamilyMobileDuplicate({ draft: newMember, matches: dupMatches });
+            return;
+          }
+          goToStepAndFocus(1, 'add-member-mobile', 'A member with this mobile number already exists. Please use a different mobile number.', 5);
+          return;
+        }
         onSave(newMember);
         try { localStorage.removeItem(DRAFT_KEY); } catch {}
         onClose();
