@@ -2223,6 +2223,49 @@ Phone: +91-7047157510`;
           clearInterval(heartbeat);
         };
       }, []);
+      // Supabase live sync: SSE from backend (postgres_changes → push). Fallback polling stays slower when connected.
+      React.useEffect(() => {
+        if (dataSyncMode !== 'backend') {
+          setRealtimeConnected(false);
+          return;
+        }
+        let alive = true;
+        let es = null;
+        let retryTimer = null;
+        const connect = () => {
+          if (!alive) return;
+          try {
+            es = new EventSource(`${getBackendApiBaseUrl()}/realtime/stream`);
+            es.onopen = () => {
+              if (alive) setRealtimeConnected(true);
+            };
+            es.onmessage = (ev) => {
+              try {
+                const msg = JSON.parse(ev.data);
+                if (msg?.collection && msg.collection !== 'connected') {
+                  window.dispatchEvent(new CustomEvent('apg-realtime', { detail: msg }));
+                }
+              } catch {}
+            };
+            es.onerror = () => {
+              setRealtimeConnected(false);
+              try { es.close(); } catch {}
+              es = null;
+              if (alive) retryTimer = setTimeout(connect, 5000);
+            };
+          } catch {
+            setRealtimeConnected(false);
+            if (alive) retryTimer = setTimeout(connect, 5000);
+          }
+        };
+        connect();
+        return () => {
+          alive = false;
+          clearTimeout(retryTimer);
+          setRealtimeConnected(false);
+          try { es?.close(); } catch {}
+        };
+      }, [dataSyncMode]);
       // Keep role templates aligned with latest app sections for future staff setup.
       React.useEffect(() => {
         const templates = Array.isArray(settings.roleTemplates) ? settings.roleTemplates : [];
@@ -2270,6 +2313,9 @@ Phone: +91-7047157510`;
       const [backendStorageInfo, setBackendStorageInfo] = React.useState({ dbBytes: 0, backupsBytes: 0, backupFileCount: 0, totalBytes: 0 });
       const [availableBackups, setAvailableBackups] = React.useState([]);
       const [offlineQueueCount, setOfflineQueueCount] = React.useState(0);
+      const [realtimeConnected, setRealtimeConnected] = React.useState(false);
+      const REALTIME_POLL_FAST_MS = 2500;
+      const REALTIME_POLL_SLOW_MS = 20000;
       const [syncRuntimeReady, setSyncRuntimeReady] = React.useState(false);
       const [backendHydrated, setBackendHydrated] = React.useState(false);
       const [memberSyncPending, setMemberSyncPending] = React.useState({});
@@ -2599,13 +2645,19 @@ Phone: +91-7047157510`;
             })
             .catch(() => {});
         };
+        const onRealtime = (ev) => {
+          if (ev?.detail?.collection === 'members' && alive) pullMembers();
+        };
+        window.addEventListener('apg-realtime', onRealtime);
         pullMembers();
-        const timer = setInterval(pullMembers, 2500);
+        const pollMs = realtimeConnected ? REALTIME_POLL_SLOW_MS : REALTIME_POLL_FAST_MS;
+        const timer = setInterval(pullMembers, pollMs);
         return () => {
           alive = false;
           clearInterval(timer);
+          window.removeEventListener('apg-realtime', onRealtime);
         };
-      }, [dataSyncMode]);
+      }, [dataSyncMode, realtimeConnected, pruneMemberAwaitingBackendSync]);
       // Pull visitor updates from backend so multi-device changes appear without refresh.
       React.useEffect(() => {
         if (dataSyncMode !== 'backend') return;
@@ -2623,13 +2675,19 @@ Phone: +91-7047157510`;
             })
             .catch(() => {});
         };
+        const onRealtime = (ev) => {
+          if (ev?.detail?.collection === 'visitors' && alive) pullVisitors();
+        };
+        window.addEventListener('apg-realtime', onRealtime);
         pullVisitors();
-        const timer = setInterval(pullVisitors, 2500);
+        const pollMs = realtimeConnected ? REALTIME_POLL_SLOW_MS : REALTIME_POLL_FAST_MS;
+        const timer = setInterval(pullVisitors, pollMs);
         return () => {
           alive = false;
           clearInterval(timer);
+          window.removeEventListener('apg-realtime', onRealtime);
         };
-      }, [dataSyncMode]);
+      }, [dataSyncMode, realtimeConnected]);
       // Pull staff/user updates from backend so multi-device changes appear without refresh.
       React.useEffect(() => {
         if (dataSyncMode !== 'backend') return;
@@ -2651,13 +2709,19 @@ Phone: +91-7047157510`;
             })
             .catch(() => {});
         };
+        const onRealtime = (ev) => {
+          if (ev?.detail?.collection === 'users' && alive) pullUsers();
+        };
+        window.addEventListener('apg-realtime', onRealtime);
         pullUsers();
-        const timer = setInterval(pullUsers, 2500);
+        const pollMs = realtimeConnected ? REALTIME_POLL_SLOW_MS : REALTIME_POLL_FAST_MS;
+        const timer = setInterval(pullUsers, pollMs);
         return () => {
           alive = false;
           clearInterval(timer);
+          window.removeEventListener('apg-realtime', onRealtime);
         };
-      }, [dataSyncMode]);
+      }, [dataSyncMode, realtimeConnected]);
 
       // Persist users to localStorage whenever they change. This ensures that newly added
       // staff or updated roles survive page reloads.

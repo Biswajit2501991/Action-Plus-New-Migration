@@ -10,6 +10,23 @@ import { gzip, gunzip } from 'node:zlib';
 import { promisify } from 'node:util';
 import { env } from './config/env.js';
 import { query } from './db/adapter.js';
+import { membersTableName } from './db/tables.js';
+import { membersBulkUpsertReady } from './db/supabase/membersWrite.js';
+import {
+  dataBackendLabel,
+  pingDataStore,
+  purgeSandboxData,
+  readJsonCollection,
+  readJsonValue,
+  useSupabase,
+  writeJsonCollection,
+  writeJsonValue,
+} from './db/dataStore.js';
+import { addSseClient, sseClientCount } from './realtime/hub.js';
+import {
+  realtimeListenerStatus,
+  startSupabaseRealtimeListener,
+} from './realtime/supabaseListener.js';
 import { requireAuth } from './middleware/requireAuth.js';
 import { requirePermission } from './middleware/permissions.js';
 
@@ -239,35 +256,6 @@ async function restoreFromBackupFileName(fileName = '') {
   }
 }
 
-async function readJsonCollection(key, fallback = []) {
-  const result = await query(
-    `select value_json
-     from app_kv
-     where key = $1
-     limit 1`,
-    [key],
-  );
-  if (!result.rowCount) return fallback;
-  try {
-    const parsed = JSON.parse(result.rows[0].value_json || '[]');
-    return Array.isArray(parsed) ? parsed : fallback;
-  } catch {
-    return fallback;
-  }
-}
-
-async function writeJsonCollection(key, value) {
-  const payload = JSON.stringify(Array.isArray(value) ? value : []);
-  await query(
-    `insert into app_kv (key, value_json, updated_at)
-     values ($1, $2, CURRENT_TIMESTAMP)
-     on conflict(key) do update
-     set value_json = excluded.value_json,
-         updated_at = CURRENT_TIMESTAMP`,
-    [key, payload],
-  );
-}
-
 function readSandboxScope(req) {
   const testProfile = String(req.headers['x-apg-test-profile'] || '').trim() === '1';
   const sandboxId = String(req.headers['x-apg-sandbox-id'] || '').trim();
@@ -277,88 +265,66 @@ function readSandboxScope(req) {
 }
 
 async function readScopedCollection(req, key, fallback = []) {
-  const allRows = await readJsonCollection(key, fallback);
   const scope = readSandboxScope(req);
-  if (!scope) return allRows;
-  return allRows.filter((row) => String(row?.sandboxId || '') === scope.sandboxId);
+  return readJsonCollection(key, fallback, scope);
 }
 
 async function writeScopedCollection(req, key, incomingRows = []) {
   const scope = readSandboxScope(req);
-  if (!scope) {
-    await writeJsonCollection(key, incomingRows);
-    return;
-  }
-  const allRows = await readJsonCollection(key, []);
-  const kept = allRows.filter((row) => String(row?.sandboxId || '') !== scope.sandboxId);
-  const scopedRows = (Array.isArray(incomingRows) ? incomingRows : []).map((row) => ({
-    ...(row && typeof row === 'object' ? row : {}),
-    sandboxId: scope.sandboxId,
-    createdByTestUserId: scope.userId || (row && row.createdByTestUserId) || '',
-  }));
-  await writeJsonCollection(key, [...kept, ...scopedRows]);
+  await writeJsonCollection(key, incomingRows, scope);
 }
 
 async function readScopedSettings(req) {
   const scope = readSandboxScope(req);
-  if (!scope) return readJsonValue('apg.settings', {});
-  return readJsonValue(`apg.settings.sandbox.${scope.sandboxId}`, {});
+  return readJsonValue('apg.settings', {}, scope);
 }
 
 async function writeScopedSettings(req, value) {
   const scope = readSandboxScope(req);
-  if (!scope) {
-    await writeJsonValue('apg.settings', value || {});
-    return;
-  }
-  await writeJsonValue(`apg.settings.sandbox.${scope.sandboxId}`, value || {});
+  await writeJsonValue('apg.settings', value || {}, scope);
 }
 
-async function purgeSandboxData(sandboxId) {
-  const id = String(sandboxId || '').trim();
-  if (!id) return;
-  const keys = ['apg.members', 'apg.visitors', 'apg.logs', 'apg.finance', 'apg.sms.events'];
-  for (const key of keys) {
-    const rows = await readJsonCollection(key, []);
-    const nextRows = rows.filter((row) => String(row?.sandboxId || '') !== id);
-    await writeJsonCollection(key, nextRows);
-  }
-  await writeJsonValue(`apg.settings.sandbox.${id}`, {});
+async function healthPayload(extra = {}) {
+  return {
+    service: 'gym-backend',
+    env: env.NODE_ENV,
+    dataBackend: dataBackendLabel(),
+    membersTable: useSupabase() ? membersTableName : null,
+    membersBulkUpsert: useSupabase() ? await membersBulkUpsertReady() : null,
+    realtime: useSupabase() ? { ...realtimeListenerStatus(), sseClients: sseClientCount() } : null,
+    ...extra,
+  };
 }
 
-async function readJsonValue(key, fallback = null) {
-  const result = await query(
-    `select value_json
-     from app_kv
-     where key = $1
-     limit 1`,
-    [key],
-  );
-  if (!result.rowCount) return fallback;
+app.get('/api/v1/health', async (_req, res) => {
   try {
-    return JSON.parse(result.rows[0].value_json || 'null');
-  } catch {
-    return fallback;
+    await pingDataStore();
+    res.json({ ok: true, ...(await healthPayload()) });
+  } catch (error) {
+    res.status(503).json({ ok: false, ...(await healthPayload({ error: String(error?.message || error) })) });
   }
-}
-
-async function writeJsonValue(key, value) {
-  const payload = JSON.stringify(value);
-  await query(
-    `insert into app_kv (key, value_json, updated_at)
-     values ($1, $2, CURRENT_TIMESTAMP)
-     on conflict(key) do update
-     set value_json = excluded.value_json,
-         updated_at = CURRENT_TIMESTAMP`,
-    [key, payload],
-  );
-}
-
-app.get('/api/v1/health', (_req, res) => {
-  res.json({ ok: true, service: 'gym-backend', env: env.NODE_ENV });
 });
-app.get('/api/health', (_req, res) => {
-  res.json({ ok: true, service: 'gym-backend', env: env.NODE_ENV });
+app.get('/api/health', async (_req, res) => {
+  try {
+    await pingDataStore();
+    res.json({ ok: true, ...(await healthPayload()) });
+  } catch (error) {
+    res.status(503).json({ ok: false, ...(await healthPayload({ error: String(error?.message || error) })) });
+  }
+});
+
+app.get('/api/realtime/stream', (req, res) => {
+  if (!useSupabase()) {
+    return res.status(404).json({ error: 'realtime-unavailable', message: 'Realtime requires DATA_BACKEND=supabase' });
+  }
+  res.setHeader('Content-Type', 'text/event-stream; charset=utf-8');
+  res.setHeader('Cache-Control', 'no-cache, no-transform');
+  res.setHeader('Connection', 'keep-alive');
+  res.setHeader('X-Accel-Buffering', 'no');
+  if (typeof res.flushHeaders === 'function') res.flushHeaders();
+  res.write(`data: ${JSON.stringify({ collection: 'connected', at: Date.now() })}\n\n`);
+  addSseClient(res);
+  req.on('close', () => res.end());
 });
 
 function allowProcessControl(req, res) {
@@ -463,7 +429,7 @@ app.put('/api/visitors/bulk', async (req, res) => {
 });
 
 app.get('/api/users', async (_req, res) => {
-  const users = await readJsonCollection('apg.users', []);
+  const users = await readJsonCollection('apg.users', [], null);
   res.json(users);
 });
 
@@ -572,6 +538,12 @@ app.post('/api/backups/keep-latest', async (req, res) => {
 app.post('/api/backups/restore', async (req, res) => {
   const fileName = req.body?.fileName || '';
   if (!fileName) return res.status(400).json({ error: 'file-required' });
+  if (useSupabase()) {
+    return res.status(400).json({
+      error: 'restore-not-supported',
+      message: 'SQLite backup restore is disabled while DATA_BACKEND=supabase. Use Supabase backups instead.',
+    });
+  }
   try {
     await restoreFromBackupFileName(fileName);
     queueDatabaseBackup('manual-restore', { force: true });
@@ -645,5 +617,17 @@ app.get(
 
 app.listen(env.PORT, () => {
   // eslint-disable-next-line no-console
-  console.log(`Backend scaffold listening on :${env.PORT}`);
+  console.log(`Backend listening on :${env.PORT} (data: ${dataBackendLabel()})`);
+  if (useSupabase()) {
+    pingDataStore()
+      .then(() => {
+        const rt = startSupabaseRealtimeListener();
+        // eslint-disable-next-line no-console
+        console.log(`Supabase members table: ${membersTableName}; realtime: ${rt.ok ? 'on' : rt.reason || 'off'}`);
+      })
+      .catch((err) => {
+        // eslint-disable-next-line no-console
+        console.warn('Supabase init warning:', err?.message || err);
+      });
+  }
 });

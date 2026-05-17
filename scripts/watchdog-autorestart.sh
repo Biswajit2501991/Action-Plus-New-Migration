@@ -9,7 +9,7 @@ LOG_FILE="$LOG_DIR/watchdog.log"
 mkdir -p "$LOG_DIR"
 
 PUBLIC_URL="${APP_PUBLIC_URL:-https://app.gymactionplus.com}"
-LOCAL_API_URL="${LOCAL_API_URL:-http://127.0.0.1:5500/api/health}"
+LOCAL_API_URL="${LOCAL_API_URL:-http://127.0.0.1:5501/api/health}"
 CHECK_INTERVAL_SECONDS="${WATCHDOG_INTERVAL_SECONDS:-30}"
 MAX_FAIL_STREAK="${WATCHDOG_MAX_FAIL_STREAK:-2}"
 
@@ -42,8 +42,23 @@ while true; do
     log "health_fail streak=$fail_streak local=$local_code public=$public_code"
     if [[ "$fail_streak" -ge "$MAX_FAIL_STREAK" ]]; then
       log "restart_triggered streak=$fail_streak local=$local_code public=$public_code"
-      pkill -f "scripts/dev-frontend.mjs|scripts/apg-supervisor.mjs|scripts/dev-all-with-tunnel.mjs|scripts/dev-all.mjs|cloudflared|node --watch src/server.js" || true
+      pkill -f "scripts/dev-frontend.mjs|scripts/apg-supervisor.mjs|scripts/dev-all-with-tunnel.mjs|scripts/dev-all.mjs|cloudflared|node src/server.js" || true
       sleep 3
+      if [[ "$(uname -s)" == Darwin && -n "${APG_CAFFEINATE:-}" ]]; then
+        case "${APG_CAFFEINATE}" in
+          1|y|Y|yes|YES|true|TRUE)
+            if command -v caffeinate >/dev/null 2>&1; then
+              caffeinate -dims -- npm run dev:all:tunnel >>"$LOG_FILE" 2>&1 &
+            else
+              npm run dev:all:tunnel >>"$LOG_FILE" 2>&1 &
+            fi
+            ;;
+          *) npm run dev:all:tunnel >>"$LOG_FILE" 2>&1 & ;;
+        esac
+      else
+        npm run dev:all:tunnel >>"$LOG_FILE" 2>&1 &
+      fi
+      log "restart_launched dev:all:tunnel"
       fail_streak=0
     fi
   fi

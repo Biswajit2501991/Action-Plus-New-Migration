@@ -26,7 +26,8 @@ cat > "$PLIST_PATH" <<EOF
   <key>ProgramArguments</key>
   <array>
     <string>/bin/zsh</string>
-    <string>$APP_ROOT/scripts/run-autostart.sh</string>
+    <string>-lc</string>
+    <string>exec "$APP_ROOT/scripts/run-autostart.sh"</string>
   </array>
   <key>WorkingDirectory</key>
   <string>$APP_ROOT</string>

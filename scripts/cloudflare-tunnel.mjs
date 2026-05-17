@@ -22,7 +22,8 @@ const bin = fs.existsSync(localBin) ? localBin : (isWin ? 'cloudflared.exe' : 'c
 
 let args;
 if (fs.existsSync(configPath)) {
-  args = ['tunnel', '--config', configPath, 'run', 'action-plus-gym'];
+  // Tunnel id/name is defined inside cloudflared.config.yml — do not pass a stale name here.
+  args = ['tunnel', '--config', configPath, 'run'];
 } else if (token) {
   args = ['tunnel', 'run', '--token', token];
 } else {

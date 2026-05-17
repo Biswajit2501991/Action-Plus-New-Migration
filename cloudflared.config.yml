@@ -3,5 +3,5 @@ credentials-file: /Users/biswajit/.cloudflared/3a9772ce-726f-4447-82db-2abe9a955
 
 ingress:
   - hostname: app.gymactionplus.com
-    service: http://127.0.0.1:5500
+    service: http://127.0.0.1:5501
   - service: http_status:404

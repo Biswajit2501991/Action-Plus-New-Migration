@@ -131,7 +131,8 @@ async function main() {
     : start('node', [stackScript], rootDir, 'stack');
 
   setTimeout(() => {
-    openBrowser('http://127.0.0.1:5500/index.html');
+    const fePort = Number(process.env.FRONTEND_PORT || 5501);
+    openBrowser(`http://127.0.0.1:${fePort}/index.html`);
   }, 2500);
 
   const shutdown = () => {

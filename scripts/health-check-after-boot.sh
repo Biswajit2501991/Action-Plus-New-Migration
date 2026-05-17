@@ -8,7 +8,7 @@ mkdir -p "$LOG_DIR"
 
 TS="$(date '+%Y-%m-%d %H:%M:%S %z')"
 PUBLIC_URL="${1:-https://app.gymactionplus.com}"
-LOCAL_URL="${2:-http://127.0.0.1:5500/index.html}"
+LOCAL_URL="${2:-http://127.0.0.1:5501/index.html}"
 
 LOCAL_CODE="$(curl -L -s -o /dev/null -w '%{http_code}' --max-time 15 "$LOCAL_URL" || echo '000')"
 PUBLIC_CODE="$(curl -L -s -o /dev/null -w '%{http_code}' --max-time 20 "$PUBLIC_URL" || echo '000')"
