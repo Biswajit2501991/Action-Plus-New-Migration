@@ -349,6 +349,15 @@
       return `${y}-${m}-${d}`;
     };
     const localTodayCalendarKey = () => localCalendarDateKey(new Date());
+    /** Add calendar days to a YYYY-MM-DD key (timezone-safe for date-only fields). */
+    const addDaysToDateKey = (dateKey, days) => {
+      const key = localCalendarDateKey(dateKey);
+      if (!key) return '';
+      const m = key.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+      if (!m) return '';
+      const dt = new Date(Date.UTC(Number(m[1]), Number(m[2]) - 1, Number(m[3]) + (Number(days) || 0)));
+      return iso(dt);
+    };
     const formatDateTz = (value, tz = 'IST') => {
       if (!value) return '';
       const dt = new Date(value);
@@ -436,8 +445,8 @@
       return billing ? iso(addMonths(billing, 1)) : '';
     };
     const paymentByFromBillingDate = (billingDateValue) => {
-      const billing = asUTC(billingDateValue);
-      return billing ? iso(addDays(billing, 7)) : '';
+      const billingKey = localCalendarDateKey(billingDateValue);
+      return billingKey ? addDaysToDateKey(billingKey, 7) : '';
     };
     const fineRuleConfigFromSettings = (settingsLike) => {
       const rawGrace = Number(settingsLike?.fineSmsGraceDays ?? 0);
@@ -486,10 +495,59 @@
     const retentionPaymentDeadline = (m) => {
       if (!m) return null;
       const billingIso = m.billingDate || '';
-      const byIso = paymentByFromBillingDate(billingIso);
-      const d = asUTC(byIso);
-      if (d) return d;
+      const derived = asUTC(paymentByFromBillingDate(billingIso));
+      if (derived) return derived;
       return asUTC(m.paymentBy) || asUTC(m.billingDate);
+    };
+    /** YYYY-MM-DD for Payment By (local calendar — matches date inputs and fmt display). */
+    const paymentByDateKey = (m) => {
+      if (!m) return '';
+      const billingKey = localCalendarDateKey(m.billingDate || '');
+      if (billingKey) return addDaysToDateKey(billingKey, 7);
+      const stored = localCalendarDateKey(m.paymentBy || '');
+      if (stored) return stored;
+      return billingKey;
+    };
+    const referenceTodayKey = (asOfKey) => {
+      const k = String(asOfKey || '').trim();
+      if (/^\d{4}-\d{2}-\d{2}$/.test(k)) return k;
+      return localTodayCalendarKey();
+    };
+    const effectiveFineGraceDays = (fineRule, actorRole) => {
+      const graceDays = Number(fineRule?.graceDays || 0);
+      const roleKey = String(actorRole || '').trim().toLowerCase();
+      const immediateRoles = Array.isArray(fineRule?.immediateRoles) ? fineRule.immediateRoles : [];
+      return immediateRoles.includes(roleKey) ? 0 : (Number.isFinite(graceDays) && graceDays > 0 ? Math.floor(graceDays) : 0);
+    };
+    /** Active member past Payment By (optional grace extends fine deadline only). */
+    const fineActionDueDateKey = (m, fineRule, actorRole) => {
+      const paymentKey = paymentByDateKey(m);
+      if (!paymentKey) return '';
+      const grace = effectiveFineGraceDays(fineRule, actorRole);
+      return grace > 0 ? addDaysToDateKey(paymentKey, grace) : paymentKey;
+    };
+    const todayDateKey = () => referenceTodayKey();
+    /** Active member whose Payment By is strictly before the reference day. */
+    const isPaymentByPastDue = (m, { activeOnly = true, asOfKey = null } = {}) => {
+      if (!m) return false;
+      if (activeOnly && m.status !== 'Active') return false;
+      const deadlineKey = paymentByDateKey(m);
+      const todayKey = referenceTodayKey(asOfKey);
+      return Boolean(deadlineKey && todayKey && deadlineKey < todayKey);
+    };
+    const resolveMemberMessageAction = (member, isOwner, fineRule, actorRole, asOfKey, access) => {
+      const action = primaryMessageActionForMember(member, isOwner, fineRule, actorRole, asOfKey);
+      const wa = normalizeAccess(access).whatsapp;
+      const permByKey = {
+        fine: 'viewFine',
+        reminder: 'viewReminder',
+        welcome: 'viewWelcome',
+        hold: 'viewHold',
+        deactivate: 'viewDeactivate',
+      };
+      const perm = permByKey[action.key];
+      if (perm && wa[perm] === false) return { key: 'none', label: '', disabled: true };
+      return action;
     };
     const normalizePhone = (v) => {
       const raw = String(v || '').trim();
@@ -582,29 +640,28 @@
     };
     // Determine the primary WhatsApp action button for a member in real time.
     // For Active members:
-    // - canonical payment deadline (billing + 7, else stored dates) < today => Fine SMS
-    // - billingDate <= today => Reminder (becomes "Reminder Sent" once used)
+    // - Payment By < today => Fine SMS (late)
+    // - Payment By >= today and billingDate <= today => Reminder
     // - otherwise => Welcome SMS
     // For other statuses, keep status-based mapping.
-    const primaryMessageActionForMember = (member, isOwner = false, fineRule = { enabled: true, graceDays: 0, immediateRoles: [] }, actorRole = '') => {
+    const primaryMessageActionForMember = (member, isOwner = false, fineRule = { enabled: true, graceDays: 0, immediateRoles: [] }, actorRole = '', asOfKey = null) => {
       if (!member) return { key: 'none', label: '', disabled: true };
-      const today = asUTC(new Date());
-      const joiningDate = asUTC(member.joiningDate);
-      const billingDate = asUTC(member.billingDate);
-      // Use same canonical deadline as dashboard "retention overdue" (billing + 7), then fallbacks.
+      const todayKey = referenceTodayKey(asOfKey);
+      const today = asUTC(todayKey);
+      const joiningKey = localCalendarDateKey(member.joiningDate);
+      const billingKey = localCalendarDateKey(member.billingDate);
       const paymentBy = retentionPaymentDeadline(member);
-      const graceDays = Number(fineRule?.graceDays || 0);
-      const roleKey = String(actorRole || '').trim().toLowerCase();
-      const immediateRoles = Array.isArray(fineRule?.immediateRoles) ? fineRule.immediateRoles : [];
-      const bypassGraceForRole = immediateRoles.includes(roleKey);
-      const effectiveGraceDays = bypassGraceForRole ? 0 : graceDays;
-      const fineCheckDate = paymentBy ? addDays(paymentBy, effectiveGraceDays) : null;
-      const overdueDays = paymentBy && today ? Math.max(0, Math.floor((today.getTime() - paymentBy.getTime()) / (1000 * 60 * 60 * 24))) : 0;
-      const sameJoinAndBillingDay = Boolean(
-        joiningDate && billingDate && iso(joiningDate) === iso(billingDate)
-      );
+      const paymentByKey = paymentByDateKey(member);
+      const paymentOverdue = isPaymentByPastDue(member, { asOfKey });
+      const fineDueKey = fineActionDueDateKey(member, fineRule, actorRole);
+      const fineDue = Boolean(fineDueKey && todayKey && fineDueKey < todayKey);
+      const effectiveGraceDays = effectiveFineGraceDays(fineRule, actorRole);
+      const overdueDays = paymentByKey && todayKey
+        ? Math.max(0, Math.floor((asUTC(todayKey).getTime() - asUTC(paymentByKey).getTime()) / (1000 * 60 * 60 * 24)))
+        : (paymentBy && today ? Math.max(0, Math.floor((today.getTime() - paymentBy.getTime()) / (1000 * 60 * 60 * 24))) : 0);
+      const sameJoinAndBillingDay = Boolean(joiningKey && billingKey && joiningKey === billingKey);
       if (member.status === 'Active') {
-        if (fineRule?.enabled !== false && fineCheckDate && today && fineCheckDate < today) {
+        if (fineDue && fineRule?.enabled !== false) {
           return {
             key: 'fine',
             label: 'Fine SMS',
@@ -613,10 +670,10 @@
             reason: `Payment By ${fmt(paymentBy)} crossed${effectiveGraceDays > 0 ? ` (+${effectiveGraceDays} day grace)` : ''}.`,
           };
         }
-        if (sameJoinAndBillingDay && billingDate && today && billingDate <= today) {
+        if (!paymentOverdue && sameJoinAndBillingDay && billingKey && billingKey <= todayKey) {
           return { key: 'welcome', label: 'Welcome SMS', disabled: false };
         }
-        if (billingDate && today && billingDate <= today) {
+        if (!paymentOverdue && billingKey && billingKey <= todayKey) {
           const reminderSent = Boolean(member.reminderSentAt);
           return {
             key: 'reminder',
@@ -624,7 +681,7 @@
             disabled: reminderSent && !isOwner,
           };
         }
-        if (joiningDate && today && iso(joiningDate) === iso(today)) {
+        if (!paymentOverdue && joiningKey && joiningKey === todayKey) {
           return { key: 'welcome', label: 'Welcome SMS', disabled: false };
         }
         return { key: 'none', label: '', disabled: true };
@@ -834,13 +891,39 @@
           byId: String(e.byId || '').trim(),
         }));
     };
+    const sortInjuryNotesNewestFirst = (log) => [...(Array.isArray(log) ? log : [])].sort((a, b) => String(b.at).localeCompare(String(a.at)));
+    const formatInjuryNoteEntry = (e, tz = 'IST') => {
+      if (!e) return '';
+      let when = String(e.at || '').slice(0, 16);
+      try { when = formatDateTimeTz(e.at, tz); } catch {}
+      return `${when}: ${e.text}${e.by ? ` (${e.by})` : ''}`;
+    };
+    const latestInjuryNoteForDisplay = (med) => {
+      const log = parseInjuryNotesLog(med);
+      if (log.length) return formatInjuryNoteEntry(sortInjuryNotesNewestFirst(log)[0]);
+      return String(med?.extraInfo || '').trim();
+    };
+    const INJURY_NOTES_PAGE_SIZE = 2;
     function InjuryNotesLogSection({ medicalAnswers, onChangeMedicalAnswers, currentUser }) {
       const log = parseInjuryNotesLog(medicalAnswers || {});
       const legacy = String(medicalAnswers?.extraInfo || '').trim();
       const isOwner = String(currentUser?.id || '').trim().toLowerCase() === 'owner'
         || String(currentUser?.role || '').trim().toLowerCase() === 'owner';
       const [draft, setDraft] = React.useState('');
-      const sorted = React.useMemo(() => [...log].sort((a, b) => String(a.at).localeCompare(String(b.at))), [log]);
+      const [notesPage, setNotesPage] = React.useState(1);
+      const sorted = React.useMemo(() => sortInjuryNotesNewestFirst(log), [log]);
+      const notesTotalPages = Math.max(1, Math.ceil(sorted.length / INJURY_NOTES_PAGE_SIZE));
+      const safeNotesPage = Math.min(Math.max(1, notesPage), notesTotalPages);
+      const pagedNotes = React.useMemo(() => {
+        const start = (safeNotesPage - 1) * INJURY_NOTES_PAGE_SIZE;
+        return sorted.slice(start, start + INJURY_NOTES_PAGE_SIZE);
+      }, [sorted, safeNotesPage]);
+      React.useEffect(() => {
+        setNotesPage(1);
+      }, [sorted.length]);
+      React.useEffect(() => {
+        if (notesPage > notesTotalPages) setNotesPage(notesTotalPages);
+      }, [notesPage, notesTotalPages]);
       const fmtNoteTime = (t) => {
         try {
           return formatDateTimeTz(t, 'IST');
@@ -864,6 +947,7 @@
           injuryNotesLog: [...parseInjuryNotesLog(med || {}), entry],
         }));
         setDraft('');
+        setNotesPage(1);
       };
       const deleteNote = (id) => {
         if (!isOwner) return;
@@ -897,11 +981,11 @@
               </div>
             </div>
           ) : null}
-          <div className="max-h-56 space-y-2 overflow-y-auto pr-1">
+          <div className="space-y-2">
             {sorted.length === 0 && !legacy ? (
               <div className="rounded-lg border border-dashed border-amber-300 bg-white/80 px-3 py-2 text-xs text-amber-900/85">No notes yet. Add the first entry below.</div>
             ) : null}
-            {sorted.map((e) => (
+            {pagedNotes.map((e) => (
               <div
                 key={e.id}
                 className="rounded-lg border border-amber-200 bg-white px-3 py-2 text-sm text-slate-800 shadow-sm transition-colors hover:bg-amber-100 active:bg-amber-200/90"
@@ -919,6 +1003,31 @@
                 </div>
               </div>
             ))}
+            {sorted.length > INJURY_NOTES_PAGE_SIZE ? (
+              <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-amber-200 bg-white/90 px-3 py-2">
+                <span className="text-[11px] font-medium text-amber-900/90">
+                  Page {safeNotesPage} of {notesTotalPages} · {sorted.length} note{sorted.length === 1 ? '' : 's'}
+                </span>
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    disabled={safeNotesPage <= 1}
+                    onClick={() => setNotesPage((p) => Math.max(1, p - 1))}
+                    className="rounded-lg border border-amber-300 bg-white px-2.5 py-1 text-[11px] font-semibold text-amber-900 hover:bg-amber-50 disabled:cursor-not-allowed disabled:opacity-40"
+                  >
+                    Previous
+                  </button>
+                  <button
+                    type="button"
+                    disabled={safeNotesPage >= notesTotalPages}
+                    onClick={() => setNotesPage((p) => Math.min(notesTotalPages, p + 1))}
+                    className="rounded-lg border border-amber-300 bg-white px-2.5 py-1 text-[11px] font-semibold text-amber-900 hover:bg-amber-50 disabled:cursor-not-allowed disabled:opacity-40"
+                  >
+                    Next
+                  </button>
+                </div>
+              </div>
+            ) : null}
           </div>
           <div className="rounded-lg border-2 border-amber-300 bg-amber-50/90 px-3 py-2 shadow-inner focus-within:border-amber-500 focus-within:bg-amber-100/90 focus-within:ring-2 focus-within:ring-amber-400">
             <label className="text-[11px] font-semibold text-amber-950">Add a note</label>
@@ -1596,7 +1705,6 @@ Phone: +91-7047157510`;
       if (!h || typeof h !== 'object') return '';
       const paidRaw = String(h.paidAt || h.receivedAt || h.date || h.ts || '').trim();
       const dayKey = localCalendarDateKey(paidRaw);
-      const timeKey = /T\d/.test(paidRaw) ? paidRaw : dayKey;
       const month = String(h.billingMonth || (paidRaw.length >= 7 ? paidRaw.slice(0, 7) : '')).trim();
       const amt = Number(h.amount || 0);
       const method = String(h.method || h.paymentMethod || '').trim().toLowerCase();
@@ -1604,7 +1712,8 @@ Phone: +91-7047157510`;
       const source = String(h.source || '').trim().toLowerCase();
       const note = String(h.note || '').trim();
       if (!dayKey && !amt && !method) return '';
-      return `${timeKey}|${month}|${amt}|${method}|${by}|${source}|${note}`;
+      // Calendar day only — date-only rows (form) and ISO rows (API) must share one key.
+      return `${dayKey}|${month}|${amt}|${method}|${by}|${source}|${note}`;
     };
     const mergePaymentHistoryArrays = (a, b, cap = 120) => {
       const A = Array.isArray(a) ? a : [];
@@ -1636,16 +1745,19 @@ Phone: +91-7047157510`;
       return tx >= ty ? x : y;
     };
     const stablePaymentHistoryRowId = (row, memberId = '') => {
-      if (row && row.id != null && String(row.id).trim()) return String(row.id).trim();
+      if (row && row.id != null && String(row.id).trim() && !String(row.id).startsWith('sig:')) {
+        return String(row.id).trim();
+      }
       if (!row || typeof row !== 'object') return '';
       const paidAt = String(row.paidAt || row.receivedAt || row.date || row.ts || '').trim();
+      const paidDay = localCalendarDateKey(paidAt) || paidAt;
       const amount = Number(row.amount || 0);
       const method = String(row.method || row.paymentMethod || '').trim();
       const by = String(row.recordedBy || row.by || '').trim();
       const source = String(row.source || '').trim();
       const note = String(row.note || '').trim();
       const billingMonth = String(row.billingMonth || '').trim();
-      return `sig:${memberId}|${paidAt}|${amount}|${method}|${by}|${source}|${note}|${billingMonth}`;
+      return `sig:${memberId}|${paidDay}|${amount}|${method}|${by}|${source}|${note}|${billingMonth}`;
     };
     const normalizeMemberPaymentHistory = (member) => {
       const list = Array.isArray(member?.paymentHistory) ? member.paymentHistory : [];
@@ -1756,6 +1868,17 @@ Phone: +91-7047157510`;
       if (lf >= rf) return localRow;
       return remoteRow;
     };
+    /** Keep photo when backend row is newer but photo_url was not persisted yet (bulk race / stale GET). */
+    const pickMemberPhoto = (localRow, remoteRow) => {
+      const localPhoto = String(localRow?.photo || '').trim();
+      const remotePhoto = String(remoteRow?.photo || '').trim();
+      if (localPhoto && remotePhoto) {
+        const localTs = memberSortTimestamp(localRow);
+        const remoteTs = memberSortTimestamp(remoteRow);
+        return localTs >= remoteTs ? localPhoto : remotePhoto;
+      }
+      return localPhoto || remotePhoto || '';
+    };
     const mergeRemoteMembersWithLocal = (localMembers, remoteMembers) => {
       const locals = Array.isArray(localMembers) ? localMembers : [];
       const remotes = Array.isArray(remoteMembers) ? remoteMembers : [];
@@ -1794,6 +1917,7 @@ Phone: +91-7047157510`;
         const billingSrc = pickMemberBillingSource(localRow, remoteRow, mergedCore);
         mergedRows.push({
           ...mergedCore,
+          photo: pickMemberPhoto(localRow, remoteRow),
           billingDate: billingSrc.billingDate,
           nextPaymentDate: billingSrc.nextPaymentDate,
           paymentBy: billingSrc.paymentBy,
@@ -1848,6 +1972,17 @@ Phone: +91-7047157510`;
         parseApgTimeMs(u.createdAt),
       );
     };
+    /** Keep photo when backend row is newer but photo_url was not persisted yet (bulk race / stale GET). */
+    const pickUserPhoto = (localRow, remoteRow) => {
+      const localPhoto = String(localRow?.photo || localRow?.avatar || '').trim();
+      const remotePhoto = String(remoteRow?.photo || remoteRow?.avatar || '').trim();
+      if (localPhoto && remotePhoto) {
+        const localTs = userSortTimestamp(localRow);
+        const remoteTs = userSortTimestamp(remoteRow);
+        return localTs >= remoteTs ? localPhoto : remotePhoto;
+      }
+      return localPhoto || remotePhoto || '';
+    };
     const mergeRemoteUsersWithLocal = (localUsers, remoteUsers) => {
       const locals = Array.isArray(localUsers) ? localUsers : [];
       const remotes = Array.isArray(remoteUsers) ? remoteUsers : [];
@@ -1873,7 +2008,11 @@ Phone: +91-7047157510`;
         const remoteTs = userSortTimestamp(remoteRow);
         const base = localTs >= remoteTs ? localRow : remoteRow;
         const other = base === localRow ? remoteRow : localRow;
-        mergedRows.push({ ...(other || {}), ...(base || {}) });
+        const mergedCore = { ...(other || {}), ...(base || {}) };
+        mergedRows.push({
+          ...mergedCore,
+          photo: pickUserPhoto(localRow, remoteRow) || null,
+        });
       });
       mergedRows.sort((a, b) => userSortTimestamp(b) - userSortTimestamp(a));
       return mergedRows;
@@ -1970,6 +2109,20 @@ Phone: +91-7047157510`;
       img.onerror = () => resolve(dataUrl);
       img.src = dataUrl;
     });
+    const applyPhotoFromFile = async (file, { onSuccess, onError }) => {
+      if (!file) return;
+      if (file.size > MAX_IMAGE_FILE_BYTES) {
+        onError('Image too large. Please upload a file up to 10MB.');
+        return;
+      }
+      try {
+        const raw = await loadImageDataUrl(file);
+        const compressed = await downscaleImageDataUrl(raw);
+        onSuccess(compressed);
+      } catch {
+        onError('Unable to process photo. Please try another image.');
+      }
+    };
     const safeOpenExternal = (url) => {
       try {
         const w = window.open(url, '_blank', 'noopener,noreferrer');
@@ -2955,7 +3108,7 @@ Phone: +91-7047157510`;
       const [dashField, setDashField] = React.useState('all');
       const [mobileMenuOpen, setMobileMenuOpen] = React.useState(false);
       const [notificationOpen, setNotificationOpen] = React.useState(false);
-      const [headerDate, setHeaderDate] = React.useState(() => iso(new Date()));
+      const [headerDate, setHeaderDate] = React.useState(() => localTodayCalendarKey());
       const headerDateInputRef = React.useRef(null);
       const [quickExpenseOpen, setQuickExpenseOpen] = React.useState(false);
       const [paymentEntryModal, setPaymentEntryModal] = React.useState({
@@ -3012,6 +3165,7 @@ Phone: +91-7047157510`;
       const [prefillVisitor, setPrefillVisitor] = React.useState(null);
       const [membersView, setMembersView] = React.useState('all');
       const [toast, setToast] = React.useState('');
+      const [markingVisitorCalledId, setMarkingVisitorCalledId] = React.useState('');
       const [undoToast, setUndoToast] = React.useState(null);
       const undoToastTimerRef = React.useRef(null);
       const [lastMemberDefaults, setLastMemberDefaults] = React.useState(() => {
@@ -4033,16 +4187,29 @@ Please pay by: ${formattedLastDate}`;
           ...m,
           reminderSentAt: resolvedKey === 'reminder' ? sentAt : m.reminderSentAt,
           ...(resolvedKey === 'success'
-            ? {
-                paymentReceivedAt: sentAt,
-                paymentHistory: [{
-                  id: crypto.randomUUID(),
+            ? (() => {
+                const successDraft = {
+                  paidAt: sentAt,
                   receivedAt: sentAt,
                   amount: Number(member.amount || 0),
                   method: member.paymentMethod || '',
+                  recordedBy: sentBy,
                   by: sentBy,
-                }, ...(Array.isArray(m.paymentHistory) ? m.paymentHistory : [])].slice(0, 120),
-              }
+                  source: 'whatsapp',
+                };
+                const successRow = {
+                  ...successDraft,
+                  id: stablePaymentHistoryRowId(successDraft, member.memberId) || crypto.randomUUID(),
+                };
+                return {
+                  paymentReceivedAt: sentAt,
+                  paymentHistory: mergePaymentHistoryArrays(
+                    [successRow],
+                    Array.isArray(m.paymentHistory) ? m.paymentHistory : [],
+                    120,
+                  ),
+                };
+              })()
             : {}),
           lastSmsSent: {
             ...(m.lastSmsSent || {}),
@@ -4486,8 +4653,7 @@ Please pay by: ${formattedLastDate}`;
         const note = String(paymentEntryModal.note || '').trim();
         const actor = user?.name || user?.id || 'Staff';
         const billingMonth = String(paidAt).slice(0, 7);
-        const row = {
-          id: crypto.randomUUID(),
+        const rowDraft = {
           paidAt,
           receivedAt: paidAt,
           amount,
@@ -4499,19 +4665,19 @@ Please pay by: ${formattedLastDate}`;
           billingMonth,
           billingDate: `${billingMonth}-01`,
         };
-        const canon = paymentHistoryCanonicalDedupeKey(row);
+        const row = {
+          ...rowDraft,
+          id: stablePaymentHistoryRowId(rowDraft, memberId) || crypto.randomUUID(),
+        };
         const payTs = new Date().toISOString();
         let paymentUpdatedMember = null;
         setMembers((prev) => prev.map((x) => {
           if (x.memberId !== memberId) return x;
           const baseHist = Array.isArray(x.paymentHistory) ? x.paymentHistory : [];
-          const dedupedHist = canon
-            ? baseHist.filter((p) => paymentHistoryCanonicalDedupeKey(p) !== canon)
-            : baseHist;
           paymentUpdatedMember = {
             ...x,
             paymentReceivedAt: parseApgTimeMs(paidAt) >= parseApgTimeMs(x.paymentReceivedAt) ? paidAt : (x.paymentReceivedAt || ''),
-            paymentHistory: [row, ...dedupedHist].slice(0, 240),
+            paymentHistory: mergePaymentHistoryArrays([row], baseHist, 240),
             updatedAt: payTs,
           };
           return paymentUpdatedMember;
@@ -4665,21 +4831,44 @@ Please pay by: ${formattedLastDate}`;
         setVisitors((prev) => prev.filter((v) => v.id !== visitorId));
         logEvent('visitor.deleted', 'visitor', visitorId, target, null);
       };
-      const markVisitorCalled = (visitorId) => {
-        if (!visitorId) return;
+      const markVisitorCalled = async (visitorId) => {
+        if (!visitorId || markingVisitorCalledId) return;
+        const target = visitors.find((v) => v.id === visitorId);
+        if (!target) {
+          setToast('Visitor not found.');
+          setTimeout(() => setToast(''), 1800);
+          return;
+        }
+        const todayKey = localTodayCalendarKey();
+        if (localCalendarDateKey(target.lastCalledAt || '') === todayKey) {
+          setToast('Already marked as called today.');
+          setTimeout(() => setToast(''), 1800);
+          return;
+        }
         const nowIso = new Date().toISOString();
         const actor = user?.name || user?.id || '';
-        let beforeObj = null;
-        let afterObj = null;
-        setVisitors((prev) => prev.map((v) => {
-          if (v.id !== visitorId) return v;
-          beforeObj = v;
-          afterObj = { ...v, lastCalledAt: nowIso, lastCalledBy: actor };
-          return afterObj;
-        }));
-        if (afterObj) {
+        const beforeObj = { ...target };
+        const afterObj = { ...target, lastCalledAt: nowIso, lastCalledBy: actor };
+        const nextVisitors = visitors.map((v) => (v.id === visitorId ? afterObj : v));
+        setMarkingVisitorCalledId(visitorId);
+        setVisitors(nextVisitors);
+        try {
+          if (dataSyncMode === 'backend') {
+            await backendJson('/visitors/bulk', {
+              method: 'PUT',
+              body: JSON.stringify({ visitors: nextVisitors }),
+            });
+          } else {
+            safeSetItemJSON(STORAGE_KEYS.visitors, nextVisitors);
+            await queueSyncSnapshot('visitors', nextVisitors).catch(() => {});
+          }
           logEvent('visitor.called', 'visitor', visitorId, beforeObj, afterObj);
           setToast('Visitor marked as called.');
+        } catch {
+          setVisitors((prev) => prev.map((v) => (v.id === visitorId ? beforeObj : v)));
+          setToast('Could not save. Please try again.');
+        } finally {
+          setMarkingVisitorCalledId('');
           setTimeout(() => setToast(''), 1800);
         }
       };
@@ -5290,24 +5479,32 @@ Please pay by: ${formattedLastDate}`;
                     ) : (
                       <div className="max-h-64 overflow-auto space-y-1">
                         {callbackNotifications.map((v) => (
-                          <button
-                            key={v.id}
-                            onClick={() => openVisitorFromNotification(v.id)}
-                            className="w-full rounded-lg border border-amber-200 bg-amber-50 px-2 py-2 text-left hover:bg-amber-100"
-                          >
-                            <div className="text-xs font-semibold text-amber-800">Call {v.fullName || 'Visitor'} today</div>
-                            <div className="text-[11px] text-amber-700">{v.mobile || '-'} • Tentative join: {fmt(v.tentativeJoiningDate)}</div>
+                          <div
+                                key={v.id}
+                                className="w-full rounded-lg border border-amber-200 bg-amber-50 px-2 py-2 text-left"
+                              >
                                 <button
-                                  onClick={(e) => {
-                                    e.stopPropagation();
-                                    e.preventDefault();
-                                    markVisitorCalled(v.id);
-                                  }}
-                                  className="mt-1 rounded-full border border-emerald-300 bg-emerald-50 px-2.5 py-1 text-[11px] font-semibold text-emerald-700 hover:bg-emerald-100"
+                                  type="button"
+                                  onClick={() => openVisitorFromNotification(v.id)}
+                                  className="w-full text-left hover:underline focus:outline-none"
                                 >
-                                  Mark as Called
+                                  <div className="text-xs font-semibold text-amber-800">Call {v.fullName || 'Visitor'} today</div>
+                                  <div className="text-[11px] text-amber-700">{v.mobile || '-'} • Tentative join: {fmt(v.tentativeJoiningDate)}</div>
                                 </button>
-                          </button>
+                                <button
+                                  type="button"
+                                  disabled={markingVisitorCalledId === v.id}
+                                  onClick={() => { void markVisitorCalled(v.id); }}
+                                  className={cx(
+                                    'mt-1 rounded-full border px-2.5 py-1 text-[11px] font-semibold',
+                                    markingVisitorCalledId === v.id
+                                      ? 'border-slate-300 bg-slate-100 text-slate-500 cursor-wait'
+                                  : 'border-emerald-300 bg-emerald-50 text-emerald-700 hover:bg-emerald-100'
+                              )}
+                            >
+                              {markingVisitorCalledId === v.id ? 'Saving…' : 'Mark as Called'}
+                            </button>
+                          </div>
                         ))}
                       </div>
                     )}
@@ -5550,25 +5747,33 @@ Please pay by: ${formattedLastDate}`;
                         ) : (
                           <div className="max-h-72 overflow-auto space-y-1">
                             {callbackNotifications.map((v) => (
-                              <button
+                              <div
                                 key={v.id}
-                                onClick={() => openVisitorFromNotification(v.id)}
-                                className="w-full rounded-lg border border-amber-200 bg-amber-50 px-2 py-2 text-left hover:bg-amber-100"
+                                className="w-full rounded-lg border border-amber-200 bg-amber-50 px-2 py-2 text-left"
                               >
-                                <div className="text-xs font-semibold text-amber-800">Call {v.fullName || 'Visitor'} today</div>
-                                <div className="text-[11px] text-amber-700">{v.mobile || '-'} • Tentative join: {fmt(v.tentativeJoiningDate)}</div>
                                 <button
-                                  onClick={(e) => {
-                                    e.stopPropagation();
-                                    e.preventDefault();
-                                    markVisitorCalled(v.id);
-                                  }}
-                                  className="mt-1 rounded-full border border-emerald-300 bg-emerald-50 px-2.5 py-1 text-[11px] font-semibold text-emerald-700 hover:bg-emerald-100"
+                                  type="button"
+                                  onClick={() => openVisitorFromNotification(v.id)}
+                                  className="w-full text-left hover:underline focus:outline-none"
                                 >
-                                  Mark as Called
+                                  <div className="text-xs font-semibold text-amber-800">Call {v.fullName || 'Visitor'} today</div>
+                                  <div className="text-[11px] text-amber-700">{v.mobile || '-'} • Tentative join: {fmt(v.tentativeJoiningDate)}</div>
                                 </button>
-                              </button>
-                            ))}
+                                <button
+                                  type="button"
+                                  disabled={markingVisitorCalledId === v.id}
+                                  onClick={() => { void markVisitorCalled(v.id); }}
+                                  className={cx(
+                                    'mt-1 rounded-full border px-2.5 py-1 text-[11px] font-semibold',
+                                    markingVisitorCalledId === v.id
+                                      ? 'border-slate-300 bg-slate-100 text-slate-500 cursor-wait'
+                                  : 'border-emerald-300 bg-emerald-50 text-emerald-700 hover:bg-emerald-100'
+                              )}
+                            >
+                              {markingVisitorCalledId === v.id ? 'Saving…' : 'Mark as Called'}
+                            </button>
+                          </div>
+                        ))}
                           </div>
                         )}
                         </div>
@@ -5713,6 +5918,8 @@ Please pay by: ${formattedLastDate}`;
                   isOwner={String(user?.id || '').trim().toLowerCase() === 'owner' || String(user?.role || '').trim().toLowerCase() === 'owner'}
                   currentUserRole={currentUserRole}
                   fineRuleConfig={fineRuleConfig}
+                  access={user?.access}
+                  asOfDateKey={headerDate}
                   canEdit={canEditMembers}
                   displayTimeZone={displayTimeZone}
                   tableDensity={tableDensity}
@@ -5733,6 +5940,7 @@ Please pay by: ${formattedLastDate}`;
                       onDeleteVisitor={deleteVisitor}
                       onConvertVisitor={convertVisitorToMember}
                       onMarkCalled={markVisitorCalled}
+                      markingVisitorCalledId={markingVisitorCalledId}
                       focusVisitorId={visitorNotificationFocusId}
                       onFocusHandled={() => setVisitorNotificationFocusId('')}
                     />
@@ -5773,6 +5981,8 @@ Please pay by: ${formattedLastDate}`;
                     isOwner={String(user?.id || '').trim().toLowerCase() === 'owner' || String(user?.role || '').trim().toLowerCase() === 'owner'}
                     currentUserRole={currentUserRole}
                     fineRuleConfig={fineRuleConfig}
+                    access={user?.access}
+                    asOfDateKey={headerDate}
                     canEdit={canEditMembers}
                     onImportCsv={openCsvImportDialog}
                     onAddExpense={canManageExpenses ? openAddExpense : null}
@@ -5839,7 +6049,12 @@ Please pay by: ${formattedLastDate}`;
                       backendJson('/finance').catch(() => []),
                       backendJson('/sms-events').catch(() => []),
                     ]);
-                    if (Array.isArray(remoteUsers)) setUsers(remoteUsers);
+                    if (Array.isArray(remoteUsers)) {
+                      setUsers((prev) => mergeRemoteUsersWithLocal(prev, remoteUsers.map((u) => ({
+                        ...u,
+                        access: normalizeAccess(u && u.access),
+                      }))));
+                    }
                     if (Array.isArray(remoteMembers)) setMembers(remoteMembers);
                     if (Array.isArray(remoteVisitors)) setVisitors(remoteVisitors);
                     setMemberSyncPending({});
@@ -5952,6 +6167,7 @@ Please pay by: ${formattedLastDate}`;
                 settings={settings}
                 setSettings={setSettings}
                 currentUser={user}
+                dataSyncMode={dataSyncMode}
                 logEvent={logEvent}
                 onApprovePasswordReset={approvePasswordResetRequest}
               />
@@ -6034,6 +6250,8 @@ Please pay by: ${formattedLastDate}`;
                   className="space-y-3"
                   onSubmit={(e) => {
                     e.preventDefault();
+                    e.stopPropagation();
+                    if (paymentEntrySaving || paymentEntrySaveLockRef.current) return;
                     saveMemberPaymentEntry();
                   }}
                 >
@@ -7026,7 +7244,7 @@ function Sidebar({ user, active, onSelect, theme, setTheme, onLogout, onUndo, on
       const [showTrendHistory, setShowTrendHistory] = React.useState(false);
       const [expandedOverdueId, setExpandedOverdueId] = React.useState('');
       const today = new Date();
-      const todayKey = iso(new Date());
+      const todayKey = localTodayCalendarKey();
       const collectedRevenueEntries = React.useMemo(() => {
         return (members || []).flatMap((m) => {
           const history = Array.isArray(m.paymentHistory) ? m.paymentHistory : [];
@@ -7092,12 +7310,7 @@ function Sidebar({ user, active, onSelect, theme, setTheme, onLogout, onUndo, on
       const overdueList = React.useMemo(() => {
         const todayUtc = asUTC(todayKey);
         return members
-          .filter(m => {
-            if (m.status !== 'Active') return false;
-            const deadline = retentionPaymentDeadline(m);
-            if (!deadline || Number.isNaN(deadline.getTime()) || !todayUtc) return false;
-            return deadline < todayUtc;
-          })
+          .filter((m) => isPaymentByPastDue(m))
           .map(m => {
             const deadline = retentionPaymentDeadline(m);
             const days = deadline && todayUtc
@@ -7545,7 +7758,7 @@ function Sidebar({ user, active, onSelect, theme, setTheme, onLogout, onUndo, on
     }
 
     // ---- Members List (Dashboard list mode) ----
-function MembersList({ title, list, allMembers = [], onBack, onEdit, onStatusChange, holdOptions, logs, onWelcome, onWhatsAppCall, onWelcomeMail, onAddAttachment, onQuickFieldEdit, editOptions, isOwner, currentUserRole = '', fineRuleConfig, canEdit = true, displayTimeZone = 'IST', tableDensity = 'normal', setTableDensity = () => {}, onAddPaymentEntry = null, onDeletePaymentEntry = null, memberSyncPending = {}, onUnlinkFamilyGroup = null }) {
+function MembersList({ title, list, allMembers = [], onBack, onEdit, onStatusChange, holdOptions, logs, onWelcome, onWhatsAppCall, onWelcomeMail, onAddAttachment, onQuickFieldEdit, editOptions, isOwner, currentUserRole = '', fineRuleConfig, access = null, asOfDateKey = null, canEdit = true, displayTimeZone = 'IST', tableDensity = 'normal', setTableDensity = () => {}, onAddPaymentEntry = null, onDeletePaymentEntry = null, memberSyncPending = {}, onUnlinkFamilyGroup = null }) {
       const [openId, setOpenId] = React.useState(null);
       const [mobileDetailMemberId, setMobileDetailMemberId] = React.useState('');
       const [page, setPage] = React.useState(1);
@@ -7554,10 +7767,10 @@ function MembersList({ title, list, allMembers = [], onBack, onEdit, onStatusCha
       const pageSize = 10;
       const prioritizedList = React.useMemo(() => {
         const rows = Array.isArray(list) ? [...list] : [];
+        const refToday = referenceTodayKey(asOfDateKey);
         const priority = (m) => {
-          const action = primaryMessageActionForMember(m, isOwner, fineRuleConfig, currentUserRole);
-          if (action.key === 'fine') return 2;
-          if (localCalendarDateKey(m?.billingDate) === localTodayCalendarKey()) return 1;
+          if (isPaymentByPastDue(m, { asOfKey: refToday })) return 2;
+          if (!isPaymentByPastDue(m, { asOfKey: refToday }) && localCalendarDateKey(m?.billingDate) === refToday) return 1;
           return 0;
         };
         rows.sort((a, b) => {
@@ -7566,7 +7779,7 @@ function MembersList({ title, list, allMembers = [], onBack, onEdit, onStatusCha
           return String(a?.name || '').localeCompare(String(b?.name || ''));
         });
         return rows;
-      }, [list, isOwner, fineRuleConfig, currentUserRole]);
+      }, [list, asOfDateKey]);
       const totalPages = Math.max(1, Math.ceil((prioritizedList || []).length / pageSize));
       const safePage = page > totalPages ? 1 : page;
       const start = (safePage - 1) * pageSize;
@@ -7625,6 +7838,8 @@ function MembersList({ title, list, allMembers = [], onBack, onEdit, onStatusCha
                 isOwner={isOwner}
                 currentUserRole={currentUserRole}
                 fineRuleConfig={fineRuleConfig}
+                access={access}
+                asOfDateKey={asOfDateKey}
                 onOpenMobileDetail={(member) => setMobileDetailMemberId(member?.memberId || '')}
                 canEdit={canEdit}
                 displayTimeZone={displayTimeZone}
@@ -7741,13 +7956,15 @@ function MembersList({ title, list, allMembers = [], onBack, onEdit, onStatusCha
     }
 
     // ---- Member Row ----
-function MemberRow({ m, memberSyncPending = {}, expanded, onToggle, onEdit, onStatusChange, holdOptions, onDelete, canDelete, onWelcome, onWhatsAppCall, onWelcomeMail, onAddAttachment, logs, selected, onSelectToggle, selectable, onQuickFieldEdit, editOptions, isOwner, currentUserRole = '', fineRuleConfig, onOpenMobileDetail, canEdit = true, displayTimeZone = 'IST', isCompactTablet = false, onAddPaymentEntry = null, onDeletePaymentEntry = null, allMembers = null, onFamilyMemberNavigate = null, onUnlinkFamilyGroup = null }) {
-      const billingToday = localCalendarDateKey(m.billingDate) === localTodayCalendarKey();
+function MemberRow({ m, memberSyncPending = {}, expanded, onToggle, onEdit, onStatusChange, holdOptions, onDelete, canDelete, onWelcome, onWhatsAppCall, onWelcomeMail, onAddAttachment, logs, selected, onSelectToggle, selectable, onQuickFieldEdit, editOptions, isOwner, currentUserRole = '', fineRuleConfig, access = null, asOfDateKey = null, onOpenMobileDetail, canEdit = true, displayTimeZone = 'IST', isCompactTablet = false, onAddPaymentEntry = null, onDeletePaymentEntry = null, allMembers = null, onFamilyMemberNavigate = null, onUnlinkFamilyGroup = null }) {
+      const refToday = referenceTodayKey(asOfDateKey);
+      const pastDue = isPaymentByPastDue(m, { asOfKey: refToday });
+      const billingToday = !pastDue && localCalendarDateKey(m.billingDate) === refToday;
       // Determine if we can open WhatsApp welcome/payment reminder.
       // Active members with mobile number and billing date qualify.
       const canWelcome = m.mobile && String(m.mobile).trim();
-      const statusTemplate = primaryMessageActionForMember(m, isOwner, fineRuleConfig, currentUserRole);
-      const fineHighlight = statusTemplate.key === 'fine';
+      const statusTemplate = resolveMemberMessageAction(m, isOwner, fineRuleConfig, currentUserRole, refToday, access);
+      const fineHighlight = pastDue;
       const hasPrimaryMessageAction = statusTemplate.key !== 'none';
       const statusSentText = hasPrimaryMessageAction ? getSmsSentInfoText(m, statusTemplate.key, displayTimeZone) : '';
       const callInfoText = getLastWhatsAppCallText(m, displayTimeZone);
@@ -7897,7 +8114,7 @@ function MemberRowDesktopView({ m, selectable, selected, onSelectToggle, onToggl
             <span className="truncate">{m.name}</span>
           </div>
           <div className="col-span-1 truncate">{m.plan}</div>
-          <div className={cx('col-span-1', billingToday ? 'rounded-md bg-lime-300 px-1.5 py-0.5 text-black font-semibold animate-pulse' : '')}>{fmt(m.billingDate)}</div>
+          <div className={cx('col-span-1', fineHighlight ? 'rounded-md bg-[#F08080] px-1.5 py-0.5 text-black font-semibold animate-pulse' : (billingToday ? 'rounded-md bg-lime-300 px-1.5 py-0.5 text-black font-semibold animate-pulse' : ''))}>{fmt(m.billingDate)}</div>
           <div className={cx('col-span-1', fineHighlight ? 'rounded-md bg-[#F08080] px-1.5 py-0.5 text-black font-semibold animate-pulse' : '')}>{fmt(retentionPaymentDeadline(m) || m.billingDate) || '-'}</div>
           <div className={cx('col-span-6 pl-1.5 flex items-center gap-1.5 pr-1.5', isCompactTablet ? 'gap-1 pr-1' : '', isIpadLandscapeCompact ? 'overflow-hidden' : '')}>
             <Badge tone={toneForStatus(m.status)} className={cx('text-center flex-shrink-0 py-0.5 px-2 text-[10px] leading-tight', isCompactTablet ? 'w-20' : 'w-24', isIpadLandscapeCompact ? 'w-[72px] px-1' : '')}>{shortStatus(m.status)}</Badge>
@@ -7935,7 +8152,7 @@ function MemberRowDesktopView({ m, selectable, selected, onSelectToggle, onToggl
                     isCompactTablet ? 'px-2 text-[10px]' : '',
                     isIpadLandscapeCompact ? 'px-1.5 text-[9px]' : '',
                     canWelcome && !statusTemplate.disabled
-                      ? MEMBER_UI.buttonPrimary
+                      ? (statusTemplate.key === 'fine' ? MEMBER_UI.buttonRose : MEMBER_UI.buttonPrimary)
                       : MEMBER_UI.buttonDisabled
                   )}
                 >
@@ -8210,7 +8427,7 @@ function MobileMemberDetailView({ m, onBack, onEdit, onWelcome, onWhatsAppCall, 
                 className={cx(
                   MEMBER_UI.buttonBase,
                   canWelcome && !statusTemplate.disabled
-                    ? MEMBER_UI.buttonPrimary
+                    ? (statusTemplate.key === 'fine' ? MEMBER_UI.buttonRose : MEMBER_UI.buttonPrimary)
                     : MEMBER_UI.buttonDisabled
                 )}
               >
@@ -8262,7 +8479,7 @@ function MobileMemberDetailView({ m, onBack, onEdit, onWelcome, onWhatsAppCall, 
                 className={cx(
                   MEMBER_UI.buttonBase,
                   canWelcome && !statusTemplate.disabled
-                    ? MEMBER_UI.buttonPrimary
+                    ? (statusTemplate.key === 'fine' ? MEMBER_UI.buttonRose : MEMBER_UI.buttonPrimary)
                     : MEMBER_UI.buttonDisabled
                 )}
               >
@@ -8360,6 +8577,46 @@ function MobileMemberDetailView({ m, onBack, onEdit, onWelcome, onWhatsAppCall, 
       );
     }
 
+    function PhotoSourcePickerModal({ open, onClose, onPickFile, title = 'Member photo' }) {
+      const cameraInputRef = React.useRef(null);
+      const uploadInputRef = React.useRef(null);
+      const onFileChange = async (e) => {
+        const file = e.target.files?.[0];
+        if (e.target) e.target.value = '';
+        if (!file) return;
+        onClose();
+        await onPickFile(file);
+      };
+      if (!open) return null;
+      return (
+        <div className="fixed inset-0 z-[60] flex items-center justify-center apg-modal-backdrop p-4" onClick={onClose}>
+          <div className="w-full max-w-sm rounded-3xl bg-white shadow-xl p-5 space-y-3" onClick={(e) => e.stopPropagation()}>
+            <div className="flex items-center justify-between">
+              <h4 className="text-base font-semibold text-slate-900">{title}</h4>
+              <button type="button" onClick={onClose} className="rounded-xl p-2 hover:bg-slate-100" aria-label="Close"><span>✕</span></button>
+            </div>
+            <p className="text-sm text-slate-600">Choose how you want to add the photo.</p>
+            <button
+              type="button"
+              onClick={() => cameraInputRef.current?.click()}
+              className="w-full rounded-xl border border-slate-300 bg-white px-4 py-3 text-sm font-medium text-slate-800 hover:bg-slate-50"
+            >
+              Take Photo (Camera)
+            </button>
+            <button
+              type="button"
+              onClick={() => uploadInputRef.current?.click()}
+              className="w-full rounded-xl border border-slate-300 bg-white px-4 py-3 text-sm font-medium text-slate-800 hover:bg-slate-50"
+            >
+              Upload from Device
+            </button>
+            <input ref={cameraInputRef} type="file" accept="image/*" capture="environment" className="hidden" onChange={onFileChange} />
+            <input ref={uploadInputRef} type="file" accept="image/*" className="hidden" onChange={onFileChange} />
+          </div>
+        </div>
+      );
+    }
+
     // ---- Badge Component ----
     function Badge({ tone, children, className }) {
       const tones = {
@@ -8444,18 +8701,8 @@ function MemberDetails({ m, logs, onQuickFieldEdit, editOptions, isOwner = false
       const isActiveMember = String(m.status || '').trim().toLowerCase() === 'active';
       const injuriesNotesValue = React.useMemo(() => {
         const med = (m && typeof m.medicalAnswers === 'object' && m.medicalAnswers) ? m.medicalAnswers : {};
-        const notes = String(med.extraInfo || '').trim();
-        const log = parseInjuryNotesLog(med);
-        const logSummary = log.length
-          ? [...log]
-            .sort((a, b) => String(a.at).localeCompare(String(b.at)))
-            .map((e) => {
-              let when = String(e.at || '').slice(0, 16);
-              try { when = formatDateTimeTz(e.at, 'IST'); } catch {}
-              return `${when}: ${e.text}${e.by ? ` (${e.by})` : ''}`;
-            })
-            .join(' | ')
-          : '';
+        const latestNote = latestInjuryNoteForDisplay(med);
+        if (latestNote) return latestNote;
         const injuries = med && typeof med.injuries === 'object' ? med.injuries : {};
         const labels = [];
         if (injuries.knees) labels.push('Knees');
@@ -8465,11 +8712,7 @@ function MemberDetails({ m, logs, onQuickFieldEdit, editOptions, isOwner = false
         if (injuries.flexibility) labels.push('Flexibility');
         const other = String(injuries.other || '').trim();
         if (other) labels.push(`Other: ${other}`);
-        const parts = [];
-        if (labels.length) parts.push(`Injuries: ${labels.join(', ')}`);
-        if (notes) parts.push(`Notes: ${notes}`);
-        if (logSummary) parts.push(`Note log: ${logSummary}`);
-        return parts.join(' | ') || '—';
+        return labels.length ? `Injuries: ${labels.join(', ')}` : '—';
       }, [m]);
       const rows = [
         { label: 'Form #', key: 'formNo', value: normal(m.formNo), editable: false },
@@ -8920,7 +9163,7 @@ function QuickActions({ m, onStatusChange, holdOptions, canDelete, onDelete, can
     }
 
     // ---- Dashboard View (Members grouped by status) ----
-function DashboardView({ members, memberSyncPending = {}, onEdit, onStatusChange, holdOptions, logs, filters, filterOpen, setFilterOpen, anyFilterActive, canDelete, onDelete, billingMonthOptions, onWelcome, onWhatsAppCall, onWelcomeMail, onAddAttachment, onQuickFieldEdit, editOptions, isOwner, currentUserRole = '', fineRuleConfig, canEdit = true, onImportCsv = null, onAddExpense = null, displayTimeZone = 'IST', tableDensity = 'normal', setTableDensity = () => {}, onAddPaymentEntry = null, onDeletePaymentEntry = null, onUnlinkFamilyGroup = null }) {
+function DashboardView({ members, memberSyncPending = {}, onEdit, onStatusChange, holdOptions, logs, filters, filterOpen, setFilterOpen, anyFilterActive, canDelete, onDelete, billingMonthOptions, onWelcome, onWhatsAppCall, onWelcomeMail, onAddAttachment, onQuickFieldEdit, editOptions, isOwner, currentUserRole = '', fineRuleConfig, access = null, asOfDateKey = null, canEdit = true, onImportCsv = null, onAddExpense = null, displayTimeZone = 'IST', tableDensity = 'normal', setTableDensity = () => {}, onAddPaymentEntry = null, onDeletePaymentEntry = null, onUnlinkFamilyGroup = null }) {
       // Single expanded row across all statuses. Only one memberId may be expanded at a time.
       const [expandedId, setExpandedId] = React.useState(null);
       const [mobileDetailMemberId, setMobileDetailMemberId] = React.useState('');
@@ -8978,9 +9221,9 @@ function DashboardView({ members, memberSyncPending = {}, onEdit, onStatusChange
       const sortMembers = React.useCallback((list) => {
         const sorted = [...list];
         const getPriority = (m) => {
-          const action = primaryMessageActionForMember(m, isOwner, fineRuleConfig, currentUserRole);
-          if (action.key === 'fine') return 2;
-          if (localCalendarDateKey(m?.billingDate) === localTodayCalendarKey()) return 1;
+          const refToday = referenceTodayKey(asOfDateKey);
+          if (isPaymentByPastDue(m, { asOfKey: refToday })) return 2;
+          if (!isPaymentByPastDue(m, { asOfKey: refToday }) && localCalendarDateKey(m?.billingDate) === refToday) return 1;
           return 0;
         };
         sorted.sort((a, b) => {
@@ -9074,12 +9317,7 @@ function DashboardView({ members, memberSyncPending = {}, onEdit, onStatusChange
         isActive ? `${activeCls} ring-2 ring-offset-1 shadow-sm` : `${idleCls} hover:shadow-sm`
       );
       const overdueCount = React.useMemo(() => {
-        const today = new Date();
-        return applyFilters(members).filter(m => {
-          if (m.status !== 'Active') return false;
-          const due = retentionPaymentDeadline(m);
-          return due && due < today;
-        }).length;
+        return applyFilters(members).filter((m) => isPaymentByPastDue(m)).length;
       }, [members, applyFilters]);
       const winbackCount = grouped.Deactivated.length;
       const [metricModal, setMetricModal] = React.useState('');
@@ -9087,11 +9325,65 @@ function DashboardView({ members, memberSyncPending = {}, onEdit, onStatusChange
       const [modalAppliedSearch, setModalAppliedSearch] = React.useState('');
       const [modalSortField, setModalSortField] = React.useState('name');
       const [modalSortDirection, setModalSortDirection] = React.useState('asc');
+      const [modalPage, setModalPage] = React.useState(1);
+      const MODAL_PAGE_SIZE = 20;
       const metricModalMeta = {
-        active: { title: 'Active Members', tone: 'text-emerald-800', hint: 'Members with Active status' },
-        hold: { title: 'Hold Members', tone: 'text-amber-800', hint: 'Members currently on hold' },
-        risk: { title: 'Risk Alert', tone: 'text-orange-800', hint: 'Active members with overdue billing' },
-        winback: { title: 'Win-back Opportunity', tone: 'text-rose-800', hint: 'Deactivated members' },
+        active: {
+          title: 'Active Members',
+          tone: 'text-emerald-800',
+          hint: 'Members with Active status',
+          shell: 'border-emerald-200',
+          headerBg: 'bg-emerald-50',
+          headerText: 'text-emerald-900',
+          rowHover: 'hover:bg-emerald-50',
+          zebra: 'bg-emerald-50/40',
+          sortHover: 'hover:text-emerald-800',
+          pageActive: 'bg-emerald-600 text-white border-emerald-600',
+          pageIdle: 'border-emerald-300 text-emerald-800 hover:bg-emerald-50',
+          navBtn: 'border-emerald-300 text-emerald-800 hover:bg-emerald-50',
+        },
+        hold: {
+          title: 'Hold Members',
+          tone: 'text-amber-800',
+          hint: 'Members currently on hold',
+          shell: 'border-amber-200',
+          headerBg: 'bg-amber-50',
+          headerText: 'text-amber-900',
+          rowHover: 'hover:bg-amber-50',
+          zebra: 'bg-amber-50/40',
+          sortHover: 'hover:text-amber-800',
+          pageActive: 'bg-amber-600 text-white border-amber-600',
+          pageIdle: 'border-amber-300 text-amber-800 hover:bg-amber-50',
+          navBtn: 'border-amber-300 text-amber-800 hover:bg-amber-50',
+        },
+        risk: {
+          title: 'Risk Alert',
+          tone: 'text-orange-800',
+          hint: 'Active members with overdue billing',
+          shell: 'border-orange-200',
+          headerBg: 'bg-orange-50',
+          headerText: 'text-orange-900',
+          rowHover: 'hover:bg-orange-50',
+          zebra: 'bg-orange-50/40',
+          sortHover: 'hover:text-orange-800',
+          pageActive: 'bg-orange-600 text-white border-orange-600',
+          pageIdle: 'border-orange-300 text-orange-800 hover:bg-orange-50',
+          navBtn: 'border-orange-300 text-orange-800 hover:bg-orange-50',
+        },
+        winback: {
+          title: 'Win-back Opportunity',
+          tone: 'text-rose-800',
+          hint: 'Deactivated members',
+          shell: 'border-rose-200',
+          headerBg: 'bg-rose-50',
+          headerText: 'text-rose-900',
+          rowHover: 'hover:bg-rose-50',
+          zebra: 'bg-rose-50/40',
+          sortHover: 'hover:text-rose-800',
+          pageActive: 'bg-rose-600 text-white border-rose-600',
+          pageIdle: 'border-rose-300 text-rose-800 hover:bg-rose-50',
+          navBtn: 'border-rose-300 text-rose-800 hover:bg-rose-50',
+        },
       };
       const openMetricModal = (type) => {
         setMetricModal(type);
@@ -9099,7 +9391,11 @@ function DashboardView({ members, memberSyncPending = {}, onEdit, onStatusChange
         setModalAppliedSearch('');
         setModalSortField('name');
         setModalSortDirection('asc');
+        setModalPage(1);
       };
+      React.useEffect(() => {
+        setModalPage(1);
+      }, [metricModal, modalAppliedSearch, modalSortField, modalSortDirection]);
       const modalToggleSort = (field) => {
         setModalSortField((prevField) => {
           if (prevField === field) {
@@ -9132,17 +9428,12 @@ function DashboardView({ members, memberSyncPending = {}, onEdit, onStatusChange
       }, [modalSortDirection, modalSortField]);
       const metricModalMembers = React.useMemo(() => {
         if (!metricModal) return [];
-        const today = new Date();
         const base = applyFilters(members);
         let list = [];
         if (metricModal === 'active') list = base.filter((m) => m.status === 'Active');
         else if (metricModal === 'hold') list = base.filter((m) => m.status === 'Hold');
         else if (metricModal === 'risk') {
-          list = base.filter((m) => {
-            if (m.status !== 'Active') return false;
-            const due = retentionPaymentDeadline(m);
-            return due && due < today;
-          });
+          list = base.filter((m) => isPaymentByPastDue(m));
         } else if (metricModal === 'winback') list = base.filter((m) => m.status === 'Deactivated');
         const q = modalAppliedSearch.toLowerCase().trim();
         if (q) {
@@ -9165,16 +9456,38 @@ function DashboardView({ members, memberSyncPending = {}, onEdit, onStatusChange
       const renderMetricModal = () => {
         if (!metricModal || !metricModalMeta[metricModal]) return null;
         const meta = metricModalMeta[metricModal];
+        const totalCount = metricModalMembers.length;
+        const totalPages = Math.max(1, Math.ceil(totalCount / MODAL_PAGE_SIZE));
+        const safeModalPage = modalPage > totalPages ? 1 : modalPage;
+        const pageStart = (safeModalPage - 1) * MODAL_PAGE_SIZE;
+        const paginatedMembers = metricModalMembers.slice(pageStart, pageStart + MODAL_PAGE_SIZE);
+        const showingFrom = totalCount === 0 ? 0 : pageStart + 1;
+        const showingTo = Math.min(pageStart + MODAL_PAGE_SIZE, totalCount);
+        const pageNums = (() => {
+          if (totalPages <= 1) return [];
+          const maxButtons = 5;
+          let start = Math.max(1, safeModalPage - Math.floor(maxButtons / 2));
+          let end = Math.min(totalPages, start + maxButtons - 1);
+          start = Math.max(1, end - maxButtons + 1);
+          const nums = [];
+          for (let i = start; i <= end; i++) nums.push(i);
+          return nums;
+        })();
+        const sortBtnClass = cx('font-semibold transition-colors', meta.sortHover);
+        const navBtnClass = (disabled) => cx(
+          'px-3 py-1.5 rounded-xl border text-xs font-semibold transition-colors',
+          disabled ? 'opacity-50 cursor-not-allowed border-slate-200 text-slate-400' : meta.navBtn
+        );
         return (
           <div className="fixed inset-0 z-[65] flex items-center justify-center apg-modal-backdrop p-3 apg-filter-panel" onClick={() => setMetricModal('')}>
             <div
-              className="w-full max-w-6xl rounded-3xl bg-white border border-slate-200 shadow-xl overflow-hidden max-h-[92vh] flex flex-col apg-force-light"
+              className={cx('w-full max-w-6xl rounded-3xl bg-white border shadow-xl overflow-hidden max-h-[92vh] flex flex-col apg-force-light', meta.shell)}
               onClick={(e) => e.stopPropagation()}
             >
-              <div className="flex items-start justify-between gap-3 px-5 py-4 border-b border-slate-200">
+              <div className={cx('flex items-start justify-between gap-3 px-5 py-4 border-b', meta.shell)}>
                 <div>
                   <h3 className={cx('text-lg font-semibold', meta.tone)}>{meta.title}</h3>
-                  <p className="text-sm text-slate-500 mt-0.5">{meta.hint} · {metricModalMembers.length} member{metricModalMembers.length === 1 ? '' : 's'}</p>
+                  <p className="text-sm text-slate-500 mt-0.5">{meta.hint} · {totalCount} member{totalCount === 1 ? '' : 's'}</p>
                 </div>
                 <button type="button" onClick={() => setMetricModal('')} className="rounded-xl p-2 text-slate-500 hover:bg-slate-100" aria-label="Close">✕</button>
               </div>
@@ -9204,49 +9517,85 @@ function DashboardView({ members, memberSyncPending = {}, onEdit, onStatusChange
                   <button type="button" onClick={() => { setModalSearch(''); setModalAppliedSearch(''); }} className="text-xs font-medium text-slate-600 hover:text-slate-900">Clear search</button>
                 )}
               </div>
-              <div className="flex-1 overflow-auto px-5 py-3">
-                <table className="min-w-full text-sm">
-                  <thead>
-                    <tr className="apg-finance-table-head bg-slate-100 text-slate-800 border-b border-slate-200">
-                      <th className="px-3 py-2 text-left"><button type="button" onClick={() => modalToggleSort('memberId')} className="font-semibold hover:text-blue-700">ID <span className="text-[11px]">{modalSortIndicator('memberId')}</span></button></th>
-                      <th className="px-3 py-2 text-left"><button type="button" onClick={() => modalToggleSort('name')} className="font-semibold hover:text-blue-700">Name <span className="text-[11px]">{modalSortIndicator('name')}</span></button></th>
-                      <th className="px-3 py-2 text-left"><button type="button" onClick={() => modalToggleSort('mobile')} className="font-semibold hover:text-blue-700">Mobile <span className="text-[11px]">{modalSortIndicator('mobile')}</span></button></th>
-                      <th className="px-3 py-2 text-left"><button type="button" onClick={() => modalToggleSort('plan')} className="font-semibold hover:text-blue-700">Plan <span className="text-[11px]">{modalSortIndicator('plan')}</span></button></th>
-                      <th className="px-3 py-2 text-left"><button type="button" onClick={() => modalToggleSort('billingDate')} className="font-semibold hover:text-blue-700">Bill Date <span className="text-[11px]">{modalSortIndicator('billingDate')}</span></button></th>
-                      <th className="px-3 py-2 text-left"><button type="button" onClick={() => modalToggleSort('paymentBy')} className="font-semibold hover:text-blue-700">Payment By <span className="text-[11px]">{modalSortIndicator('paymentBy')}</span></button></th>
-                      <th className="px-3 py-2 text-left"><button type="button" onClick={() => modalToggleSort('status')} className="font-semibold hover:text-blue-700">Status <span className="text-[11px]">{modalSortIndicator('status')}</span></button></th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {metricModalMembers.map((m) => (
-                      <tr
-                        key={m.memberId}
-                        className="border-b border-slate-100 hover:bg-slate-50 cursor-pointer"
-                        onClick={() => {
-                          setMetricModal('');
-                          onEdit && onEdit(m);
-                        }}
-                      >
-                        <td className="px-3 py-2 whitespace-nowrap font-medium text-slate-800">{m.memberId || '-'}</td>
-                        <td className="px-3 py-2 whitespace-nowrap">{m.name || '-'}</td>
-                        <td className="px-3 py-2 whitespace-nowrap">{m.mobile || '-'}</td>
-                        <td className="px-3 py-2 whitespace-nowrap">{m.plan || '-'}</td>
-                        <td className="px-3 py-2 whitespace-nowrap">{fmt(m.billingDate) || '-'}</td>
-                        <td className="px-3 py-2 whitespace-nowrap">{fmt(retentionPaymentDeadline(m) || m.billingDate) || '-'}</td>
-                        <td className="px-3 py-2 whitespace-nowrap">
-                          <span className="inline-flex rounded-full border border-slate-200 bg-slate-50 px-2 py-0.5 text-xs font-semibold text-slate-700">{m.status || '-'}</span>
-                        </td>
+              <div className="flex-1 min-h-0 flex flex-col px-5 py-3 gap-3">
+                <div className={cx('flex-1 min-h-0 overflow-auto rounded-2xl border bg-white', meta.shell)}>
+                  <table className="min-w-full text-sm">
+                    <thead className="sticky top-0 z-10">
+                      <tr className={cx('apg-finance-table-head border-b', meta.headerBg, meta.headerText, meta.shell)}>
+                        <th className="px-4 py-3 text-left"><button type="button" onClick={() => modalToggleSort('memberId')} className={sortBtnClass}>ID <span className="text-[11px] opacity-70">{modalSortIndicator('memberId')}</span></button></th>
+                        <th className="px-4 py-3 text-left"><button type="button" onClick={() => modalToggleSort('name')} className={sortBtnClass}>Name <span className="text-[11px] opacity-70">{modalSortIndicator('name')}</span></button></th>
+                        <th className="px-4 py-3 text-left"><button type="button" onClick={() => modalToggleSort('mobile')} className={sortBtnClass}>Mobile <span className="text-[11px] opacity-70">{modalSortIndicator('mobile')}</span></button></th>
+                        <th className="px-4 py-3 text-left"><button type="button" onClick={() => modalToggleSort('plan')} className={sortBtnClass}>Plan <span className="text-[11px] opacity-70">{modalSortIndicator('plan')}</span></button></th>
+                        <th className="px-4 py-3 text-left"><button type="button" onClick={() => modalToggleSort('billingDate')} className={sortBtnClass}>Bill Date <span className="text-[11px] opacity-70">{modalSortIndicator('billingDate')}</span></button></th>
+                        <th className="px-4 py-3 text-left"><button type="button" onClick={() => modalToggleSort('paymentBy')} className={sortBtnClass}>Payment By <span className="text-[11px] opacity-70">{modalSortIndicator('paymentBy')}</span></button></th>
+                        <th className="px-4 py-3 text-left"><button type="button" onClick={() => modalToggleSort('status')} className={sortBtnClass}>Status <span className="text-[11px] opacity-70">{modalSortIndicator('status')}</span></button></th>
                       </tr>
-                    ))}
-                    {metricModalMembers.length === 0 && (
-                      <tr>
-                        <td colSpan={7} className="px-3 py-8 text-center text-slate-500">No members match your search.</td>
-                      </tr>
+                    </thead>
+                    <tbody>
+                      {paginatedMembers.map((m, rowIdx) => (
+                        <tr
+                          key={m.memberId}
+                          className={cx(
+                            'border-b border-slate-100 cursor-pointer transition-colors',
+                            rowIdx % 2 === 1 ? meta.zebra : 'bg-white',
+                            meta.rowHover
+                          )}
+                          onClick={() => {
+                            setMetricModal('');
+                            onEdit && onEdit(m);
+                          }}
+                        >
+                          <td className="px-4 py-3 whitespace-nowrap font-medium text-slate-800">{m.memberId || '-'}</td>
+                          <td className="px-4 py-3 whitespace-nowrap text-slate-800">{m.name || '-'}</td>
+                          <td className="px-4 py-3 whitespace-nowrap text-slate-700">{m.mobile || '-'}</td>
+                          <td className="px-4 py-3 whitespace-nowrap text-slate-700">{m.plan || '-'}</td>
+                          <td className="px-4 py-3 whitespace-nowrap text-slate-700">{fmt(m.billingDate) || '-'}</td>
+                          <td className="px-4 py-3 whitespace-nowrap text-slate-700">{fmt(retentionPaymentDeadline(m) || m.billingDate) || '-'}</td>
+                          <td className="px-4 py-3 whitespace-nowrap">
+                            <span className={cx('inline-flex rounded-full border px-2.5 py-0.5 text-xs font-semibold', meta.headerBg, meta.headerText, meta.shell)}>{m.status || '-'}</span>
+                          </td>
+                        </tr>
+                      ))}
+                      {totalCount === 0 && (
+                        <tr>
+                          <td colSpan={7} className="px-4 py-10 text-center text-slate-500">No members match your search.</td>
+                        </tr>
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+                {totalCount > 0 && (
+                  <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 text-sm border-t border-slate-200 pt-3 shrink-0">
+                    <div className="text-slate-600">
+                      Showing {showingFrom}–{showingTo} of {totalCount}
+                      {totalPages > 1 && <span className="text-slate-400"> · Page {safeModalPage} of {totalPages}</span>}
+                    </div>
+                    {totalPages > 1 && (
+                      <div className="flex flex-wrap items-center gap-1.5">
+                        <button type="button" onClick={() => setModalPage(1)} disabled={safeModalPage === 1} className={navBtnClass(safeModalPage === 1)}>First</button>
+                        <button type="button" onClick={() => setModalPage((p) => Math.max(1, p - 1))} disabled={safeModalPage === 1} className={navBtnClass(safeModalPage === 1)}>Prev</button>
+                        {pageNums.map((n) => (
+                          <button
+                            key={n}
+                            type="button"
+                            onClick={() => setModalPage(n)}
+                            className={cx(
+                              'min-w-[2rem] px-2.5 py-1.5 rounded-xl border text-xs font-semibold transition-colors',
+                              n === safeModalPage ? meta.pageActive : meta.pageIdle
+                            )}
+                            aria-current={n === safeModalPage ? 'page' : undefined}
+                          >
+                            {n}
+                          </button>
+                        ))}
+                        <button type="button" onClick={() => setModalPage((p) => Math.min(totalPages, p + 1))} disabled={safeModalPage === totalPages} className={navBtnClass(safeModalPage === totalPages)}>Next</button>
+                        <button type="button" onClick={() => setModalPage(totalPages)} disabled={safeModalPage === totalPages} className={navBtnClass(safeModalPage === totalPages)}>Last</button>
+                      </div>
                     )}
-                  </tbody>
-                </table>
+                  </div>
+                )}
               </div>
-              <div className="flex justify-end gap-2 px-5 py-3 border-t border-slate-200">
+              <div className="flex justify-end gap-2 px-5 py-3 border-t border-slate-200 shrink-0">
                 <button type="button" onClick={() => setMetricModal('')} className="rounded-full border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50">Close</button>
               </div>
             </div>
@@ -9327,6 +9676,8 @@ function DashboardView({ members, memberSyncPending = {}, onEdit, onStatusChange
                   isOwner={isOwner}
                   currentUserRole={currentUserRole}
                   fineRuleConfig={fineRuleConfig}
+                  access={access}
+                  asOfDateKey={asOfDateKey}
                   onOpenMobileDetail={(member) => setMobileDetailMemberId(member?.memberId || '')}
                   canEdit={canEdit}
                   displayTimeZone={displayTimeZone}
@@ -9609,6 +9960,8 @@ function DashboardView({ members, memberSyncPending = {}, onEdit, onStatusChange
                       isOwner={isOwner}
                       currentUserRole={currentUserRole}
                       fineRuleConfig={fineRuleConfig}
+                      access={access}
+                      asOfDateKey={asOfDateKey}
                       onOpenMobileDetail={(member) => setMobileDetailMemberId(member?.memberId || '')}
                       canEdit={canEdit}
                       displayTimeZone={displayTimeZone}
@@ -9710,6 +10063,7 @@ function EditMemberModal({ member, onClose, onSave, planOptions, statusOptions, 
           return merged;
         })(),
       }));
+      const [photoPickerOpen, setPhotoPickerOpen] = React.useState(false);
       const markAllMedicalNo = React.useCallback(() => {
         setEdit((prev) => ({
           ...prev,
@@ -9747,22 +10101,14 @@ function EditMemberModal({ member, onClose, onSave, planOptions, statusOptions, 
       // disabled unless the plan changes. See bug description.
       // Determine if any user‑editable field has changed. Only compare a
       // whitelist of fields that the user can modify through the modal.
-      const onMemberPhoto = async (e) => {
-        const file = e.target.files && e.target.files[0];
-        if (!file) return;
-        if (file.size > MAX_IMAGE_FILE_BYTES) {
-          setToast('Image too large. Please upload a file up to 10MB.');
-          setTimeout(() => setToast(''), 2500);
-          return;
-        }
-        try {
-          const raw = await loadImageDataUrl(file);
-          const compressed = await downscaleImageDataUrl(raw);
-          setEdit(prev => ({ ...prev, photo: compressed }));
-        } catch {
-          setToast('Unable to process image. Please try another file.');
-          setTimeout(() => setToast(''), 2500);
-        }
+      const onMemberPhotoFile = async (file) => {
+        await applyPhotoFromFile(file, {
+          onSuccess: (compressed) => setEdit((prev) => ({ ...prev, photo: compressed })),
+          onError: (msg) => {
+            setToast(msg);
+            setTimeout(() => setToast(''), 2500);
+          },
+        });
       };
       const dirty = React.useMemo(() => {
         // Compare editable fields to determine if anything changed. Include
@@ -9840,10 +10186,13 @@ function EditMemberModal({ member, onClose, onSave, planOptions, statusOptions, 
               )}
               <div className="mb-4 flex items-center gap-3">
                 <Avatar name={edit.name || member.name} photo={edit.photo} className="h-14 w-14" />
-                <label className="cursor-pointer rounded-xl border border-slate-300 px-3 py-2 text-sm hover:bg-slate-100">
-                  <input type="file" accept="image/*" className="hidden" onChange={onMemberPhoto} />
-                  Change Photo
-                </label>
+                <button
+                  type="button"
+                  onClick={() => setPhotoPickerOpen(true)}
+                  className="rounded-xl border border-slate-300 px-3 py-2 text-sm hover:bg-slate-100"
+                >
+                  {edit.photo ? 'Change Photo' : 'Upload Photo'}
+                </button>
                 {edit.photo && (
                   <button
                     type="button"
@@ -9854,6 +10203,12 @@ function EditMemberModal({ member, onClose, onSave, planOptions, statusOptions, 
                   </button>
                 )}
               </div>
+              <PhotoSourcePickerModal
+                open={photoPickerOpen}
+                onClose={() => setPhotoPickerOpen(false)}
+                onPickFile={onMemberPhotoFile}
+                title="Member photo"
+              />
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 {/* Row 1: Form Number and Member ID */}
                 <div>
@@ -10246,7 +10601,7 @@ function EditMemberModal({ member, onClose, onSave, planOptions, statusOptions, 
       );
     }
 
-    function VisitorsPage({ visitors, onAddVisitor, onEditVisitor, onDeleteVisitor, onConvertVisitor, onMarkCalled, focusVisitorId = '', onFocusHandled = null }) {
+    function VisitorsPage({ visitors, onAddVisitor, onEditVisitor, onDeleteVisitor, onConvertVisitor, onMarkCalled, markingVisitorCalledId = '', focusVisitorId = '', onFocusHandled = null }) {
       const [expandedId, setExpandedId] = React.useState('');
       const rows = visitors || [];
       React.useEffect(() => {
@@ -10299,16 +10654,20 @@ function EditMemberModal({ member, onClose, onSave, planOptions, statusOptions, 
                             </div>
                             <div className="mt-3 flex flex-wrap gap-2">
                               <button
-                                disabled={!canMarkCalled || calledToday}
-                                onClick={() => onMarkCalled && onMarkCalled(v.id)}
+                                type="button"
+                                disabled={!canMarkCalled || calledToday || markingVisitorCalledId === v.id}
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  if (onMarkCalled) void onMarkCalled(v.id);
+                                }}
                                 className={cx(
                                   'rounded-full border px-3 py-1.5 text-xs font-semibold',
-                                  (!canMarkCalled || calledToday)
+                                  (!canMarkCalled || calledToday || markingVisitorCalledId === v.id)
                                     ? 'border-slate-300 bg-slate-100 text-slate-500 cursor-not-allowed'
                                     : 'border-emerald-300 bg-emerald-50 text-emerald-700'
                                 )}
                               >
-                                Mark as Called
+                                {markingVisitorCalledId === v.id ? 'Saving…' : 'Mark as Called'}
                               </button>
                             </div>
                           </td>
@@ -10333,6 +10692,7 @@ function EditMemberModal({ member, onClose, onSave, planOptions, statusOptions, 
       const [step, setStep] = React.useState(1);
       const [resumeStepAfterFix, setResumeStepAfterFix] = React.useState(null);
       const [hideFooterOnMobile, setHideFooterOnMobile] = React.useState(false);
+      const [photoPickerOpen, setPhotoPickerOpen] = React.useState(false);
       const [form, setForm] = React.useState({
         formNo: '',
         name: prefillData?.fullName || '',
@@ -10711,20 +11071,11 @@ function EditMemberModal({ member, onClose, onSave, planOptions, statusOptions, 
         setStep(s => Math.min(5, s + 1));
       };
       const back = () => setStep(s => Math.max(1, s - 1));
-      const onPhoto = async (e) => {
-        const file = e.target.files?.[0];
-        if (!file) return;
-        if (file.size > MAX_IMAGE_FILE_BYTES) {
-          setWarn('Image too large. Please upload a file up to 10MB.');
-          return;
-        }
-        try {
-          const raw = await loadImageDataUrl(file);
-          const compressed = await downscaleImageDataUrl(raw);
-          setForm(f => ({ ...f, photo: compressed }));
-        } catch {
-          setWarn('Unable to process photo. Please try another image.');
-        }
+      const onPhotoFile = async (file) => {
+        await applyPhotoFromFile(file, {
+          onSuccess: (compressed) => setForm((f) => ({ ...f, photo: compressed })),
+          onError: (msg) => setWarn(msg),
+        });
       };
       const onAttachment = async (e) => {
         const files = Array.from(e.target.files || []);
@@ -10992,11 +11343,20 @@ function EditMemberModal({ member, onClose, onSave, planOptions, statusOptions, 
                     <label className="text-sm font-medium">Member Photo</label>
                     <div className="flex items-center gap-3">
                       <Avatar name={form.name} photo={form.photo} className="h-12 w-12" />
-                      <label className="cursor-pointer rounded-xl border border-slate-300 px-3 py-2 text-sm hover:bg-slate-100">
-                        <input type="file" accept="image/*" capture="environment" className="hidden" onChange={onPhoto} />
-                        Take / Upload Photo
-                      </label>
+                      <button
+                        type="button"
+                        onClick={() => setPhotoPickerOpen(true)}
+                        className="rounded-xl border border-slate-300 px-3 py-2 text-sm hover:bg-slate-100"
+                      >
+                        {form.photo ? 'Change Photo' : 'Upload Photo'}
+                      </button>
                     </div>
+                    <PhotoSourcePickerModal
+                      open={photoPickerOpen}
+                      onClose={() => setPhotoPickerOpen(false)}
+                      onPickFile={onPhotoFile}
+                      title="Member photo"
+                    />
                   </div>
                   <div>
                     <label className="text-sm font-medium">Upload Documents (up to 10MB each)</label>
@@ -13134,7 +13494,7 @@ function PTClientsPage({ members, users, settings, updateSetting, currentUser, a
           setActiveType(allowedSmsTypes[0].key);
         }
       }, [allowedSmsTypes, activeType]);
-      const todayKey = iso(new Date());
+      const todayKey = localTodayCalendarKey();
       const todayUtc = asUTC(todayKey);
       const activeMembers = members.filter(m => m.status === 'Active');
       const isOwnerForSmsTab = currentUser?.id === 'owner';
@@ -14878,10 +15238,13 @@ function PTClientsPage({ members, users, settings, updateSetting, currentUser, a
 
     // ---- User Management Page ----
     // This page allows the owner to add new staff and assign which sections they can access.
-    function UserManagementPage({ users, setUsers, settings, setSettings, currentUser, logEvent, onApprovePasswordReset }) {
+    function UserManagementPage({ users, setUsers, settings, setSettings, currentUser, dataSyncMode = 'local', logEvent, onApprovePasswordReset }) {
       const [modalOpen, setModalOpen] = React.useState(false);
+      const [photoPickerOpen, setPhotoPickerOpen] = React.useState(false);
       const [form, setForm] = React.useState({ id: '', password: '', name: '', email: '', sections: [], access: { ...DEFAULT_ACCESS }, blocked: false, blockedReason: '', blockedAt: '', updatedBy: '', photo: null, testProfile: false, sandboxId: '' });
       const [error, setError] = React.useState('');
+      const [saving, setSaving] = React.useState(false);
+      const staffErrorRef = React.useRef(null);
       const [editingId, setEditingId] = React.useState(null);
       const [shownPasswords, setShownPasswords] = React.useState({});
       const [dashboardAccessOpen, setDashboardAccessOpen] = React.useState(false);
@@ -14967,7 +15330,7 @@ function PTClientsPage({ members, users, settings, updateSetting, currentUser, a
           blockedReason: u.blockedReason || '',
           blockedAt: u.blockedAt || '',
           updatedBy: u.updatedBy || '',
-          photo: u.photo || null,
+          photo: u.photo || u.avatar || null,
           testProfile: Boolean(u.testProfile),
           sandboxId: u.sandboxId || '',
         });
@@ -15057,20 +15420,11 @@ function PTClientsPage({ members, users, settings, updateSetting, currentUser, a
         logEvent && logEvent('staff.role_template.deleted', 'settings', role.id, role, null);
       };
 
-      const onStaffPhoto = async (e) => {
-        const file = e.target.files && e.target.files[0];
-        if (!file) return;
-        if (file.size > MAX_IMAGE_FILE_BYTES) {
-          setError('Image too large. Please upload a file up to 10MB.');
-          return;
-        }
-        try {
-          const raw = await loadImageDataUrl(file);
-          const compressed = await downscaleImageDataUrl(raw);
-          setForm(prev => ({ ...prev, photo: compressed }));
-        } catch {
-          setError('Unable to process image. Please try another file.');
-        }
+      const onStaffPhotoFile = async (file) => {
+        await applyPhotoFromFile(file, {
+          onSuccess: (compressed) => setForm((prev) => ({ ...prev, photo: compressed })),
+          onError: (msg) => setError(msg),
+        });
       };
 
       const toggleSection = (sec) => {
@@ -15463,27 +15817,36 @@ function PTClientsPage({ members, users, settings, updateSetting, currentUser, a
         logEvent && logEvent('staff.deleted', 'user', u.id, u, null);
       };
 
+      const showStaffError = (msg) => {
+        setError(msg);
+        requestAnimationFrame(() => {
+          staffErrorRef.current?.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+        });
+      };
+
       const save = async () => {
+        if (saving) return;
         setError('');
         const id = form.id.trim();
         const beforeUser = editingId ? users.find(u => u.id === editingId) : null;
-        const passwordInput = String(form.password || '');
+        const passwordInput = String(form.password || '').trim();
         const name = form.name.trim();
         const email = form.email.trim();
         const needsPassword = !editingId || Boolean(passwordInput);
         if (!id || !name || (!editingId && !passwordInput)) {
-          setError('Please enter a username, password and name.');
+          showStaffError('Please enter a username, password and name.');
           return;
         }
         if (!editingId && users.some(u => u.id === id)) {
-          setError('A staff member with this username already exists.');
+          showStaffError('A staff member with this username already exists.');
           return;
         }
         if (form.sections.length === 0) {
-          setError('Please select at least one section.');
+          showStaffError('Please select at least one section.');
           return;
         }
         const updatedUser = {
+          ...(beforeUser || {}),
           id,
           name,
           email,
@@ -15495,40 +15858,60 @@ function PTClientsPage({ members, users, settings, updateSetting, currentUser, a
           updatedBy: currentUser?.id || currentUser?.name || '',
           photo: form.photo || null,
           testProfile: Boolean(form.testProfile),
-          sandboxId: form.testProfile ? (form.sandboxId || crypto.randomUUID()) : '',
+          sandboxId: form.testProfile ? (form.sandboxId || beforeUser?.sandboxId || crypto.randomUUID()) : '',
           updatedAt: new Date().toISOString(),
           ...(dataSyncMode !== 'backend' && needsPassword ? { password: passwordInput || beforeUser?.password || '' } : {}),
         };
-        if (editingId) {
-          setUsers(prev => prev.map(u => (u.id === editingId ? updatedUser : u)));
-          logEvent && logEvent('staff.updated', 'user', id, beforeUser || null, updatedUser);
-        } else {
-          setUsers(prev => [...prev, updatedUser]);
-          logEvent && logEvent('staff.created', 'user', id, null, updatedUser);
-        }
-        if (dataSyncMode === 'backend' && passwordInput) {
-          try {
-            await backendJson('/auth/admin-set-password', {
-              method: 'POST',
-              body: JSON.stringify({ staffId: id, newPassword: passwordInput }),
-            });
-          } catch {
-            setError('Staff saved but password could not be set. Use password reset or try again.');
-            return;
+        const nextUsers = editingId
+          ? users.map(u => (u.id === editingId ? updatedUser : u))
+          : [...users, updatedUser];
+        setSaving(true);
+        try {
+          if (dataSyncMode === 'backend' && passwordInput) {
+            try {
+              await backendJson('/auth/admin-set-password', {
+                method: 'POST',
+                body: JSON.stringify({ staffId: id, newPassword: passwordInput }),
+              });
+            } catch {
+              showStaffError('Password could not be set. Fix the password or leave it blank, then try again.');
+              return;
+            }
           }
-        }
-        setSettings(prev => {
-          const staffList = prev.staff || [];
-          const idx = staffList.findIndex(s => s.id === id);
-          if (idx >= 0) {
-            const next = [...staffList];
-            next[idx] = { ...next[idx], id, name, email, avatar: form.photo || next[idx].avatar || null };
-            return { ...prev, staff: next };
+          if (dataSyncMode === 'backend' && isOwnerStaffUser(currentUser)) {
+            try {
+              await backendJson('/users/bulk', {
+                method: 'PUT',
+                body: JSON.stringify({ users: usersForApi(nextUsers) }),
+              });
+            } catch {
+              showStaffError('Could not save to the server. Check your connection and try again.');
+              await queueSyncSnapshot('users', usersForApi(nextUsers)).catch(() => {});
+              return;
+            }
           }
-          return { ...prev, staff: [...staffList, { id, name, email, avatar: form.photo || null }] };
-        });
-        closeStaffModal();
-        setEditingId(null);
+          if (editingId) {
+            setUsers(nextUsers);
+            logEvent && logEvent('staff.updated', 'user', id, beforeUser || null, updatedUser);
+          } else {
+            setUsers(nextUsers);
+            logEvent && logEvent('staff.created', 'user', id, null, updatedUser);
+          }
+          setSettings(prev => {
+            const staffList = prev.staff || [];
+            const idx = staffList.findIndex(s => s.id === id);
+            if (idx >= 0) {
+              const next = [...staffList];
+              next[idx] = { ...next[idx], id, name, email, avatar: form.photo || next[idx].avatar || null };
+              return { ...prev, staff: next };
+            }
+            return { ...prev, staff: [...staffList, { id, name, email, avatar: form.photo || null }] };
+          });
+          closeStaffModal();
+          setEditingId(null);
+        } finally {
+          setSaving(false);
+        }
       };
 
       return (
@@ -15600,7 +15983,7 @@ function PTClientsPage({ members, users, settings, updateSetting, currentUser, a
                 {users.map(u => (
                   <tr key={u.id} className="border-b border-slate-200 hover:bg-slate-50">
                     <td className="px-3 py-2 whitespace-nowrap text-slate-900">
-                      <Avatar name={u.name || u.id} photo={u.photo || null} className="h-8 w-8" />
+                      <Avatar name={u.name || u.id} photo={u.photo || u.avatar || null} className="h-8 w-8" />
                     </td>
                     <td className="px-3 py-2 whitespace-nowrap text-slate-900">{u.id}</td>
                     <td className="px-3 py-2 whitespace-nowrap text-slate-900">{u.name}</td>
@@ -15676,7 +16059,7 @@ function PTClientsPage({ members, users, settings, updateSetting, currentUser, a
               {users.map(u => (
                 <div key={`mobile-staff-${u.id}`} className="py-3 space-y-2">
                   <div className="flex items-center gap-3">
-                    <Avatar name={u.name || u.id} photo={u.photo || null} className="h-10 w-10" />
+                    <Avatar name={u.name || u.id} photo={u.photo || u.avatar || null} className="h-10 w-10" />
                     <div className="min-w-0">
                       <div className="font-semibold text-slate-900 truncate">{u.name || u.id}</div>
                       <div className="text-xs text-slate-500 truncate">@{u.id}</div>
@@ -15750,14 +16133,23 @@ function PTClientsPage({ members, users, settings, updateSetting, currentUser, a
                   <button onClick={closeStaffModal} className="rounded-xl p-2 text-slate-700 hover:bg-slate-200"><span>✕</span></button>
                 </div>
                 <div className="px-6 pb-28 sm:pb-24 space-y-3 overflow-auto max-h-[calc(92vh-140px)]">
-                  {error && <div className="rounded-xl bg-rose-50 border border-rose-200 text-rose-700 px-3 py-2 text-sm">{error}</div>}
+                  {error && <div ref={staffErrorRef} className="rounded-xl bg-rose-50 border border-rose-200 text-rose-700 px-3 py-2 text-sm">{error}</div>}
                   <div className="flex items-center gap-3">
                     <Avatar name={form.name || form.id || 'Staff'} photo={form.photo} className="h-12 w-12" />
-                    <label className="cursor-pointer rounded-xl border border-slate-300 px-3 py-2 text-sm font-medium text-slate-800 hover:bg-slate-100">
-                      <input type="file" accept="image/*" className="hidden" onChange={onStaffPhoto} />
-                      Upload Picture
-                    </label>
+                    <button
+                      type="button"
+                      onClick={() => setPhotoPickerOpen(true)}
+                      className="rounded-xl border border-slate-300 px-3 py-2 text-sm font-medium text-slate-800 hover:bg-slate-100"
+                    >
+                      {form.photo ? 'Change Photo' : 'Upload Picture'}
+                    </button>
                   </div>
+                  <PhotoSourcePickerModal
+                    open={photoPickerOpen}
+                    onClose={() => setPhotoPickerOpen(false)}
+                    onPickFile={onStaffPhotoFile}
+                    title="Staff photo"
+                  />
                   <div><label className="text-sm font-medium text-slate-700">Username</label><input value={form.id} onChange={(e) => setForm({ ...form, id: e.target.value })} readOnly={Boolean(editingId)} className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 read-only:bg-slate-100 read-only:text-slate-500" /></div>
                   <div>
                     <label className="text-sm font-medium text-slate-700">Password</label>
@@ -16215,8 +16607,8 @@ function PTClientsPage({ members, users, settings, updateSetting, currentUser, a
                 </div>
                 <div className="sticky bottom-0 z-20 border-t border-slate-200 bg-white/95 backdrop-blur supports-[backdrop-filter]:bg-white/85">
                   <div className="flex flex-col-reverse sm:flex-row justify-end gap-3 px-4 sm:px-6 py-4 pb-[max(1rem,env(safe-area-inset-bottom))]">
-                    <button onClick={closeStaffModal} className="rounded-xl px-4 py-2 border border-slate-300 bg-white text-sm font-medium text-slate-700 w-full sm:w-auto min-h-[44px]">Cancel</button>
-                    <button onClick={save} className="rounded-full px-4 py-2 text-sm font-medium bg-blue-600 hover:bg-blue-700 text-white w-full sm:w-auto min-h-[44px]">{editingId ? 'Update' : 'Save'}</button>
+                    <button type="button" onClick={closeStaffModal} disabled={saving} className="rounded-xl px-4 py-2 border border-slate-300 bg-white text-sm font-medium text-slate-700 w-full sm:w-auto min-h-[44px] disabled:opacity-50">Cancel</button>
+                    <button type="button" onClick={save} disabled={saving} className="rounded-full px-4 py-2 text-sm font-medium bg-blue-600 hover:bg-blue-700 text-white w-full sm:w-auto min-h-[44px] disabled:opacity-50">{saving ? 'Saving…' : (editingId ? 'Update' : 'Save')}</button>
                   </div>
                 </div>
               </div>

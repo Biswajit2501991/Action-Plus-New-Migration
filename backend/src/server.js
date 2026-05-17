@@ -46,7 +46,8 @@ function stripUsersForApi(users) {
     return safe;
   });
 }
-app.use(express.json({ limit: '1mb' }));
+// Member bulk PUT includes base64 photos; 1mb was dropping saves silently (413).
+app.use(express.json({ limit: '25mb' }));
 app.use((req, res, next) => {
   const origin = req.headers.origin;
   if (origin && isOriginAllowed(origin, env.CORS_ALLOWED_ORIGINS)) {

@@ -119,6 +119,20 @@ async function deleteMemberChildren(sb, memberIds) {
   }
 }
 
+function paymentHistoryLogicalKey(p) {
+  if (!p || typeof p !== 'object') return '';
+  const paidRaw = String(p.paidAt || p.receivedAt || p.date || p.ts || '').trim();
+  const day = paidRaw.length >= 10 ? paidRaw.slice(0, 10) : '';
+  const month = String(p.billingMonth || (day.length >= 7 ? day.slice(0, 7) : '')).trim().toLowerCase();
+  const amt = Number(p.amount || 0);
+  const method = String(p.method || p.paymentMethod || '').trim().toLowerCase();
+  const by = String(p.recordedBy || p.by || '').trim().toLowerCase();
+  const source = String(p.source || '').trim().toLowerCase();
+  const note = String(p.note || '').trim();
+  if (!day && !amt && !method) return '';
+  return `${day}|${month}|${amt}|${method}|${by}|${source}|${note}`;
+}
+
 function buildMemberChildRows(m, gid, memberPk) {
   const payRows = [];
   const msgRows = [];
@@ -126,7 +140,13 @@ function buildMemberChildRows(m, gid, memberPk) {
   const injuryRows = [];
 
   const payments = Array.isArray(m.paymentHistory) ? m.paymentHistory : [];
+  const seenPaymentKeys = new Set();
   for (const p of payments) {
+    const logicalKey = paymentHistoryLogicalKey(p);
+    if (logicalKey) {
+      if (seenPaymentKeys.has(logicalKey)) continue;
+      seenPaymentKeys.add(logicalKey);
+    }
     payRows.push({
       gym_id: gid,
       member_id: memberPk,
@@ -315,7 +335,7 @@ async function writeUsers(users, scope) {
   const incoming = sandboxFilter(Array.isArray(users) ? users : [], scope);
   const loginIds = new Set(incoming.map((u) => String(u.id || '').trim()).filter(Boolean));
 
-  let existingQuery = sb.from(T.staff_users).select('id, staff_login_id, password_hash').eq('gym_id', gid);
+  let existingQuery = sb.from(T.staff_users).select('id, staff_login_id, password_hash, photo_url').eq('gym_id', gid);
   if (scope) existingQuery = existingQuery.eq('sandbox_id', scope.sandboxId);
   const existing = await fetchAll((from, to) => existingQuery.range(from, to));
 
@@ -333,6 +353,9 @@ async function writeUsers(users, scope) {
     if (scope) row.sandbox_id = scope.sandboxId;
 
     const found = (existing || []).find((r) => String(r.staff_login_id) === String(u.id));
+    if (found && !String(row.photo_url || '').trim() && String(found.photo_url || '').trim()) {
+      row.photo_url = found.photo_url;
+    }
     let staffPk;
     if (found) {
       const { error } = await sb.from(T.staff_users).update(row).eq('id', found.id);
