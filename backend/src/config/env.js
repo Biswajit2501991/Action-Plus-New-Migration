@@ -1,6 +1,9 @@
 import dotenv from 'dotenv';
+import { parseCorsOrigins } from './cors.js';
 
 dotenv.config();
+
+const NODE_ENV = process.env.NODE_ENV || 'development';
 
 function parseProcessControlEnabled() {
   const v = process.env.PROCESS_CONTROL_ENABLED;
@@ -10,7 +13,7 @@ function parseProcessControlEnabled() {
 }
 
 export const env = {
-  NODE_ENV: process.env.NODE_ENV || 'development',
+  NODE_ENV,
   PORT: Number(process.env.PORT || process.env.BACKEND_PORT || 4000),
   JWT_SECRET: process.env.JWT_SECRET || 'change-me',
   JWT_EXPIRES_IN: process.env.JWT_EXPIRES_IN || '12h',
@@ -19,7 +22,20 @@ export const env = {
   SUPABASE_URL: process.env.SUPABASE_URL || '',
   SUPABASE_SERVICE_ROLE_KEY: process.env.SUPABASE_SERVICE_ROLE_KEY || '',
   APG_GYM_ID: process.env.APG_GYM_ID || '',
+  /** When true, API rejects JWTs that omit gymId (forces re-login after deploy). */
+  APG_ENFORCE_GYM_JWT: process.env.APG_ENFORCE_GYM_JWT === 'true' || process.env.APG_ENFORCE_GYM_JWT === '1',
+  CORS_ALLOWED_ORIGINS: parseCorsOrigins(NODE_ENV),
   PROCESS_CONTROL_ENABLED: parseProcessControlEnabled(),
   PROCESS_CONTROL_TOKEN: process.env.PROCESS_CONTROL_TOKEN || '',
   APG_BACKEND_START_SCRIPT: process.env.APG_BACKEND_START_SCRIPT || '',
+  LOGIN_RATE_LIMIT_MAX: Math.max(3, Number(process.env.LOGIN_RATE_LIMIT_MAX || 10)),
+  LOGIN_RATE_LIMIT_WINDOW_MS: Math.max(
+    60 * 1000,
+    Number(process.env.LOGIN_RATE_LIMIT_WINDOW_MS || 15 * 60 * 1000),
+  ),
+  PASSWORD_RESET_RATE_LIMIT_MAX: Math.max(1, Number(process.env.PASSWORD_RESET_RATE_LIMIT_MAX || 5)),
+  PASSWORD_RESET_RATE_LIMIT_WINDOW_MS: Math.max(
+    60 * 1000,
+    Number(process.env.PASSWORD_RESET_RATE_LIMIT_WINDOW_MS || 15 * 60 * 1000),
+  ),
 };

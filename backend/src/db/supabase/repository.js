@@ -19,6 +19,9 @@ import {
   staffRowToApp,
   visitorRowToApp,
 } from './mappers.js';
+import { invalidateStaffAccessCache } from '../../auth/accessControl.js';
+import { hashPassword } from '../../auth/passwords.js';
+import { syncGymRowsByExternalId, syncMemberChildRows } from './collectionSync.js';
 import { bulkUpsertMemberRows, membersBulkUpsertReady } from './membersWrite.js';
 import { chunk, emptyText, fetchAll, toDate, toTs } from './utils.js';
 
@@ -127,7 +130,7 @@ function buildMemberChildRows(m, gid, memberPk) {
     payRows.push({
       gym_id: gid,
       member_id: memberPk,
-      external_payment_id: p.id ? String(p.id) : emptyText(p.id),
+      external_payment_id: p.id ? String(p.id) : crypto.randomUUID(),
       paid_at: toTs(p.paidAt || p.receivedAt || p.date || p.ts) || new Date().toISOString(),
       amount: Number(p.amount || 0),
       method: emptyText(p.method || p.paymentMethod),
@@ -145,7 +148,7 @@ function buildMemberChildRows(m, gid, memberPk) {
     msgRows.push({
       gym_id: gid,
       member_id: memberPk,
-      external_event_id: ev.id ? String(ev.id) : emptyText(ev.id),
+      external_event_id: ev.id ? String(ev.id) : crypto.randomUUID(),
       channel: emptyText(ev.channel),
       template_key: emptyText(ev.templateKey),
       status: emptyText(ev.status),
@@ -207,11 +210,11 @@ async function writeMembers(members, scope) {
     .filter((m) => m?.memberId)
     .map((m) => appMemberToRow(m, gid));
 
+  let codeToId = new Map((existing || []).map((r) => [String(r.member_code), r.id]));
   const useBulkUpsert = await membersBulkUpsertReady();
   if (useBulkUpsert) {
     await bulkUpsertMemberRows(memberRows);
   } else {
-    let codeToId = new Map((existing || []).map((r) => [String(r.member_code), r.id]));
     const toInsert = [];
     const toUpdate = [];
     for (const row of memberRows) {
@@ -239,48 +242,37 @@ async function writeMembers(members, scope) {
   const refreshed = await fetchAll((from, to) => sb.from(T.members).select('id, member_code').eq('gym_id', gid).range(from, to));
   codeToId = new Map((refreshed || []).map((r) => [String(r.member_code), r.id]));
 
-  const touchIds = incoming
-    .map((m) => codeToId.get(String(m.memberId)))
-    .filter(Boolean);
-  await deleteMemberChildren(sb, touchIds);
-
-  const allPay = [];
-  const allMsg = [];
-  const allAtt = [];
-  const allInjury = [];
   for (const m of incoming) {
     const memberPk = codeToId.get(String(m.memberId));
     if (!memberPk) continue;
     const { payRows, msgRows, attRows, injuryRows } = buildMemberChildRows(m, gid, memberPk);
-    allPay.push(...payRows);
-    allMsg.push(...msgRows);
-    allAtt.push(...attRows);
-    allInjury.push(...injuryRows);
-  }
-
-  for (const part of chunk(allPay, 80)) {
-    if (part.length) {
-      const { error } = await sb.from(T.member_payment_history).insert(part);
-      if (error) throw error;
-    }
-  }
-  for (const part of chunk(allMsg, 80)) {
-    if (part.length) {
-      const { error } = await sb.from(T.member_message_history).insert(part);
-      if (error) throw error;
-    }
-  }
-  for (const part of chunk(allAtt, 80)) {
-    if (part.length) {
-      const { error } = await sb.from(T.member_attachments).insert(part);
-      if (error) throw error;
-    }
-  }
-  for (const part of chunk(allInjury, 80)) {
-    if (part.length) {
-      const { error } = await sb.from(T.member_injury_notes).insert(part);
-      if (error) throw error;
-    }
+    await syncMemberChildRows(sb, T.member_payment_history, {
+      gymId: gid,
+      memberId: memberPk,
+      externalIdColumn: 'external_payment_id',
+      rows: payRows,
+      onConflict: 'gym_id,member_id,external_payment_id',
+    });
+    await syncMemberChildRows(sb, T.member_message_history, {
+      gymId: gid,
+      memberId: memberPk,
+      externalIdColumn: 'external_event_id',
+      rows: msgRows,
+      onConflict: 'gym_id,member_id,external_event_id',
+    });
+    await syncMemberChildRows(sb, T.member_attachments, {
+      gymId: gid,
+      memberId: memberPk,
+      externalIdColumn: null,
+      rows: attRows,
+    });
+    await syncMemberChildRows(sb, T.member_injury_notes, {
+      gymId: gid,
+      memberId: memberPk,
+      externalIdColumn: 'external_note_id',
+      rows: injuryRows,
+      onConflict: 'gym_id,member_id,external_note_id',
+    });
   }
 
   notifyCollectionChange('members');
@@ -323,7 +315,7 @@ async function writeUsers(users, scope) {
   const incoming = sandboxFilter(Array.isArray(users) ? users : [], scope);
   const loginIds = new Set(incoming.map((u) => String(u.id || '').trim()).filter(Boolean));
 
-  let existingQuery = sb.from(T.staff_users).select('id, staff_login_id').eq('gym_id', gid);
+  let existingQuery = sb.from(T.staff_users).select('id, staff_login_id, password_hash').eq('gym_id', gid);
   if (scope) existingQuery = existingQuery.eq('sandbox_id', scope.sandboxId);
   const existing = await fetchAll((from, to) => existingQuery.range(from, to));
 
@@ -347,7 +339,12 @@ async function writeUsers(users, scope) {
       if (error) throw new Error(`staff update ${u.id}: ${error.message}`);
       staffPk = found.id;
     } else {
-      const { data, error } = await sb.from(T.staff_users).insert(row).select('id').single();
+      const placeholderHash = await hashPassword(`apg-temp-${crypto.randomUUID()}`);
+      const { data, error } = await sb
+        .from(T.staff_users)
+        .insert({ ...row, password_hash: placeholderHash })
+        .select('id')
+        .single();
       if (error) throw new Error(`staff insert ${u.id}: ${error.message}`);
       staffPk = data.id;
     }
@@ -368,6 +365,7 @@ async function writeUsers(users, scope) {
       access_json: u.access && typeof u.access === 'object' ? u.access : {},
     });
     if (accErr) throw accErr;
+    invalidateStaffAccessCache(u.id);
   }
   notifyCollectionChange('users');
 }
@@ -434,9 +432,11 @@ function buildSettingsObject({ lookups, templates, configRow, staffDir, roles, l
   };
 
   for (const [key, category] of LOOKUP_CATEGORIES) {
-    settings[key] = (lookups || [])
+    const values = (lookups || [])
       .filter((r) => r.category === category && r.is_active !== false)
-      .map((r) => r.value);
+      .map((r) => String(r.value || '').trim())
+      .filter(Boolean);
+    settings[key] = [...new Set(values)];
   }
 
   for (const t of templates || []) {
@@ -450,6 +450,11 @@ function buildSettingsObject({ lookups, templates, configRow, staffDir, roles, l
     settings.financeUseEstimatedExpense = configRow.finance_use_estimated_expense !== false;
     const cfg = configRow.config_json && typeof configRow.config_json === 'object' ? configRow.config_json : {};
     Object.assign(settings, cfg);
+    for (const [key] of LOOKUP_CATEGORIES) {
+      if (Array.isArray(settings[key])) {
+        settings[key] = [...new Set(settings[key].map((v) => String(v || '').trim()).filter(Boolean))];
+      }
+    }
   }
 
   settings.staff = (staffDir || []).map((s) => ({
@@ -695,21 +700,15 @@ async function writeVisitors(visitors, scope) {
   const sb = getSupabase();
   const gid = gymId();
   const incoming = sandboxFilter(Array.isArray(visitors) ? visitors : [], scope);
-  const ids = new Set(incoming.map((v) => String(v.id || '').trim()).filter(Boolean));
-
-  const existing = await fetchAll((from, to) => sb.from(T.visitors).select('external_visitor_id').eq('gym_id', gid).range(from, to));
-  for (const row of existing || []) {
-    if (!ids.has(String(row.external_visitor_id))) {
-      await sb.from(T.visitors).delete().eq('gym_id', gid).eq('external_visitor_id', row.external_visitor_id);
-    }
-  }
-
-  for (const v of incoming) {
-    const row = appVisitorToRow(v, gid);
-    await sb.from(T.visitors).delete().eq('gym_id', gid).eq('external_visitor_id', row.external_visitor_id);
-    const { error } = await sb.from(T.visitors).insert(row);
-    if (error) throw new Error(`visitors ${v.id}: ${error.message}`);
-  }
+  const rows = incoming
+    .filter((v) => v?.id)
+    .map((v) => appVisitorToRow(v, gid));
+  await syncGymRowsByExternalId(sb, T.visitors, {
+    gymId: gid,
+    externalIdColumn: 'external_visitor_id',
+    rows,
+    onConflict: 'gym_id,external_visitor_id',
+  });
   notifyCollectionChange('visitors');
 }
 
@@ -728,34 +727,40 @@ async function writeFinance(finance, scope) {
   const members = await fetchAll((from, to) => sb.from(T.members).select('id, member_code').eq('gym_id', gid).range(from, to));
   const codeToId = new Map((members || []).map((m) => [String(m.member_code), m.id]));
 
-  await sb.from(T.finance_transactions).delete().eq('gym_id', gid);
   const rows = incoming.map((t) => appFinanceToRow(t, gid, t.memberId ? codeToId.get(String(t.memberId)) || null : null));
-  for (const part of chunk(rows, 80)) {
-    if (part.length) {
-      const { error } = await sb.from(T.finance_transactions).insert(part);
-      if (error) throw error;
-    }
-  }
+  await syncGymRowsByExternalId(sb, T.finance_transactions, {
+    gymId: gid,
+    externalIdColumn: 'external_tx_id',
+    rows,
+    onConflict: 'gym_id,external_tx_id',
+  });
   notifyCollectionChange('finance');
 }
 
 async function readLogs(scope) {
   const sb = getSupabase();
-  const rows = await fetchAll((from, to) => sb.from(T.audit_logs).select('*').order('logged_at', { ascending: false }).range(from, to));
+  const gid = gymId();
+  const rows = await fetchAll((from, to) =>
+    sb.from(T.audit_logs).select('*').eq('gym_id', gid).order('logged_at', { ascending: false }).range(from, to));
   return sandboxFilter((rows || []).map(logRowToApp), scope);
 }
 
 async function writeLogs(logs, scope) {
   const sb = getSupabase();
+  const gid = gymId();
   const incoming = sandboxFilter(Array.isArray(logs) ? logs : [], scope);
-  await sb.from(T.audit_logs).delete().gte('id', 0);
-  const rows = incoming.map((l) => appLogToRow(l));
-  for (const part of chunk(rows, 80)) {
-    if (part.length) {
-      const { error } = await sb.from(T.audit_logs).insert(part);
-      if (error) throw error;
-    }
+  if (!incoming.length) {
+    await sb.from(T.audit_logs).delete().eq('gym_id', gid);
+    notifyCollectionChange('logs');
+    return;
   }
+  const rows = incoming.map((l) => appLogToRow(l, gid));
+  await syncGymRowsByExternalId(sb, T.audit_logs, {
+    gymId: gid,
+    externalIdColumn: 'external_log_id',
+    rows,
+    onConflict: 'gym_id,external_log_id',
+  });
   notifyCollectionChange('logs');
 }
 
@@ -770,14 +775,13 @@ async function writeSmsEvents(events, scope) {
   const sb = getSupabase();
   const gid = gymId();
   const incoming = sandboxFilter(Array.isArray(events) ? events : [], scope);
-  await sb.from(T.sms_status_events).delete().eq('gym_id', gid);
   const rows = incoming.map((e) => appSmsToRow(e, gid));
-  for (const part of chunk(rows, 80)) {
-    if (part.length) {
-      const { error } = await sb.from(T.sms_status_events).insert(part);
-      if (error) throw error;
-    }
-  }
+  await syncGymRowsByExternalId(sb, T.sms_status_events, {
+    gymId: gid,
+    externalIdColumn: 'external_event_id',
+    rows,
+    onConflict: 'gym_id,external_event_id',
+  });
   notifyCollectionChange('smsEvents');
 }
 
@@ -838,6 +842,169 @@ export async function purgeSandbox(sandboxId) {
   await writeFinance([], scope);
   await writeLogs([], scope);
   await writeSmsEvents([], scope);
+}
+
+function attendanceAppToRow(gid, r) {
+  return {
+    gym_id: gid,
+    external_record_id: String(r.id || crypto.randomUUID()),
+    staff_login_id: String(r.userId || ''),
+    attendance_date: toDate(r.date),
+    status: String(r.status || 'Present'),
+    check_in: r.checkIn || null,
+    check_out: r.checkOut || null,
+    note: r.note || null,
+    first_login_at: toTs(r.firstLoginAt),
+    last_logout_at: toTs(r.lastLogoutAt),
+    auto_present_window_until: toTs(r.autoPresentWindowUntil),
+    timezone_at_mark: r.timeZoneAtMark || null,
+    auto_marked: Boolean(r.autoMarked),
+    marked_by: r.markedBy || null,
+    leave_request_id: r.leaveRequestId || null,
+    leave_auto_synced: Boolean(r.leaveAutoSynced),
+    updated_by: r.updatedBy || null,
+    created_at: toTs(r.updatedAt) || new Date().toISOString(),
+    updated_at: toTs(r.updatedAt) || new Date().toISOString(),
+  };
+}
+
+function attendanceRowToApp(r) {
+  return {
+    id: r.external_record_id,
+    userId: r.staff_login_id,
+    date: r.attendance_date,
+    status: r.status,
+    checkIn: r.check_in,
+    checkOut: r.check_out,
+    note: r.note,
+    firstLoginAt: r.first_login_at,
+    lastLogoutAt: r.last_logout_at,
+    autoPresentWindowUntil: r.auto_present_window_until,
+    timeZoneAtMark: r.timezone_at_mark,
+    autoMarked: r.auto_marked,
+    markedBy: r.marked_by,
+    leaveRequestId: r.leave_request_id,
+    leaveAutoSynced: r.leave_auto_synced,
+    updatedBy: r.updated_by,
+    updatedAt: r.updated_at,
+  };
+}
+
+async function upsertAttendanceRow(sb, gid, appRecord) {
+  const row = attendanceAppToRow(gid, appRecord);
+  const { error } = await sb.from(T.staff_attendance_records).upsert(row, {
+    onConflict: 'gym_id,external_record_id',
+  });
+  if (!error) return;
+  await sb.from(T.staff_attendance_records)
+    .delete()
+    .eq('gym_id', gid)
+    .eq('external_record_id', row.external_record_id);
+  const { error: insErr } = await sb.from(T.staff_attendance_records).insert(row);
+  if (insErr) throw new Error(`staff_attendance_records: ${insErr.message}`);
+}
+
+/**
+ * Login/logout punch for the authenticated staff member (today).
+ */
+export async function punchStaffAttendance(_scope, { userId, punchType, atIso, timeZone, actorName }) {
+  const sb = getSupabase();
+  const gid = gymId();
+  const uid = String(userId || '').trim();
+  if (!uid) throw new Error('userId required');
+  const at = atIso || new Date().toISOString();
+  const today = toDate(at);
+  const actor = actorName || uid;
+  const nowIso = at;
+
+  const { data: existing, error: selErr } = await sb
+    .from(T.staff_attendance_records)
+    .select('*')
+    .eq('gym_id', gid)
+    .eq('staff_login_id', uid)
+    .eq('attendance_date', today)
+    .maybeSingle();
+  if (selErr) throw selErr;
+
+  let appRecord;
+  if (punchType === 'logout') {
+    if (existing) {
+      appRecord = {
+        ...attendanceRowToApp(existing),
+        lastLogoutAt: nowIso,
+        updatedAt: nowIso,
+        updatedBy: actor,
+      };
+    } else {
+      appRecord = {
+        id: crypto.randomUUID(),
+        date: today,
+        userId: uid,
+        status: 'Present',
+        checkIn: '',
+        checkOut: '',
+        note: '',
+        firstLoginAt: '',
+        lastLogoutAt: nowIso,
+        autoPresentWindowUntil: '',
+        timeZoneAtMark: timeZone || null,
+        autoMarked: false,
+        markedBy: actor,
+        updatedAt: nowIso,
+        updatedBy: actor,
+      };
+    }
+  } else {
+    const windowUntil = new Date(new Date(nowIso).getTime() + (24 * 60 * 60 * 1000)).toISOString();
+    if (existing) {
+      const base = attendanceRowToApp(existing);
+      appRecord = {
+        ...base,
+        status: 'Present',
+        autoPresentWindowUntil: base.autoPresentWindowUntil || windowUntil,
+        autoMarked: true,
+        timeZoneAtMark: base.timeZoneAtMark || timeZone || null,
+        firstLoginAt: base.firstLoginAt || nowIso,
+        updatedAt: nowIso,
+        updatedBy: actor,
+      };
+    } else {
+      appRecord = {
+        id: crypto.randomUUID(),
+        date: today,
+        userId: uid,
+        status: 'Present',
+        checkIn: '',
+        checkOut: '',
+        note: '',
+        firstLoginAt: nowIso,
+        lastLogoutAt: '',
+        autoPresentWindowUntil: windowUntil,
+        timeZoneAtMark: timeZone || null,
+        autoMarked: true,
+        markedBy: actor,
+        updatedAt: nowIso,
+        updatedBy: actor,
+      };
+    }
+  }
+
+  await upsertAttendanceRow(sb, gid, appRecord);
+  notifyCollectionChange('settings');
+  return appRecord;
+}
+
+/** Upsert one or more attendance rows without wiping the gym table. */
+export async function upsertStaffAttendanceRecords(_scope, appRecords = []) {
+  const sb = getSupabase();
+  const gid = gymId();
+  const list = Array.isArray(appRecords) ? appRecords : [];
+  for (const rec of list) {
+    if (!rec?.userId || !rec?.date) continue;
+    await upsertAttendanceRow(sb, gid, rec);
+  }
+  if (list.length) notifyCollectionChange('settings');
+  return list.length;
 }
 
 export async function ping() {

@@ -114,6 +114,7 @@ async function clearGymData(supabase, gymId) {
     T.settings_staff_directory,
     T.staff_role_templates,
     T.settings_app_config,
+    T.audit_logs,
   ];
   for (const table of tablesWithGymId) {
     if (DRY_RUN) {
@@ -139,8 +140,6 @@ async function clearGymData(supabase, gymId) {
     if (accErr) throw new Error(`delete staff_user_access: ${accErr.message}`);
   }
   await deleteForGym(supabase, T.staff_users, gymId);
-  const { error: logDelErr } = await supabase.from(T.audit_logs).delete().gte('id', 0);
-  if (logDelErr) throw new Error(`delete audit_logs: ${logDelErr.message}`);
 }
 
 async function verifyGym(supabase, gymId) {
@@ -547,6 +546,7 @@ async function migrateLogs(supabase, logs, gymId) {
   console.log(`[migrate] Audit logs: ${logs.length}`);
   if (DRY_RUN || !logs.length) return;
   const rows = logs.map((l) => ({
+    gym_id: gymId,
     external_log_id: l.id ? String(l.id) : null,
     actor_name: String(l.actor || 'Unknown'),
     action: String(l.action || ''),

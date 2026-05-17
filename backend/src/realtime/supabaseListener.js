@@ -35,6 +35,7 @@ const GYM_FILTERED = new Set([
   T.staff_users,
   T.visitors,
   T.finance_transactions,
+  T.audit_logs,
   T.sms_status_events,
   T.settings_lookup_values,
   T.settings_templates,

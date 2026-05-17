@@ -1,30 +1,37 @@
-/**
- * First-pass auth middleware.
- * Replace decodeToken() with proper JWT verification in production.
- */
-export function decodeToken(rawToken) {
-  // TODO: integrate jose/jsonwebtoken and verify signature, exp, nbf, aud.
+import jwt from 'jsonwebtoken';
+import { env } from '../config/env.js';
+
+export function verifyAuthToken(rawToken) {
   if (!rawToken) return null;
   try {
-    const payload = JSON.parse(Buffer.from(rawToken.split('.')[1] || '', 'base64url').toString('utf8'));
-    return payload;
+    return jwt.verify(rawToken, env.JWT_SECRET);
   } catch {
     return null;
   }
 }
 
-export function requireAuth(req, res, next) {
+export function readBearerToken(req) {
   const auth = req.headers.authorization || '';
-  const token = auth.startsWith('Bearer ') ? auth.slice(7).trim() : '';
-  const claims = decodeToken(token);
-  if (!claims) return res.status(401).json({ error: 'unauthorized' });
-  if (!claims.userId) return res.status(401).json({ error: 'invalid-token' });
+  if (auth.startsWith('Bearer ')) return auth.slice(7).trim();
+  const q = req.query?.token;
+  if (q) return String(q).trim();
+  return '';
+}
+
+export function requireAuth(req, res, next) {
+  const token = readBearerToken(req);
+  if (token && !req.headers.authorization) {
+    req.headers.authorization = `Bearer ${token}`;
+  }
+  const claims = verifyAuthToken(token);
+  if (!claims?.userId) return res.status(401).json({ error: 'unauthorized' });
 
   req.auth = {
     token,
     userId: claims.userId,
     roles: claims.roles || [],
     permissions: claims.permissions || [],
+    gymId: claims.gymId ? String(claims.gymId) : undefined,
   };
   return next();
 }

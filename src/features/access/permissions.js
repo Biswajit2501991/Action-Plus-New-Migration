@@ -107,6 +107,9 @@ export const DEFAULT_ACCESS = {
     viewRevenueTrend4Months: true,
     viewPlanPopularity: true,
     viewTransactionsAutoMembers: true,
+    viewPendingPayments: true,
+    viewExpenseCard: true,
+    viewProfitCard: true,
     manageExpenses: true,
   },
   settings: {
@@ -181,6 +184,9 @@ export function normalizeAccess(access) {
       viewRevenueTrend4Months: access?.finance?.viewRevenueTrend4Months !== false,
       viewPlanPopularity: access?.finance?.viewPlanPopularity !== false,
       viewTransactionsAutoMembers: access?.finance?.viewTransactionsAutoMembers !== false,
+      viewPendingPayments: access?.finance?.viewPendingPayments !== false,
+      viewExpenseCard: access?.finance?.viewExpenseCard !== false,
+      viewProfitCard: access?.finance?.viewProfitCard !== false,
       manageExpenses: access?.finance?.manageExpenses !== false,
     },
     settings: {

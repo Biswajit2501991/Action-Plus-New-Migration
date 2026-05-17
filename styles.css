@@ -5,6 +5,34 @@
   intentionally remains minimal.
 */
 
+/* Modal / pop-up backdrop: ~50% soft depth blur + dark tint (unmount removes GPU layer) */
+.apg-modal-backdrop {
+  background-color: rgba(0, 0, 0, 0.4);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  transition:
+    backdrop-filter 0.3s ease,
+    -webkit-backdrop-filter 0.3s ease,
+    background-color 0.3s ease;
+  will-change: backdrop-filter;
+}
+
+@supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+  .apg-modal-backdrop {
+    background-color: rgba(0, 0, 0, 0.55);
+  }
+}
+
+dialog::backdrop {
+  background-color: rgba(0, 0, 0, 0.4);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  transition:
+    backdrop-filter 0.3s ease,
+    -webkit-backdrop-filter 0.3s ease,
+    background-color 0.3s ease;
+}
+
 /* Ensure scrollbars are subtle in dark mode */
 html.dark ::-webkit-scrollbar {
   width: 8px;
@@ -15,6 +43,14 @@ html.dark ::-webkit-scrollbar-track {
 html.dark ::-webkit-scrollbar-thumb {
   background-color: #64748b;
   border-radius: 4px;
+}
+
+html.dark .apg-sidebar nav button {
+  color: #e2e8f0 !important;
+}
+
+html.dark .apg-sidebar .apg-nav-section {
+  color: #94a3b8 !important;
 }
 
 /* Final mobile polish: keep controls touch-friendly on narrow screens */

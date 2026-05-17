@@ -146,10 +146,21 @@ export function attachmentRowToApp(row) {
   };
 }
 
+export function passwordResetStatusFromTimestamps(requestedAt, approvedAt) {
+  if (!requestedAt) return '';
+  if (!approvedAt) return 'pending';
+  const reqMs = new Date(requestedAt).getTime();
+  const appMs = new Date(approvedAt).getTime();
+  if (!Number.isFinite(reqMs)) return '';
+  if (!Number.isFinite(appMs) || reqMs > appMs) return 'pending';
+  return 'approved';
+}
+
 export function staffRowToApp(row, sections = [], access = {}) {
+  const passwordResetRequestedAt = row.password_reset_requested_at || '';
+  const passwordResetApprovedAt = row.password_reset_approved_at || '';
   return {
     id: row.staff_login_id,
-    password: row.password_hash,
     name: row.full_name,
     email: row.email || '',
     sections,
@@ -161,8 +172,12 @@ export function staffRowToApp(row, sections = [], access = {}) {
     photo: null,
     testProfile: Boolean(row.is_test_profile),
     sandboxId: row.sandbox_id || '',
-    passwordResetRequestedAt: row.password_reset_requested_at || '',
-    passwordResetApprovedAt: row.password_reset_approved_at || '',
+    passwordResetRequestedAt,
+    passwordResetApprovedAt,
+    passwordResetStatus: passwordResetStatusFromTimestamps(
+      passwordResetRequestedAt,
+      passwordResetApprovedAt,
+    ),
     lastLoginAt: row.last_login_at || '',
     createdAt: row.created_at,
     updatedAt: row.updated_at,
@@ -176,7 +191,6 @@ export function appStaffToRow(u, gymId) {
     staff_login_id: String(u.id || '').trim(),
     full_name: String(u.name || u.id || 'Staff').trim(),
     email: u.email || null,
-    password_hash: String(u.password || ''),
     is_blocked: Boolean(u.blocked),
     is_test_profile: Boolean(u.testProfile),
     blocked_reason: u.blockedReason || null,
@@ -218,7 +232,7 @@ export function appFinanceToRow(t, gymId, memberId = null) {
   const note = [statusNote, emptyText(t.note)].filter(Boolean).join(' | ');
   return {
     gym_id: gymId,
-    external_tx_id: t.id ? String(t.id) : emptyText(t.id),
+    external_tx_id: t.id ? String(t.id) : crypto.randomUUID(),
     tx_type: t.type === 'expense' ? 'expense' : 'income',
     source: emptyText(t.source) || 'manual',
     member_id: memberId,
@@ -248,9 +262,10 @@ export function logRowToApp(row) {
   };
 }
 
-export function appLogToRow(l) {
+export function appLogToRow(l, gymId) {
   return {
-    external_log_id: l.id ? String(l.id) : null,
+    gym_id: gymId,
+    external_log_id: l.id ? String(l.id) : crypto.randomUUID(),
     actor_name: String(l.actor || 'Unknown'),
     action: String(l.action || ''),
     entity_type: String(l.entityType || ''),
@@ -278,7 +293,7 @@ export function smsRowToApp(row) {
 export function appSmsToRow(e, gymId) {
   return {
     gym_id: gymId,
-    external_event_id: e.id ? String(e.id) : null,
+    external_event_id: e.id ? String(e.id) : crypto.randomUUID(),
     member_code: e.memberId || null,
     member_name: e.memberName || null,
     from_status: e.fromStatus || null,

@@ -14,7 +14,12 @@
     "db:rename-members": "node scripts/rename-members-table.js",
     "db:enable-realtime": "node scripts/run-supabase-sql.js migrations/supabase_enable_realtime.sql",
     "db:post-rename-setup": "node scripts/post-rename-setup.js",
-    "db:print-database-url": "node scripts/print-database-url.js"
+    "db:print-database-url": "node scripts/print-database-url.js",
+    "auth:hash-staff-passwords": "node scripts/hash-staff-passwords.js",
+    "auth:set-staff-password": "node scripts/set-staff-password.js",
+    "security:check-env": "node scripts/security-check-env.js",
+    "security:new-jwt-secret": "node scripts/new-jwt-secret.js",
+    "security:rotate-guide": "node scripts/rotate-secrets-guide.js"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.105.4",

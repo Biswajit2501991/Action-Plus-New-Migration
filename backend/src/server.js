@@ -1,14 +1,13 @@
 import express from 'express';
-import bcrypt from 'bcryptjs';
 import Database from 'better-sqlite3';
 import fs from 'node:fs/promises';
-import jwt from 'jsonwebtoken';
 import path from 'node:path';
 import os from 'node:os';
 import { spawn } from 'node:child_process';
 import { gzip, gunzip } from 'node:zlib';
 import { promisify } from 'node:util';
 import { env } from './config/env.js';
+import { isOriginAllowed } from './config/cors.js';
 import { query } from './db/adapter.js';
 import { membersTableName } from './db/tables.js';
 import { membersBulkUpsertReady } from './db/supabase/membersWrite.js';
@@ -21,19 +20,40 @@ import {
   useSupabase,
   writeJsonCollection,
   writeJsonValue,
+  punchStaffAttendance,
+  upsertStaffAttendanceRecords,
 } from './db/dataStore.js';
 import { addSseClient, sseClientCount } from './realtime/hub.js';
 import {
   realtimeListenerStatus,
   startSupabaseRealtimeListener,
 } from './realtime/supabaseListener.js';
-import { requireAuth } from './middleware/requireAuth.js';
-import { requirePermission } from './middleware/permissions.js';
+import { requireApiAuth } from './middleware/requireApiAuth.js';
+import { bindGymContext } from './middleware/bindGymContext.js';
+import { requireOwner, requireOwnerUnlessProcessControl } from './middleware/requireOwner.js';
+import { Access } from './auth/accessControl.js';
+import { requireAccess, requireLogsBulkAccess } from './middleware/permissions.js';
+import authRouter from './routes/auth.js';
 
 const app = express();
+app.set('trust proxy', true);
+
+function stripUsersForApi(users) {
+  if (!Array.isArray(users)) return [];
+  return users.map((u) => {
+    if (!u || typeof u !== 'object') return u;
+    const { password, ...safe } = u;
+    return safe;
+  });
+}
 app.use(express.json({ limit: '1mb' }));
 app.use((req, res, next) => {
-  res.setHeader('Access-Control-Allow-Origin', '*');
+  const origin = req.headers.origin;
+  if (origin && isOriginAllowed(origin, env.CORS_ALLOWED_ORIGINS)) {
+    res.setHeader('Access-Control-Allow-Origin', origin);
+    res.setHeader('Vary', 'Origin');
+    res.setHeader('Access-Control-Allow-Credentials', 'true');
+  }
   res.setHeader('Access-Control-Allow-Methods', 'GET,POST,PUT,PATCH,DELETE,OPTIONS');
   res.setHeader(
     'Access-Control-Allow-Headers',
@@ -42,22 +62,6 @@ app.use((req, res, next) => {
   if (req.method === 'OPTIONS') return res.status(204).end();
   return next();
 });
-
-function buildSingleTenantClaims(user) {
-  const fallbackRole = String(user?.username || '').toLowerCase() === 'owner' || String(user?.id || '').toLowerCase() === 'owner'
-    ? 'owner'
-    : 'staff';
-  return {
-    roles: [fallbackRole],
-    permissions: ['*'],
-  };
-}
-
-function signAuthToken({ userId, roles, permissions }) {
-  return jwt.sign({ userId, roles, permissions }, env.JWT_SECRET, {
-    expiresIn: env.JWT_EXPIRES_IN,
-  });
-}
 
 const DB_FILE_PATH = path.resolve(process.cwd(), env.DATABASE_PATH);
 const DB_BACKUP_DIR = path.resolve(path.dirname(DB_FILE_PATH), 'backups');
@@ -288,6 +292,7 @@ async function healthPayload(extra = {}) {
   return {
     service: 'gym-backend',
     env: env.NODE_ENV,
+    configuredGymId: env.APG_GYM_ID || null,
     dataBackend: dataBackendLabel(),
     membersTable: useSupabase() ? membersTableName : null,
     membersBulkUpsert: useSupabase() ? await membersBulkUpsertReady() : null,
@@ -312,6 +317,11 @@ app.get('/api/health', async (_req, res) => {
     res.status(503).json({ ok: false, ...(await healthPayload({ error: String(error?.message || error) })) });
   }
 });
+
+app.use('/api/auth', authRouter);
+
+app.use('/api', requireApiAuth);
+app.use('/api', bindGymContext);
 
 app.get('/api/realtime/stream', (req, res) => {
   if (!useSupabase()) {
@@ -345,7 +355,7 @@ function allowProcessControl(req, res) {
   return null;
 }
 
-app.post('/api/process/stop', (req, res) => {
+app.post('/api/process/stop', requireOwnerUnlessProcessControl, (req, res) => {
   const denied = allowProcessControl(req, res);
   if (denied) return;
   res.json({
@@ -357,7 +367,7 @@ app.post('/api/process/stop', (req, res) => {
   setTimeout(() => process.exit(0), 3000);
 });
 
-app.post('/api/process/restart', (req, res) => {
+app.post('/api/process/restart', requireOwnerUnlessProcessControl, (req, res) => {
   const denied = allowProcessControl(req, res);
   if (denied) return;
   res.json({
@@ -369,7 +379,7 @@ app.post('/api/process/restart', (req, res) => {
   setTimeout(() => process.exit(0), 3000);
 });
 
-app.post('/api/process/start', (req, res) => {
+app.post('/api/process/start', requireOwnerUnlessProcessControl, (req, res) => {
   const denied = allowProcessControl(req, res);
   if (denied) return;
   const script = String(env.APG_BACKEND_START_SCRIPT || '').trim();
@@ -406,84 +416,115 @@ app.post('/api/process/start', (req, res) => {
   }
 });
 
-app.get('/api/members', async (req, res) => {
+app.get('/api/members', requireAccess(Access.membersRead), async (req, res) => {
   const members = await readScopedCollection(req, 'apg.members', []);
   res.json(members);
 });
 
-app.put('/api/members/bulk', async (req, res) => {
+app.put('/api/members/bulk', requireAccess(Access.membersWrite), async (req, res) => {
   await writeScopedCollection(req, 'apg.members', req.body?.members || []);
   queueDatabaseBackup('members-bulk');
   res.json({ ok: true });
 });
 
-app.get('/api/visitors', async (req, res) => {
+app.get('/api/visitors', requireAccess(Access.visitorsRead), async (req, res) => {
   const visitors = await readScopedCollection(req, 'apg.visitors', []);
   res.json(visitors);
 });
 
-app.put('/api/visitors/bulk', async (req, res) => {
+app.put('/api/visitors/bulk', requireAccess(Access.visitorsWrite), async (req, res) => {
   await writeScopedCollection(req, 'apg.visitors', req.body?.visitors || []);
   queueDatabaseBackup('visitors-bulk');
   res.json({ ok: true });
 });
 
-app.get('/api/users', async (_req, res) => {
+app.get('/api/users', requireOwner, async (_req, res) => {
   const users = await readJsonCollection('apg.users', [], null);
   res.json(users);
 });
 
-app.put('/api/users/bulk', async (req, res) => {
-  await writeJsonCollection('apg.users', req.body?.users || []);
+app.put('/api/users/bulk', requireOwner, async (req, res) => {
+  await writeJsonCollection('apg.users', stripUsersForApi(req.body?.users || []));
   queueDatabaseBackup('users-bulk');
   res.json({ ok: true });
 });
 
-app.get('/api/settings', async (req, res) => {
+app.get('/api/settings', requireAccess(Access.settingsRead), async (req, res) => {
   const settings = await readScopedSettings(req);
   res.json(settings || {});
 });
 
-app.put('/api/settings/bulk', async (req, res) => {
+app.put('/api/settings/bulk', requireOwner, async (req, res) => {
   await writeScopedSettings(req, req.body?.settings || {});
   queueDatabaseBackup('settings-bulk');
   res.json({ ok: true });
 });
 
-app.get('/api/logs', async (req, res) => {
+app.post('/api/attendance/punch', requireAccess(Access.attendancePunch), async (req, res) => {
+  try {
+    const punchType = String(req.body?.type || 'login').toLowerCase();
+    if (punchType !== 'login' && punchType !== 'logout') {
+      return res.status(400).json({ error: 'invalid_type', message: 'type must be login or logout' });
+    }
+    const record = await punchStaffAttendance(readSandboxScope(req), {
+      userId: req.auth.userId,
+      punchType,
+      atIso: req.body?.at || new Date().toISOString(),
+      timeZone: req.body?.timeZone || null,
+      actorName: req.body?.actorName || req.auth.userId,
+    });
+    queueDatabaseBackup('attendance-punch');
+    return res.json({ ok: true, record });
+  } catch (error) {
+    return res.status(500).json({ error: 'attendance_punch_failed', message: String(error?.message || error) });
+  }
+});
+
+app.put('/api/attendance/records', requireAccess(Access.attendanceWrite), async (req, res) => {
+  try {
+    const records = Array.isArray(req.body?.records) ? req.body.records : [];
+    const count = await upsertStaffAttendanceRecords(readSandboxScope(req), records);
+    queueDatabaseBackup('attendance-records');
+    return res.json({ ok: true, count });
+  } catch (error) {
+    return res.status(500).json({ error: 'attendance_write_failed', message: String(error?.message || error) });
+  }
+});
+
+app.get('/api/logs', requireAccess(Access.logsRead), async (req, res) => {
   const logs = await readScopedCollection(req, 'apg.logs', []);
   res.json(logs);
 });
 
-app.put('/api/logs/bulk', async (req, res) => {
+app.put('/api/logs/bulk', requireLogsBulkAccess, async (req, res) => {
   await writeScopedCollection(req, 'apg.logs', req.body?.logs || []);
   queueDatabaseBackup('logs-bulk');
   res.json({ ok: true });
 });
 
-app.get('/api/finance', async (req, res) => {
+app.get('/api/finance', requireAccess(Access.financeRead), async (req, res) => {
   const finance = await readScopedCollection(req, 'apg.finance', []);
   res.json(finance);
 });
 
-app.put('/api/finance/bulk', async (req, res) => {
+app.put('/api/finance/bulk', requireAccess(Access.financeWrite), async (req, res) => {
   await writeScopedCollection(req, 'apg.finance', req.body?.finance || []);
   queueDatabaseBackup('finance-bulk');
   res.json({ ok: true });
 });
 
-app.get('/api/sms-events', async (req, res) => {
+app.get('/api/sms-events', requireAccess(Access.smsRead), async (req, res) => {
   const events = await readScopedCollection(req, 'apg.sms.events', []);
   res.json(events);
 });
 
-app.put('/api/sms-events/bulk', async (req, res) => {
+app.put('/api/sms-events/bulk', requireAccess(Access.smsWrite), async (req, res) => {
   await writeScopedCollection(req, 'apg.sms.events', req.body?.smsEvents || []);
   queueDatabaseBackup('sms-events-bulk');
   res.json({ ok: true });
 });
 
-app.post('/api/test-users/purge', async (req, res) => {
+app.post('/api/test-users/purge', requireOwner, async (req, res) => {
   const sandboxId = String(req.body?.sandboxId || '').trim();
   const userId = String(req.body?.userId || '').trim();
   if (!sandboxId) return res.status(400).json({ error: 'sandbox-id-required' });
@@ -492,17 +533,17 @@ app.post('/api/test-users/purge', async (req, res) => {
   return res.json({ ok: true, sandboxId, userId });
 });
 
-app.get('/api/storage', async (_req, res) => {
+app.get('/api/storage', requireOwner, async (_req, res) => {
   const data = await computeStorageUsage();
   res.json(data);
 });
 
-app.get('/api/backups', async (_req, res) => {
+app.get('/api/backups', requireOwner, async (_req, res) => {
   const backups = await listBackupNames();
   res.json({ backups });
 });
 
-app.delete('/api/backups/:fileName', async (req, res) => {
+app.delete('/api/backups/:fileName', requireOwner, async (req, res) => {
   const raw = req.params?.fileName || '';
   const fileName = decodeURIComponent(raw);
   if (!fileName) return res.status(400).json({ error: 'file-required' });
@@ -517,7 +558,7 @@ app.delete('/api/backups/:fileName', async (req, res) => {
   }
 });
 
-app.post('/api/backups/prune-older', async (req, res) => {
+app.post('/api/backups/prune-older', requireOwner, async (req, res) => {
   const days = Number(req.body?.days || 0);
   if (!Number.isFinite(days) || days <= 0) return res.status(400).json({ error: 'invalid-days' });
   await pruneBackups({ keepLatest: MAX_DB_BACKUPS, maxAgeDays: days, hardCapBytes: MAX_BACKUP_TOTAL_BYTES, compressOld: COMPRESS_OLD_BACKUPS });
@@ -526,7 +567,7 @@ app.post('/api/backups/prune-older', async (req, res) => {
   return res.json({ ok: true, backups, storage });
 });
 
-app.post('/api/backups/keep-latest', async (req, res) => {
+app.post('/api/backups/keep-latest', requireOwner, async (req, res) => {
   const count = Number(req.body?.count || 0);
   if (!Number.isFinite(count) || count < 1) return res.status(400).json({ error: 'invalid-count' });
   await pruneBackups({ keepLatest: count, maxAgeDays: null, hardCapBytes: MAX_BACKUP_TOTAL_BYTES, compressOld: COMPRESS_OLD_BACKUPS });
@@ -535,7 +576,7 @@ app.post('/api/backups/keep-latest', async (req, res) => {
   return res.json({ ok: true, backups, storage });
 });
 
-app.post('/api/backups/restore', async (req, res) => {
+app.post('/api/backups/restore', requireOwner, async (req, res) => {
   const fileName = req.body?.fileName || '';
   if (!fileName) return res.status(400).json({ error: 'file-required' });
   if (useSupabase()) {
@@ -556,64 +597,6 @@ app.post('/api/backups/restore', async (req, res) => {
 setInterval(() => {
   queueDatabaseBackup('interval-autosave');
 }, Math.max(5 * 60 * 1000, AUTO_BACKUP_INTERVAL_MS));
-
-app.post('/api/v1/auth/login', async (req, res) => {
-  const identifier = (req.body?.identifier || req.body?.id || '').trim();
-  const password = req.body?.password || '';
-  if (!identifier || !password) {
-    return res.status(400).json({ error: 'identifier-password-required' });
-  }
-
-  const userResult = await query(
-    `select id, email, username, full_name, password_hash, status
-     from users
-     where lower(email) = lower($1) or lower(username) = lower($1)
-     limit 1`,
-    [identifier],
-  );
-  if (!userResult.rowCount) return res.status(401).json({ error: 'invalid-credentials' });
-
-  const user = userResult.rows[0];
-  if (user.status !== 'active') return res.status(403).json({ error: 'user-inactive' });
-
-  const isValid = await bcrypt.compare(password, user.password_hash);
-  if (!isValid) return res.status(401).json({ error: 'invalid-credentials' });
-
-  const { roles, permissions } = buildSingleTenantClaims(user);
-  const token = signAuthToken({ userId: user.id, roles, permissions });
-
-  await query(`update users set last_login_at = now(), updated_at = now() where id = $1`, [user.id]);
-
-  return res.json({
-    token,
-    user: {
-      id: user.id,
-      email: user.email,
-      username: user.username,
-      fullName: user.full_name,
-      roles,
-      permissions,
-    },
-  });
-});
-
-app.get('/api/v1/auth/me', requireAuth, (req, res) => {
-  res.json({
-    userId: req.auth.userId,
-    roles: req.auth.roles,
-    permissions: req.auth.permissions,
-  });
-});
-
-app.get(
-  '/api/v1/settings',
-  requireAuth,
-  requirePermission('*'),
-  (_req, res) => {
-    // TODO: read app settings from database
-    res.json({ data: {} });
-  },
-);
 
 app.listen(env.PORT, () => {
   // eslint-disable-next-line no-console
