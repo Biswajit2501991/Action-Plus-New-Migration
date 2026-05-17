@@ -8,13 +8,21 @@
     "start": "node src/server.js",
     "db:migrate": "node scripts/run-sql.js migrations/0001_init_multitenant.sql",
     "db:seed": "node scripts/run-sql.js seeds/0001_seed_permissions.sql",
-    "db:restore": "node scripts/restore-db.js"
+    "db:restore": "node scripts/restore-db.js",
+    "db:migrate-supabase": "node scripts/migrate-to-supabase.js",
+    "db:migrate-supabase:dry": "node scripts/migrate-to-supabase.js --dry-run",
+    "db:rename-members": "node scripts/rename-members-table.js",
+    "db:enable-realtime": "node scripts/run-supabase-sql.js migrations/supabase_enable_realtime.sql",
+    "db:post-rename-setup": "node scripts/post-rename-setup.js",
+    "db:print-database-url": "node scripts/print-database-url.js"
   },
   "dependencies": {
+    "@supabase/supabase-js": "^2.105.4",
     "bcryptjs": "^2.4.3",
     "better-sqlite3": "latest",
     "dotenv": "^16.4.7",
     "express": "^4.21.2",
-    "jsonwebtoken": "^9.0.2"
+    "jsonwebtoken": "^9.0.2",
+    "pg": "^8.20.0"
   }
 }

@@ -241,6 +241,21 @@ const server = http.createServer((req, res) => {
   fs.createReadStream(abs).pipe(res);
 });
 
+server.on('error', (err) => {
+  if (err?.code === 'EADDRINUSE') {
+    // eslint-disable-next-line no-console
+    console.error(
+      `[dev:web] Port ${frontendPort} is already in use (often Cursor/VS Code Live Preview on 5500).`,
+    );
+    // eslint-disable-next-line no-console
+    console.error('[dev:web] Set FRONTEND_PORT=5501 in .env (recommended) and restart.');
+  } else {
+    // eslint-disable-next-line no-console
+    console.error('[dev:web] Server error:', err?.message || err);
+  }
+  process.exit(1);
+});
+
 server.listen(frontendPort, frontendHost, async () => {
   await ensureLocalSupervisor();
   // eslint-disable-next-line no-console
