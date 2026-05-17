@@ -5,7 +5,11 @@
 backend/.env
 
 # Local SQLite database and backups
+data/
 backend/data/
+*.db
+*.db-shm
+*.db-wal
 
 # Runtime logs
 logs/
