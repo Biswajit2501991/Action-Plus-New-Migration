@@ -6,7 +6,12 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const rootDir = path.resolve(__dirname, '..');
 
-function run(name, command, args, cwd) {
+let shuttingDown = false;
+let frontendRestartTimer = null;
+let frontendBackoffMs = 2000;
+const FRONTEND_RESTART_MAX_MS = 30000;
+
+function run(name, command, args, cwd, { onExit } = {}) {
   const child = spawn(command, args, {
     cwd,
     stdio: ['inherit', 'pipe', 'pipe'],
@@ -20,6 +25,7 @@ function run(name, command, args, cwd) {
   child.on('exit', (code, signal) => {
     const suffix = signal ? `signal ${signal}` : `code ${code}`;
     process.stdout.write(`${prefix} exited with ${suffix}\n`);
+    onExit?.(code, signal);
   });
 
   return child;
@@ -27,12 +33,39 @@ function run(name, command, args, cwd) {
 
 const npmCmd = process.platform === 'win32' ? 'npm.cmd' : 'npm';
 
-const supervisor = run('supervisor', 'node', [path.join(rootDir, 'scripts', 'apg-supervisor.mjs')], rootDir);
-const frontend = run('frontend', npmCmd, ['run', 'dev:web'], rootDir);
+let supervisor = run('supervisor', 'node', [path.join(rootDir, 'scripts', 'apg-supervisor.mjs')], rootDir);
+let frontend = null;
+
+function startFrontend() {
+  frontend = run('frontend', npmCmd, ['run', 'dev:web'], rootDir, {
+    onExit: (code, signal) => {
+      frontend = null;
+      if (shuttingDown) return;
+      if (frontendRestartTimer) return;
+      const delay = frontendBackoffMs;
+      frontendBackoffMs = Math.min(frontendBackoffMs * 2, FRONTEND_RESTART_MAX_MS);
+      process.stdout.write(`[dev:all] restarting frontend in ${delay}ms (${signal || code})\n`);
+      frontendRestartTimer = setTimeout(() => {
+        frontendRestartTimer = null;
+        if (!shuttingDown) startFrontend();
+      }, delay);
+    },
+  });
+  setTimeout(() => {
+    frontendBackoffMs = 2000;
+  }, 60000);
+}
+
+startFrontend();
 
 function shutdown() {
+  shuttingDown = true;
+  if (frontendRestartTimer) {
+    clearTimeout(frontendRestartTimer);
+    frontendRestartTimer = null;
+  }
   supervisor.kill('SIGTERM');
-  frontend.kill('SIGTERM');
+  frontend?.kill('SIGTERM');
 }
 
 process.on('SIGINT', shutdown);
