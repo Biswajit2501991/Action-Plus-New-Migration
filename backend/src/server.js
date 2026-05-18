@@ -599,6 +599,11 @@ setInterval(() => {
   queueDatabaseBackup('interval-autosave');
 }, Math.max(5 * 60 * 1000, AUTO_BACKUP_INTERVAL_MS));
 
+process.on('unhandledRejection', (reason) => {
+  // eslint-disable-next-line no-console
+  console.error('[backend] unhandledRejection:', reason?.message || reason);
+});
+
 app.listen(env.PORT, () => {
   // eslint-disable-next-line no-console
   console.log(`Backend listening on :${env.PORT} (data: ${dataBackendLabel()})`);

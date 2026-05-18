@@ -760,11 +760,24 @@ async function writeFinance(finance, scope) {
   notifyCollectionChange('finance');
 }
 
+let auditLogsGymScoped;
+
+async function auditLogsHasGymColumn(sb) {
+  if (auditLogsGymScoped !== undefined) return auditLogsGymScoped;
+  const { error } = await sb.from(T.audit_logs).select('gym_id').limit(0);
+  auditLogsGymScoped = !(error && String(error.message || '').includes('gym_id'));
+  return auditLogsGymScoped;
+}
+
 async function readLogs(scope) {
   const sb = getSupabase();
   const gid = gymId();
-  const rows = await fetchAll((from, to) =>
-    sb.from(T.audit_logs).select('*').eq('gym_id', gid).order('logged_at', { ascending: false }).range(from, to));
+  const gymScoped = await auditLogsHasGymColumn(sb);
+  const rows = await fetchAll((from, to) => {
+    let q = sb.from(T.audit_logs).select('*').order('logged_at', { ascending: false });
+    if (gymScoped) q = q.eq('gym_id', gid);
+    return q.range(from, to);
+  });
   return sandboxFilter((rows || []).map(logRowToApp), scope);
 }
 
@@ -772,18 +785,32 @@ async function writeLogs(logs, scope) {
   const sb = getSupabase();
   const gid = gymId();
   const incoming = sandboxFilter(Array.isArray(logs) ? logs : [], scope);
+  const gymScoped = await auditLogsHasGymColumn(sb);
   if (!incoming.length) {
-    await sb.from(T.audit_logs).delete().eq('gym_id', gid);
+    if (gymScoped) await sb.from(T.audit_logs).delete().eq('gym_id', gid);
     notifyCollectionChange('logs');
     return;
   }
-  const rows = incoming.map((l) => appLogToRow(l, gid));
-  await syncGymRowsByExternalId(sb, T.audit_logs, {
-    gymId: gid,
-    externalIdColumn: 'external_log_id',
-    rows,
-    onConflict: 'gym_id,external_log_id',
+  const rows = incoming.map((l) => {
+    const row = appLogToRow(l, gid);
+    if (!gymScoped) delete row.gym_id;
+    return row;
   });
+  if (gymScoped) {
+    await syncGymRowsByExternalId(sb, T.audit_logs, {
+      gymId: gid,
+      externalIdColumn: 'external_log_id',
+      rows,
+      onConflict: 'gym_id,external_log_id',
+    });
+  } else {
+    for (const row of rows) {
+      const extId = row.external_log_id;
+      await sb.from(T.audit_logs).delete().eq('external_log_id', extId);
+      const { error } = await sb.from(T.audit_logs).insert(row);
+      if (error) throw new Error(`audit_logs insert ${extId}: ${error.message}`);
+    }
+  }
   notifyCollectionChange('logs');
 }
 

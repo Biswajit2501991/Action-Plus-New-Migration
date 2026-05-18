@@ -31,11 +31,11 @@ function buildTableCollection() {
   };
 }
 
+/** Tables without gym_id (legacy single-gym schema) must not use gym_id realtime filters. */
 const GYM_FILTERED = new Set([
   T.staff_users,
   T.visitors,
   T.finance_transactions,
-  T.audit_logs,
   T.sms_status_events,
   T.settings_lookup_values,
   T.settings_templates,
@@ -87,12 +87,26 @@ export function startSupabaseRealtimeListener() {
     channel.on('postgres_changes', opts, () => onTableChange(tableMap, table));
   }
 
-  channel.subscribe((status, err) => {
-    if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT') {
-      // eslint-disable-next-line no-console
-      console.warn('[realtime] channel issue:', status, err?.message || err || '');
+  try {
+    const sub = channel.subscribe((status, err) => {
+      if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT') {
+        // eslint-disable-next-line no-console
+        console.warn('[realtime] channel issue:', status, err?.message || err || '');
+      }
+    });
+    if (sub && typeof sub.catch === 'function') {
+      sub.catch((err) => {
+        // eslint-disable-next-line no-console
+        console.warn('[realtime] subscribe failed:', err?.message || err || '');
+      });
     }
-  });
+  } catch (err) {
+    started = false;
+    channel = null;
+    // eslint-disable-next-line no-console
+    console.warn('[realtime] setup failed:', err?.message || err || '');
+    return { ok: false, reason: 'subscribe-failed' };
+  }
 
   return { ok: true, tables: tables.length };
 }
