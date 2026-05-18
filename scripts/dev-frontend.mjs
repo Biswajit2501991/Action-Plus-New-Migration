@@ -19,6 +19,10 @@ const backendHost = process.env.BACKEND_HOST || '127.0.0.1';
 const supervisorPort = Number(process.env.APG_SUPERVISOR_PORT || 4010);
 const SUPERVISOR_PROXY_PREFIX = '/__apg_supervisor';
 const API_PROXY_PREFIX = '/api';
+const V2_PREFIX = '/v2';
+const v2DistDir = path.resolve(rootDir, 'v2', 'dist');
+const v2DevOrigin = process.env.V2_DEV_URL || 'http://127.0.0.1:5173';
+const v2DevProxy = ['1', 'true', 'yes'].includes(String(process.env.V2_DEV_PROXY || '').toLowerCase());
 
 let supervisorChild = null;
 let supervisorChildOwned = false;
@@ -190,6 +194,59 @@ function safeResolveFile(urlPath) {
   return abs;
 }
 
+function safeResolveV2File(urlPath) {
+  const sub = decodeURIComponent(urlPath.split('?')[0]).replace(/^\/v2\/?/, '');
+  const rel = sub === '' ? 'index.html' : sub;
+  const abs = path.resolve(v2DistDir, rel);
+  if (!abs.startsWith(v2DistDir)) return null;
+  return abs;
+}
+
+function proxyToV2Dev(clientReq, clientRes) {
+  const target = new URL(clientReq.url || '/v2/', v2DevOrigin);
+  const hopHeaders = new Set(['connection', 'keep-alive', 'host', 'transfer-encoding', 'upgrade']);
+  const outHeaders = {};
+  for (const [k, v] of Object.entries(clientReq.headers)) {
+    if (!v || hopHeaders.has(k.toLowerCase())) continue;
+    outHeaders[k] = v;
+  }
+  const proxyReq = http.request(
+    {
+      hostname: target.hostname,
+      port: target.port || (target.protocol === 'https:' ? 443 : 80),
+      path: target.pathname + target.search,
+      method: clientReq.method,
+      headers: outHeaders,
+    },
+    (proxyRes) => {
+      clientRes.writeHead(proxyRes.statusCode || 502, proxyRes.headers);
+      proxyRes.pipe(clientRes);
+    },
+  );
+  proxyReq.on('error', (err) => {
+    if (clientRes.headersSent) return;
+    clientRes.writeHead(502, { 'Content-Type': 'text/plain; charset=utf-8' });
+    clientRes.end(`v2 dev proxy failed: ${err?.message || err}`);
+  });
+  clientReq.pipe(proxyReq);
+}
+
+function serveV2Static(req, res) {
+  const u = new URL(req.url || '/', `http://${frontendHost}`);
+  let filePath = safeResolveV2File(u.pathname);
+  if (!filePath || !fs.existsSync(filePath) || fs.statSync(filePath).isDirectory()) {
+    filePath = path.join(v2DistDir, 'index.html');
+  }
+  if (!fs.existsSync(filePath)) {
+    res.writeHead(404, { 'Content-Type': 'text/plain; charset=utf-8' });
+    res.end('v2 build not found — run: npm run build:v2');
+    return;
+  }
+  const ext = path.extname(filePath).toLowerCase();
+  res.writeHead(200, { 'Content-Type': mimeByExt[ext] || 'application/octet-stream' });
+  fs.createReadStream(filePath).pipe(res);
+}
+
 const server = http.createServer((req, res) => {
   const reqPath = req.url || '/';
 
@@ -203,6 +260,10 @@ const server = http.createServer((req, res) => {
       ...(process.env.PROCESS_CONTROL_TOKEN
         ? { PROCESS_CONTROL_TOKEN: process.env.PROCESS_CONTROL_TOKEN }
         : {}),
+      V2_VISITORS_ENABLED: ['1', 'true', 'yes'].includes(
+        String(process.env.V2_VISITORS_ENABLED || '').toLowerCase(),
+      ),
+      V2_BASE_PATH: '/v2/',
     };
     res.writeHead(200, { 'Content-Type': 'application/javascript; charset=utf-8' });
     res.end(`window.__APG_ENV__ = ${JSON.stringify(payload)};`);
@@ -226,6 +287,22 @@ const server = http.createServer((req, res) => {
 
   if (reqPath === API_PROXY_PREFIX || reqPath.startsWith(`${API_PROXY_PREFIX}/`)) {
     proxyToBackend(req, res);
+    return;
+  }
+
+  if (reqPath === '/visitors' || reqPath.startsWith('/visitors?')) {
+    const u = new URL(req.url || '/', `http://${frontendHost}`);
+    res.writeHead(302, { Location: `/v2/visitors${u.search}` });
+    res.end();
+    return;
+  }
+
+  if (reqPath === V2_PREFIX || reqPath.startsWith(`${V2_PREFIX}/`)) {
+    if (v2DevProxy) {
+      proxyToV2Dev(req, res);
+    } else {
+      serveV2Static(req, res);
+    }
     return;
   }
 

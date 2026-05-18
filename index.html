@@ -1935,6 +1935,14 @@ Phone: +91-7047157510`;
         parseApgTimeMs(v.createdAt),
       );
     };
+    const apgV2VisitorsEnabled = () => Boolean(window.__APG_ENV__?.V2_VISITORS_ENABLED);
+    const apgGoToV2Visitors = (focusVisitorId) => {
+      const base = String(window.__APG_ENV__?.V2_BASE_PATH || '/v2/');
+      let url = `${base.replace(/\/?$/, '/')}visitors`;
+      const id = String(focusVisitorId || '').trim();
+      if (id) url += `?focus=${encodeURIComponent(id)}`;
+      window.location.assign(url);
+    };
     const mergeRemoteVisitorsWithLocal = (localVisitors, remoteVisitors) => {
       const locals = Array.isArray(localVisitors) ? localVisitors : [];
       const remotes = Array.isArray(remoteVisitors) ? remoteVisitors : [];
@@ -3164,6 +3172,11 @@ Phone: +91-7047157510`;
       const [visitorEdit, setVisitorEdit] = React.useState(null);
       const [prefillVisitor, setPrefillVisitor] = React.useState(null);
       const [membersView, setMembersView] = React.useState('all');
+      React.useEffect(() => {
+        if (!apgV2VisitorsEnabled()) return;
+        if (activeTab !== 'Members' || membersView !== 'visitors') return;
+        apgGoToV2Visitors(visitorNotificationFocusId);
+      }, [activeTab, membersView, visitorNotificationFocusId]);
       const [toast, setToast] = React.useState('');
       const [markingVisitorCalledId, setMarkingVisitorCalledId] = React.useState('');
       const [undoToast, setUndoToast] = React.useState(null);
@@ -3228,6 +3241,10 @@ Phone: +91-7047157510`;
         if (!visitorId) return;
         if (normalizeAccess(user?.access).members?.viewVisitors === false) return;
         setNotificationOpen(false);
+        if (apgV2VisitorsEnabled()) {
+          apgGoToV2Visitors(visitorId);
+          return;
+        }
         setActiveTab('Members');
         setMembersView('visitors');
         setVisitorNotificationFocusId(visitorId);
@@ -5933,6 +5950,9 @@ Please pay by: ${formattedLastDate}`;
               canViewMembers ? (
                 membersView === 'visitors' ? (
                   canViewVisitors ? (
+                    apgV2VisitorsEnabled() ? (
+                      <div className="p-8 text-center text-sm text-slate-500">Opening Visitors…</div>
+                    ) : (
                     <VisitorsPage
                       visitors={visitors}
                       onAddVisitor={() => { setVisitorEdit(null); setVisitorFormOpen(true); }}
@@ -5944,6 +5964,7 @@ Please pay by: ${formattedLastDate}`;
                       focusVisitorId={visitorNotificationFocusId}
                       onFocusHandled={() => setVisitorNotificationFocusId('')}
                     />
+                    )
                   ) : (
                     <div className="p-3 md:p-8">
                       <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4 text-sm text-slate-600">
@@ -7158,15 +7179,22 @@ function Sidebar({ user, active, onSelect, theme, setTheme, onLogout, onUndo, on
                                 {canViewVisitors && (
                                   <button
                                     onClick={() => {
+                                      if (apgV2VisitorsEnabled()) {
+                                        apgGoToV2Visitors();
+                                        onCloseMobile && onCloseMobile();
+                                        return;
+                                      }
                                       onSelect('Members');
                                       setMembersView && setMembersView('visitors');
                                       onCloseMobile && onCloseMobile();
                                     }}
                                     className={cx(
                                       'w-full rounded-2xl px-3 py-2 text-left text-[10px] font-semibold',
-                                      active === 'Members' && membersView === 'visitors'
+                                      !apgV2VisitorsEnabled() && active === 'Members' && membersView === 'visitors'
                                         ? 'bg-blue-50 text-blue-700 dark:bg-blue-900/35 dark:text-blue-200'
-                                        : 'text-slate-600 hover:bg-slate-50 dark:text-slate-200 dark:hover:bg-slate-800/80'
+                                        : apgV2VisitorsEnabled()
+                                          ? 'text-emerald-700 hover:bg-emerald-50 dark:text-emerald-300 dark:hover:bg-emerald-900/30'
+                                          : 'text-slate-600 hover:bg-slate-50 dark:text-slate-200 dark:hover:bg-slate-800/80'
                                     )}
                                   >
                                     Visitors

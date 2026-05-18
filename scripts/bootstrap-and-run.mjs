@@ -8,6 +8,8 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const rootDir = path.resolve(__dirname, '..');
 const backendDir = path.join(rootDir, 'backend');
+const v2Dir = path.join(rootDir, 'v2');
+const v2DistIndex = path.join(v2Dir, 'dist', 'index.html');
 
 const CAFF_TRUTHY = new Set(['1', 'y', 'yes', 'true']);
 
@@ -67,16 +69,44 @@ function start(command, args, cwd, label) {
   return child;
 }
 
+function isTruthyEnv(name) {
+  return ['1', 'true', 'yes'].includes(String(process.env[name] || '').toLowerCase());
+}
+
 async function ensureDeps() {
   const npmCmd = process.platform === 'win32' ? 'npm.cmd' : 'npm';
   const rootModules = path.join(rootDir, 'node_modules');
   const backendModules = path.join(backendDir, 'node_modules');
+  const v2Modules = path.join(v2Dir, 'node_modules');
 
   if (!fs.existsSync(rootModules)) {
     await run(npmCmd, ['install'], rootDir, 'install-root');
   }
   if (!fs.existsSync(backendModules)) {
     await run(npmCmd, ['install'], backendDir, 'install-backend');
+  }
+  if (isTruthyEnv('V2_VISITORS_ENABLED') && fs.existsSync(path.join(v2Dir, 'package.json'))) {
+    if (!fs.existsSync(v2Modules)) {
+      await run(npmCmd, ['install'], v2Dir, 'install-v2');
+    }
+  }
+}
+
+async function ensureV2Build() {
+  if (!isTruthyEnv('V2_VISITORS_ENABLED')) return;
+  if (!fs.existsSync(path.join(v2Dir, 'package.json'))) {
+    console.warn('[bootstrap] V2_VISITORS_ENABLED but v2/package.json missing — skip build');
+    return;
+  }
+  const npmCmd = process.platform === 'win32' ? 'npm.cmd' : 'npm';
+  const v2Modules = path.join(v2Dir, 'node_modules');
+  if (!fs.existsSync(v2Modules)) {
+    await run(npmCmd, ['install'], v2Dir, 'install-v2');
+  }
+  const forceRebuild = isTruthyEnv('V2_REBUILD') || String(process.env.ENV_FILE || '').includes('prod');
+  if (!fs.existsSync(v2DistIndex) || forceRebuild) {
+    console.log('[bootstrap] Building v2 Visitors UI (npm run build:strangler)...');
+    await run(npmCmd, ['run', 'build:strangler'], v2Dir, 'build-v2');
   }
 }
 
@@ -106,6 +136,7 @@ async function main() {
   await ensureDeps();
   console.log('[bootstrap] Preparing local SQLite database...');
   await ensureDatabase();
+  await ensureV2Build();
   loadApgCaffeinateFromDotenv();
   const caffWanted = isApgCaffeinateEnabled();
   const stackScript = path.join(rootDir, 'scripts', 'dev-all-with-tunnel.mjs');

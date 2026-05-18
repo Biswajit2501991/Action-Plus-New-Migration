@@ -23,7 +23,10 @@
     "dev:supervisor": "node scripts/apg-supervisor.mjs",
     "icon:refresh": "zsh scripts/refresh-icon-cache.sh",
     "test": "vitest run",
-    "test:watch": "vitest"
+    "test:watch": "vitest",
+    "install:v2": "npm install --prefix v2",
+    "build:v2": "npm run build:strangler --prefix v2",
+    "dev:v2": "npm run dev --prefix v2"
   },
   "devDependencies": {
     "vitest": "^2.1.9"

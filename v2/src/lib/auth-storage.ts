@@ -1,0 +1,42 @@
+export const AUTH_SESSION_KEY = 'apg.auth.session';
+
+export type AuthSession = {
+  userId: string;
+  token: string;
+  expiresAt: number;
+};
+
+const SESSION_TTL_MS = 12 * 60 * 60 * 1000;
+
+export function readAuthSession(): AuthSession | null {
+  try {
+    const raw = localStorage.getItem(AUTH_SESSION_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as AuthSession;
+    if (!parsed?.token || !parsed?.userId) return null;
+    if (parsed.expiresAt && parsed.expiresAt < Date.now()) {
+      localStorage.removeItem(AUTH_SESSION_KEY);
+      return null;
+    }
+    return parsed;
+  } catch {
+    return null;
+  }
+}
+
+export function writeAuthSession(userId: string, token: string): void {
+  const session: AuthSession = {
+    userId: String(userId),
+    token: String(token),
+    expiresAt: Date.now() + SESSION_TTL_MS,
+  };
+  localStorage.setItem(AUTH_SESSION_KEY, JSON.stringify(session));
+}
+
+export function clearAuthSession(): void {
+  localStorage.removeItem(AUTH_SESSION_KEY);
+}
+
+export function readAuthToken(): string {
+  return readAuthSession()?.token || '';
+}
