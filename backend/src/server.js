@@ -609,8 +609,8 @@ app.listen(env.PORT, () => {
   console.log(`Backend listening on :${env.PORT} (data: ${dataBackendLabel()})`);
   if (useSupabase()) {
     pingDataStore()
-      .then(() => {
-        const rt = startSupabaseRealtimeListener();
+      .then(async () => {
+        const rt = await startSupabaseRealtimeListener();
         // eslint-disable-next-line no-console
         console.log(`Supabase members table: ${membersTableName}; realtime: ${rt.ok ? 'on' : rt.reason || 'off'}`);
       })

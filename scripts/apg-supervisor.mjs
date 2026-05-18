@@ -18,6 +18,13 @@ const HOST = process.env.APG_SUPERVISOR_HOST || '127.0.0.1';
 const TOKEN = String(process.env.APG_SUPERVISOR_TOKEN || process.env.PROCESS_CONTROL_TOKEN || '').trim();
 
 let backendChild = null;
+let intentionalStop = false;
+let restarting = false;
+let restartTimer = null;
+let restartBackoffMs = 2000;
+const MIN_RESTART_BACKOFF_MS = 2000;
+const MAX_RESTART_BACKOFF_MS = 30000;
+let stableRunTimer = null;
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
@@ -40,6 +47,39 @@ function sendJson(res, status, body) {
   res.end(JSON.stringify(body));
 }
 
+function clearStableRunTimer() {
+  if (stableRunTimer) {
+    clearTimeout(stableRunTimer);
+    stableRunTimer = null;
+  }
+}
+
+function scheduleStableRunReset() {
+  clearStableRunTimer();
+  stableRunTimer = setTimeout(() => {
+    restartBackoffMs = MIN_RESTART_BACKOFF_MS;
+  }, 60000);
+}
+
+function scheduleAutoRestart(reason) {
+  if (intentionalStop || restartTimer) return;
+  const delay = restartBackoffMs;
+  restartBackoffMs = Math.min(restartBackoffMs * 2, MAX_RESTART_BACKOFF_MS);
+  restartTimer = setTimeout(async () => {
+    restartTimer = null;
+    if (backendChild && !backendChild.killed) return;
+    // eslint-disable-next-line no-console
+    console.log(`[supervisor] auto-restarting backend (${reason}) in ${delay}ms`);
+    try {
+      await startBackendAsync();
+    } catch (err) {
+      // eslint-disable-next-line no-console
+      console.error('[supervisor] auto-restart failed:', err?.message || err);
+      scheduleAutoRestart('retry after failed restart');
+    }
+  }, delay);
+}
+
 function attachBackendCloseHandler(child) {
   child.on('error', (err) => {
     // eslint-disable-next-line no-console
@@ -48,7 +88,11 @@ function attachBackendCloseHandler(child) {
   child.on('close', (code) => {
     // eslint-disable-next-line no-console
     console.log(`[supervisor] backend exited with code ${code}`);
+    clearStableRunTimer();
     if (backendChild === child) backendChild = null;
+    if (!intentionalStop && !restarting) {
+      scheduleAutoRestart(`exit code ${code ?? 'unknown'}`);
+    }
   });
 }
 
@@ -59,6 +103,7 @@ function startBackend() {
   if (backendChild && backendChild.killed) {
     backendChild = null;
   }
+  intentionalStop = false;
   const npmCmd = process.platform === 'win32' ? 'npm.cmd' : 'npm';
   backendChild = spawn(npmCmd, ['run', 'dev'], {
     cwd: backendDir,
@@ -67,11 +112,18 @@ function startBackend() {
     shell: process.platform === 'win32',
   });
   attachBackendCloseHandler(backendChild);
+  scheduleStableRunReset();
   return { ok: true, message: 'Backend start command launched.' };
 }
 
 /** Stop: signal only. Do not clear backendChild here — let 'close' run first (otherwise restart/start races the old process). */
 function stopBackend() {
+  intentionalStop = true;
+  if (restartTimer) {
+    clearTimeout(restartTimer);
+    restartTimer = null;
+  }
+  clearStableRunTimer();
   if (!backendChild || backendChild.killed) {
     if (backendChild?.killed) backendChild = null;
     return { ok: true, message: 'Backend was not running.' };
@@ -102,15 +154,25 @@ async function waitForBackendExit(maxMs = 15000) {
 }
 
 async function restartBackendAsync() {
-  if (backendChild && !backendChild.killed) {
-    try {
-      backendChild.kill('SIGTERM');
-    } catch {}
-    await waitForBackendExit();
-  } else if (backendChild) {
-    await waitForBackendExit();
+  intentionalStop = false;
+  restarting = true;
+  if (restartTimer) {
+    clearTimeout(restartTimer);
+    restartTimer = null;
   }
-  return startBackend();
+  try {
+    if (backendChild && !backendChild.killed) {
+      try {
+        backendChild.kill('SIGTERM');
+      } catch {}
+      await waitForBackendExit();
+    } else if (backendChild) {
+      await waitForBackendExit();
+    }
+    return startBackend();
+  } finally {
+    restarting = false;
+  }
 }
 
 async function startBackendAsync() {

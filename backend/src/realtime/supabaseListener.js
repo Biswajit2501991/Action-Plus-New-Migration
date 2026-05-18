@@ -5,6 +5,7 @@ import { broadcastChange } from './hub.js';
 
 let channel = null;
 let started = false;
+const gymIdColumnCache = new Map();
 
 function buildTableCollection() {
   return {
@@ -31,8 +32,8 @@ function buildTableCollection() {
   };
 }
 
-/** Tables without gym_id (legacy single-gym schema) must not use gym_id realtime filters. */
-const GYM_FILTERED = new Set([
+/** Tables that may use gym_id filters when the column exists (audit_logs excluded — legacy schema). */
+const GYM_FILTER_CANDIDATES = new Set([
   T.staff_users,
   T.visitors,
   T.finance_transactions,
@@ -51,6 +52,24 @@ const GYM_FILTERED = new Set([
   T.member_injury_notes,
 ]);
 
+async function tableHasGymIdColumn(sb, table) {
+  if (gymIdColumnCache.has(table)) return gymIdColumnCache.get(table);
+  const { error } = await sb.from(table).select('gym_id').limit(0);
+  const has = !(error && String(error.message || '').includes('gym_id'));
+  gymIdColumnCache.set(table, has);
+  return has;
+}
+
+async function resolveGymFilteredTables(sb, tables) {
+  const filtered = new Set();
+  const candidates = [...GYM_FILTER_CANDIDATES, membersTableName];
+  for (const table of candidates) {
+    if (!tables.includes(table)) continue;
+    if (await tableHasGymIdColumn(sb, table)) filtered.add(table);
+  }
+  return filtered;
+}
+
 function onTableChange(tableMap, table) {
   const collection = tableMap[table];
   if (collection) broadcastChange(collection, { source: 'supabase' });
@@ -60,7 +79,7 @@ export function notifyCollectionChange(collection) {
   broadcastChange(collection, { source: 'local' });
 }
 
-export function startSupabaseRealtimeListener() {
+export async function startSupabaseRealtimeListener() {
   if (started || !useSupabase()) return { ok: false, reason: 'not-supabase' };
   started = true;
 
@@ -68,8 +87,7 @@ export function startSupabaseRealtimeListener() {
   const gid = gymId();
   const tableMap = buildTableCollection();
   const tables = [...new Set(Object.keys(tableMap))];
-
-  GYM_FILTERED.add(membersTableName);
+  const gymFiltered = await resolveGymFilteredTables(sb, tables);
 
   channel = sb.channel(`apg-gym-${gid}`, {
     config: { broadcast: { self: false } },
@@ -81,7 +99,7 @@ export function startSupabaseRealtimeListener() {
       schema: 'public',
       table,
     };
-    if (GYM_FILTERED.has(table)) {
+    if (gymFiltered.has(table)) {
       opts.filter = `gym_id=eq.${gid}`;
     }
     channel.on('postgres_changes', opts, () => onTableChange(tableMap, table));
@@ -108,7 +126,7 @@ export function startSupabaseRealtimeListener() {
     return { ok: false, reason: 'subscribe-failed' };
   }
 
-  return { ok: true, tables: tables.length };
+  return { ok: true, tables: tables.length, gymFiltered: gymFiltered.size };
 }
 
 export function realtimeListenerStatus() {
