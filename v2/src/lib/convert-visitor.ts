@@ -4,6 +4,11 @@ export const CONVERT_VISITOR_STORAGE_KEY = 'apg.convertVisitor';
 
 /** Hand off to legacy index.html Add Member wizard (same as sidebar Convert in old Visitors). */
 export function redirectToLegacyMemberConvert(visitor: Visitor) {
+  try {
+    localStorage.removeItem('apg.addMemberDraft');
+  } catch {
+    /* ignore */
+  }
   sessionStorage.setItem(
     CONVERT_VISITOR_STORAGE_KEY,
     JSON.stringify({

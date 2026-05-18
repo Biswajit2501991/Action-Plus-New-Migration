@@ -4891,6 +4891,7 @@ Please pay by: ${formattedLastDate}`;
       };
       const convertVisitorToMember = (visitor) => {
         if (!visitor) return;
+        try { localStorage.removeItem(STORAGE_KEYS.addMemberDraft); } catch {}
         setPrefillVisitor(visitor);
         setAddOpen(true);
         setActiveTab('Members');
@@ -4904,6 +4905,7 @@ Please pay by: ${formattedLastDate}`;
           if (!raw) return;
           convertVisitorLaunchRef.current = true;
           sessionStorage.removeItem('apg.convertVisitor');
+          try { localStorage.removeItem(STORAGE_KEYS.addMemberDraft); } catch {}
           const payload = JSON.parse(raw);
           if (!payload?.id) return;
           const match = (visitors || []).find((v) => v.id === payload.id);
@@ -10732,6 +10734,17 @@ function EditMemberModal({ member, onClose, onSave, planOptions, statusOptions, 
     function AddMemberWizard({ open, onClose, onSave, onFamilyMobileDuplicate = null, settings, staffName, currentUser = null, members, canEditFormNo, smartDefaults = {}, prefillData = null }) {
       const defaultJoiningDate = smartDefaults.joiningDate || iso(new Date());
       const defaultBillingDate = smartDefaults.billingDate || iso(new Date());
+      const planOptions = React.useMemo(() => {
+        const list = Array.isArray(settings?.plans) ? settings.plans : [];
+        return [...new Set(list.map((p) => String(p || '').trim()).filter(Boolean))];
+      }, [settings?.plans]);
+      const statusOptions = React.useMemo(() => {
+        const list = Array.isArray(settings?.statuses) ? settings.statuses : [];
+        return [...new Set(list.map((s) => String(s || '').trim()).filter(Boolean))];
+      }, [settings?.statuses]);
+      const defaultPaymentMethod = (Array.isArray(settings?.paymentMethods) && settings.paymentMethods[0])
+        ? settings.paymentMethods[0]
+        : 'Cash';
       const formScrollRef = React.useRef(null);
       const [step, setStep] = React.useState(1);
       const [resumeStepAfterFix, setResumeStepAfterFix] = React.useState(null);
@@ -10753,7 +10766,7 @@ function EditMemberModal({ member, onClose, onSave, planOptions, statusOptions, 
         nextPaymentDate: iso(addMonths(new Date(), 1)),
         paymentBy: paymentByFromBillingDate(defaultBillingDate),
         status: smartDefaults.status || 'Active',
-        paymentMethod: smartDefaults.paymentMethod || settings.paymentMethods[0],
+        paymentMethod: smartDefaults.paymentMethod || defaultPaymentMethod,
         remark: '',
         photo: '',
         attachments: [],
@@ -11221,7 +11234,7 @@ function EditMemberModal({ member, onClose, onSave, planOptions, statusOptions, 
           nextPaymentDate: iso(addMonths(new Date(), 1)),
           paymentBy: paymentByFromBillingDate(smartDefaults.billingDate || new Date()),
           status: smartDefaults.status || 'Active',
-          paymentMethod: smartDefaults.paymentMethod || settings.paymentMethods[0],
+          paymentMethod: smartDefaults.paymentMethod || defaultPaymentMethod,
           remark: '',
           photo: '',
           attachments: [],
@@ -11249,9 +11262,9 @@ function EditMemberModal({ member, onClose, onSave, planOptions, statusOptions, 
           joiningDate: prev.joiningDate || smartDefaults.joiningDate || iso(new Date()),
           billingDate: prev.billingDate || smartDefaults.billingDate || iso(new Date()),
           status: prev.status || smartDefaults.status || 'Active',
-          paymentMethod: prev.paymentMethod || smartDefaults.paymentMethod || settings.paymentMethods[0],
+          paymentMethod: prev.paymentMethod || smartDefaults.paymentMethod || defaultPaymentMethod,
         }));
-      }, [open, smartDefaults, settings.paymentMethods]);
+      }, [open, smartDefaults, defaultPaymentMethod]);
       React.useEffect(() => {
         if (!open || !prefillData) return;
         setForm((prev) => ({
