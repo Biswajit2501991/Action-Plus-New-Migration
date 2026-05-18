@@ -1,5 +1,5 @@
 import { useQueryClient } from '@tanstack/react-query';
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { ApiErrorPanel } from '@/components/ui/ApiErrorPanel';
 import { SortHeader } from '@/components/ui/SortHeader';
@@ -8,6 +8,8 @@ import { VisitorRow } from '@/features/visitors/VisitorRow';
 import type { Visitor, VisitorFormValues } from '@/features/visitors/visitors.types';
 import { useMarkVisitorCalled, useSaveVisitorsBulk, useVisitors, visitorsQueryKey } from '@/hooks/useVisitors';
 import { useTableSort } from '@/hooks/useTableSort';
+import { createVisitorId } from '@/lib/visitor-id';
+import { dedupeVisitors, findVisitorByContact } from '@/lib/visitors-dedupe';
 
 type SortField = 'id' | 'fullName' | 'mobile' | 'email' | 'gender' | 'addedAt' | 'status';
 
@@ -21,6 +23,7 @@ export function VisitorsPage() {
   const [expandedId, setExpandedId] = useState('');
   const [modalVisitor, setModalVisitor] = useState<Visitor | null | 'new'>(null);
   const [toast, setToast] = useState('');
+  const saveLock = useRef(false);
 
   useEffect(() => {
     const focus = searchParams.get('focus')?.trim();
@@ -46,8 +49,9 @@ export function VisitorsPage() {
   };
 
   const persistList = async (next: Visitor[], successMsg: string) => {
+    const cleaned = dedupeVisitors(next);
     try {
-      await saveBulk.mutateAsync(next);
+      await saveBulk.mutateAsync(cleaned);
       showToast(successMsg);
     } catch (e) {
       showToast(e instanceof Error ? e.message : 'Could not save.');
@@ -56,9 +60,11 @@ export function VisitorsPage() {
   };
 
   const handleSave = async (form: VisitorFormValues) => {
-    if (saveBulk.isPending) return;
+    if (saveBulk.isPending || saveLock.current) return;
+    saveLock.current = true;
     const nowIso = new Date().toISOString();
-    const id = form.id.trim() || `V-${crypto.randomUUID()}`;
+    const current = dedupeVisitors(qc.getQueryData<Visitor[]>(visitorsQueryKey) ?? visitors);
+    let id = form.id.trim();
     const row: Visitor = {
       id,
       fullName: form.fullName.trim(),
@@ -73,11 +79,25 @@ export function VisitorsPage() {
       lastCalledAt: '',
       lastCalledBy: '',
     };
-    const current = qc.getQueryData<Visitor[]>(visitorsQueryKey) ?? visitors;
+    if (!id) {
+      const dup = findVisitorByContact(current, row);
+      if (dup) {
+        saveLock.current = false;
+        showToast('A visitor with this mobile and email already exists.');
+        return;
+      }
+      id = createVisitorId(current.map((v) => v.id));
+    }
+    row.id = id;
+
     const exists = current.some((v) => v.id === id);
     const next = exists ? current.map((v) => (v.id === id ? { ...v, ...row } : v)) : [row, ...current];
-    await persistList(next, exists ? 'Visitor updated.' : 'Visitor saved.');
-    setModalVisitor(null);
+    try {
+      await persistList(next, exists ? 'Visitor updated.' : 'Visitor saved.');
+      setModalVisitor(null);
+    } finally {
+      saveLock.current = false;
+    }
   };
 
   const handleDelete = async (id: string) => {
@@ -128,19 +148,19 @@ export function VisitorsPage() {
       </div>
 
       <div className="overflow-x-auto rounded-2xl border border-slate-200 bg-white">
-        <table className="min-w-full text-sm">
+        <table className="min-w-full table-fixed text-sm">
           <thead>
             <tr className="bg-blue-50 text-blue-700">
-              <th className="px-3 py-2 text-left">
+              <th className="w-28 px-3 py-2 text-left">
                 <SortHeader label="ID" field="id" indicator={sortIndicator('id')} onSort={toggleSort} />
               </th>
-              <th className="px-3 py-2 text-left">
+              <th className="w-36 px-3 py-2 text-left">
                 <SortHeader label="Name" field="fullName" indicator={sortIndicator('fullName')} onSort={toggleSort} />
               </th>
-              <th className="px-3 py-2 text-left">
+              <th className="w-32 px-3 py-2 text-left">
                 <SortHeader label="Mobile" field="mobile" indicator={sortIndicator('mobile')} onSort={toggleSort} />
               </th>
-              <th className="px-3 py-2 text-left">
+              <th className="w-44 px-3 py-2 text-left">
                 <SortHeader label="Email" field="email" indicator={sortIndicator('email')} onSort={toggleSort} />
               </th>
               <th className="px-3 py-2 text-left">

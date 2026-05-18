@@ -1,5 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { fetchVisitors, saveVisitorsBulk } from '@/api/visitors';
+import { dedupeVisitors } from '@/lib/visitors-dedupe';
 import { localCalendarDateKey, localTodayCalendarKey } from '@/lib/dates';
 import type { Visitor } from '@/features/visitors/visitors.types';
 import { useAuth } from '@/hooks/useAuth';
@@ -10,15 +11,15 @@ export function useVisitors() {
   const { session } = useAuth();
   return useQuery({
     queryKey: visitorsQueryKey,
-    queryFn: fetchVisitors,
+    queryFn: async () => dedupeVisitors(await fetchVisitors()),
     enabled: Boolean(session?.token),
   });
 }
 
 export function useSaveVisitorsBulk() {
   const qc = useQueryClient();
-  return useMutation({
-    mutationFn: saveVisitorsBulk,
+  return useMutation<void, Error, Visitor[]>({
+    mutationFn: (list) => saveVisitorsBulk(dedupeVisitors(list)),
     onMutate: async (nextVisitors) => {
       await qc.cancelQueries({ queryKey: visitorsQueryKey });
       const previous = qc.getQueryData<Visitor[]>(visitorsQueryKey);
@@ -26,7 +27,8 @@ export function useSaveVisitorsBulk() {
       return { previous };
     },
     onError: (_err, _next, ctx) => {
-      if (ctx?.previous) qc.setQueryData(visitorsQueryKey, ctx.previous);
+      const previous = (ctx as { previous?: Visitor[] } | undefined)?.previous;
+      if (previous) qc.setQueryData(visitorsQueryKey, previous);
     },
     onSettled: () => qc.invalidateQueries({ queryKey: visitorsQueryKey }),
   });
@@ -50,7 +52,7 @@ export function useMarkVisitorCalled() {
       const next = list.map((v) =>
         v.id === visitorId ? { ...v, lastCalledAt: nowIso, lastCalledBy: actor } : v,
       );
-      await saveVisitorsBulk(next);
+      await saveVisitorsBulk(dedupeVisitors(next));
       return next;
     },
     onMutate: async (visitorId) => {

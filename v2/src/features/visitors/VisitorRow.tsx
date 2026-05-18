@@ -28,10 +28,20 @@ export function VisitorRow({
   return (
     <>
       <tr className={`border-b border-slate-200 hover:bg-slate-50 cursor-pointer ${expanded ? 'bg-blue-50/40' : ''}`} onClick={onToggle}>
-        <td className="px-3 py-2">{v.id}</td>
-        <td className="px-3 py-2">{v.fullName}</td>
-        <td className="px-3 py-2">{v.mobile}</td>
-        <td className="px-3 py-2">{v.email}</td>
+        <td className="px-3 py-2 w-28 max-w-28">
+          <span className="block truncate font-mono text-xs text-slate-700" title={v.id}>
+            {v.id}
+          </span>
+        </td>
+        <td className="px-3 py-2 truncate" title={v.fullName}>
+          {v.fullName}
+        </td>
+        <td className="px-3 py-2 truncate font-mono text-xs" title={v.mobile}>
+          {v.mobile}
+        </td>
+        <td className="px-3 py-2 truncate text-xs" title={v.email}>
+          {v.email}
+        </td>
         <td className="px-3 py-2">{v.gender}</td>
         <td className="px-3 py-2">{formatDisplayDate(v.addedAt)}</td>
         <td className="px-3 py-2">
@@ -64,8 +74,8 @@ export function VisitorRow({
       </tr>
       {expanded && (
         <tr className="border-b border-slate-200 bg-slate-50/70">
-          <td colSpan={8} className="px-4 py-3">
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-2 text-sm">
+          <td colSpan={8} className="px-4 py-3 align-top">
+            <div className="grid grid-cols-1 gap-2 text-sm sm:grid-cols-2 lg:grid-cols-3">
               <div><span className="text-slate-500">DOB:</span> {formatDisplayDate(v.dob)}</div>
               <div><span className="text-slate-500">Call Back:</span> {v.callBackRequired ? 'Yes' : 'No'}</div>
               <div><span className="text-slate-500">Tentative Joining:</span> {formatDisplayDate(v.tentativeJoiningDate)}</div>
