@@ -8,6 +8,7 @@ import { VisitorRow } from '@/features/visitors/VisitorRow';
 import type { Visitor, VisitorFormValues } from '@/features/visitors/visitors.types';
 import { useMarkVisitorCalled, useSaveVisitorsBulk, useVisitors, visitorsQueryKey } from '@/hooks/useVisitors';
 import { useTableSort } from '@/hooks/useTableSort';
+import { redirectToLegacyMemberConvert } from '@/lib/convert-visitor';
 import { createVisitorId } from '@/lib/visitor-id';
 import { dedupeVisitors, findVisitorByContact } from '@/lib/visitors-dedupe';
 
@@ -24,6 +25,7 @@ export function VisitorsPage() {
   const [modalVisitor, setModalVisitor] = useState<Visitor | null | 'new'>(null);
   const [toast, setToast] = useState('');
   const saveLock = useRef(false);
+  const [convertingId, setConvertingId] = useState('');
 
   useEffect(() => {
     const focus = searchParams.get('focus')?.trim();
@@ -107,6 +109,15 @@ export function VisitorsPage() {
     await persistList(next, 'Visitor deleted.');
   };
 
+  const handleConvert = (visitor: Visitor) => {
+    if (visitor.status === 'Converted') {
+      showToast('This visitor is already converted.');
+      return;
+    }
+    setConvertingId(visitor.id);
+    redirectToLegacyMemberConvert(visitor);
+  };
+
   const handleMarkCalled = async (id: string) => {
     try {
       await markCalled.mutateAsync(id);
@@ -185,7 +196,9 @@ export function VisitorsPage() {
                 onEdit={() => setModalVisitor(v)}
                 onDelete={() => handleDelete(v.id)}
                 onMarkCalled={() => handleMarkCalled(v.id)}
+                onConvert={() => handleConvert(v)}
                 marking={markCalled.isPending && markCalled.variables === v.id}
+                converting={convertingId === v.id}
               />
             ))}
             {sortedRows.length === 0 && (

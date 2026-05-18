@@ -8,7 +8,9 @@ type Props = {
   onEdit: () => void;
   onDelete: () => void;
   onMarkCalled: () => void;
+  onConvert: () => void;
   marking: boolean;
+  converting: boolean;
 };
 
 export function VisitorRow({
@@ -18,7 +20,9 @@ export function VisitorRow({
   onEdit,
   onDelete,
   onMarkCalled,
+  onConvert,
   marking,
+  converting,
 }: Props) {
   const todayKey = localTodayCalendarKey();
   const tentativeToday = localCalendarDateKey(v.tentativeJoiningDate) === todayKey;
@@ -64,10 +68,14 @@ export function VisitorRow({
             </button>
             <button
               type="button"
-              disabled={v.status === 'Converted'}
-              className="rounded-full border border-emerald-300 bg-emerald-50 px-2.5 py-1 text-xs text-emerald-700 disabled:opacity-50"
+              disabled={v.status === 'Converted' || converting}
+              onClick={(e) => {
+                e.stopPropagation();
+                onConvert();
+              }}
+              className="rounded-full border border-emerald-300 bg-emerald-50 px-2.5 py-1 text-xs text-emerald-700 disabled:cursor-not-allowed disabled:opacity-50"
             >
-              Convert
+              {converting ? 'Opening…' : 'Convert'}
             </button>
           </div>
         </td>

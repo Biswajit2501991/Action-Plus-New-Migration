@@ -4896,6 +4896,22 @@ Please pay by: ${formattedLastDate}`;
         setActiveTab('Members');
         setMembersView('all');
       };
+      const convertVisitorLaunchRef = React.useRef(false);
+      React.useEffect(() => {
+        if (!user || convertVisitorLaunchRef.current) return;
+        try {
+          const raw = sessionStorage.getItem('apg.convertVisitor');
+          if (!raw) return;
+          convertVisitorLaunchRef.current = true;
+          sessionStorage.removeItem('apg.convertVisitor');
+          const payload = JSON.parse(raw);
+          if (!payload?.id) return;
+          const match = (visitors || []).find((v) => v.id === payload.id);
+          convertVisitorToMember(match ? { ...match, ...payload } : payload);
+        } catch {
+          convertVisitorLaunchRef.current = false;
+        }
+      }, [user, visitors]);
       const csvHeaderAliases = React.useMemo(() => ({
         formNo: ['formnumber', 'formno'],
         memberId: ['id', 'memberid'],
