@@ -36,6 +36,13 @@ node_modules/.vite/
 .vitest/
 coverage/
 
+# Playwright E2E
+tests/e2e/report/
+test-results/
+playwright-report/
+blob-report/
+playwright/.cache/
+
 # OS / editor
 .DS_Store
 Thumbs.db

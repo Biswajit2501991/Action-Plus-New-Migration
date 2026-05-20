@@ -1,4 +1,5 @@
 import crypto from 'node:crypto';
+import { ALL_SECTIONS } from '../../../../src/features/access/permissions.js';
 import { T, LOOKUP_CATEGORIES } from '../tables.js';
 import { notifyCollectionChange } from '../../realtime/supabaseListener.js';
 import { getSupabase, gymId } from './client.js';
@@ -213,18 +214,10 @@ async function writeMembers(members, scope) {
   const sb = getSupabase();
   const gid = gymId();
   const incoming = sandboxFilter(Array.isArray(members) ? members : [], scope);
-  const codes = new Set(incoming.map((m) => String(m.memberId || '').trim()).filter(Boolean));
 
   const existing = await fetchAll((from, to) => sb.from(T.members).select('id, member_code').eq('gym_id', gid).range(from, to));
 
-  const removeIds = (existing || [])
-    .filter((row) => !codes.has(String(row.member_code)))
-    .map((row) => row.id);
-  await deleteMemberChildren(sb, removeIds);
-  for (const idChunk of chunk(removeIds, 100)) {
-    const { error } = await sb.from(T.members).delete().in('id', idChunk);
-    if (error) throw error;
-  }
+  // Upsert-only: never delete members missing from a partial browser upload (prevents mass data loss).
 
   const memberRows = incoming
     .filter((m) => m?.memberId)
@@ -329,28 +322,34 @@ async function readUsers(scope) {
   ));
 }
 
+async function resolveDefaultStaffGymCodeId(sb, gid) {
+  try {
+    const { data, error } = await sb.from(T.gym_codes).select('id').eq('gym_id', gid).order('code').limit(1);
+    if (error) return null;
+    return data?.[0]?.id ? String(data[0].id) : null;
+  } catch {
+    return null;
+  }
+}
+
 async function writeUsers(users, scope) {
   const sb = getSupabase();
   const gid = gymId();
   const incoming = sandboxFilter(Array.isArray(users) ? users : [], scope);
+  const defaultGymCodeId = await resolveDefaultStaffGymCodeId(sb, gid);
   const loginIds = new Set(incoming.map((u) => String(u.id || '').trim()).filter(Boolean));
 
   let existingQuery = sb.from(T.staff_users).select('id, staff_login_id, password_hash, photo_url').eq('gym_id', gid);
   if (scope) existingQuery = existingQuery.eq('sandbox_id', scope.sandboxId);
   const existing = await fetchAll((from, to) => existingQuery.range(from, to));
 
-  for (const row of existing || []) {
-    if (!loginIds.has(String(row.staff_login_id))) {
-      await sb.from(T.staff_user_sections).delete().eq('staff_user_id', row.id);
-      await sb.from(T.staff_user_access).delete().eq('staff_user_id', row.id);
-      await sb.from(T.staff_users).delete().eq('id', row.id);
-    }
-  }
+  // Upsert-only: do not delete staff missing from a partial browser list (prevents losing accounts like Deep).
 
   for (const u of incoming) {
     if (!u?.id) continue;
     const row = appStaffToRow(u, gid);
     if (scope) row.sandbox_id = scope.sandboxId;
+    if (!row.gym_code_id && defaultGymCodeId) row.gym_code_id = defaultGymCodeId;
 
     const found = (existing || []).find((r) => String(r.staff_login_id) === String(u.id));
     if (found && !String(row.photo_url || '').trim() && String(found.photo_url || '').trim()) {
@@ -375,7 +374,8 @@ async function writeUsers(users, scope) {
     await sb.from(T.staff_user_sections).delete().eq('staff_user_id', staffPk);
     await sb.from(T.staff_user_access).delete().eq('staff_user_id', staffPk);
 
-    const sections = Array.isArray(u.sections) ? u.sections : [];
+    const isOwnerLogin = String(u.id || '').trim().toLowerCase() === 'owner';
+    const sections = isOwnerLogin ? [...ALL_SECTIONS] : (Array.isArray(u.sections) ? u.sections : []);
     if (sections.length) {
       const { error } = await sb.from(T.staff_user_sections).insert(
         sections.map((name) => ({ staff_user_id: staffPk, section_name: String(name) })),

@@ -445,9 +445,16 @@ app.get('/api/users', requireOwner, async (_req, res) => {
 });
 
 app.put('/api/users/bulk', requireOwner, async (req, res) => {
-  await writeJsonCollection('apg.users', stripUsersForApi(req.body?.users || []));
-  queueDatabaseBackup('users-bulk');
-  res.json({ ok: true });
+  try {
+    await writeJsonCollection('apg.users', stripUsersForApi(req.body?.users || []));
+    queueDatabaseBackup('users-bulk');
+    return res.json({ ok: true });
+  } catch (error) {
+    return res.status(500).json({
+      error: 'users-bulk-failed',
+      message: String(error?.message || error),
+    });
+  }
 });
 
 app.get('/api/settings', requireAccess(Access.settingsRead), async (req, res) => {

@@ -112,7 +112,9 @@ router.post('/admin-set-password', async (req, res) => {
     await setStaffPassword(staffId, newPassword, { clearPasswordReset: true });
     return res.json({ ok: true, staffId });
   } catch (error) {
-    return res.status(400).json({ error: 'set-password-failed', message: String(error?.message || error) });
+    const msg = String(error?.message || error);
+    const status = msg.includes('staff-not-found') ? 404 : 400;
+    return res.status(status).json({ error: 'set-password-failed', message: msg });
   }
 });
 

@@ -21,6 +21,7 @@ export const T = {
     return membersTableName;
   },
   gyms: 'gyms',
+  gym_codes: 'gym_codes',
   staff_users: 'staff_users',
   staff_user_sections: 'staff_user_sections',
   staff_user_access: 'staff_user_access',

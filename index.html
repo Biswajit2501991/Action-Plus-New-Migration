@@ -1613,7 +1613,10 @@ Phone: +91-7047157510`;
     };
     const usersForApi = (list) => (Array.isArray(list) ? list : []).map((u) => {
       if (!u || typeof u !== 'object') return u;
-      const { password, ...safe } = u;
+      const { password, photo, ...safe } = u;
+      const photoStr = String(photo || '').trim();
+      // Bulk sync must not re-upload huge base64 photos for every staff row (causes 413 / DB errors).
+      if (photoStr && photoStr.length <= 400000) return { ...safe, photo: photoStr };
       return safe;
     });
     const isPasswordResetPending = (u) => {
@@ -1626,6 +1629,17 @@ Phone: +91-7047157510`;
       return new Date(req).getTime() > new Date(app).getTime();
     };
     const isOwnerStaffUser = (u) => String(u?.id || '').trim().toLowerCase() === 'owner';
+    const prepareStaffUser = (rec) => {
+      if (!rec) return rec;
+      if (extractedPermissions?.sectionsWithRoleDefaults) {
+        return extractedPermissions.sectionsWithRoleDefaults(rec);
+      }
+      const access = normalizeAccess(rec.access);
+      if (isOwnerStaffUser(rec)) {
+        return { ...rec, access, sections: [...ALL_SECTIONS] };
+      }
+      return { ...rec, access };
+    };
     const backendJson = async (path, init = {}) => {
       const syncCtx = (typeof window !== 'undefined' && window.__APG_SYNC_CONTEXT__ && typeof window.__APG_SYNC_CONTEXT__ === 'object')
         ? window.__APG_SYNC_CONTEXT__
@@ -1646,7 +1660,17 @@ Phone: +91-7047157510`;
         try { localStorage.removeItem(AUTH_SESSION_KEY); } catch {}
         throw new Error('backend-401');
       }
-      if (!res.ok) throw new Error(`backend-${res.status}`);
+      if (!res.ok) {
+        let detail = `backend-${res.status}`;
+        try {
+          const body = await res.json();
+          if (body?.message) detail = String(body.message);
+          else if (body?.error) detail = String(body.error);
+        } catch {}
+        const err = new Error(detail);
+        err.status = res.status;
+        throw err;
+      }
       return res.json();
     };
     const parseApgTimeMs = (v) => {
@@ -2017,10 +2041,10 @@ Phone: +91-7047157510`;
         const base = localTs >= remoteTs ? localRow : remoteRow;
         const other = base === localRow ? remoteRow : localRow;
         const mergedCore = { ...(other || {}), ...(base || {}) };
-        mergedRows.push({
+        mergedRows.push(prepareStaffUser({
           ...mergedCore,
           photo: pickUserPhoto(localRow, remoteRow) || null,
-        });
+        }));
       });
       mergedRows.sort((a, b) => userSortTimestamp(b) - userSortTimestamp(a));
       return mergedRows;
@@ -2420,6 +2444,13 @@ Phone: +91-7047157510`;
           return changed ? next : prev;
         });
       }, [normalizeSectionsForUser]);
+      React.useEffect(() => {
+        if (!user?.id) return;
+        const prepared = normalizeSectionsForUser(user);
+        const nextSections = JSON.stringify(prepared?.sections || []);
+        const curSections = JSON.stringify(user?.sections || []);
+        if (nextSections !== curSections) setUser(prepared);
+      }, [user?.id, user?.sections, normalizeSectionsForUser]);
       const hydrateFromBackend = React.useCallback(async () => {
         const [remoteUsers, remoteMembers, remoteVisitors, remoteSettings, remoteLogs, remoteFinance, remoteSmsEvents] = await Promise.all([
           backendJson('/users').catch(() => []),
@@ -2433,10 +2464,7 @@ Phone: +91-7047157510`;
         await clearQueuedSnapshots().catch(() => {});
         setOfflineQueueCount(0);
         if (Array.isArray(remoteUsers) && remoteUsers.length > 0) {
-          const normalizedRemoteUsers = remoteUsers.map((u) => ({
-            ...u,
-            access: normalizeAccess(u && u.access),
-          }));
+          const normalizedRemoteUsers = remoteUsers.map((u) => prepareStaffUser(u));
           setUsers((prev) => mergeRemoteUsersWithLocal(prev, normalizedRemoteUsers));
         }
         if (Array.isArray(remoteMembers) && remoteMembers.length > 0) {
@@ -2457,6 +2485,7 @@ Phone: +91-7047157510`;
         if (Array.isArray(remoteLogs) && remoteLogs.length > 0) setLogs(remoteLogs);
         if (Array.isArray(remoteFinance) && remoteFinance.length > 0) setFinanceTransactions(remoteFinance);
         if (Array.isArray(remoteSmsEvents) && remoteSmsEvents.length > 0) setSmsEvents(remoteSmsEvents);
+        setUser((prev) => (prev?.id ? prepareStaffUser(prev) : prev));
         setBackendHydrated(true);
       }, []);
       // Probe backend reachability (no auth). Full data loads after login.
@@ -2874,6 +2903,8 @@ Phone: +91-7047157510`;
           queueSyncSnapshot('members', members).then(() => setOfflineQueueCount((c) => c + 1)).catch(() => {});
           return;
         }
+        // Never push an empty member list to the server (would wipe Supabase after partial hydrate).
+        if (!Array.isArray(members) || members.length === 0) return;
         const timer = setTimeout(() => {
           backendJson('/members/bulk', {
             method: 'PUT',
@@ -3032,10 +3063,7 @@ Phone: +91-7047157510`;
           backendJson('/users')
             .then((remoteUsers) => {
               if (!alive || !Array.isArray(remoteUsers)) return;
-              const normalizedRemote = remoteUsers.map((u) => ({
-                ...u,
-                access: normalizeAccess(u && u.access),
-              }));
+              const normalizedRemote = remoteUsers.map((u) => prepareStaffUser(u));
               setUsers((prev) => {
                 const merged = mergeRemoteUsersWithLocal(prev, normalizedRemote);
                 const prevSig = JSON.stringify(Array.isArray(prev) ? prev : []);
@@ -3356,6 +3384,7 @@ Phone: +91-7047157510`;
         return () => window.removeEventListener('apg:module-loader', onLoaderTelemetry);
       }, []);
       const canViewSectionByAccess = React.useCallback((sectionKey) => {
+        if (isOwnerStaffUser(user)) return true;
         const access = normalizeAccess(user?.access);
         if (sectionKey === 'Attendance') return access?.attendance?.viewAttendance !== false;
         if (sectionKey === 'Logs') return access?.logs?.viewLogs !== false;
@@ -3364,7 +3393,9 @@ Phone: +91-7047157510`;
       }, [user]);
       const dashboardTopTabs = React.useMemo(() => {
         const ordered = ['Dashboard', 'Members', 'PT Clients', 'WhatsApp SMS', 'Finance', 'Staff', 'Attendance', 'Leave Tracker', 'Settings', 'Logs', 'Support', 'Backend'];
-        const allowed = user && Array.isArray(user.sections) ? user.sections : ALL_SECTIONS;
+        const allowed = isOwnerStaffUser(user)
+          ? ALL_SECTIONS
+          : (user && Array.isArray(user.sections) ? user.sections : ALL_SECTIONS);
         return ordered.filter((key) => (allowed.includes(key) || key === 'Support' || key === 'Logs') && canViewSectionByAccess(key));
       }, [user, canViewSectionByAccess]);
       React.useEffect(() => {
@@ -3703,13 +3734,14 @@ Phone: +91-7047157510`;
           }
           const nowIso = new Date().toISOString();
           writeAuthSession(rec.id, token);
-          setUser({ ...rec, access: normalizeAccess(rec.access), lastLoginAt: nowIso });
-          setUsers((prev) => prev.map((u) => (u.id === rec.id ? { ...u, lastLoginAt: nowIso } : u)));
-          markLoginAttendance(rec, nowIso);
-          pushAttendancePunch('login', rec, nowIso);
+          const sessionUser = prepareStaffUser(rec);
+          setUser({ ...sessionUser, lastLoginAt: nowIso });
+          setUsers((prev) => prev.map((u) => (u.id === rec.id ? { ...prepareStaffUser(u.id === rec.id ? { ...u, ...sessionUser } : u), lastLoginAt: nowIso } : u)));
+          markLoginAttendance(sessionUser, nowIso);
+          pushAttendancePunch('login', sessionUser, nowIso);
           setActiveTab('Dashboard');
           setDashMode('summary');
-          logEvent('auth.login', 'user', id, null, { id }, rec.name || id);
+          logEvent('auth.login', 'user', id, null, { id }, sessionUser.name || id);
           if (dataSyncMode === 'backend' && token) {
             hydrateFromBackend().catch(() => setBackendHydrated(false));
           }
@@ -3724,7 +3756,7 @@ Phone: +91-7047157510`;
             });
             if (res.ok) {
               const data = await res.json();
-              const rec = data?.user ? { ...data.user, access: normalizeAccess(data.user.access) } : null;
+              const rec = data?.user ? prepareStaffUser(data.user) : null;
               if (rec) {
                 setUsers((prev) => {
                   const exists = prev.some((u) => u.id === rec.id);
@@ -3857,13 +3889,19 @@ Phone: +91-7047157510`;
         return true;
       };
 
-      // Keep live user details (like photo) in sync after Settings updates.
+      // Keep live user details (like photo) in sync after Settings updates — never strip owner sections from DB row.
       React.useEffect(() => {
         if (!user?.id) return;
-        const latest = users.find(u => u.id === user.id);
+        const latest = users.find((u) => u.id === user.id);
         if (!latest) return;
-        setUser(prev => (prev ? { ...prev, ...latest } : prev));
-      }, [users]);
+        const prepared = prepareStaffUser(latest);
+        const nextSections = JSON.stringify(prepared.sections || []);
+        const curSections = JSON.stringify(user.sections || []);
+        const nextAccess = JSON.stringify(prepared.access || {});
+        const curAccess = JSON.stringify(user.access || {});
+        if (nextSections === curSections && nextAccess === curAccess && latest.photo === user.photo) return;
+        setUser((prev) => (prev ? { ...prev, ...prepared } : prepared));
+      }, [users, user?.id, user?.sections, user?.photo]);
       React.useEffect(() => {
         if (!Array.isArray(users) || users.length === 0) return;
         setSettings((prev) => {
@@ -3911,14 +3949,14 @@ Phone: +91-7047157510`;
               });
               if (me.ok) {
                 const data = await me.json();
-                const rec = data?.user ? { ...data.user, access: normalizeAccess(data.user.access) } : null;
+                const rec = data?.user ? prepareStaffUser(data.user) : null;
                 if (rec && !rec.blocked) {
                   const nowIso = new Date().toISOString();
                   writeAuthSession(rec.id, parsed.token);
-                  setUser({ ...rec, access: normalizeAccess(rec.access), lastLoginAt: nowIso });
+                  setUser({ ...rec, lastLoginAt: nowIso });
                   setUsers((prev) => {
                     const exists = prev.some((u) => u.id === rec.id);
-                    if (exists) return prev.map((u) => (u.id === rec.id ? { ...u, ...rec, lastLoginAt: nowIso } : u));
+                    if (exists) return prev.map((u) => (u.id === rec.id ? { ...prepareStaffUser({ ...u, ...rec }), lastLoginAt: nowIso } : u));
                     return [...prev, { ...rec, lastLoginAt: nowIso }];
                   });
                   markLoginAttendance(rec, nowIso);
@@ -3939,10 +3977,11 @@ Phone: +91-7047157510`;
             return;
           }
           const nowIso = new Date().toISOString();
-          setUser({ ...rec, access: normalizeAccess(rec.access), lastLoginAt: nowIso });
-          setUsers((prev) => prev.map((u) => (u.id === rec.id ? { ...u, lastLoginAt: nowIso } : u)));
-          markLoginAttendance(rec, nowIso);
-          pushAttendancePunch('login', rec, nowIso);
+          const sessionUser = prepareStaffUser(rec);
+          setUser({ ...sessionUser, lastLoginAt: nowIso });
+          setUsers((prev) => prev.map((u) => (u.id === rec.id ? { ...prepareStaffUser({ ...u, ...sessionUser }), lastLoginAt: nowIso } : u)));
+          markLoginAttendance(sessionUser, nowIso);
+          pushAttendancePunch('login', sessionUser, nowIso);
           setActiveTab('Dashboard');
           setDashMode('summary');
           writeAuthSession(rec.id, parsed.token || '');
@@ -15924,26 +15963,44 @@ function PTClientsPage({ members, users, settings, updateSetting, currentUser, a
           : [...users, updatedUser];
         setSaving(true);
         try {
+          if (dataSyncMode === 'backend' && isOwnerStaffUser(currentUser)) {
+            try {
+              await backendJson('/users/bulk', {
+                method: 'PUT',
+                body: JSON.stringify({ users: usersForApi([updatedUser]) }),
+              });
+            } catch (saveErr) {
+              const msg = String(saveErr?.message || '');
+              if (saveErr?.status === 403 || msg.includes('owner-required')) {
+                showStaffError('Only the owner account can add staff. Sign in as owner and try again.');
+              } else if (msg.includes('duplicate') || msg.includes('unique')) {
+                showStaffError(`Username "${id}" is already in use. Choose a different username.`);
+              } else if (msg.includes('gym_code') || msg.includes('gym-code')) {
+                showStaffError('Server requires a gym code on staff. Contact support or run gym code migration in Supabase.');
+              } else if (msg) {
+                showStaffError(`Could not save staff: ${msg}`);
+              } else {
+                showStaffError('Could not save staff to the server. Check your connection and try again.');
+              }
+              await queueSyncSnapshot('users', usersForApi([updatedUser])).catch(() => {});
+              return;
+            }
+          }
           if (dataSyncMode === 'backend' && passwordInput) {
             try {
               await backendJson('/auth/admin-set-password', {
                 method: 'POST',
                 body: JSON.stringify({ staffId: id, newPassword: passwordInput }),
               });
-            } catch {
-              showStaffError('Password could not be set. Fix the password or leave it blank, then try again.');
-              return;
-            }
-          }
-          if (dataSyncMode === 'backend' && isOwnerStaffUser(currentUser)) {
-            try {
-              await backendJson('/users/bulk', {
-                method: 'PUT',
-                body: JSON.stringify({ users: usersForApi(nextUsers) }),
-              });
-            } catch {
-              showStaffError('Could not save to the server. Check your connection and try again.');
-              await queueSyncSnapshot('users', usersForApi(nextUsers)).catch(() => {});
+            } catch (pwErr) {
+              const detail = String(pwErr?.message || '');
+              if (detail.includes('backend-400')) {
+                showStaffError('Password could not be set. Use at least 4 characters, or save staff first then set password.');
+              } else if (detail.includes('backend-403')) {
+                showStaffError('Only the owner account can set staff passwords. Sign in as owner and try again.');
+              } else {
+                showStaffError('Password could not be set. Save staff details first, then try again.');
+              }
               return;
             }
           }
@@ -15964,6 +16021,14 @@ function PTClientsPage({ members, users, settings, updateSetting, currentUser, a
             }
             return { ...prev, staff: [...staffList, { id, name, email, avatar: form.photo || null }] };
           });
+          if (dataSyncMode === 'backend' && isOwnerStaffUser(currentUser)) {
+            try {
+              const remoteUsers = await backendJson('/users');
+              if (Array.isArray(remoteUsers) && remoteUsers.length > 0) {
+                setUsers((prev) => mergeRemoteUsersWithLocal(prev, remoteUsers.map((u) => prepareStaffUser(u))));
+              }
+            } catch {}
+          }
           closeStaffModal();
           setEditingId(null);
         } finally {

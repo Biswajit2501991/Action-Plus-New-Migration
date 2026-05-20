@@ -24,11 +24,17 @@
     "icon:refresh": "zsh scripts/refresh-icon-cache.sh",
     "test": "vitest run",
     "test:watch": "vitest",
+    "test:e2e": "playwright test",
+    "test:e2e:smoke": "playwright test --grep @smoke",
+    "test:e2e:critical": "playwright test --grep @critical",
+    "test:e2e:ui": "playwright test --ui",
+    "test:e2e:report": "playwright show-report tests/e2e/report",
     "install:v2": "npm install --prefix v2",
     "build:v2": "npm run build:strangler --prefix v2",
     "dev:v2": "npm run dev --prefix v2"
   },
   "devDependencies": {
+    "@playwright/test": "^1.60.0",
     "vitest": "^2.1.9"
   }
 }

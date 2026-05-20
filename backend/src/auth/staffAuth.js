@@ -3,6 +3,7 @@ import { env } from '../config/env.js';
 import { T } from '../db/tables.js';
 import { getSupabase, gymId } from '../db/supabase/client.js';
 import { staffRowToApp } from '../db/supabase/mappers.js';
+import { ALL_SECTIONS, DEFAULT_ACCESS, normalizeAccess } from '../../../src/features/access/permissions.js';
 import { hashPassword, verifyPassword } from './passwords.js';
 
 function staffClaims(staffLoginId, gymIdValue) {
@@ -66,7 +67,21 @@ async function loadStaffAppUser(row) {
   if (accRes.error) throw accRes.error;
   const sections = (secRes.data || []).map((r) => r.section_name);
   const access = accRes.data?.access_json || {};
+  const loginId = String(row.staff_login_id || '').trim().toLowerCase();
+  if (loginId === 'owner') {
+    return staffRowToApp(row, [...ALL_SECTIONS], normalizeAccess({ ...DEFAULT_ACCESS, ...(access || {}) }));
+  }
   return staffRowToApp(row, sections, access);
+}
+
+async function ensureOwnerSectionsPersisted(sb, staffPk) {
+  const { data: existing } = await sb.from(T.staff_user_sections).select('section_name').eq('staff_user_id', staffPk);
+  const have = new Set((existing || []).map((r) => r.section_name));
+  const missing = ALL_SECTIONS.filter((name) => !have.has(name));
+  if (!missing.length) return;
+  await sb.from(T.staff_user_sections).insert(
+    missing.map((section_name) => ({ staff_user_id: staffPk, section_name })),
+  );
 }
 
 export async function loginStaff(identifier, password) {
@@ -81,6 +96,9 @@ export async function loginStaff(identifier, password) {
   await sb.from(T.staff_users).update({ last_login_at: now, updated_at: now }).eq('id', row.id);
 
   const user = await loadStaffAppUser({ ...row, last_login_at: now });
+  if (String(user.id || '').toLowerCase() === 'owner') {
+    await ensureOwnerSectionsPersisted(sb, row.id).catch(() => {});
+  }
   const token = signStaffToken(user.id, row.gym_id);
   return { ok: true, token, user: { ...user, lastLoginAt: now } };
 }

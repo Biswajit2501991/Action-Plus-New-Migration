@@ -186,7 +186,9 @@ export function staffRowToApp(row, sections = [], access = {}) {
 
 export function appStaffToRow(u, gymId) {
   const updatedAt = toTs(u.updatedAt) || new Date().toISOString();
-  return {
+  const photoRaw = String(u.photo || u.avatar || '').trim();
+  const photo_url = photoRaw && photoRaw.length <= 2_000_000 ? photoRaw : null;
+  const row = {
     gym_id: gymId,
     staff_login_id: String(u.id || '').trim(),
     full_name: String(u.name || u.id || 'Staff').trim(),
@@ -196,7 +198,7 @@ export function appStaffToRow(u, gymId) {
     blocked_reason: u.blockedReason || null,
     blocked_at: toTs(u.blockedAt),
     updated_by: u.updatedBy || null,
-    photo_url: u.photo || u.avatar || null,
+    photo_url,
     sandbox_id: u.sandboxId || null,
     password_reset_requested_at: toTs(u.passwordResetRequestedAt),
     password_reset_approved_at: toTs(u.passwordResetApprovedAt),
@@ -204,6 +206,8 @@ export function appStaffToRow(u, gymId) {
     created_at: toTs(u.createdAt) || updatedAt,
     updated_at: updatedAt,
   };
+  if (u.gymCodeId) row.gym_code_id = String(u.gymCodeId).trim();
+  return row;
 }
 
 export function financeRowToApp(row) {
