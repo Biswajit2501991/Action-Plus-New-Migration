@@ -16021,16 +16021,19 @@ function PTClientsPage({ members, users, settings, updateSetting, currentUser, a
             }
             return { ...prev, staff: [...staffList, { id, name, email, avatar: form.photo || null }] };
           });
-          if (dataSyncMode === 'backend' && isOwnerStaffUser(currentUser)) {
-            try {
-              const remoteUsers = await backendJson('/users');
-              if (Array.isArray(remoteUsers) && remoteUsers.length > 0) {
-                setUsers((prev) => mergeRemoteUsersWithLocal(prev, remoteUsers.map((u) => prepareStaffUser(u))));
-              }
-            } catch {}
-          }
           closeStaffModal();
           setEditingId(null);
+          if (dataSyncMode === 'backend' && isOwnerStaffUser(currentUser)) {
+            // Background reconcile: do not block modal close on a /users round-trip
+            // that grows with staff count (E2E timed out at 30s; users see stale row briefly otherwise).
+            backendJson('/users')
+              .then((remoteUsers) => {
+                if (Array.isArray(remoteUsers) && remoteUsers.length > 0) {
+                  setUsers((prev) => mergeRemoteUsersWithLocal(prev, remoteUsers.map((u) => prepareStaffUser(u))));
+                }
+              })
+              .catch(() => {});
+          }
         } finally {
           setSaving(false);
         }
