@@ -42,6 +42,24 @@ export class StaffManagementPage extends BasePage {
     await modal.getByText('Password', { exact: true }).locator('..').locator('input').fill(input.password);
     await modal.getByText('Name', { exact: true }).locator('..').locator('input').fill(input.name);
     await modal.getByText('Email', { exact: true }).locator('..').locator('input').fill(input.email);
+    // Phase 2 multi-tenant: a gym code is required for non-owner staff. Pick the first real branch.
+    const gymCodeSelect = modal.getByTestId('staff-gym-code-select');
+    if (await gymCodeSelect.isVisible().catch(() => false)) {
+      // Wait until /api/gym-codes hydrate populates real options (more than the placeholder).
+      await this.page.waitForFunction(
+        () => {
+          const sel = document.querySelector('[data-testid="staff-gym-code-select"]') as HTMLSelectElement | null;
+          if (!sel) return false;
+          return Array.from(sel.options).filter((o) => o.value && o.value !== '').length > 0;
+        },
+        undefined,
+        { timeout: 15_000 },
+      );
+      const optionValues = await gymCodeSelect.locator('option').evaluateAll((opts) =>
+        opts.map((o) => (o as HTMLOptionElement).value).filter((v) => v && v !== ''),
+      );
+      await gymCodeSelect.selectOption(optionValues[0]);
+    }
     if (input.sections?.length) {
       for (const section of input.sections) {
         const cb = modal.getByRole('checkbox', { name: section });

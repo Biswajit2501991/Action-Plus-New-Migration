@@ -221,6 +221,740 @@
     .apg-mobile-detail-enter {
       animation: apgMobileDetailIn 220ms ease-out;
     }
+
+    /* ===================================================================== */
+    /* Phase 3 Dual-Layout Engine — Dark Luxury skin (WCAG 2.1 AA compliant) */
+    /*                                                                       */
+    /* Design tokens are defined as CSS variables so every contrast decision */
+    /* lives in one place. Every foreground / background pair below meets    */
+    /* AA 4.5:1 (normal text) or 3:1 (large text + UI) against the deepest   */
+    /* surface (--lux-bg = #0a0a0d). Ratios were verified before checkin.   */
+    /* ===================================================================== */
+    body[data-apg-layout="luxury"] {
+      /* Surfaces */
+      --lux-bg: #0a0a0d;
+      --lux-bg-2: #11131a;
+      --lux-surface-1: rgba(22,24,33,0.78);
+      --lux-surface-2: rgba(28,30,42,0.85);
+      --lux-surface-elev: rgba(34,36,48,0.92);
+      --lux-border: rgba(255,255,255,0.10);
+      --lux-border-strong: rgba(255,255,255,0.18);
+      --lux-border-gold: rgba(212,175,55,0.38);
+
+      /* Foreground (all opaque — no opacity tricks for text) */
+      --lux-text-primary: #F4F6F8;
+      --lux-text-secondary: #D1D5DB;
+      --lux-text-muted: #B7BCC6;
+      --lux-text-section: #C9CFDA;
+      --lux-placeholder: #9AA1AE;
+
+      /* Accents */
+      --lux-gold: #FCD36B;
+      --lux-gold-rich: #D4AF37;
+      --lux-on-gold: #0a0a0d;
+      --lux-emerald: #6EE7B7;
+      --lux-emerald-strong: #34D399;
+      --lux-amber: #FCD34D;
+      --lux-orange: #FDBA74;
+      --lux-rose: #FDA4AF;
+      --lux-pink: #F9A8D4;
+      --lux-blue: #93C5FD;
+      --lux-indigo: #A5B4FC;
+      --lux-violet: #C4B5FD;
+
+      background:
+        radial-gradient(circle at 12% 12%, rgba(212,175,55,0.07), transparent 45%),
+        radial-gradient(circle at 88% 88%, rgba(102,153,255,0.06), transparent 45%),
+        linear-gradient(180deg, var(--lux-bg) 0%, var(--lux-bg-2) 100%) !important;
+      color: var(--lux-text-primary) !important;
+    }
+    body[data-apg-layout="luxury"] #root,
+    body[data-apg-layout="luxury"] main {
+      background: transparent !important;
+    }
+
+    /* --------------------------------------------------------------------- */
+    /* Sidebar                                                              */
+    /* --------------------------------------------------------------------- */
+    body[data-apg-layout="luxury"] .apg-sidebar,
+    body[data-apg-layout="luxury"] aside.apg-sidebar {
+      background: linear-gradient(180deg, rgba(14,15,22,0.94), rgba(20,22,32,0.88)) !important;
+      backdrop-filter: blur(18px);
+      -webkit-backdrop-filter: blur(18px);
+      border-right: 1px solid var(--lux-border-gold) !important;
+      color: var(--lux-text-primary) !important;
+      box-shadow: 1px 0 24px rgba(0,0,0,0.45);
+    }
+    body[data-apg-layout="luxury"] .apg-sidebar .apg-sidebar-brand,
+    body[data-apg-layout="luxury"] .apg-sidebar nav,
+    body[data-apg-layout="luxury"] .apg-sidebar [class*="bg-white"],
+    body[data-apg-layout="luxury"] .apg-sidebar [class*="bg-[#fcfdff]"] {
+      background: transparent !important;
+      border-color: var(--lux-border-gold) !important;
+    }
+    body[data-apg-layout="luxury"] .apg-sidebar .apg-sidebar-brand .text-slate-900,
+    body[data-apg-layout="luxury"] .apg-sidebar .apg-sidebar-brand .text-slate-500,
+    body[data-apg-layout="luxury"] .apg-sidebar .apg-sidebar-brand .text-slate-300 {
+      color: var(--lux-text-primary) !important;
+    }
+    body[data-apg-layout="luxury"] .apg-sidebar nav button {
+      color: var(--lux-text-secondary) !important;
+      border-color: transparent !important;
+    }
+    body[data-apg-layout="luxury"] .apg-sidebar nav button:hover {
+      background: rgba(212,175,55,0.14) !important;
+      color: #FFE49E !important;
+    }
+    body[data-apg-layout="luxury"] .apg-sidebar nav button[class*="from-blue"],
+    body[data-apg-layout="luxury"] .apg-sidebar nav button[class*="bg-blue-50"][class*="text-blue-700"] {
+      background: linear-gradient(120deg, rgba(212,175,55,0.30), rgba(180,140,40,0.36)) !important;
+      color: var(--lux-gold) !important;
+      border: 1px solid var(--lux-border-gold) !important;
+      box-shadow: 0 6px 18px rgba(212,175,55,0.18);
+    }
+    body[data-apg-layout="luxury"] .apg-sidebar .apg-nav-section,
+    body[data-apg-layout="luxury"] .apg-sidebar nav > div > div:first-child {
+      color: var(--lux-text-section) !important;
+      opacity: 1 !important;
+      font-weight: 700 !important;
+      letter-spacing: 0.16em !important;
+    }
+    body[data-apg-layout="luxury"] .apg-layout-toggle {
+      background: rgba(212,175,55,0.10) !important;
+      border: 1px solid var(--lux-border-gold) !important;
+    }
+    body[data-apg-layout="luxury"] .apg-layout-toggle [class*="text-slate"] {
+      color: var(--lux-text-primary) !important;
+    }
+
+    /* --------------------------------------------------------------------- */
+    /* Cards / glass surfaces — broaden the set so amber / pink / rose       */
+    /* "tint-50" backgrounds no longer leak through into luxury mode.        */
+    /* --------------------------------------------------------------------- */
+    body[data-apg-layout="luxury"] .bg-white,
+    body[data-apg-layout="luxury"] [class*="bg-white"],
+    body[data-apg-layout="luxury"] [class*="bg-slate-50"],
+    body[data-apg-layout="luxury"] [class*="bg-slate-100"],
+    body[data-apg-layout="luxury"] [class*="bg-slate-900"],
+    body[data-apg-layout="luxury"] [class*="bg-slate-950"],
+    body[data-apg-layout="luxury"] [class*="bg-zinc-50"],
+    body[data-apg-layout="luxury"] [class*="bg-zinc-100"],
+    body[data-apg-layout="luxury"] [class*="bg-gray-50"],
+    body[data-apg-layout="luxury"] [class*="bg-gray-100"],
+    body[data-apg-layout="luxury"] [class*="bg-neutral-50"],
+    body[data-apg-layout="luxury"] [class*="bg-stone-50"],
+    body[data-apg-layout="luxury"] [class*="bg-[#fcfdff]"],
+    body[data-apg-layout="luxury"] [class*="bg-[#F8FAFC]"],
+    body[data-apg-layout="luxury"] [class*="bg-[#f8fafc]"] {
+      background: var(--lux-surface-1) !important;
+      backdrop-filter: blur(14px);
+      -webkit-backdrop-filter: blur(14px);
+      border-color: var(--lux-border) !important;
+      color: var(--lux-text-primary) !important;
+      box-shadow: 0 10px 28px rgba(0,0,0,0.32);
+    }
+    /* Finance page wrapper uses `bg-[#F8FAFC]` directly on the page-level <div>.
+       That outer slab should NOT become a glass card — it should disappear so
+       the body's charcoal gradient shows through. */
+    body[data-apg-layout="luxury"] main > [class*="bg-[#F8FAFC]"],
+    body[data-apg-layout="luxury"] main > [class*="bg-[#f8fafc]"],
+    body[data-apg-layout="luxury"] [class*="bg-[#F8FAFC]"][class*="space-y-"],
+    body[data-apg-layout="luxury"] [class*="bg-[#f8fafc]"][class*="space-y-"] {
+      background: transparent !important;
+      backdrop-filter: none !important;
+      box-shadow: none !important;
+    }
+    /* `apg-force-light` is the legacy theme=light enforcer (it slams solid
+       white into backgrounds with !important). The luxury skin needs to win
+       cleanly, so the selectors below add one extra attribute hop. */
+    body[data-apg-layout="luxury"] .apg-force-light {
+      background: transparent !important;
+    }
+    body[data-apg-layout="luxury"] .apg-force-light .bg-white,
+    body[data-apg-layout="luxury"] .apg-force-light [class*="bg-white"],
+    body[data-apg-layout="luxury"] .apg-force-light .bg-slate-50,
+    body[data-apg-layout="luxury"] .apg-force-light .bg-slate-100,
+    body[data-apg-layout="luxury"] .apg-force-light [class*="dark:bg-slate-"],
+    body[data-apg-layout="luxury"] .apg-force-light [class*="bg-[#F8FAFC]"],
+    body[data-apg-layout="luxury"] .apg-force-light [class*="bg-[#f8fafc]"] {
+      background-color: var(--lux-surface-1) !important;
+      color: var(--lux-text-primary) !important;
+      border-color: var(--lux-border) !important;
+    }
+    body[data-apg-layout="luxury"] .apg-force-light .text-slate-900,
+    body[data-apg-layout="luxury"] .apg-force-light .text-slate-800,
+    body[data-apg-layout="luxury"] .apg-force-light .text-slate-700,
+    body[data-apg-layout="luxury"] .apg-force-light [class*="dark:text-slate-"] {
+      color: var(--lux-text-primary) !important;
+    }
+    body[data-apg-layout="luxury"] .apg-force-light .text-slate-600,
+    body[data-apg-layout="luxury"] .apg-force-light .text-slate-500,
+    body[data-apg-layout="luxury"] .apg-force-light .text-slate-400 {
+      color: var(--lux-text-muted) !important;
+    }
+    body[data-apg-layout="luxury"] .apg-force-light .border-slate-200,
+    body[data-apg-layout="luxury"] .apg-force-light .border-slate-300,
+    body[data-apg-layout="luxury"] .apg-force-light [class*="dark:border-slate-"] {
+      border-color: var(--lux-border) !important;
+    }
+    /* Table-row hover regressions: every Tailwind `hover:bg-*-{50,100,white}`
+       and `dark:hover:bg-slate-*` pair gets repainted in luxury to a subtle
+       gold-tinted glass highlight instead of a solid white slab. */
+    body[data-apg-layout="luxury"] [class*="hover:bg-white"]:hover,
+    body[data-apg-layout="luxury"] [class*="hover:bg-slate-50"]:hover,
+    body[data-apg-layout="luxury"] [class*="hover:bg-slate-100"]:hover,
+    body[data-apg-layout="luxury"] [class*="hover:bg-zinc-50"]:hover,
+    body[data-apg-layout="luxury"] [class*="hover:bg-zinc-100"]:hover,
+    body[data-apg-layout="luxury"] [class*="hover:bg-gray-50"]:hover,
+    body[data-apg-layout="luxury"] [class*="hover:bg-gray-100"]:hover,
+    body[data-apg-layout="luxury"] [class*="hover:bg-blue-50"]:hover,
+    body[data-apg-layout="luxury"] [class*="hover:bg-blue-100"]:hover,
+    body[data-apg-layout="luxury"] [class*="hover:bg-indigo-50"]:hover,
+    body[data-apg-layout="luxury"] [class*="hover:bg-emerald-50"]:hover,
+    body[data-apg-layout="luxury"] [class*="hover:bg-emerald-100"]:hover,
+    body[data-apg-layout="luxury"] [class*="hover:bg-amber-50"]:hover,
+    body[data-apg-layout="luxury"] [class*="hover:bg-amber-100"]:hover,
+    body[data-apg-layout="luxury"] [class*="hover:bg-rose-50"]:hover,
+    body[data-apg-layout="luxury"] [class*="hover:bg-rose-100"]:hover,
+    body[data-apg-layout="luxury"] [class*="hover:bg-pink-50"]:hover,
+    body[data-apg-layout="luxury"] [class*="hover:bg-pink-100"]:hover,
+    body[data-apg-layout="luxury"] [class*="dark:hover:bg-slate-700"]:hover,
+    body[data-apg-layout="luxury"] [class*="dark:hover:bg-slate-800"]:hover,
+    body[data-apg-layout="luxury"] [class*="dark:hover:bg-slate-900"]:hover {
+      background-color: rgba(212,175,55,0.10) !important;
+      background-image: none !important;
+      color: var(--lux-text-primary) !important;
+    }
+    /* Tint-50 cards (emerald/amber/rose/pink/orange/blue/indigo/violet) get
+       repainted as dark glass but keep a coloured accent border so the
+       semantic intent (success / warning / risk) stays visible. */
+    body[data-apg-layout="luxury"] [class*="bg-emerald-50"],
+    body[data-apg-layout="luxury"] [class*="bg-emerald-100"] {
+      background: var(--lux-surface-1) !important;
+      border-color: rgba(110,231,183,0.32) !important;
+      color: var(--lux-emerald) !important;
+    }
+    body[data-apg-layout="luxury"] [class*="bg-amber-50"],
+    body[data-apg-layout="luxury"] [class*="bg-amber-100"],
+    body[data-apg-layout="luxury"] [class*="bg-yellow-50"],
+    body[data-apg-layout="luxury"] [class*="bg-yellow-100"] {
+      background: var(--lux-surface-1) !important;
+      border-color: rgba(252,211,77,0.32) !important;
+      color: var(--lux-amber) !important;
+    }
+    body[data-apg-layout="luxury"] [class*="bg-orange-50"],
+    body[data-apg-layout="luxury"] [class*="bg-orange-100"] {
+      background: var(--lux-surface-1) !important;
+      border-color: rgba(253,186,116,0.32) !important;
+      color: var(--lux-orange) !important;
+    }
+    body[data-apg-layout="luxury"] [class*="bg-rose-50"],
+    body[data-apg-layout="luxury"] [class*="bg-rose-100"] {
+      background: var(--lux-surface-1) !important;
+      border-color: rgba(253,164,175,0.32) !important;
+      color: var(--lux-rose) !important;
+    }
+    body[data-apg-layout="luxury"] [class*="bg-pink-50"],
+    body[data-apg-layout="luxury"] [class*="bg-pink-100"] {
+      background: var(--lux-surface-1) !important;
+      border-color: rgba(249,168,212,0.32) !important;
+      color: var(--lux-pink) !important;
+    }
+    body[data-apg-layout="luxury"] [class*="bg-blue-50"],
+    body[data-apg-layout="luxury"] [class*="bg-blue-100"] {
+      background: var(--lux-surface-1) !important;
+      border-color: rgba(147,197,253,0.32) !important;
+      color: var(--lux-blue) !important;
+    }
+    body[data-apg-layout="luxury"] [class*="bg-indigo-50"],
+    body[data-apg-layout="luxury"] [class*="bg-indigo-100"] {
+      background: var(--lux-surface-1) !important;
+      border-color: rgba(165,180,252,0.32) !important;
+      color: var(--lux-indigo) !important;
+    }
+    body[data-apg-layout="luxury"] [class*="bg-violet-50"],
+    body[data-apg-layout="luxury"] [class*="bg-violet-100"],
+    body[data-apg-layout="luxury"] [class*="bg-purple-50"],
+    body[data-apg-layout="luxury"] [class*="bg-purple-100"] {
+      background: var(--lux-surface-1) !important;
+      border-color: rgba(196,181,253,0.32) !important;
+      color: var(--lux-violet) !important;
+    }
+
+    /* --------------------------------------------------------------------- */
+    /* Foreground tint remap — 700/800 colour-tones get bright accents       */
+    /* --------------------------------------------------------------------- */
+    body[data-apg-layout="luxury"] .text-slate-900,
+    body[data-apg-layout="luxury"] .text-slate-800,
+    body[data-apg-layout="luxury"] .text-slate-700,
+    body[data-apg-layout="luxury"] .text-gray-900,
+    body[data-apg-layout="luxury"] .text-gray-800,
+    body[data-apg-layout="luxury"] .text-zinc-900,
+    body[data-apg-layout="luxury"] .text-zinc-800 {
+      color: var(--lux-text-primary) !important;
+    }
+    body[data-apg-layout="luxury"] .text-slate-600,
+    body[data-apg-layout="luxury"] .text-slate-500,
+    body[data-apg-layout="luxury"] .text-gray-600,
+    body[data-apg-layout="luxury"] .text-gray-500,
+    body[data-apg-layout="luxury"] .text-zinc-600,
+    body[data-apg-layout="luxury"] .text-zinc-500 {
+      color: var(--lux-text-muted) !important;
+    }
+    body[data-apg-layout="luxury"] .text-slate-400,
+    body[data-apg-layout="luxury"] .text-slate-300,
+    body[data-apg-layout="luxury"] .text-gray-400,
+    body[data-apg-layout="luxury"] .text-gray-300 {
+      color: var(--lux-text-secondary) !important;
+    }
+    body[data-apg-layout="luxury"] .text-emerald-900,
+    body[data-apg-layout="luxury"] .text-emerald-800,
+    body[data-apg-layout="luxury"] .text-emerald-700,
+    body[data-apg-layout="luxury"] .text-emerald-600 { color: var(--lux-emerald) !important; }
+    body[data-apg-layout="luxury"] .text-amber-900,
+    body[data-apg-layout="luxury"] .text-amber-800,
+    body[data-apg-layout="luxury"] .text-amber-700,
+    body[data-apg-layout="luxury"] .text-amber-600,
+    body[data-apg-layout="luxury"] .text-yellow-800,
+    body[data-apg-layout="luxury"] .text-yellow-700,
+    body[data-apg-layout="luxury"] .text-yellow-600 { color: var(--lux-amber) !important; }
+    body[data-apg-layout="luxury"] .text-orange-900,
+    body[data-apg-layout="luxury"] .text-orange-800,
+    body[data-apg-layout="luxury"] .text-orange-700,
+    body[data-apg-layout="luxury"] .text-orange-600 { color: var(--lux-orange) !important; }
+    body[data-apg-layout="luxury"] .text-rose-900,
+    body[data-apg-layout="luxury"] .text-rose-800,
+    body[data-apg-layout="luxury"] .text-rose-700,
+    body[data-apg-layout="luxury"] .text-rose-600 { color: var(--lux-rose) !important; }
+    body[data-apg-layout="luxury"] .text-pink-900,
+    body[data-apg-layout="luxury"] .text-pink-800,
+    body[data-apg-layout="luxury"] .text-pink-700,
+    body[data-apg-layout="luxury"] .text-pink-600 { color: var(--lux-pink) !important; }
+    body[data-apg-layout="luxury"] .text-blue-900,
+    body[data-apg-layout="luxury"] .text-blue-800,
+    body[data-apg-layout="luxury"] .text-blue-700,
+    body[data-apg-layout="luxury"] .text-blue-600 { color: var(--lux-blue) !important; }
+    body[data-apg-layout="luxury"] .text-indigo-900,
+    body[data-apg-layout="luxury"] .text-indigo-800,
+    body[data-apg-layout="luxury"] .text-indigo-700,
+    body[data-apg-layout="luxury"] .text-indigo-600 { color: var(--lux-indigo) !important; }
+    body[data-apg-layout="luxury"] .text-violet-900,
+    body[data-apg-layout="luxury"] .text-violet-800,
+    body[data-apg-layout="luxury"] .text-violet-700,
+    body[data-apg-layout="luxury"] .text-violet-600,
+    body[data-apg-layout="luxury"] .text-purple-900,
+    body[data-apg-layout="luxury"] .text-purple-800,
+    body[data-apg-layout="luxury"] .text-purple-700,
+    body[data-apg-layout="luxury"] .text-purple-600 { color: var(--lux-violet) !important; }
+    body[data-apg-layout="luxury"] .text-cyan-700,
+    body[data-apg-layout="luxury"] .text-sky-700,
+    body[data-apg-layout="luxury"] .text-teal-700 { color: var(--lux-blue) !important; }
+
+    /* Headings using bg-clip-text gradients — restore visibility. */
+    body[data-apg-layout="luxury"] h1.bg-clip-text,
+    body[data-apg-layout="luxury"] h2.bg-clip-text,
+    body[data-apg-layout="luxury"] h3.bg-clip-text,
+    body[data-apg-layout="luxury"] .bg-clip-text.text-transparent {
+      -webkit-background-clip: initial !important;
+      background-clip: initial !important;
+      background: none !important;
+      -webkit-text-fill-color: var(--lux-text-primary) !important;
+      color: var(--lux-text-primary) !important;
+    }
+    /* Generic page-title fallback in luxury */
+    body[data-apg-layout="luxury"] h1,
+    body[data-apg-layout="luxury"] h2,
+    body[data-apg-layout="luxury"] h3 {
+      color: var(--lux-text-primary) !important;
+    }
+
+    /* --------------------------------------------------------------------- */
+    /* Borders                                                              */
+    /* --------------------------------------------------------------------- */
+    body[data-apg-layout="luxury"] .border-slate-100,
+    body[data-apg-layout="luxury"] .border-slate-200,
+    body[data-apg-layout="luxury"] .border-slate-300,
+    body[data-apg-layout="luxury"] .border-gray-200,
+    body[data-apg-layout="luxury"] .border-zinc-200 {
+      border-color: var(--lux-border) !important;
+    }
+    body[data-apg-layout="luxury"] [class*="border-emerald-200"],
+    body[data-apg-layout="luxury"] [class*="border-emerald-300"] { border-color: rgba(110,231,183,0.32) !important; }
+    body[data-apg-layout="luxury"] [class*="border-amber-200"],
+    body[data-apg-layout="luxury"] [class*="border-amber-300"],
+    body[data-apg-layout="luxury"] [class*="border-yellow-200"] { border-color: rgba(252,211,77,0.32) !important; }
+    body[data-apg-layout="luxury"] [class*="border-orange-200"],
+    body[data-apg-layout="luxury"] [class*="border-orange-300"] { border-color: rgba(253,186,116,0.32) !important; }
+    body[data-apg-layout="luxury"] [class*="border-rose-200"],
+    body[data-apg-layout="luxury"] [class*="border-rose-300"] { border-color: rgba(253,164,175,0.32) !important; }
+    body[data-apg-layout="luxury"] [class*="border-pink-200"],
+    body[data-apg-layout="luxury"] [class*="border-pink-300"] { border-color: rgba(249,168,212,0.32) !important; }
+    body[data-apg-layout="luxury"] [class*="border-blue-200"],
+    body[data-apg-layout="luxury"] [class*="border-blue-300"] { border-color: rgba(147,197,253,0.32) !important; }
+    body[data-apg-layout="luxury"] [class*="border-indigo-200"],
+    body[data-apg-layout="luxury"] [class*="border-indigo-300"] { border-color: rgba(165,180,252,0.32) !important; }
+    body[data-apg-layout="luxury"] [class*="border-violet-200"],
+    body[data-apg-layout="luxury"] [class*="border-violet-300"],
+    body[data-apg-layout="luxury"] [class*="border-purple-200"] { border-color: rgba(196,181,253,0.32) !important; }
+
+    /* --------------------------------------------------------------------- */
+    /* Inputs / Placeholders                                                */
+    /* --------------------------------------------------------------------- */
+    body[data-apg-layout="luxury"] input,
+    body[data-apg-layout="luxury"] select,
+    body[data-apg-layout="luxury"] textarea {
+      background: rgba(11,13,20,0.78) !important;
+      color: var(--lux-text-primary) !important;
+      border: 1px solid var(--lux-border-gold) !important;
+    }
+    body[data-apg-layout="luxury"] input::placeholder,
+    body[data-apg-layout="luxury"] textarea::placeholder,
+    body[data-apg-layout="luxury"] [class*="placeholder:text-slate-"]::placeholder,
+    body[data-apg-layout="luxury"] [class*="placeholder:text-gray-"]::placeholder {
+      color: var(--lux-placeholder) !important;
+      opacity: 1 !important; /* Firefox lowers placeholder opacity by default */
+    }
+    body[data-apg-layout="luxury"] input:focus,
+    body[data-apg-layout="luxury"] select:focus,
+    body[data-apg-layout="luxury"] textarea:focus {
+      outline: none !important;
+      border-color: var(--lux-gold) !important;
+      box-shadow: 0 0 0 3px rgba(252,211,107,0.22) !important;
+    }
+
+    /* --------------------------------------------------------------------- */
+    /* Buttons                                                              */
+    /* --------------------------------------------------------------------- */
+    /* Primary gold gradient — text uses --lux-on-gold (dark) for AA contrast. */
+    body[data-apg-layout="luxury"] button[class*="bg-blue-600"],
+    body[data-apg-layout="luxury"] button[class*="bg-indigo-600"],
+    body[data-apg-layout="luxury"] button[class*="bg-emerald-600"],
+    body[data-apg-layout="luxury"] a[class*="bg-blue-600"],
+    body[data-apg-layout="luxury"] a[class*="bg-indigo-600"],
+    body[data-apg-layout="luxury"] a[class*="bg-emerald-600"] {
+      background: linear-gradient(120deg, var(--lux-gold-rich), #b8860b) !important;
+      color: var(--lux-on-gold) !important;
+      border: 1px solid rgba(212,175,55,0.65) !important;
+      box-shadow: 0 8px 22px rgba(212,175,55,0.22);
+    }
+    body[data-apg-layout="luxury"] button[class*="bg-blue-600"]:hover,
+    body[data-apg-layout="luxury"] button[class*="bg-indigo-600"]:hover,
+    body[data-apg-layout="luxury"] button[class*="bg-emerald-600"]:hover {
+      filter: brightness(1.08);
+    }
+    /* Text-on-primary buttons explicitly readable when Tailwind hard-codes white. */
+    body[data-apg-layout="luxury"] button[class*="bg-blue-600"] *,
+    body[data-apg-layout="luxury"] button[class*="bg-indigo-600"] *,
+    body[data-apg-layout="luxury"] button[class*="bg-emerald-600"] * {
+      color: var(--lux-on-gold) !important;
+    }
+
+    /* --------------------------------------------------------------------- */
+    /* Tables (Logs / SMS / Members lists)                                  */
+    /* --------------------------------------------------------------------- */
+    body[data-apg-layout="luxury"] table {
+      background: transparent !important;
+    }
+    body[data-apg-layout="luxury"] thead th,
+    body[data-apg-layout="luxury"] .apg-finance-table-head th,
+    body[data-apg-layout="luxury"] .apg-nested-log-head th {
+      background: rgba(212,175,55,0.12) !important;
+      color: var(--lux-text-primary) !important;
+      border-bottom: 1px solid var(--lux-border-gold) !important;
+    }
+    body[data-apg-layout="luxury"] thead th button {
+      color: var(--lux-text-primary) !important;
+    }
+    body[data-apg-layout="luxury"] tbody tr {
+      border-color: var(--lux-border) !important;
+    }
+    body[data-apg-layout="luxury"] tbody tr:hover {
+      background: rgba(212,175,55,0.06) !important;
+    }
+
+    /* --------------------------------------------------------------------- */
+    /* Belt-and-braces: keep dark-mode (`html.dark`) rules from fighting the */
+    /* luxury skin when both are active.                                    */
+    /* --------------------------------------------------------------------- */
+    body[data-apg-layout="luxury"] html.dark .apg-sidebar,
+    body[data-apg-layout="luxury"].dark .apg-sidebar {
+      background: linear-gradient(180deg, rgba(14,15,22,0.94), rgba(20,22,32,0.88)) !important;
+    }
+
+    /* --------------------------------------------------------------------- */
+    /* CSS-spring accordion. Mimics framer-motion's default `layout` ease    */
+    /* (cubic-bezier(.16,1,.3,1)) using the grid-template-rows trick: the    */
+    /* inner row animates from 0fr → 1fr so the wrapper springs to its       */
+    /* natural content height (no fixed max-height guessing). Premium feel,  */
+    /* zero extra JS deps. Drop in <motion.div> later if framer-motion ships.*/
+    /* --------------------------------------------------------------------- */
+    .apg-accordion {
+      display: grid;
+      grid-template-rows: 0fr;
+      opacity: 0;
+      transition:
+        grid-template-rows 320ms cubic-bezier(.16,1,.3,1),
+        opacity 220ms ease-in-out;
+    }
+    .apg-accordion[data-open="true"] {
+      grid-template-rows: 1fr;
+      opacity: 1;
+    }
+    .apg-accordion > .apg-accordion-inner {
+      overflow: hidden;
+      min-height: 0;
+    }
+    .apg-accordion-chevron {
+      transition: transform 240ms cubic-bezier(.16,1,.3,1);
+      display: inline-block;
+    }
+    .apg-accordion-chevron[data-open="true"] {
+      transform: rotate(180deg);
+    }
+    @media (prefers-reduced-motion: reduce) {
+      .apg-accordion,
+      .apg-accordion-chevron {
+        transition: none !important;
+      }
+    }
+
+    /* --------------------------------------------------------------------- */
+    /* Login Screen — Dark Luxury redesign (always-on, palette-locked).      */
+    /* The login page renders BEFORE layoutMode is restored, so the palette  */
+    /* is hardcoded here instead of inheriting body[data-apg-layout].       */
+    /* Reference: Action Plus Gym brand — matte charcoal card, gold accent. */
+    /* --------------------------------------------------------------------- */
+    .apg-login-shell {
+      background:
+        radial-gradient(circle at 18% 14%, rgba(212,175,55,0.10), transparent 48%),
+        radial-gradient(circle at 82% 88%, rgba(120,150,255,0.05), transparent 42%),
+        linear-gradient(180deg, #0a0a0d 0%, #11131a 60%, #0a0a0d 100%);
+      color: #F4F6F8;
+    }
+    .apg-login-card {
+      border-radius: 28px;
+      padding: 14px;
+      background: linear-gradient(180deg, rgba(40,42,56,0.55), rgba(20,22,32,0.55));
+      border: 1px solid rgba(255,255,255,0.06);
+      box-shadow:
+        0 30px 70px -20px rgba(0,0,0,0.75),
+        0 18px 45px -25px rgba(0,0,0,0.65),
+        inset 0 1px 0 rgba(255,255,255,0.05);
+    }
+    .apg-login-card-inner {
+      background: linear-gradient(160deg, #14161f 0%, #0f111a 100%);
+      border: 1px solid rgba(255,255,255,0.08);
+      border-radius: 22px;
+      padding: 32px 28px 26px;
+      color: #E5E7EB;
+      box-shadow: inset 0 1px 0 rgba(255,255,255,0.04);
+    }
+    .apg-login-logo {
+      width: 64px;
+      height: 64px;
+      margin: 0 auto 14px;
+      padding: 5px;
+      border-radius: 9999px;
+      background:
+        radial-gradient(circle, rgba(212,175,55,0.18) 0%, rgba(212,175,55,0) 70%),
+        rgba(255,255,255,0.04);
+      border: 2px solid rgba(212,175,55,0.42);
+      box-shadow: 0 8px 24px rgba(0,0,0,0.45);
+    }
+    .apg-login-title {
+      text-align: center;
+      font-size: 28px;
+      font-weight: 500;
+      letter-spacing: 0.22em;
+      color: #F4F6F8;
+      margin: 0 0 22px;
+      text-shadow: 0 1px 0 rgba(0,0,0,0.5);
+    }
+    .apg-login-label {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      font-size: 15px;
+      font-weight: 500;
+      color: #D1D5DB;
+      margin-bottom: 8px;
+    }
+    .apg-login-label-icon {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      width: 18px;
+      color: #C9CFDA;
+    }
+    .apg-login-label-icon--gold {
+      color: #D4AF37;
+    }
+    .apg-login-field {
+      position: relative;
+    }
+    .apg-login-input {
+      width: 100%;
+      border-radius: 9999px;
+      border: 1px solid rgba(255,255,255,0.10);
+      background: rgba(26,28,37,0.85);
+      color: #F4F6F8;
+      padding: 11px 44px 11px 18px;
+      font-size: 14px;
+      letter-spacing: 0.02em;
+      box-shadow: inset 0 1px 0 rgba(255,255,255,0.04), 0 6px 18px rgba(0,0,0,0.35);
+      transition: border-color 160ms ease, box-shadow 160ms ease;
+    }
+    .apg-login-input::placeholder {
+      color: #9AA1AE;
+    }
+    .apg-login-input:focus {
+      outline: none;
+      border-color: rgba(212,175,55,0.55);
+      box-shadow:
+        inset 0 1px 0 rgba(255,255,255,0.05),
+        0 0 0 3px rgba(212,175,55,0.18),
+        0 6px 18px rgba(0,0,0,0.4);
+    }
+    .apg-login-eye {
+      position: absolute;
+      right: 14px;
+      top: 50%;
+      transform: translateY(-50%);
+      background: transparent;
+      border: 0;
+      cursor: pointer;
+      color: #C9CFDA;
+      font-size: 16px;
+      line-height: 1;
+      padding: 4px;
+      border-radius: 9999px;
+    }
+    .apg-login-eye:hover { color: #FCD36B; }
+    .apg-login-eye:focus-visible {
+      outline: 2px solid rgba(212,175,55,0.55);
+      outline-offset: 1px;
+    }
+    .apg-login-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      font-size: 13px;
+      color: #B7BCC6;
+      margin-top: 4px;
+    }
+    .apg-login-remember {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      user-select: none;
+      cursor: pointer;
+    }
+    .apg-login-check {
+      width: 14px;
+      height: 14px;
+      accent-color: #D4AF37;
+    }
+    .apg-login-forgot {
+      background: transparent;
+      border: 0;
+      color: #C9CFDA;
+      font-weight: 500;
+      cursor: pointer;
+      padding: 4px 2px;
+      border-radius: 6px;
+    }
+    .apg-login-forgot:hover { color: #FCD36B; }
+    .apg-login-submit {
+      margin-top: 8px;
+      width: 100%;
+      border-radius: 12px;
+      background: linear-gradient(180deg, #E7C268 0%, #C9A23E 100%);
+      color: #0a0a0d;
+      font-size: 16px;
+      font-weight: 700;
+      letter-spacing: 0.18em;
+      padding: 12px 16px;
+      border: 1px solid rgba(212,175,55,0.65);
+      box-shadow:
+        0 14px 30px -12px rgba(212,175,55,0.45),
+        inset 0 1px 0 rgba(255,255,255,0.35);
+      cursor: pointer;
+      transition: transform 120ms ease, box-shadow 160ms ease, filter 160ms ease;
+    }
+    .apg-login-submit:hover {
+      filter: brightness(1.06);
+      box-shadow:
+        0 18px 38px -14px rgba(212,175,55,0.55),
+        inset 0 1px 0 rgba(255,255,255,0.4);
+    }
+    .apg-login-submit:active { transform: translateY(1px); }
+    .apg-login-submit:focus-visible {
+      outline: 2px solid #FCD36B;
+      outline-offset: 2px;
+    }
+    .apg-login-footer {
+      margin-top: 18px;
+      text-align: center;
+      font-size: 12.5px;
+      color: #9AA1AE;
+      line-height: 1.5;
+    }
+    .apg-login-error {
+      font-size: 13px;
+      color: #FDA4AF;
+      background: rgba(190,18,60,0.12);
+      border: 1px solid rgba(244,114,182,0.30);
+      padding: 8px 12px;
+      border-radius: 12px;
+    }
+    .apg-login-info {
+      font-size: 13px;
+      color: #6EE7B7;
+      background: rgba(16,185,129,0.10);
+      border: 1px solid rgba(110,231,183,0.30);
+      padding: 8px 12px;
+      border-radius: 12px;
+    }
+
+    /* --------------------------------------------------------------------- */
+    /* Global Toast / Notification Layer.                                    */
+    /* z-index hierarchy (top-down):                                         */
+    /*   apg-toast            ........................... 9999  (winner)    */
+    /*   modal (full-screen fixed)  ........... 60..100   (always below)    */
+    /*   apg-notif-popover (bell dropdown)  .... 9000  (above sticky bars)  */
+    /*   sticky table <thead>  .................... 10..20                  */
+    /*   sidebar / topbar  ........................ 20..40                  */
+    /*                                                                       */
+    /* `isolation: isolate` ensures the toast establishes its own stacking   */
+    /* context so an ancestor with `transform`, `filter`, or `backdrop-filter`*/
+    /* (e.g. apg-mobile-topbar) cannot trap the toast as a child layer.      */
+    /* --------------------------------------------------------------------- */
+    .apg-toast {
+      z-index: 9999 !important;
+      isolation: isolate;
+      pointer-events: auto;
+    }
+    .apg-toast--undo {
+      z-index: 9999 !important;
+    }
+    /* --------------------------------------------------------------------- */
+    /* Notification bell popover (mounted via React Portal to <body>).       */
+    /* Sits ABOVE all sticky sub-nav / filter bars (z-10..z-30) but BELOW    */
+    /* the global toast layer (z-9999) and the live mobile detail / modal   */
+    /* sheets that explicitly opt into z-9500+ on top.                       */
+    /*                                                                       */
+    /* The popover is portaled to <body>, so no ancestor `backdrop-filter`   */
+    /* (e.g. apg-mobile-topbar) can trap it inside a child stacking context. */
+    /* Modals close the popover via the document-click handler before they  */
+    /* mount, so a co-existence collision is not reachable in practice; the */
+    /* z-index simply guarantees correct paint order in the failure case.   */
+    /* --------------------------------------------------------------------- */
+    .apg-notif-popover {
+      position: fixed;
+      z-index: 9000;
+      isolation: isolate;
+      pointer-events: auto;
+    }
   </style>
 </head>
 <body class="bg-slate-100 text-slate-900">
@@ -741,6 +1475,10 @@
       'staff.password_reset.approved': 'Password reset approved',
       'staff.password_changed.self': 'Password changed (self)',
       'member.payment.added': 'Member payment added',
+      'member.payment.edited': 'Member payment edited',
+      'member.payment.deleted': 'Member payment deleted',
+      'leave.requested': 'Leave request submitted',
+      'leave.status.updated': 'Leave request status updated',
       'sms.status_triggered': 'Auto SMS (status change)',
       'whatsapp.call.opened': 'WhatsApp call/chat',
       'history.undo': 'Undo',
@@ -1555,8 +2293,10 @@ Phone: +91-7047157510`;
       smsEvents: 'apg.sms.events',
       filters: 'apg.filters',
       theme: 'apg.theme',
+      layoutMode: 'apg.layoutMode',
       displayTimeZone: 'apg.displayTimeZone',
       addMemberDraft: 'apg.addMemberDraft',
+      gymCodesPanelOpen: 'apg.settings.gymCodesOpen',
     };
     const AUTH_SESSION_KEY = 'apg.auth.session';
     const AUTH_SESSION_TTL_MS = 15 * 60 * 1000;
@@ -1673,6 +2413,13 @@ Phone: +91-7047157510`;
       }
       return res.json();
     };
+    // Phase 4 leave-request fix: expose backendJson globally so the fallback
+    // LeaveTrackerPage closure can dispatch /api/leave-requests writes when the
+    // LeaveTracker module is not loaded. The function reads its own auth token
+    // and sync context, so there's no risk of stale state.
+    if (typeof window !== 'undefined') {
+      window.__APG_BACKEND_JSON__ = backendJson;
+    }
     const parseApgTimeMs = (v) => {
       const t = new Date(String(v || '').trim()).getTime();
       return Number.isFinite(t) ? t : 0;
@@ -2331,6 +3078,24 @@ Phone: +91-7047157510`;
           return 'light';
         }
       });
+      // Phase 2: dual-layout toggle. 'classic' = existing UI; 'luxury' = Dark Luxury skin
+      // (charcoal background, soft glassmorphism, gold accents). Persisted across reloads.
+      const [layoutMode, setLayoutMode] = React.useState(() => {
+        try {
+          const saved = String(localStorage.getItem(STORAGE_KEYS.layoutMode) || '').toLowerCase();
+          return saved === 'luxury' ? 'luxury' : 'classic';
+        } catch {
+          return 'classic';
+        }
+      });
+      React.useEffect(() => {
+        try {
+          localStorage.setItem(STORAGE_KEYS.layoutMode, layoutMode);
+          if (typeof document !== 'undefined' && document.body) {
+            document.body.setAttribute('data-apg-layout', layoutMode);
+          }
+        } catch {}
+      }, [layoutMode]);
       const [displayTimeZone, setDisplayTimeZone] = React.useState(() => {
         try {
           const saved = String(localStorage.getItem(STORAGE_KEYS.displayTimeZone) || '').toUpperCase();
@@ -2364,6 +3129,24 @@ Phone: +91-7047157510`;
           return [];
         }
       });
+      // Gym Codes (branches) — Phase 2 multi-tenant isolation.
+      const [gymCodes, setGymCodes] = React.useState([]);
+      const [gymCodesError, setGymCodesError] = React.useState('');
+      const gymCodeById = React.useMemo(() => {
+        const m = new Map();
+        for (const c of gymCodes) m.set(String(c.id), c);
+        return m;
+      }, [gymCodes]);
+      const hqGymCodeId = React.useMemo(() => {
+        const hq = gymCodes.find((c) => String(c.code || '').toUpperCase() === 'HQ');
+        return hq?.id || null;
+      }, [gymCodes]);
+      const gymCodeLabel = React.useCallback((id) => {
+        if (!id) return '—';
+        const c = gymCodeById.get(String(id));
+        if (!c) return '—';
+        return `${c.code} / ${c.name}`;
+      }, [gymCodeById]);
       // Keep legacy records aligned with current rule: Payment By = Billing Date + 7 days.
       React.useEffect(() => {
         let changed = false;
@@ -2451,8 +3234,21 @@ Phone: +91-7047157510`;
         const curSections = JSON.stringify(user?.sections || []);
         if (nextSections !== curSections) setUser(prepared);
       }, [user?.id, user?.sections, normalizeSectionsForUser]);
+      const refreshGymCodes = React.useCallback(async () => {
+        try {
+          const list = await backendJson('/gym-codes');
+          if (Array.isArray(list)) {
+            setGymCodes(list);
+            setGymCodesError('');
+            return list;
+          }
+        } catch (err) {
+          setGymCodesError(String(err?.message || err || 'gym-codes-fetch-failed'));
+        }
+        return null;
+      }, []);
       const hydrateFromBackend = React.useCallback(async () => {
-        const [remoteUsers, remoteMembers, remoteVisitors, remoteSettings, remoteLogs, remoteFinance, remoteSmsEvents] = await Promise.all([
+        const [remoteUsers, remoteMembers, remoteVisitors, remoteSettings, remoteLogs, remoteFinance, remoteSmsEvents, remoteGymCodes] = await Promise.all([
           backendJson('/users').catch(() => []),
           backendJson('/members').catch(() => []),
           backendJson('/visitors').catch(() => []),
@@ -2460,7 +3256,9 @@ Phone: +91-7047157510`;
           backendJson('/logs').catch(() => []),
           backendJson('/finance').catch(() => []),
           backendJson('/sms-events').catch(() => []),
+          backendJson('/gym-codes').catch(() => []),
         ]);
+        if (Array.isArray(remoteGymCodes)) setGymCodes(remoteGymCodes);
         await clearQueuedSnapshots().catch(() => {});
         setOfflineQueueCount(0);
         if (Array.isArray(remoteUsers) && remoteUsers.length > 0) {
@@ -3087,6 +3885,39 @@ Phone: +91-7047157510`;
         };
       }, [dataSyncMode, realtimeConnected]);
 
+      // Phase 4 leave-request notification fix: pull settings on SSE
+      // 'settings' broadcast so that when staff POSTs /api/leave-requests, the
+      // owner's bell badge updates in real time. Previously no settings-pull
+      // listener existed and the owner had to refresh to see new leaves.
+      React.useEffect(() => {
+        if (dataSyncMode !== 'backend') return;
+        let alive = true;
+        const pullSettings = () => {
+          backendJson('/settings')
+            .then((remote) => {
+              if (!alive || !remote || typeof remote !== 'object') return;
+              setSettings((prev) => {
+                const prevSig = JSON.stringify(prev || {});
+                const nextSig = JSON.stringify(remote || {});
+                return prevSig === nextSig ? prev : remote;
+              });
+            })
+            .catch(() => {});
+        };
+        const onRealtime = (ev) => {
+          if (ev?.detail?.collection === 'settings' && alive) pullSettings();
+        };
+        window.addEventListener('apg-realtime', onRealtime);
+        // Slower base poll than users; SSE drives the fast path.
+        const pollMs = realtimeConnected ? REALTIME_POLL_SLOW_MS : REALTIME_POLL_FAST_MS;
+        const timer = setInterval(pullSettings, pollMs);
+        return () => {
+          alive = false;
+          clearInterval(timer);
+          window.removeEventListener('apg-realtime', onRealtime);
+        };
+      }, [dataSyncMode, realtimeConnected]);
+
       // Persist users to localStorage whenever they change. This ensures that newly added
       // staff or updated roles survive page reloads.
       React.useEffect(() => {
@@ -3144,11 +3975,19 @@ Phone: +91-7047157510`;
       const [dashField, setDashField] = React.useState('all');
       const [mobileMenuOpen, setMobileMenuOpen] = React.useState(false);
       const [notificationOpen, setNotificationOpen] = React.useState(false);
+      // Refs for the bell anchors used by NotificationPortal to compute the
+      // portaled popover's fixed top/right coordinates.
+      const mobileBellRef = React.useRef(null);
+      const desktopBellRef = React.useRef(null);
       const [headerDate, setHeaderDate] = React.useState(() => localTodayCalendarKey());
       const headerDateInputRef = React.useRef(null);
       const [quickExpenseOpen, setQuickExpenseOpen] = React.useState(false);
       const [paymentEntryModal, setPaymentEntryModal] = React.useState({
         open: false,
+        // Phase 4 RBAC: `editingPaymentId` identifies an existing history row.
+        // When empty, the modal operates in Add mode; when set, it edits that
+        // specific row (UI label flips to "Edit Payment").
+        editingPaymentId: '',
         memberId: '',
         memberName: '',
         amount: '',
@@ -3420,21 +4259,67 @@ Phone: +91-7047157510`;
         return () => document.removeEventListener('click', onDocClick);
       }, [notificationOpen]);
 
-      // Log event helper
-      // To keep logs safe and small, redact sensitive/large fields and clamp long strings.
+      // Log event helper.
+      //
+      // Phase 4 security audit hardening:
+      // The audit log persists to apg.logs and is visible to owners. To prevent
+      // accidental PII / secret leakage we redact a wider set of keys, detect
+      // JWT-shaped values anywhere in the tree, and clamp long strings. Any
+      // value matching /^eyJ[A-Za-z0-9_\-]+\.[A-Za-z0-9_\-]+\.[A-Za-z0-9_\-]+/
+      // (compact JWS) is replaced with '[jwt]', and `Bearer xxx` substrings
+      // are stripped from arbitrary text fields.
+      const APG_REDACT_KEYS = new Set([
+        'password',
+        'newPassword',
+        'oldPassword',
+        'currentPassword',
+        'confirmPassword',
+        'token',
+        'authToken',
+        'accessToken',
+        'refreshToken',
+        'apiKey',
+        'api_key',
+        'secret',
+        'serviceRoleKey',
+        'service_role_key',
+        'supabaseServiceRoleKey',
+        'authorization',
+        'Authorization',
+        'cookie',
+        'Cookie',
+        'set-cookie',
+      ]);
+      const APG_JWT_RE = /eyJ[A-Za-z0-9_\-]{8,}\.[A-Za-z0-9_\-]{8,}\.[A-Za-z0-9_\-]{8,}/g;
+      const APG_BEARER_RE = /Bearer\s+[A-Za-z0-9_\-.]+/g;
       const sanitizeForLog = (obj) => {
         if (!obj) return null;
         try {
           return JSON.parse(JSON.stringify(obj, (key, value) => {
-            if (key === 'password') return '[redacted]';
+            if (key && APG_REDACT_KEYS.has(String(key))) return '[redacted]';
             if (key === 'photo') return value ? '[image]' : null;
-            if (typeof value === 'string' && value.length > 300) return value.slice(0, 300) + '...';
+            if (typeof value === 'string') {
+              let v = value;
+              // Order matters: strip the `Bearer xxx` prefix BEFORE the JWT
+              // sub-replacement so `Authorization: Bearer eyJ...` collapses to
+              // `[bearer]` rather than `Bearer [jwt]` (which would leak the
+              // schema). After bearer collapse, any remaining JWT-shaped
+              // strings in the body are replaced too.
+              v = v.replace(APG_BEARER_RE, '[bearer]');
+              v = v.replace(APG_JWT_RE, '[jwt]');
+              if (v.length > 300) v = v.slice(0, 300) + '...';
+              return v;
+            }
             return value;
           }));
         } catch {
           return null;
         }
       };
+      // Exposed for tests / runtime sanity checks. Not part of the public API.
+      if (typeof window !== 'undefined') {
+        window.__APG_SANITIZE_FOR_LOG__ = sanitizeForLog;
+      }
       const logEvent = (action, entityType, entityId, beforeObj, afterObj, actorOverride = '') => {
         const entry = {
           id: crypto.randomUUID(),
@@ -4484,6 +5369,35 @@ Please pay by: ${formattedLastDate}`;
           return m;
         }));
         queueMicrotask(() => markMemberAwaitingBackendSync(toSave.memberId, toSave));
+        // Phase 2 zero-leak / save-glitch fix:
+        // Fire a surgical PATCH for changed fields so a single-member edit (esp. gymCode flip)
+        // is durably persisted even if the global bulk PUT debounce times out on large datasets.
+        if (dataSyncMode === 'backend' && beforeMember) {
+          const PATCH_KEYS = [
+            'name','email','mobile','dob','gender','address','staff','plan','status',
+            'holdDuration','amount','paymentMethod','joiningDate','billingDate','billingDateUpdatedAt',
+            'nextPaymentDate','paymentBy','payMonth','remark','photo','medicalSkipped','medicalAnswers',
+            'ackAccepted','ackSignature','ackDate','parentGuardianName','parentGuardianDob','parentGuardianSignature',
+            'familyGroupId','familyPrimaryMemberId','lastSmsSent','assignedGymCodeId',
+          ];
+          const delta = {};
+          for (const key of PATCH_KEYS) {
+            const a = toSave[key]; const b = beforeMember[key];
+            const sa = typeof a === 'object' ? JSON.stringify(a || null) : String(a == null ? '' : a);
+            const sb = typeof b === 'object' ? JSON.stringify(b || null) : String(b == null ? '' : b);
+            if (sa !== sb) delta[key] = a == null ? null : a;
+          }
+          if (Object.keys(delta).length) {
+            backendJson(`/members/${encodeURIComponent(toSave.memberId)}`, {
+              method: 'PATCH',
+              body: JSON.stringify({ patch: delta }),
+            }).then(() => {
+              clearMemberAwaitingBackendSync(toSave.memberId);
+            }).catch(() => {
+              // PATCH failure is non-fatal — the bulk PUT debounce is still the safety net.
+            });
+          }
+        }
         // Keep status-trigger history aligned with latest member name/mobile for future sends.
         if (beforeMember && (String(beforeMember.mobile || '') !== String(toSave.mobile || '') || String(beforeMember.name || '') !== String(toSave.name || ''))) {
           setSmsEvents(prev => prev.map(ev => {
@@ -4506,6 +5420,19 @@ Please pay by: ${formattedLastDate}`;
         // Close the modal
         setEditMember(null);
         return true;
+      };
+      // Phase 2 defense-in-depth: even if stale data sneaks in, refuse to open Edit on out-of-branch member.
+      const tryOpenEditMember = (m) => {
+        const userGymCodeId = String(user?.gymCodeId || '').trim();
+        const memberGymCodeId = String(m?.assignedGymCodeId || '').trim();
+        const isOwner = String(user?.id || '').toLowerCase() === 'owner'
+          || (Array.isArray(user?.roles) && user.roles.includes('owner'));
+        if (!isOwner && userGymCodeId && memberGymCodeId && userGymCodeId !== memberGymCodeId) {
+          setToast('You can only edit members assigned to your branch.');
+          setTimeout(() => setToast(''), 2500);
+          return;
+        }
+        setEditMember(m);
       };
       const saveQuickFieldEdit = (nextValue) => {
         if (!canEditMembers) return;
@@ -4664,12 +5591,41 @@ Please pay by: ${formattedLastDate}`;
         setPaymentEntrySaving(false);
         setPaymentEntryModal({
           open: true,
+          editingPaymentId: '',
           memberId,
           memberName: target.name || target.memberId || '',
           amount: '',
           paidAt: iso(new Date()),
           method: String(target.paymentMethod || ''),
           note: '',
+          error: '',
+        });
+        return true;
+      };
+
+      // Phase 4 RBAC: open the payment-entry modal in EDIT mode so staff and
+      // owners can both correct an existing payment (e.g. wrong amount or
+      // method). Delete is still owner-only via deleteMemberPaymentEntry.
+      const editMemberPaymentEntry = (memberId, paymentId) => {
+        const mId = String(memberId || '').trim();
+        const pId = String(paymentId || '').trim();
+        if (!mId || !pId) return false;
+        const target = (members || []).find((x) => x.memberId === mId);
+        if (!target) return false;
+        const rows = normalizeMemberPaymentHistory(target);
+        const row = rows.find((r) => String(r.id || '') === pId);
+        if (!row) return false;
+        paymentEntrySaveLockRef.current = false;
+        setPaymentEntrySaving(false);
+        setPaymentEntryModal({
+          open: true,
+          editingPaymentId: pId,
+          memberId: mId,
+          memberName: target.name || target.memberId || '',
+          amount: String(row.amount ?? ''),
+          paidAt: iso(row.paidAt || new Date()),
+          method: String(row.method || target.paymentMethod || ''),
+          note: String(row.note || ''),
           error: '',
         });
         return true;
@@ -4709,49 +5665,106 @@ Please pay by: ${formattedLastDate}`;
         const note = String(paymentEntryModal.note || '').trim();
         const actor = user?.name || user?.id || 'Staff';
         const billingMonth = String(paidAt).slice(0, 7);
-        const rowDraft = {
-          paidAt,
-          receivedAt: paidAt,
-          amount,
-          method,
-          recordedBy: actor,
-          by: actor,
-          source: 'manual',
-          note,
-          billingMonth,
-          billingDate: `${billingMonth}-01`,
-        };
-        const row = {
-          ...rowDraft,
-          id: stablePaymentHistoryRowId(rowDraft, memberId) || crypto.randomUUID(),
-        };
+        const editingId = String(paymentEntryModal.editingPaymentId || '').trim();
+        const isEdit = Boolean(editingId);
         const payTs = new Date().toISOString();
         let paymentUpdatedMember = null;
-        setMembers((prev) => prev.map((x) => {
-          if (x.memberId !== memberId) return x;
-          const baseHist = Array.isArray(x.paymentHistory) ? x.paymentHistory : [];
-          paymentUpdatedMember = {
-            ...x,
-            paymentReceivedAt: parseApgTimeMs(paidAt) >= parseApgTimeMs(x.paymentReceivedAt) ? paidAt : (x.paymentReceivedAt || ''),
-            paymentHistory: mergePaymentHistoryArrays([row], baseHist, 240),
-            updatedAt: payTs,
+        let beforeRow = null;
+        let afterRow = null;
+        if (isEdit) {
+          // Phase 4 RBAC: edit path preserves the row id + recordedBy lineage.
+          const beforeRows = normalizeMemberPaymentHistory(target);
+          beforeRow = beforeRows.find((r) => String(r.id || '') === editingId) || null;
+          if (!beforeRow) {
+            setPaymentEntryModal((prev) => ({ ...prev, error: 'Payment entry not found.' }));
+            unlock();
+            return false;
+          }
+          afterRow = {
+            ...beforeRow,
+            paidAt,
+            receivedAt: paidAt,
+            amount,
+            method,
+            note,
+            billingMonth,
+            billingDate: `${billingMonth}-01`,
+            editedBy: actor,
+            editedAt: payTs,
           };
-          return paymentUpdatedMember;
-        }));
-        if (paymentUpdatedMember) queueMicrotask(() => markMemberAwaitingBackendSync(memberId, paymentUpdatedMember));
-        logEvent('member.payment.added', 'member', memberId, null, {
-          memberName: target.name || '',
-          amount,
-          paidAt,
-          method,
-          source: 'manual',
-          note,
-          recordedBy: actor,
-        });
-        setToast('Payment entry added.');
+          setMembers((prev) => prev.map((x) => {
+            if (x.memberId !== memberId) return x;
+            const baseHist = Array.isArray(x.paymentHistory) ? x.paymentHistory : [];
+            const nextHist = baseHist.map((r) => {
+              const rid = stablePaymentHistoryRowId(r, memberId);
+              if (String(rid) === editingId || String(r.id) === editingId) {
+                return { ...r, ...afterRow };
+              }
+              return r;
+            });
+            const latestPaid = normalizeMemberPaymentHistory({ ...x, paymentHistory: nextHist })
+              .map((r) => String(r.paidAt || ''))
+              .filter(Boolean)
+              .sort((a, b) => parseApgTimeMs(b) - parseApgTimeMs(a))[0] || x.paymentReceivedAt || '';
+            paymentUpdatedMember = {
+              ...x,
+              paymentHistory: nextHist,
+              paymentReceivedAt: latestPaid,
+              updatedAt: payTs,
+            };
+            return paymentUpdatedMember;
+          }));
+          if (paymentUpdatedMember) queueMicrotask(() => markMemberAwaitingBackendSync(memberId, paymentUpdatedMember));
+          logEvent('member.payment.edited', 'member', memberId, beforeRow, {
+            memberName: target.name || '',
+            paymentId: editingId,
+            ...afterRow,
+          });
+          setToast('Payment entry updated.');
+        } else {
+          const rowDraft = {
+            paidAt,
+            receivedAt: paidAt,
+            amount,
+            method,
+            recordedBy: actor,
+            by: actor,
+            source: 'manual',
+            note,
+            billingMonth,
+            billingDate: `${billingMonth}-01`,
+          };
+          const row = {
+            ...rowDraft,
+            id: stablePaymentHistoryRowId(rowDraft, memberId) || crypto.randomUUID(),
+          };
+          setMembers((prev) => prev.map((x) => {
+            if (x.memberId !== memberId) return x;
+            const baseHist = Array.isArray(x.paymentHistory) ? x.paymentHistory : [];
+            paymentUpdatedMember = {
+              ...x,
+              paymentReceivedAt: parseApgTimeMs(paidAt) >= parseApgTimeMs(x.paymentReceivedAt) ? paidAt : (x.paymentReceivedAt || ''),
+              paymentHistory: mergePaymentHistoryArrays([row], baseHist, 240),
+              updatedAt: payTs,
+            };
+            return paymentUpdatedMember;
+          }));
+          if (paymentUpdatedMember) queueMicrotask(() => markMemberAwaitingBackendSync(memberId, paymentUpdatedMember));
+          logEvent('member.payment.added', 'member', memberId, null, {
+            memberName: target.name || '',
+            amount,
+            paidAt,
+            method,
+            source: 'manual',
+            note,
+            recordedBy: actor,
+          });
+          setToast('Payment entry added.');
+        }
         setTimeout(() => setToast(''), 2200);
         setPaymentEntryModal({
           open: false,
+          editingPaymentId: '',
           memberId: '',
           memberName: '',
           amount: '',
@@ -4855,6 +5868,7 @@ Please pay by: ${formattedLastDate}`;
           convertedMemberId: payload.convertedMemberId || '',
           lastCalledAt: payload.lastCalledAt || '',
           lastCalledBy: payload.lastCalledBy || '',
+          assignedGymCodeId: payload.assignedGymCodeId || null,
         };
         if (!next.fullName || !next.email || !next.dob || !next.mobile || !next.gender) {
           setToast('Please complete all visitor required fields.');
@@ -5124,11 +6138,24 @@ Please pay by: ${formattedLastDate}`;
       };
 
       // Add or update setting option (in Settings page)
-      const updateSettingValue = (key, values) => {
-        const before = { ...settings[key] };
-        setSettings(prev => ({ ...prev, [key]: values }));
-        // Log settings updated
-        logEvent('settings.updated', 'settings', key, before, values);
+      // Accepts either a literal value or a `(prev) => next` functional updater.
+      // Phase 4 fix: leave-request submissions were racing against in-flight
+      // backend hydration because the literal form captured stale closures of
+      // `settings[key]`. The functional form guarantees we merge against the
+      // freshest in-memory state, regardless of SSE / debounced bulk PUTs.
+      const updateSettingValue = (key, valueOrFn) => {
+        const before = settings ? settings[key] : undefined;
+        setSettings(prev => {
+          const baseline = prev ? prev[key] : undefined;
+          const nextValue = typeof valueOrFn === 'function'
+            ? valueOrFn(baseline)
+            : valueOrFn;
+          // Log only when we can resolve a deterministic next value.
+          try {
+            logEvent('settings.updated', 'settings', key, before, nextValue);
+          } catch {}
+          return { ...prev, [key]: nextValue };
+        });
       };
       const approveLeaveRequestFromNotification = (requestId) => {
         if (!(user && user.id === 'owner')) return;
@@ -5405,32 +6432,7 @@ Please pay by: ${formattedLastDate}`;
                 <div className="text-[14px] leading-tight font-bold text-slate-900 truncate">{activeTab}</div>
               </div>
               <div className="flex items-center gap-1.5">
-              <button
-                onClick={toggleTheme}
-                className={cx(
-                  'relative h-9 w-[138px] rounded-full border transition-colors duration-200',
-                  theme === 'dark'
-                    ? 'border-slate-700 bg-slate-800'
-                    : 'border-slate-300 bg-slate-100'
-                )}
-                title={theme === 'dark' ? 'Switch to Light mode' : 'Switch to Dark mode'}
-                aria-label={theme === 'dark' ? 'Switch to Light mode' : 'Switch to Dark mode'}
-              >
-                <span className={cx(
-                  'absolute top-0.5 h-8 w-8 rounded-full border grid place-items-center text-sm transition-all duration-200',
-                  theme === 'dark'
-                    ? 'left-[104px] border-slate-500 bg-slate-600 text-slate-100'
-                    : 'left-0.5 border-slate-300 bg-white text-amber-500'
-                )}>
-                  {theme === 'dark' ? '🌙' : '☀️'}
-                </span>
-                <span className={cx(
-                  'absolute inset-y-0 flex items-center text-[10px] font-bold tracking-wide',
-                  theme === 'dark' ? 'left-3 text-slate-100' : 'right-3 text-slate-600'
-                )}>
-                  {theme === 'dark' ? 'DARK MODE' : 'LIGHT MODE'}
-                </span>
-              </button>
+              {/* Light/Dark mode toggle removed — Luxury skin replaces classic dark mode (Phase 2 branding cleanup). */}
               <button
                 onClick={toggleDisplayTimeZone}
                 className={cx(
@@ -5467,20 +6469,28 @@ Please pay by: ${formattedLastDate}`;
               </div>
               <div className="relative">
                 <button
+                  ref={mobileBellRef}
                   onClick={(e) => {
                     e.stopPropagation();
                     setNotificationOpen(v => !v);
                   }}
                   className="relative rounded-xl border border-slate-300 bg-white px-2.5 py-1.5 text-xs font-semibold text-slate-700"
                   aria-label="Notifications"
+                  data-testid="apg-notification-bell-mobile"
                 >
                   <AppIcon name="bell" className="h-4 w-4" />
                   {pendingNotificationCount > 0 && (
                     <span className="absolute -top-1 -right-1 rounded-full bg-rose-600 px-1.5 py-0.5 text-[9px] font-semibold text-white">{pendingNotificationCount}</span>
                   )}
                 </button>
-                {notificationOpen && (
-                  <div onClick={(e) => e.stopPropagation()} className="absolute right-0 mt-1 w-72 rounded-xl border border-slate-200 bg-white shadow-xl p-2 z-50">
+                <NotificationPortal
+                  open={notificationOpen}
+                  anchorRef={mobileBellRef}
+                  width={288}
+                  offset={4}
+                  testId="apg-notification-popover-mobile"
+                >
+                  <div className="rounded-xl border border-slate-200 bg-white shadow-xl p-2">
                     {isOwnerForResetFlow && (
                       <>
                         <div className="px-2 py-1 text-xs font-semibold text-slate-600">Password Reset Requests</div>
@@ -5583,7 +6593,7 @@ Please pay by: ${formattedLastDate}`;
                       </div>
                     )}
                   </div>
-                )}
+                </NotificationPortal>
               </div>
               <button
                 onClick={logout}
@@ -5651,6 +6661,8 @@ Please pay by: ${formattedLastDate}`;
             }}
             theme={theme}
             setTheme={setTheme}
+            layoutMode={layoutMode}
+            setLayoutMode={setLayoutMode}
             onLogout={logout}
             onUndo={handleRollback}
             onRedo={redoHistory}
@@ -5736,19 +6748,28 @@ Please pay by: ${formattedLastDate}`;
                     <SyncStatusDot mode={dataSyncMode} label={syncBadgeLabel} />
                     <div className="relative">
                       <button
+                        ref={desktopBellRef}
                         onClick={(e) => {
                           e.stopPropagation();
                           setNotificationOpen(v => !v);
                         }}
                         className="relative rounded-xl border border-slate-200 bg-white px-2.5 py-2 text-slate-700 hover:bg-slate-50 shadow-[inset_0_1px_0_rgba(255,255,255,0.8)]"
+                        aria-label="Notifications"
+                        data-testid="apg-notification-bell-desktop"
                       >
                         <AppIcon name="bell" className="h-4 w-4" />
                         {pendingNotificationCount > 0 && (
                           <span className="absolute -top-1 -right-1 rounded-full bg-rose-600 px-1.5 py-0.5 text-[10px] font-semibold text-white">{pendingNotificationCount}</span>
                         )}
                       </button>
-                      {notificationOpen && (
-                        <div onClick={(e) => e.stopPropagation()} className="absolute right-0 mt-2 w-80 rounded-xl border border-slate-200 bg-white shadow-xl p-2 z-50">
+                      <NotificationPortal
+                        open={notificationOpen}
+                        anchorRef={desktopBellRef}
+                        width={320}
+                        offset={8}
+                        testId="apg-notification-popover-desktop"
+                      >
+                        <div className="rounded-xl border border-slate-200 bg-white shadow-xl p-2">
                         {isOwnerForResetFlow && (
                           <>
                             <div className="px-2 py-1 text-xs font-semibold text-slate-600">Password Reset Requests</div>
@@ -5851,34 +6872,9 @@ Please pay by: ${formattedLastDate}`;
                           </div>
                         )}
                         </div>
-                      )}
+                      </NotificationPortal>
                     </div>
-                    <button
-                      onClick={toggleTheme}
-                      className={cx(
-                        'relative h-10 w-[156px] rounded-full border transition-colors duration-200 shadow-[inset_0_1px_0_rgba(255,255,255,0.8)]',
-                        theme === 'dark'
-                          ? 'border-slate-700 bg-slate-800'
-                          : 'border-slate-300 bg-slate-100'
-                      )}
-                      title={theme === 'dark' ? 'Switch to Light mode' : 'Switch to Dark mode'}
-                      aria-label={theme === 'dark' ? 'Switch to Light mode' : 'Switch to Dark mode'}
-                    >
-                      <span className={cx(
-                        'absolute top-0.5 h-9 w-9 rounded-full border grid place-items-center text-base transition-all duration-200',
-                        theme === 'dark'
-                          ? 'left-[116px] border-slate-500 bg-slate-600 text-slate-100'
-                          : 'left-0.5 border-slate-300 bg-white text-amber-500'
-                      )}>
-                        {theme === 'dark' ? '🌙' : '☀️'}
-                      </span>
-                      <span className={cx(
-                        'absolute inset-y-0 flex items-center text-xs font-bold tracking-wide',
-                        theme === 'dark' ? 'left-3 text-slate-100' : 'right-3 text-slate-600'
-                      )}>
-                        {theme === 'dark' ? 'DARK MODE' : 'LIGHT MODE'}
-                      </span>
-                    </button>
+                    {/* Light/Dark mode toggle removed — Luxury skin replaces classic dark mode (Phase 2 branding cleanup). */}
                     <div className="flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-2.5 py-1.5 shadow-[inset_0_1px_0_rgba(255,255,255,0.8)]">
                       <Avatar name={user?.name || ''} photo={user?.photo || user?.avatar || null} className="h-8 w-8 rounded-full" />
                       <div className="leading-tight pr-1">
@@ -5973,7 +6969,7 @@ Please pay by: ${formattedLastDate}`;
                   memberSyncPending={memberSyncPending}
                   onUnlinkFamilyGroup={canEditMembers ? unlinkFamilyGroup : null}
                   onBack={() => setDashMode('summary')}
-                  onEdit={canEditMembers ? (m) => setEditMember(m) : null}
+                  onEdit={canEditMembers ? tryOpenEditMember : null}
                   onStatusChange={canEditMembers ? quickStatus : null}
                   holdOptions={settings.holdDurations}
                   logs={logs}
@@ -6000,6 +6996,8 @@ Please pay by: ${formattedLastDate}`;
                   setTableDensity={setTableDensity}
                   onAddPaymentEntry={addMemberPaymentEntry}
                   onDeletePaymentEntry={deleteMemberPaymentEntry}
+                  onEditPaymentEntry={editMemberPaymentEntry}
+                  gymCodeLabel={gymCodeLabel}
                 />
               )
             )}
@@ -6033,7 +7031,7 @@ Please pay by: ${formattedLastDate}`;
                   <DashboardView
                     members={members}
                     memberSyncPending={memberSyncPending}
-                    onEdit={canEditMembers ? (m) => setEditMember(m) : null}
+                    onEdit={canEditMembers ? tryOpenEditMember : null}
                     onStatusChange={canEditMembers ? quickStatus : null}
                     holdOptions={settings.holdDurations}
                     logs={logs}
@@ -6069,7 +7067,9 @@ Please pay by: ${formattedLastDate}`;
                     setTableDensity={setTableDensity}
                     onAddPaymentEntry={addMemberPaymentEntry}
                     onDeletePaymentEntry={deleteMemberPaymentEntry}
+                    onEditPaymentEntry={editMemberPaymentEntry}
                     onUnlinkFamilyGroup={canEditMembers ? unlinkFamilyGroup : null}
+                    gymCodeLabel={gymCodeLabel}
                   />
                 )
               ) : (
@@ -6106,6 +7106,10 @@ Please pay by: ${formattedLastDate}`;
                 offlineQueueCount={offlineQueueCount}
                 canResetFreshStart={user?.id === 'owner'}
                 availableBackups={availableBackups}
+                currentUser={user}
+                gymCodes={gymCodes}
+                refreshGymCodes={refreshGymCodes}
+                backendJson={backendJson}
                 onExport={exportData}
                 onImport={importData}
                 onResetFreshStart={resetDataToOwnerBaseline}
@@ -6248,6 +7252,9 @@ Please pay by: ${formattedLastDate}`;
                 dataSyncMode={dataSyncMode}
                 logEvent={logEvent}
                 onApprovePasswordReset={approvePasswordResetRequest}
+                gymCodes={gymCodes}
+                hqGymCodeId={hqGymCodeId}
+                gymCodeLabel={gymCodeLabel}
               />
             )}
             {activeTab === 'Attendance' && (
@@ -6317,11 +7324,15 @@ Please pay by: ${formattedLastDate}`;
           </nav>
           {paymentEntryModal.open && (
             <div className="fixed inset-0 z-[75] flex items-center justify-center apg-modal-backdrop p-4">
-              <div className="w-full max-w-xl rounded-2xl border border-emerald-200 bg-white p-5 shadow-2xl">
+              <div className="w-full max-w-xl rounded-2xl border border-emerald-200 bg-white p-5 shadow-2xl" data-testid="payment-entry-modal">
                 <div className="mb-4">
-                  <h3 className="text-lg font-semibold text-slate-900">Add Payment Entry</h3>
+                  <h3 className="text-lg font-semibold text-slate-900">
+                    {paymentEntryModal.editingPaymentId ? 'Edit Payment Entry' : 'Add Payment Entry'}
+                  </h3>
                   <p className="mt-1 text-sm text-slate-600">
-                    Record payment for <span className="font-semibold text-slate-800">{paymentEntryModal.memberName || paymentEntryModal.memberId}</span>.
+                    {paymentEntryModal.editingPaymentId
+                      ? <>Update payment for <span className="font-semibold text-slate-800">{paymentEntryModal.memberName || paymentEntryModal.memberId}</span>.</>
+                      : <>Record payment for <span className="font-semibold text-slate-800">{paymentEntryModal.memberName || paymentEntryModal.memberId}</span>.</>}
                   </p>
                 </div>
                 <form
@@ -6391,6 +7402,7 @@ Please pay by: ${formattedLastDate}`;
                         setPaymentEntrySaving(false);
                         setPaymentEntryModal({
                         open: false,
+                        editingPaymentId: '',
                         memberId: '',
                         memberName: '',
                         amount: '',
@@ -6414,7 +7426,9 @@ Please pay by: ${formattedLastDate}`;
                           : 'border-emerald-300 bg-emerald-50 text-emerald-700 hover:bg-emerald-100'
                       )}
                     >
-                      {paymentEntrySaving ? 'Saving…' : 'Save Payment'}
+                      {paymentEntrySaving
+                        ? 'Saving…'
+                        : (paymentEntryModal.editingPaymentId ? 'Update Payment' : 'Save Payment')}
                     </button>
                   </div>
                 </form>
@@ -6561,6 +7575,8 @@ Please pay by: ${formattedLastDate}`;
               canEditFormNo={user && user.id === 'owner'}
               settings={settings}
               currentUser={user}
+              gymCodes={gymCodes}
+              gymCodeLabel={gymCodeLabel}
             />
           )}
           {quickFieldEdit && (
@@ -6593,6 +7609,9 @@ Please pay by: ${formattedLastDate}`;
               canEditFormNo={user && user.id === 'owner'}
               smartDefaults={lastMemberDefaults}
               prefillData={prefillVisitor}
+              gymCodes={gymCodes}
+              hqGymCodeId={hqGymCodeId}
+              gymCodeLabel={gymCodeLabel}
             />
           )}
           {addTypeOpen && (
@@ -6614,6 +7633,10 @@ Please pay by: ${formattedLastDate}`;
             <VisitorFormModal
               visitor={visitorEdit}
               settings={settings}
+              currentUser={user}
+              gymCodes={gymCodes}
+              hqGymCodeId={hqGymCodeId}
+              gymCodeLabel={gymCodeLabel}
               onClose={() => { setVisitorFormOpen(false); setVisitorEdit(null); }}
               onSave={(payload) => {
                 const ok = saveVisitor(payload);
@@ -6631,10 +7654,28 @@ Please pay by: ${formattedLastDate}`;
             className="hidden"
             onChange={(e) => handleCsvImportFile(e.target.files && e.target.files[0])}
           />
-          {/* Toast Notification */}
-          {toast && (<div className="fixed bottom-6 right-6 rounded-2xl bg-emerald-600 text-white px-4 py-2 shadow-lg z-50">{toast}</div>)}
+          {/* Toast Notification — z-[9999] beats every modal / sticky header.   */}
+          {/* Phase 4 z-index repair: previously z-50 was trapped beneath the    */}
+          {/* Members list sticky <thead> (z-10) inside a backdrop-filter parent */}
+          {/* and beneath the modal stack (z-[60]..z-[100]). The .apg-toast      */}
+          {/* class also opts out of any ancestor stacking context via isolation.*/}
+          {toast && (
+            <div
+              className="apg-toast fixed bottom-6 right-6 rounded-2xl bg-emerald-600 text-white px-4 py-2 shadow-lg"
+              role="status"
+              aria-live="polite"
+              data-testid="apg-toast"
+            >
+              {toast}
+            </div>
+          )}
           {undoToast && (
-            <div className="fixed bottom-20 right-6 z-50 flex items-center gap-3 rounded-2xl border border-slate-200 bg-white px-4 py-2 shadow-xl">
+            <div
+              className="apg-toast apg-toast--undo fixed bottom-20 right-6 flex items-center gap-3 rounded-2xl border border-slate-200 bg-white px-4 py-2 shadow-xl"
+              role="status"
+              aria-live="polite"
+              data-testid="apg-undo-toast"
+            >
               <span className="text-sm font-medium text-slate-800">{undoToast.message}</span>
               <button
                 onClick={applyMemberUndo}
@@ -6963,19 +8004,30 @@ Please pay by: ${formattedLastDate}`;
         setErr(ok ? '' : 'Invalid credential');
       };
       return (
-        <div className="min-h-screen flex items-center justify-center px-4 py-8 bg-[radial-gradient(circle_at_center,_#57b8be_0%,_#2f8f98_45%,_#256f79_100%)]">
-          <div className="w-full max-w-md border border-[#5aa6ab] bg-[#2f7f88]/50 p-4 shadow-[0_18px_45px_rgba(0,0,0,0.35)]">
-            <div className="border border-[#4b98a0] bg-gradient-to-br from-[#234e5f] via-[#113e52] to-[#0a3545] px-8 py-10 text-[#7ea0aa]">
-              <div className="mx-auto mb-4 h-16 w-16 rounded-full border-2 border-[#557f88] bg-white/10 p-1.5 shadow-sm">
-                <img src="./assets/action-plus-logo.png" alt="Action Plus Gym logo" className="h-full w-full rounded-full object-cover" />
+        <div
+          className="apg-login-shell min-h-screen flex items-center justify-center px-4 py-10"
+          data-testid="apg-login-shell"
+        >
+          <div className="apg-login-card w-full max-w-md">
+            <div className="apg-login-card-inner">
+              <div className="apg-login-logo">
+                <img
+                  src="./assets/action-plus-logo.png"
+                  alt="Action Plus Gym logo"
+                  className="h-full w-full rounded-full object-cover"
+                />
               </div>
-              <h1 className="text-center text-3xl tracking-[0.16em] text-[#6b8e97] mb-6">USER LOGIN</h1>
+              <h1 className="apg-login-title">USER LOGIN</h1>
 
-              <form className="space-y-6" onSubmit={handleSubmit}>
+              <form className="space-y-5" onSubmit={handleSubmit} autoComplete="on">
                 <div>
-                  <label className="block text-lg text-[#6f949d] mb-1.5">✉&nbsp;&nbsp;Email ID</label>
-                  <div className="relative">
+                  <label className="apg-login-label" htmlFor="apg-login-id">
+                    <span aria-hidden="true" className="apg-login-label-icon">✉</span>
+                    <span>Email ID</span>
+                  </label>
+                  <div className="apg-login-field">
                     <input
+                      id="apg-login-id"
                       type={showId ? 'text' : 'password'}
                       value={id}
                       onChange={(e) => {
@@ -6984,23 +8036,28 @@ Please pay by: ${formattedLastDate}`;
                         if (info) setInfo('');
                       }}
                       placeholder="Enter your username"
-                      className="w-full bg-transparent border-0 border-b border-[#57858f] px-0 py-2 pr-10 text-base text-[#9bb5bc] placeholder:text-[#6f949d] focus:outline-none"
+                      autoComplete="username"
+                      className="apg-login-input"
                     />
                     <button
                       type="button"
                       onClick={() => setShowId((v) => !v)}
                       aria-label={showId ? 'Hide user ID' : 'Show user ID'}
-                      className="absolute right-0 top-1/2 -translate-y-1/2 text-[#8ca8af] hover:text-[#b6c8cd]"
+                      className="apg-login-eye"
                     >
-                      {showId ? '🙈' : '👁️'}
+                      {showId ? '🙈' : '👁'}
                     </button>
                   </div>
                 </div>
 
                 <div>
-                  <label className="block text-lg text-[#6f949d] mb-1.5">🔒&nbsp;&nbsp;Password</label>
-                  <div className="relative">
+                  <label className="apg-login-label" htmlFor="apg-login-pw">
+                    <span aria-hidden="true" className="apg-login-label-icon apg-login-label-icon--gold">🔒</span>
+                    <span>Password</span>
+                  </label>
+                  <div className="apg-login-field">
                     <input
+                      id="apg-login-pw"
                       type={showPw ? 'text' : 'password'}
                       value={pw}
                       onChange={(e) => {
@@ -7009,27 +8066,26 @@ Please pay by: ${formattedLastDate}`;
                         if (info) setInfo('');
                       }}
                       placeholder="••••"
-                      className="w-full bg-transparent border-0 border-b border-[#57858f] px-0 py-2 pr-10 text-base text-[#9bb5bc] placeholder:text-[#6f949d] focus:outline-none"
+                      autoComplete="current-password"
+                      className="apg-login-input"
                     />
                     <button
                       type="button"
                       onClick={() => setShowPw((v) => !v)}
                       aria-label={showPw ? 'Hide password' : 'Show password'}
-                      className="absolute right-0 top-1/2 -translate-y-1/2 text-[#8ca8af] hover:text-[#b6c8cd]"
+                      className="apg-login-eye"
                     >
-                      {showPw ? '🙈' : '👁️'}
+                      {showPw ? '🙈' : '👁'}
                     </button>
                   </div>
                 </div>
-                {err && (
-                  <div className="text-sm text-rose-300">{err}</div>
-                )}
-                {info && (
-                  <div className="text-sm text-emerald-300">{info}</div>
-                )}
-                <div className="mt-1 flex items-center justify-between text-sm text-[#7397a0]">
-                  <label className="flex items-center gap-2 select-none">
-                    <input type="checkbox" className="accent-slate-800 h-4 w-4" />
+
+                {err && <div className="apg-login-error" role="alert">{err}</div>}
+                {info && <div className="apg-login-info" role="status">{info}</div>}
+
+                <div className="apg-login-row">
+                  <label className="apg-login-remember">
+                    <input type="checkbox" className="apg-login-check" />
                     <span>Remember me</span>
                   </label>
                   <button
@@ -7049,23 +8105,18 @@ Please pay by: ${formattedLastDate}`;
                         setErr('Could not create reset request. Check username/email and try again.');
                       }
                     }}
-                    className="hover:text-[#9eb8be]"
+                    className="apg-login-forgot"
                   >
                     Forgot Password?
                   </button>
                 </div>
 
-                <button
-                  type="submit"
-                  className="mt-2 w-full bg-[#052734] hover:bg-[#073142] text-[#d7dfe3] py-3 text-lg font-semibold tracking-[0.14em]"
-                >
+                <button type="submit" className="apg-login-submit">
                   LOGIN
                 </button>
               </form>
 
-              <p className="mt-6 text-sm text-[#7e9ca3] leading-relaxed">
-                Please use your assigned staff credentials.
-              </p>
+              <p className="apg-login-footer">Please use your assigned staff credentials.</p>
             </div>
           </div>
         </div>
@@ -7073,7 +8124,7 @@ Please pay by: ${formattedLastDate}`;
     }
 
     // ---- Sidebar Component ----
-function Sidebar({ user, active, onSelect, theme, setTheme, onLogout, onUndo, onRedo, canUndo, canRedo, mobileOpen, onCloseMobile, membersView = 'all', setMembersView }) {
+function Sidebar({ user, active, onSelect, theme, setTheme, layoutMode = 'classic', setLayoutMode = () => {}, onLogout, onUndo, onRedo, canUndo, canRedo, mobileOpen, onCloseMobile, membersView = 'all', setMembersView }) {
       const NAV = [
         { key: 'Dashboard', label: 'Dashboard', icon: 'home', group: '' },
         { key: 'Members', label: 'Members', icon: 'users', group: 'MEMBERS & CLIENTS' },
@@ -7170,6 +8221,60 @@ function Sidebar({ user, active, onSelect, theme, setTheme, onLogout, onUndo, on
                 <div className="truncate text-[11px] text-slate-500 dark:text-slate-300">{user?.name || 'User'}</div>
               </div>}
             </button>
+            {!collapsed && (
+              <div className="apg-layout-toggle mt-3 rounded-2xl border border-slate-200 bg-slate-50/70 px-2.5 py-2 dark:border-slate-700 dark:bg-slate-800/60">
+                <div className="flex items-center justify-between gap-2">
+                  <div className="min-w-0">
+                    <div className="text-[10px] font-bold tracking-[0.16em] text-slate-500 dark:text-slate-300">MODE</div>
+                    <div className="truncate text-[11px] font-semibold text-slate-700 dark:text-slate-100">
+                      {layoutMode === 'luxury' ? 'Dark Luxury' : 'Classic'}
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    role="switch"
+                    aria-checked={layoutMode === 'luxury'}
+                    data-testid="apg-layout-toggle"
+                    onClick={() => setLayoutMode(layoutMode === 'luxury' ? 'classic' : 'luxury')}
+                    title={layoutMode === 'luxury' ? 'Switch to Classic look' : 'Try the New Look'}
+                    className={cx(
+                      'relative inline-flex h-6 w-12 shrink-0 cursor-pointer items-center rounded-full border transition-colors',
+                      layoutMode === 'luxury'
+                        ? 'border-amber-400/70 bg-gradient-to-r from-amber-500 to-yellow-400'
+                        : 'border-slate-300 bg-slate-200 dark:border-slate-600 dark:bg-slate-700'
+                    )}
+                  >
+                    <span
+                      className={cx(
+                        'inline-block h-4 w-4 transform rounded-full bg-white shadow transition-transform',
+                        layoutMode === 'luxury' ? 'translate-x-7' : 'translate-x-1'
+                      )}
+                    />
+                  </button>
+                </div>
+                <div className="mt-1 text-[10px] text-slate-500 dark:text-slate-300">
+                  {layoutMode === 'luxury' ? 'Premium view' : 'Standard responsive view'}
+                </div>
+              </div>
+            )}
+            {collapsed && (
+              <button
+                type="button"
+                role="switch"
+                aria-checked={layoutMode === 'luxury'}
+                data-testid="apg-layout-toggle-collapsed"
+                onClick={() => setLayoutMode(layoutMode === 'luxury' ? 'classic' : 'luxury')}
+                title={layoutMode === 'luxury' ? 'Switch to Classic look' : 'Try the New Look'}
+                className={cx(
+                  'mt-3 w-full rounded-2xl py-2 text-[11px] font-semibold transition-colors',
+                  layoutMode === 'luxury'
+                    ? 'bg-gradient-to-r from-amber-500 to-yellow-400 text-slate-900 shadow'
+                    : 'bg-slate-100 text-slate-600 hover:bg-slate-200 dark:bg-slate-800 dark:text-slate-200'
+                )}
+              >
+                {layoutMode === 'luxury' ? '★' : '☆'}
+              </button>
+            )}
           </div>
           <nav className={cx('flex-1 py-3 overflow-y-auto', collapsed ? 'px-2.5' : 'px-4')}>
             {sectionOrder.map((section) => {
@@ -7843,7 +8948,7 @@ function Sidebar({ user, active, onSelect, theme, setTheme, onLogout, onUndo, on
     }
 
     // ---- Members List (Dashboard list mode) ----
-function MembersList({ title, list, allMembers = [], onBack, onEdit, onStatusChange, holdOptions, logs, onWelcome, onWhatsAppCall, onWelcomeMail, onAddAttachment, onQuickFieldEdit, editOptions, isOwner, currentUserRole = '', fineRuleConfig, access = null, asOfDateKey = null, canEdit = true, displayTimeZone = 'IST', tableDensity = 'normal', setTableDensity = () => {}, onAddPaymentEntry = null, onDeletePaymentEntry = null, memberSyncPending = {}, onUnlinkFamilyGroup = null }) {
+function MembersList({ title, list, allMembers = [], onBack, onEdit, onStatusChange, holdOptions, logs, onWelcome, onWhatsAppCall, onWelcomeMail, onAddAttachment, onQuickFieldEdit, editOptions, isOwner, currentUserRole = '', fineRuleConfig, access = null, asOfDateKey = null, canEdit = true, displayTimeZone = 'IST', tableDensity = 'normal', setTableDensity = () => {}, onAddPaymentEntry = null, onDeletePaymentEntry = null, onEditPaymentEntry = null, memberSyncPending = {}, onUnlinkFamilyGroup = null, gymCodeLabel = null }) {
       const [openId, setOpenId] = React.useState(null);
       const [mobileDetailMemberId, setMobileDetailMemberId] = React.useState('');
       const [page, setPage] = React.useState(1);
@@ -7930,9 +9035,11 @@ function MembersList({ title, list, allMembers = [], onBack, onEdit, onStatusCha
                 displayTimeZone={displayTimeZone}
                 onAddPaymentEntry={onAddPaymentEntry}
                 onDeletePaymentEntry={onDeletePaymentEntry}
+                onEditPaymentEntry={onEditPaymentEntry}
                 allMembers={allMembers}
                 onFamilyMemberNavigate={(mem) => mem?.memberId && setOpenId(mem.memberId)}
                 onUnlinkFamilyGroup={onUnlinkFamilyGroup}
+                gymCodeLabel={gymCodeLabel}
               />
             ))}
             {(prioritizedList || []).length > pageSize && (
@@ -7977,6 +9084,7 @@ function MembersList({ title, list, allMembers = [], onBack, onEdit, onStatusCha
               onQuickFieldEdit={onQuickFieldEdit}
               editOptions={editOptions}
               canEdit={canEdit}
+              gymCodeLabel={gymCodeLabel}
             />
           )}
         </div>
@@ -8041,7 +9149,7 @@ function MembersList({ title, list, allMembers = [], onBack, onEdit, onStatusCha
     }
 
     // ---- Member Row ----
-function MemberRow({ m, memberSyncPending = {}, expanded, onToggle, onEdit, onStatusChange, holdOptions, onDelete, canDelete, onWelcome, onWhatsAppCall, onWelcomeMail, onAddAttachment, logs, selected, onSelectToggle, selectable, onQuickFieldEdit, editOptions, isOwner, currentUserRole = '', fineRuleConfig, access = null, asOfDateKey = null, onOpenMobileDetail, canEdit = true, displayTimeZone = 'IST', isCompactTablet = false, onAddPaymentEntry = null, onDeletePaymentEntry = null, allMembers = null, onFamilyMemberNavigate = null, onUnlinkFamilyGroup = null }) {
+function MemberRow({ m, memberSyncPending = {}, expanded, onToggle, onEdit, onStatusChange, holdOptions, onDelete, canDelete, onWelcome, onWhatsAppCall, onWelcomeMail, onAddAttachment, logs, selected, onSelectToggle, selectable, onQuickFieldEdit, editOptions, isOwner, currentUserRole = '', fineRuleConfig, access = null, asOfDateKey = null, onOpenMobileDetail, canEdit = true, displayTimeZone = 'IST', isCompactTablet = false, onAddPaymentEntry = null, onDeletePaymentEntry = null, onEditPaymentEntry = null, allMembers = null, onFamilyMemberNavigate = null, onUnlinkFamilyGroup = null, gymCodeLabel = null }) {
       const refToday = referenceTodayKey(asOfDateKey);
       const pastDue = isPaymentByPastDue(m, { asOfKey: refToday });
       const billingToday = !pastDue && localCalendarDateKey(m.billingDate) === refToday;
@@ -8148,11 +9256,13 @@ function MemberRow({ m, memberSyncPending = {}, expanded, onToggle, onEdit, onSt
                 displayTimeZone={displayTimeZone}
                 onAddPaymentEntry={canEdit ? onAddPaymentEntry : null}
                 onDeletePaymentEntry={isOwner ? onDeletePaymentEntry : null}
+                onEditPaymentEntry={canEdit ? onEditPaymentEntry : null}
                 onWelcome={onWelcome}
                 onWelcomeMail={onWelcomeMail}
                 canWelcome={canWelcome}
                 statusTemplate={statusTemplate}
                 uploadDoc={uploadDoc}
+                gymCodeLabel={gymCodeLabel}
               />
               <QuickActions m={m} onStatusChange={onStatusChange} holdOptions={holdOptions} canDelete={canDelete} onDelete={onDelete} canEdit={canEdit} />
               </div>
@@ -8298,7 +9408,7 @@ function MemberRowDesktopView({ m, selectable, selected, onSelectToggle, onToggl
         </button>
       );
     }
-function MobileMemberDetailView({ m, onBack, onEdit, onWelcome, onWhatsAppCall, onStatusChange, holdOptions, canDelete, onDelete, isOwner, currentUserRole = '', fineRuleConfig, onQuickFieldEdit, editOptions, canEdit = true }) {
+function MobileMemberDetailView({ m, onBack, onEdit, onWelcome, onWhatsAppCall, onStatusChange, holdOptions, canDelete, onDelete, isOwner, currentUserRole = '', fineRuleConfig, onQuickFieldEdit, editOptions, canEdit = true, gymCodeLabel = null }) {
       const statusTemplate = primaryMessageActionForMember(m, isOwner, fineRuleConfig, currentUserRole);
       const canWelcome = Boolean(String(m.mobile || '').trim()) && !statusTemplate.disabled;
       const dueAmount = Number(m.amount || 0);
@@ -8339,9 +9449,18 @@ function MobileMemberDetailView({ m, onBack, onEdit, onWelcome, onWhatsAppCall, 
           options,
         });
       };
+      // Phase 4 multi-tenant visibility: surface assigned Gym Code + Branch.
+      const branchLabel = (() => {
+        if (typeof gymCodeLabel === 'function') {
+          const txt = gymCodeLabel(m.assignedGymCodeId);
+          return txt && txt !== '—' ? txt : '—';
+        }
+        return '—';
+      })();
       const detailRows = [
         { key: 'name', label: 'Name', value: m.name || '-', icon: '👤', tone: 'bg-indigo-50 text-indigo-600', editable: true, type: 'text' },
         { key: 'mobile', label: 'Mobile', value: m.mobile || '-', icon: '📱', tone: 'bg-blue-50 text-blue-600', editable: true, type: 'tel' },
+        { key: 'assignedGymCodeId', label: 'Branch (Gym Code)', value: branchLabel, icon: '🏢', tone: 'bg-amber-50 text-amber-700', editable: false, testId: 'mobile-member-branch-gym-code' },
         { key: 'joiningDate', label: 'Joined Date', value: fmt(m.joiningDate) || '-', icon: '📅', tone: 'bg-blue-50 text-blue-600', editable: isOwner, type: 'date', rawValue: iso(m.joiningDate) || '' },
         { key: 'billingDate', label: 'Billing Date', value: fmt(m.billingDate) || '-', icon: '🧾', tone: 'bg-amber-50 text-amber-600', editable: true, type: 'date', rawValue: iso(m.billingDate) || '' },
         { key: 'nextPayment', label: 'Next Payment Date', value: fmt(m.nextPaymentDate || nextPaymentDateFromBillingDate(m)) || '-', icon: '⏭️', tone: 'bg-indigo-50 text-indigo-600', editable: false },
@@ -8422,7 +9541,11 @@ function MobileMemberDetailView({ m, onBack, onEdit, onWelcome, onWhatsAppCall, 
               <div className="text-xs font-semibold uppercase tracking-wide text-slate-400">Membership Details</div>
               <div className="space-y-2">
                 {detailRows.map((row) => (
-                  <div key={row.key} className="flex items-center justify-between gap-3 rounded-2xl border border-slate-100 bg-slate-50/70 px-3 py-2.5">
+                  <div
+                    key={row.key}
+                    data-testid={row.testId || undefined}
+                    className="flex items-center justify-between gap-3 rounded-2xl border border-slate-100 bg-slate-50/70 px-3 py-2.5"
+                  >
                     <div className="flex items-center gap-2 min-w-0">
                       <div className={cx('grid h-8 w-8 place-items-center rounded-xl text-sm', row.tone)}>{row.icon}</div>
                       <div className="min-w-0">
@@ -8723,6 +9846,61 @@ function MobileMemberDetailView({ m, onBack, onEdit, onWelcome, onWhatsAppCall, 
         </span>
       );
     }
+    // ---- Notification Popover Portal ----
+    // Lifts the bell dropdown out of any ancestor stacking trap (apg-mobile-topbar's
+    // `backdrop-filter` would otherwise pin the panel beneath sticky sub-nav strips,
+    // even with z-9999). The popover is mounted to <body> via ReactDOM.createPortal,
+    // positioned with `fixed` coordinates measured from the bell anchor.
+    function NotificationPortal({ open, anchorRef, width = 320, offset = 8, children, testId }) {
+      const [coords, setCoords] = React.useState(null);
+      const popRef = React.useRef(null);
+      React.useLayoutEffect(() => {
+        if (!open) {
+          setCoords(null);
+          return undefined;
+        }
+        function measure() {
+          const node = anchorRef && anchorRef.current;
+          if (!node) return;
+          const rect = node.getBoundingClientRect();
+          const viewportWidth = typeof window !== 'undefined'
+            ? (window.innerWidth || document.documentElement.clientWidth || 0)
+            : 0;
+          const padding = 12;
+          const right = Math.max(padding, viewportWidth - rect.right);
+          const top = rect.bottom + offset;
+          setCoords({ top, right });
+        }
+        measure();
+        const onScroll = () => measure();
+        const onResize = () => measure();
+        window.addEventListener('resize', onResize);
+        window.addEventListener('scroll', onScroll, true);
+        return () => {
+          window.removeEventListener('resize', onResize);
+          window.removeEventListener('scroll', onScroll, true);
+        };
+      }, [open, anchorRef, offset]);
+      if (!open || !coords) return null;
+      const node = (
+        <div
+          ref={popRef}
+          className="apg-notif-popover"
+          data-testid={testId || 'apg-notif-popover'}
+          role="dialog"
+          aria-modal="false"
+          aria-label="Notifications"
+          onClick={(e) => e.stopPropagation()}
+          style={{ top: coords.top, right: coords.right, width }}
+        >
+          {children}
+        </div>
+      );
+      if (typeof document === 'undefined' || !document.body || !ReactDOM || typeof ReactDOM.createPortal !== 'function') {
+        return node;
+      }
+      return ReactDOM.createPortal(node, document.body);
+    }
     function SyncStatusDot({ mode, label }) {
       const [open, setOpen] = React.useState(false);
       const dotTone = mode === 'backend'
@@ -8753,7 +9931,7 @@ function MobileMemberDetailView({ m, onBack, onEdit, onWelcome, onWhatsAppCall, 
     }
 
     // ---- Member Details (expanded row) ----
-function MemberDetails({ m, logs, onQuickFieldEdit, editOptions, isOwner = false, displayTimeZone = 'IST', onAddPaymentEntry = null, onDeletePaymentEntry = null, onWelcome = null, onWelcomeMail = null, canWelcome = false, statusTemplate = { key: 'none', label: '', disabled: false, overdueDays: 0 }, uploadDoc = null }) {
+function MemberDetails({ m, logs, onQuickFieldEdit, editOptions, isOwner = false, displayTimeZone = 'IST', onAddPaymentEntry = null, onDeletePaymentEntry = null, onEditPaymentEntry = null, onWelcome = null, onWelcomeMail = null, canWelcome = false, statusTemplate = { key: 'none', label: '', disabled: false, overdueDays: 0 }, uploadDoc = null, gymCodeLabel = null }) {
       const [copiedKey, setCopiedKey] = React.useState('');
       const [paymentHistoryOpen, setPaymentHistoryOpen] = React.useState(true);
       const [detailsViewMode, setDetailsViewMode] = React.useState(() => {
@@ -8799,6 +9977,17 @@ function MemberDetails({ m, logs, onQuickFieldEdit, editOptions, isOwner = false
         if (other) labels.push(`Other: ${other}`);
         return labels.length ? `Injuries: ${labels.join(', ')}` : '—';
       }, [m]);
+      // Phase 4 multi-tenant visibility: surface the assigned Gym Code + Branch
+      // directly in the Quick Summary so owners + staff instantly know which
+      // tenant a member belongs to. Falls back to '—' when unassigned or when
+      // no label resolver is plumbed (legacy callers).
+      const branchLabel = (() => {
+        if (typeof gymCodeLabel === 'function') {
+          const txt = gymCodeLabel(m.assignedGymCodeId);
+          return txt && txt !== '—' ? txt : '—';
+        }
+        return '—';
+      })();
       const rows = [
         { label: 'Form #', key: 'formNo', value: normal(m.formNo), editable: false },
         { label: 'ID', key: 'memberId', value: normal(m.memberId), editable: false },
@@ -8809,6 +9998,7 @@ function MemberDetails({ m, logs, onQuickFieldEdit, editOptions, isOwner = false
         { label: 'Email', key: 'email', value: normal(m.email), editable: false, type: 'email' },
         { label: 'Address', key: 'address', value: normal(m.address), editable: false, type: 'text' },
         { label: 'Staff', key: 'staff', value: normal(m.staff), editable: false },
+        { label: 'Branch (Gym Code)', key: 'assignedGymCodeId', value: branchLabel, editable: false, testId: 'member-branch-gym-code' },
         { label: 'Amount', key: 'amount', value: m.amount !== undefined && m.amount !== null ? m.amount : '—', editable: quickEditableKeys.has('amount'), type: 'number' },
         { label: 'Plan', key: 'plan', value: normal(m.plan), editable: quickEditableKeys.has('plan'), type: 'select', options: editOptions?.plans || [] },
         { label: 'Joining Date', key: 'joiningDate', value: fmt(m.joiningDate) || '—', editable: isOwner, type: 'date', rawValue: iso(m.joiningDate) || '' },
@@ -8953,7 +10143,7 @@ function MemberDetails({ m, logs, onQuickFieldEdit, editOptions, isOwner = false
               <div className="text-xs text-slate-500">No payment records yet.</div>
             ) : (
               <div className="overflow-x-auto rounded-lg border border-emerald-200 bg-white">
-                <table className="min-w-full text-xs">
+                <table className="min-w-full text-xs" data-testid="payment-history-table">
                   <thead>
                     <tr className="bg-emerald-50 text-emerald-800">
                       <th className="px-2 py-1 text-left">Billing Month</th>
@@ -8962,7 +10152,9 @@ function MemberDetails({ m, logs, onQuickFieldEdit, editOptions, isOwner = false
                       <th className="px-2 py-1 text-left">Method</th>
                       <th className="px-2 py-1 text-left">Recorded By</th>
                       <th className="px-2 py-1 text-left">Source</th>
-                      {isOwner && onDeletePaymentEntry && <th className="px-2 py-1 text-right">Action</th>}
+                      {(onEditPaymentEntry || (isOwner && onDeletePaymentEntry)) && (
+                        <th className="px-2 py-1 text-right">Actions</th>
+                      )}
                     </tr>
                   </thead>
                   <tbody>
@@ -8974,15 +10166,30 @@ function MemberDetails({ m, logs, onQuickFieldEdit, editOptions, isOwner = false
                         <td className="px-2 py-1 whitespace-nowrap">{row.method || '—'}</td>
                         <td className="px-2 py-1 whitespace-nowrap">{row.recordedBy || '—'}</td>
                         <td className="px-2 py-1 whitespace-nowrap capitalize">{row.source || '—'}</td>
-                        {isOwner && onDeletePaymentEntry && (
+                        {(onEditPaymentEntry || (isOwner && onDeletePaymentEntry)) && (
                           <td className="px-2 py-1 text-right">
-                            <button
-                              type="button"
-                              onClick={() => onDeletePaymentEntry(m.memberId, row.id)}
-                              className={cx(MEMBER_UI.buttonBase, MEMBER_UI.buttonRose)}
-                            >
-                              Delete
-                            </button>
+                            <div className="inline-flex items-center justify-end gap-1.5">
+                              {onEditPaymentEntry && (
+                                <button
+                                  type="button"
+                                  data-testid="payment-history-edit"
+                                  onClick={() => onEditPaymentEntry(m.memberId, row.id)}
+                                  className={cx(MEMBER_UI.buttonBase, MEMBER_UI.buttonPrimary)}
+                                >
+                                  Edit
+                                </button>
+                              )}
+                              {isOwner && onDeletePaymentEntry && (
+                                <button
+                                  type="button"
+                                  data-testid="payment-history-delete"
+                                  onClick={() => onDeletePaymentEntry(m.memberId, row.id)}
+                                  className={cx(MEMBER_UI.buttonBase, MEMBER_UI.buttonRose)}
+                                >
+                                  Delete
+                                </button>
+                              )}
+                            </div>
                           </td>
                         )}
                       </tr>
@@ -9017,13 +10224,16 @@ function MemberDetails({ m, logs, onQuickFieldEdit, editOptions, isOwner = false
       });
       const rowByKey = new Map(filteredRows.map((row) => [row.key, row]));
       const sectionKeyMap = {
-        profile: ['formNo', 'memberId', 'name', 'dob', 'gender', 'mobile', 'email', 'address', 'staff'],
+        // assignedGymCodeId is part of the Profile section so the Branch / Gym
+        // Code label appears immediately after Staff in the Quick Summary.
+        profile: ['formNo', 'memberId', 'name', 'dob', 'gender', 'mobile', 'email', 'address', 'staff', 'assignedGymCodeId'],
         membership: ['amount', 'plan', 'joiningDate', 'billingDate', 'nextPaymentDate', 'paymentBy', 'status', 'injuriesNotes', 'holdDuration', 'totalHoldMonths', 'holdNote', 'paymentMethod', 'payMonth'],
       };
       const sectionRows = (sectionId) => (sectionKeyMap[sectionId] || []).map((k) => rowByKey.get(k)).filter(Boolean);
       const renderRowCard = (row) => (
         <div
           key={row.label}
+          data-testid={row.testId || undefined}
           onClick={() => {
             if (!row.editable || !onQuickFieldEdit) return;
             onQuickFieldEdit({
@@ -9248,7 +10458,7 @@ function QuickActions({ m, onStatusChange, holdOptions, canDelete, onDelete, can
     }
 
     // ---- Dashboard View (Members grouped by status) ----
-function DashboardView({ members, memberSyncPending = {}, onEdit, onStatusChange, holdOptions, logs, filters, filterOpen, setFilterOpen, anyFilterActive, canDelete, onDelete, billingMonthOptions, onWelcome, onWhatsAppCall, onWelcomeMail, onAddAttachment, onQuickFieldEdit, editOptions, isOwner, currentUserRole = '', fineRuleConfig, access = null, asOfDateKey = null, canEdit = true, onImportCsv = null, onAddExpense = null, displayTimeZone = 'IST', tableDensity = 'normal', setTableDensity = () => {}, onAddPaymentEntry = null, onDeletePaymentEntry = null, onUnlinkFamilyGroup = null }) {
+function DashboardView({ members, memberSyncPending = {}, onEdit, onStatusChange, holdOptions, logs, filters, filterOpen, setFilterOpen, anyFilterActive, canDelete, onDelete, billingMonthOptions, onWelcome, onWhatsAppCall, onWelcomeMail, onAddAttachment, onQuickFieldEdit, editOptions, isOwner, currentUserRole = '', fineRuleConfig, access = null, asOfDateKey = null, canEdit = true, onImportCsv = null, onAddExpense = null, displayTimeZone = 'IST', tableDensity = 'normal', setTableDensity = () => {}, onAddPaymentEntry = null, onDeletePaymentEntry = null, onEditPaymentEntry = null, onUnlinkFamilyGroup = null, gymCodeLabel = null }) {
       // Single expanded row across all statuses. Only one memberId may be expanded at a time.
       const [expandedId, setExpandedId] = React.useState(null);
       const [mobileDetailMemberId, setMobileDetailMemberId] = React.useState('');
@@ -9769,9 +10979,11 @@ function DashboardView({ members, memberSyncPending = {}, onEdit, onStatusChange
                   isCompactTablet={isCompactTablet}
                   onAddPaymentEntry={onAddPaymentEntry}
                   onDeletePaymentEntry={onDeletePaymentEntry}
+                  onEditPaymentEntry={onEditPaymentEntry}
                   allMembers={members}
                   onFamilyMemberNavigate={(mem) => mem?.memberId && setMobileDetailMemberId(mem.memberId)}
                   onUnlinkFamilyGroup={onUnlinkFamilyGroup}
+                  gymCodeLabel={gymCodeLabel}
                 />
               ))}
             </div>
@@ -9795,6 +11007,7 @@ function DashboardView({ members, memberSyncPending = {}, onEdit, onStatusChange
                 onQuickFieldEdit={onQuickFieldEdit}
                 editOptions={editOptions}
                 canEdit={canEdit}
+                gymCodeLabel={gymCodeLabel}
               />
             )}
             {renderMetricModal()}
@@ -10053,9 +11266,11 @@ function DashboardView({ members, memberSyncPending = {}, onEdit, onStatusChange
                       isCompactTablet={isCompactTablet}
                       onAddPaymentEntry={onAddPaymentEntry}
                       onDeletePaymentEntry={onDeletePaymentEntry}
+                      onEditPaymentEntry={onEditPaymentEntry}
                       allMembers={members}
                       onFamilyMemberNavigate={(mem) => mem?.memberId && setExpandedId(mem.memberId)}
                       onUnlinkFamilyGroup={onUnlinkFamilyGroup}
+                      gymCodeLabel={gymCodeLabel}
                     />
                   ))}
                   {pageList.length === 0 && (
@@ -10114,6 +11329,7 @@ function DashboardView({ members, memberSyncPending = {}, onEdit, onStatusChange
               onQuickFieldEdit={onQuickFieldEdit}
               editOptions={editOptions}
               canEdit={canEdit}
+              gymCodeLabel={gymCodeLabel}
             />
           )}
           {renderMetricModal()}
@@ -10122,7 +11338,9 @@ function DashboardView({ members, memberSyncPending = {}, onEdit, onStatusChange
     }
 
     // ---- Edit Member Modal ----
-function EditMemberModal({ member, onClose, onSave, planOptions, statusOptions, holdOptions, paymentOptions, canEditFormNo, settings, currentUser }) {
+function EditMemberModal({ member, onClose, onSave, planOptions, statusOptions, holdOptions, paymentOptions, canEditFormNo, settings, currentUser, gymCodes = [], gymCodeLabel = () => '—' }) {
+      const isOwnerEdit = String(currentUser?.id || '').toLowerCase() === 'owner'
+        || (Array.isArray(currentUser?.roles) && currentUser.roles.includes('owner'));
       const [edit, setEdit] = React.useState(() => ({
         ...member,
         medicalAnswers: (() => {
@@ -10303,6 +11521,27 @@ function EditMemberModal({ member, onClose, onSave, planOptions, statusOptions, 
                 <div>
                   <label className="text-sm font-medium">Member Id</label>
                   <input value={edit.memberId} onChange={(e) => setEdit({ ...edit, memberId: e.target.value })} className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm" />
+                </div>
+                <div className="md:col-span-2">
+                  <label className="text-sm font-medium">Gym Branch (Gym Code)</label>
+                  {isOwnerEdit ? (
+                    <select
+                      value={edit.assignedGymCodeId || ''}
+                      onChange={(e) => setEdit({ ...edit, assignedGymCodeId: e.target.value })}
+                      className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm"
+                      data-testid="edit-member-gym-code-select"
+                    >
+                      <option value="">Unassigned</option>
+                      {(gymCodes || []).map((c) => (
+                        <option key={c.id} value={c.id}>{c.code} / {c.name || c.branchName}</option>
+                      ))}
+                    </select>
+                  ) : (
+                    <input readOnly value={gymCodeLabel(edit.assignedGymCodeId)} className="w-full rounded-xl border border-slate-200 bg-slate-100 px-3 py-2 text-sm text-slate-600" data-testid="edit-member-gym-code-locked" />
+                  )}
+                  <p className="mt-1 text-xs text-slate-500">
+                    {isOwnerEdit ? 'Owner can re-assign this member to a different branch.' : 'Only the owner can change a member\'s branch.'}
+                  </p>
                 </div>
                 {/* Row 2: Name and Mobile */}
                 <div>
@@ -10555,7 +11794,12 @@ function EditMemberModal({ member, onClose, onSave, planOptions, statusOptions, 
       );
     }
 
-    function VisitorFormModal({ visitor, settings, onClose, onSave }) {
+    function VisitorFormModal({ visitor, settings, onClose, onSave, currentUser = null, gymCodes = [], hqGymCodeId = null, gymCodeLabel = () => '—' }) {
+      const isOwnerVisitor = String(currentUser?.id || '').toLowerCase() === 'owner'
+        || (Array.isArray(currentUser?.roles) && currentUser.roles.includes('owner'));
+      const visitorDefaultGymCodeId = isOwnerVisitor
+        ? (hqGymCodeId || (gymCodes?.[0]?.id) || '')
+        : (currentUser?.gymCodeId || hqGymCodeId || '');
       const [form, setForm] = React.useState(() => ({
         id: visitor?.id || '',
         fullName: visitor?.fullName || '',
@@ -10567,6 +11811,7 @@ function EditMemberModal({ member, onClose, onSave, planOptions, statusOptions, 
         tentativeJoiningDate: visitor?.tentativeJoiningDate || '',
         status: visitor?.status || 'New',
         addedAt: visitor?.addedAt || '',
+        assignedGymCodeId: visitor?.assignedGymCodeId || visitorDefaultGymCodeId,
       }));
       const [touched, setTouched] = React.useState({});
       const errors = React.useMemo(() => ({
@@ -10643,6 +11888,33 @@ function EditMemberModal({ member, onClose, onSave, planOptions, statusOptions, 
                 <label className="text-sm font-medium">Gender*</label>
                 <select value={form.gender} onBlur={() => setTouched((p) => ({ ...p, gender: true }))} onChange={(e) => setForm((p) => ({ ...p, gender: e.target.value }))} className={inputCls('gender')}><option value="">Select</option>{(settings?.genders || ['Male', 'Female', 'Other']).map((g) => <option key={g} value={g}>{g}</option>)}</select>
                 {showErr('gender') && <div className="mt-1 text-xs text-rose-600">{errors.gender}</div>}
+              </div>
+              <div className="md:col-span-2">
+                <label className="text-sm font-medium">Gym Branch (Gym Code)*</label>
+                {isOwnerVisitor ? (
+                  <select
+                    value={form.assignedGymCodeId || ''}
+                    onChange={(e) => setForm((p) => ({ ...p, assignedGymCodeId: e.target.value }))}
+                    className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm"
+                    data-testid="visitor-gym-code-select"
+                    required
+                  >
+                    <option value="">Select a branch…</option>
+                    {(gymCodes || []).map((c) => (
+                      <option key={c.id} value={c.id}>{c.code} / {c.name || c.branchName}</option>
+                    ))}
+                  </select>
+                ) : (
+                  <input
+                    readOnly
+                    value={gymCodeLabel(form.assignedGymCodeId)}
+                    className="w-full rounded-xl border border-slate-200 bg-slate-100 px-3 py-2 text-sm text-slate-600"
+                    data-testid="visitor-gym-code-locked"
+                  />
+                )}
+                <p className="mt-1 text-xs text-slate-500">
+                  {isOwnerVisitor ? 'Owner can pick any branch. Default = HQ.' : 'Locked to your assigned branch.'}
+                </p>
               </div>
               <div>
                 <label className="text-sm font-medium">Call Back (Optional)</label>
@@ -10770,7 +12042,13 @@ function EditMemberModal({ member, onClose, onSave, planOptions, statusOptions, 
     }
 
     // ---- Add Member Wizard ----
-    function AddMemberWizard({ open, onClose, onSave, onFamilyMobileDuplicate = null, settings, staffName, currentUser = null, members, canEditFormNo, smartDefaults = {}, prefillData = null }) {
+    function AddMemberWizard({ open, onClose, onSave, onFamilyMobileDuplicate = null, settings, staffName, currentUser = null, members, canEditFormNo, smartDefaults = {}, prefillData = null, gymCodes = [], hqGymCodeId = null, gymCodeLabel = () => '—' }) {
+      const isOwnerWizard = String(currentUser?.id || '').toLowerCase() === 'owner'
+        || (Array.isArray(currentUser?.roles) && currentUser.roles.includes('owner'));
+      // Per policy: Owner = dropdown defaults to HQ; Staff = pre-filled and locked to their own gymCodeId.
+      const defaultAssignedGymCodeId = isOwnerWizard
+        ? (hqGymCodeId || (gymCodes?.[0]?.id) || '')
+        : (currentUser?.gymCodeId || hqGymCodeId || '');
       const defaultJoiningDate = smartDefaults.joiningDate || iso(new Date());
       const defaultBillingDate = smartDefaults.billingDate || iso(new Date());
       const planOptions = React.useMemo(() => {
@@ -10798,6 +12076,7 @@ function EditMemberModal({ member, onClose, onSave, planOptions, statusOptions, 
         mobile: prefillData?.mobile || '',
         address: '',
         staff: staffName || '',
+        assignedGymCodeId: defaultAssignedGymCodeId,
         amount: smartDefaults.amount || '',
         plan: smartDefaults.plan || '',
         joiningDate: defaultJoiningDate,
@@ -10827,6 +12106,14 @@ function EditMemberModal({ member, onClose, onSave, planOptions, statusOptions, 
       const DRAFT_KEY = STORAGE_KEYS.addMemberDraft;
       // Update staff when prop changes
       React.useEffect(() => { setForm(f => ({ ...f, staff: staffName || '' })); }, [staffName]);
+      // Keep wizard's gym-code in sync if codes load after open (defensive — staff is always locked).
+      React.useEffect(() => {
+        if (!open) return;
+        setForm((f) => {
+          if (f.assignedGymCodeId) return f;
+          return { ...f, assignedGymCodeId: defaultAssignedGymCodeId };
+        });
+      }, [open, defaultAssignedGymCodeId]);
       React.useEffect(() => {
         if (!open) return;
         try {
@@ -11266,6 +12553,7 @@ function EditMemberModal({ member, onClose, onSave, planOptions, statusOptions, 
           mobile: '',
           address: '',
           staff: staffName || '',
+          assignedGymCodeId: defaultAssignedGymCodeId,
           amount: smartDefaults.amount || '',
           plan: smartDefaults.plan || '',
           joiningDate: smartDefaults.joiningDate || iso(new Date()),
@@ -11394,6 +12682,37 @@ function EditMemberModal({ member, onClose, onSave, planOptions, statusOptions, 
                   </select></div>
                   <div><label className="text-sm font-medium">Mobile Number{reqMark}</label><input id="add-member-mobile" inputMode="numeric" value={form.mobile} onChange={(e) => setForm({ ...form, mobile: e.target.value })} placeholder="e.g. 9876543210 or +919876543210" className={reqCls(req1.mobile)} /></div>
                   <div className="sm:col-span-2"><label className="text-sm font-medium">Address{reqMark}</label><input id="add-member-address" value={form.address} onChange={(e) => setForm({ ...form, address: e.target.value })} className={reqCls(req1.address)} /></div>
+                  <div className="sm:col-span-2">
+                    <label className="text-sm font-medium">Gym Branch (Gym Code){reqMark}</label>
+                    {isOwnerWizard ? (
+                      <select
+                        id="add-member-gym-code"
+                        value={form.assignedGymCodeId || ''}
+                        onChange={(e) => setForm({ ...form, assignedGymCodeId: e.target.value })}
+                        className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm"
+                        data-testid="add-member-gym-code-select"
+                        required
+                      >
+                        <option value="">Select a branch…</option>
+                        {(gymCodes || []).map((c) => (
+                          <option key={c.id} value={c.id}>{c.code} / {c.name || c.branchName}</option>
+                        ))}
+                      </select>
+                    ) : (
+                      <input
+                        id="add-member-gym-code-locked"
+                        readOnly
+                        value={gymCodeLabel(form.assignedGymCodeId)}
+                        className={readOnlyCls}
+                        data-testid="add-member-gym-code-locked"
+                      />
+                    )}
+                    <p className="mt-1 text-xs text-slate-500">
+                      {isOwnerWizard
+                        ? 'Owner can pick any branch. Default = HQ.'
+                        : 'Locked to your assigned branch. Only owner can move members between branches.'}
+                    </p>
+                  </div>
                 </div>
               )}
               {step === 2 && (
@@ -12365,7 +13684,23 @@ function PTClientsPage({ members, users, settings, updateSetting, currentUser, a
           if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime()) || end < start) return 1;
           return Math.floor((end - start) / (24 * 60 * 60 * 1000)) + 1;
         };
-        const submitLeave = () => {
+        // Phase 4 leave-request bug fix.
+        //
+        // Previous bug: submitLeave built `[req, ...leaveRequests]` using the
+        // staff user's STALE local closure of `leaveRequests`, then handed it
+        // to updateSetting which set local state only. The backend sync useEffect
+        // explicitly returns early for non-owners (only `id === 'owner'` is allowed
+        // to PUT /api/settings/bulk), so the new request never reached Supabase
+        // and the owner saw no notification. The user perceived this as "first
+        // click silently fails; second click works" because between clicks the
+        // backend overwrote the local optimistic update with the stale snapshot.
+        //
+        // New flow: every leave submission is POSTed to the dedicated
+        // /api/leave-requests endpoint which is owner-allowed AND staff-allowed.
+        // The server returns the canonical request row; we then merge it into
+        // local settings via the FUNCTIONAL updater so we always reconcile
+        // against the freshest in-memory snapshot.
+        const submitLeave = async () => {
           setFormError('');
           setFormSuccess('');
           if (!form.userId || !form.startDate || !form.endDate) {
@@ -12380,10 +13715,50 @@ function PTClientsPage({ members, users, settings, updateSetting, currentUser, a
             setFormError('Leave tracker save is temporarily unavailable. Please refresh.');
             return;
           }
-          const req = { id: crypto.randomUUID(), ...form, days: daysBetween(form.startDate, form.endDate), status: 'Pending', createdAt: new Date().toISOString(), createdBy: currentUser?.name || currentUser?.id || '' };
-          updateSetting('leaveRequests', [req, ...leaveRequests]);
+          const days = daysBetween(form.startDate, form.endDate);
+          const callerName = currentUser?.name || currentUser?.id || '';
+          const backendJsonFn = typeof window !== 'undefined' ? window.__APG_BACKEND_JSON__ : null;
+          let request = null;
+          if (typeof backendJsonFn === 'function') {
+            try {
+              const resp = await backendJsonFn('/leave-requests', {
+                method: 'POST',
+                body: JSON.stringify({
+                  userId: form.userId,
+                  type: form.type,
+                  startDate: form.startDate,
+                  endDate: form.endDate,
+                  reason: form.reason,
+                }),
+              });
+              request = resp && resp.request ? resp.request : null;
+            } catch (err) {
+              setFormError('Could not submit leave request. Please retry.');
+              return;
+            }
+          }
+          if (!request) {
+            // Offline fallback: keep the legacy behavior so the request is at
+            // least preserved in localStorage for the user; surface a warning.
+            request = {
+              id: (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function')
+                ? crypto.randomUUID()
+                : `leave-${Date.now()}-${Math.floor(Math.random() * 1e6)}`,
+              ...form,
+              days,
+              status: 'Pending',
+              createdAt: new Date().toISOString(),
+              createdBy: callerName,
+            };
+          }
+          updateSetting('leaveRequests', (prevList) => {
+            const base = Array.isArray(prevList) ? prevList : [];
+            // Dedup by id in case the SSE delivered the server row before us.
+            if (base.some((r) => r && r.id === request.id)) return base;
+            return [request, ...base];
+          });
           if (typeof logEvent === 'function') {
-            logEvent('leave.requested', 'leave', req.id, null, req, currentUser?.name || currentUser?.id || '');
+            logEvent('leave.requested', 'leave', request.id, null, request, callerName);
           }
           setForm(v => ({ ...v, reason: '' }));
           setFormSuccess('Leave request submitted.');
@@ -12566,16 +13941,79 @@ function PTClientsPage({ members, users, settings, updateSetting, currentUser, a
       };
 
     // ---- Settings Page ----
-    function SettingsPage({ settings, updateSetting, members, users = [], access, storageInfo, backendStorageInfo, dataSyncMode, offlineQueueCount = 0, canResetFreshStart = false, availableBackups = [], onExport, onImport, onResetFreshStart, onRestoreFromBackup, onDeleteBackup, onDeleteBackupsOlderThan, onKeepLatestBackups }) {
+    function SettingsPage({ settings, updateSetting, members, users = [], access, storageInfo, backendStorageInfo, dataSyncMode, offlineQueueCount = 0, canResetFreshStart = false, availableBackups = [], onExport, onImport, onResetFreshStart, onRestoreFromBackup, onDeleteBackup, onDeleteBackupsOlderThan, onKeepLatestBackups, currentUser = null, gymCodes = [], refreshGymCodes = () => {}, backendJson = null }) {
       const [newValues, setNewValues] = React.useState({ plans: '', statuses: '', paymentMethods: '', holdDurations: '', genders: '' });
       const [openSettingKey, setOpenSettingKey] = React.useState('');
       const importRef = React.useRef(null);
+      // Gym Codes (multi-tenant branches) — owner only.
+      const [gymCodeForm, setGymCodeForm] = React.useState({ code: '', name: '' });
+      const [gymCodeError, setGymCodeError] = React.useState('');
+      const [gymCodeBusy, setGymCodeBusy] = React.useState(false);
+      const isOwnerForCodes = String(currentUser?.id || '').toLowerCase() === 'owner'
+        || (Array.isArray(currentUser?.roles) && currentUser.roles.includes('owner'));
+      const upperShortCode = (raw) => String(raw || '').trim().toUpperCase().replace(/[^A-Z0-9_-]/g, '').slice(0, 20);
+      const submitGymCode = async (e) => {
+        if (e && e.preventDefault) e.preventDefault();
+        if (!backendJson || gymCodeBusy) return;
+        const code = upperShortCode(gymCodeForm.code);
+        const name = String(gymCodeForm.name || '').trim();
+        if (!code) { setGymCodeError('Code is required (A-Z, 0-9, _ -; max 20 chars).'); return; }
+        if (!name) { setGymCodeError('Branch name is required.'); return; }
+        if ((gymCodes || []).some((c) => String(c.code || '').toUpperCase() === code)) {
+          setGymCodeError(`Code "${code}" already exists.`); return;
+        }
+        setGymCodeBusy(true);
+        setGymCodeError('');
+        try {
+          await backendJson('/gym-codes', { method: 'POST', body: JSON.stringify({ code, name }) });
+          setGymCodeForm({ code: '', name: '' });
+          await refreshGymCodes();
+        } catch (err) {
+          setGymCodeError(String(err?.message || err || 'Failed to create gym code.'));
+        } finally {
+          setGymCodeBusy(false);
+        }
+      };
+      const deleteGymCode = async (id, code) => {
+        if (!backendJson || gymCodeBusy) return;
+        // HQ is the system default branch — refuse to delete.
+        if (String(code || '').toUpperCase() === 'HQ') {
+          setGymCodeError('HQ is the system default branch and cannot be deleted.');
+          return;
+        }
+        if (!window.confirm(`Delete gym code "${code}"? Members/staff assigned to this branch will become unassigned.`)) return;
+        setGymCodeBusy(true);
+        setGymCodeError('');
+        try {
+          await backendJson(`/gym-codes/${encodeURIComponent(id)}`, { method: 'DELETE' });
+          await refreshGymCodes();
+        } catch (err) {
+          setGymCodeError(String(err?.message || err || 'Failed to delete gym code.'));
+        } finally {
+          setGymCodeBusy(false);
+        }
+      };
       const [selectedBackup, setSelectedBackup] = React.useState('');
       const [pruneDays, setPruneDays] = React.useState('30');
       const [keepLatestCount, setKeepLatestCount] = React.useState('20');
       const [backupPage, setBackupPage] = React.useState(1);
       const [diskUsageOpen, setDiskUsageOpen] = React.useState(false);
       const [fineRuleOpen, setFineRuleOpen] = React.useState(false);
+      // Gym Codes (Branches) panel — collapsible state persisted across
+      // sessions. Default OPEN so first-time owners see it.
+      const [gymCodesPanelOpen, setGymCodesPanelOpen] = React.useState(() => {
+        try {
+          const raw = localStorage.getItem(STORAGE_KEYS.gymCodesPanelOpen);
+          return raw === null ? true : raw === '1';
+        } catch {
+          return true;
+        }
+      });
+      React.useEffect(() => {
+        try {
+          localStorage.setItem(STORAGE_KEYS.gymCodesPanelOpen, gymCodesPanelOpen ? '1' : '0');
+        } catch {}
+      }, [gymCodesPanelOpen]);
       const BACKUPS_PER_PAGE = 12;
       const backupPages = Math.max(1, Math.ceil((availableBackups || []).length / BACKUPS_PER_PAGE));
       const pagedBackups = React.useMemo(() => {
@@ -12673,6 +14111,116 @@ function PTClientsPage({ members, users, settings, updateSetting, currentUser, a
               Module Loader: {moduleDiag.text}
             </span>
           </div>
+          {isOwnerForCodes && (
+            <div className="rounded-3xl bg-white border border-slate-200 p-4 shadow-sm space-y-4" data-testid="gym-codes-panel">
+              <div className="flex items-center justify-between gap-3">
+                <button
+                  type="button"
+                  onClick={() => setGymCodesPanelOpen((v) => !v)}
+                  aria-expanded={gymCodesPanelOpen}
+                  aria-controls="gym-codes-panel-body"
+                  data-testid="gym-codes-toggle"
+                  className="flex flex-1 items-center justify-between gap-3 text-left rounded-xl px-1 py-1 -mx-1 -my-1 hover:bg-slate-50/60"
+                >
+                  <h3 className="text-lg font-semibold">Gym Codes (Branches)</h3>
+                  <span
+                    className="apg-accordion-chevron text-xs font-bold uppercase tracking-wide text-slate-500 select-none"
+                    data-open={gymCodesPanelOpen ? 'true' : 'false'}
+                    aria-hidden="true"
+                  >
+                    ▾
+                  </span>
+                </button>
+                <span className="text-xs text-slate-500 hidden md:inline">Owner only · Multi-tenant isolation</span>
+              </div>
+              <div
+                id="gym-codes-panel-body"
+                className="apg-accordion"
+                data-open={gymCodesPanelOpen ? 'true' : 'false'}
+                data-testid="gym-codes-accordion"
+              >
+                <div className="apg-accordion-inner space-y-4">
+              <p className="text-sm text-slate-600">
+                Each staff and member belongs to exactly one branch. Staff can only see members assigned to their own gym code.
+                HQ is the default branch and cannot be deleted.
+              </p>
+              <form onSubmit={submitGymCode} className="flex flex-wrap items-end gap-2">
+                <div>
+                  <label className="block text-xs font-medium text-slate-600 mb-1">Code (max 20)</label>
+                  <input
+                    type="text"
+                    value={gymCodeForm.code}
+                    onChange={(e) => setGymCodeForm((f) => ({ ...f, code: upperShortCode(e.target.value) }))}
+                    placeholder="e.g. AP02"
+                    maxLength={20}
+                    className="w-32 rounded-lg border border-slate-300 px-2 py-1.5 text-sm font-mono tracking-wider uppercase focus:border-indigo-500 focus:outline-none"
+                    data-testid="gym-code-input-code"
+                  />
+                </div>
+                <div className="flex-1 min-w-[200px]">
+                  <label className="block text-xs font-medium text-slate-600 mb-1">Branch Name</label>
+                  <input
+                    type="text"
+                    value={gymCodeForm.name}
+                    onChange={(e) => setGymCodeForm((f) => ({ ...f, name: e.target.value }))}
+                    placeholder="e.g. Bidhan Nagar"
+                    className="w-full rounded-lg border border-slate-300 px-2 py-1.5 text-sm focus:border-indigo-500 focus:outline-none"
+                    data-testid="gym-code-input-name"
+                  />
+                </div>
+                <button
+                  type="submit"
+                  disabled={gymCodeBusy || !gymCodeForm.code || !gymCodeForm.name}
+                  className="rounded-lg bg-indigo-600 px-3 py-1.5 text-sm font-semibold text-white hover:bg-indigo-700 disabled:opacity-50"
+                  data-testid="gym-code-submit"
+                >
+                  {gymCodeBusy ? 'Saving…' : 'Add Branch'}
+                </button>
+              </form>
+              {gymCodeError && (
+                <div className="rounded-lg bg-rose-50 border border-rose-200 px-3 py-2 text-sm text-rose-700" data-testid="gym-code-error">
+                  {gymCodeError}
+                </div>
+              )}
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm border-collapse" data-testid="gym-codes-table">
+                  <thead>
+                    <tr className="bg-slate-50 text-left text-xs uppercase tracking-wide text-slate-500">
+                      <th className="px-3 py-2 font-medium">Code</th>
+                      <th className="px-3 py-2 font-medium">Branch Name</th>
+                      <th className="px-3 py-2 font-medium">Created</th>
+                      <th className="px-3 py-2 font-medium text-right">Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {(gymCodes || []).length === 0 && (
+                      <tr><td colSpan="4" className="px-3 py-4 text-center text-slate-400">No branches yet. Add your first above.</td></tr>
+                    )}
+                    {(gymCodes || []).map((c) => (
+                      <tr key={c.id} className="border-t border-slate-100" data-testid={`gym-code-row-${c.code}`}>
+                        <td className="px-3 py-2 font-mono font-semibold">{c.code}</td>
+                        <td className="px-3 py-2">{c.name || c.branchName}</td>
+                        <td className="px-3 py-2 text-xs text-slate-500">{c.createdAt ? new Date(c.createdAt).toLocaleDateString() : '—'}</td>
+                        <td className="px-3 py-2 text-right">
+                          <button
+                            type="button"
+                            onClick={() => deleteGymCode(c.id, c.code)}
+                            disabled={String(c.code || '').toUpperCase() === 'HQ' || gymCodeBusy}
+                            className="text-xs font-semibold text-rose-600 hover:text-rose-700 disabled:text-slate-300"
+                            data-testid={`gym-code-delete-${c.code}`}
+                          >
+                            Delete
+                          </button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+                </div>
+              </div>
+            </div>
+          )}
           <div className="rounded-3xl bg-white border border-slate-200 p-4 shadow-sm space-y-4">
             <button
               type="button"
@@ -15334,10 +16882,10 @@ function PTClientsPage({ members, users, settings, updateSetting, currentUser, a
 
     // ---- User Management Page ----
     // This page allows the owner to add new staff and assign which sections they can access.
-    function UserManagementPage({ users, setUsers, settings, setSettings, currentUser, dataSyncMode = 'local', logEvent, onApprovePasswordReset }) {
+    function UserManagementPage({ users, setUsers, settings, setSettings, currentUser, dataSyncMode = 'local', logEvent, onApprovePasswordReset, gymCodes = [], hqGymCodeId = null, gymCodeLabel = () => '—' }) {
       const [modalOpen, setModalOpen] = React.useState(false);
       const [photoPickerOpen, setPhotoPickerOpen] = React.useState(false);
-      const [form, setForm] = React.useState({ id: '', password: '', name: '', email: '', sections: [], access: { ...DEFAULT_ACCESS }, blocked: false, blockedReason: '', blockedAt: '', updatedBy: '', photo: null, testProfile: false, sandboxId: '' });
+      const [form, setForm] = React.useState({ id: '', password: '', name: '', email: '', sections: [], access: { ...DEFAULT_ACCESS }, blocked: false, blockedReason: '', blockedAt: '', updatedBy: '', photo: null, testProfile: false, sandboxId: '', gymCodeId: '' });
       const [error, setError] = React.useState('');
       const [saving, setSaving] = React.useState(false);
       const staffErrorRef = React.useRef(null);
@@ -15396,7 +16944,7 @@ function PTClientsPage({ members, users, settings, updateSetting, currentUser, a
       });
 
       const openAdd = () => {
-        setForm({ id: '', password: '', name: '', email: '', sections: [], access: { ...DEFAULT_ACCESS }, blocked: false, blockedReason: '', blockedAt: '', updatedBy: '', photo: null, testProfile: false, sandboxId: '' });
+        setForm({ id: '', password: '', name: '', email: '', sections: [], access: { ...DEFAULT_ACCESS }, blocked: false, blockedReason: '', blockedAt: '', updatedBy: '', photo: null, testProfile: false, sandboxId: '', gymCodeId: hqGymCodeId || '' });
         setError('');
         setEditingId(null);
         setSelectedRole('');
@@ -15429,6 +16977,7 @@ function PTClientsPage({ members, users, settings, updateSetting, currentUser, a
           photo: u.photo || u.avatar || null,
           testProfile: Boolean(u.testProfile),
           sandboxId: u.sandboxId || '',
+          gymCodeId: u.gymCodeId || hqGymCodeId || '',
         });
         setError('');
         setEditingId(u.id);
@@ -15941,6 +17490,10 @@ function PTClientsPage({ members, users, settings, updateSetting, currentUser, a
           showStaffError('Please select at least one section.');
           return;
         }
+        if (id !== 'owner' && !form.gymCodeId) {
+          showStaffError('Please assign this staff member to a gym branch (gym code).');
+          return;
+        }
         const updatedUser = {
           ...(beforeUser || {}),
           id,
@@ -15955,6 +17508,7 @@ function PTClientsPage({ members, users, settings, updateSetting, currentUser, a
           photo: form.photo || null,
           testProfile: Boolean(form.testProfile),
           sandboxId: form.testProfile ? (form.sandboxId || beforeUser?.sandboxId || crypto.randomUUID()) : '',
+          gymCodeId: form.gymCodeId || beforeUser?.gymCodeId || null,
           updatedAt: new Date().toISOString(),
           ...(dataSyncMode !== 'backend' && needsPassword ? { password: passwordInput || beforeUser?.password || '' } : {}),
         };
@@ -16283,6 +17837,22 @@ function PTClientsPage({ members, users, settings, updateSetting, currentUser, a
                   </div>
                   <div><label className="text-sm font-medium text-slate-700">Name</label><input value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900" /></div>
                   <div><label className="text-sm font-medium text-slate-700">Email</label><input value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900" /></div>
+                  <div>
+                    <label className="text-sm font-medium text-slate-700">Gym Branch (Gym Code) <span className="text-rose-500">*</span></label>
+                    <select
+                      value={form.gymCodeId || ''}
+                      onChange={(e) => setForm({ ...form, gymCodeId: e.target.value })}
+                      className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900"
+                      data-testid="staff-gym-code-select"
+                      required
+                    >
+                      <option value="">Select a branch…</option>
+                      {(gymCodes || []).map((c) => (
+                        <option key={c.id} value={c.id}>{c.code} / {c.name || c.branchName}</option>
+                      ))}
+                    </select>
+                    <p className="mt-1 text-xs text-slate-500">Staff will only see members assigned to this branch.</p>
+                  </div>
                   <div className="rounded-xl border border-violet-200 bg-violet-50 p-3 space-y-2">
                     <label className="inline-flex items-center gap-2 text-sm font-medium text-violet-800">
                       <input

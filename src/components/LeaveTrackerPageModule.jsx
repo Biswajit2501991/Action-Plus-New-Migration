@@ -46,7 +46,10 @@ export default function LeaveTrackerPageModule({ users, settings, updateSetting,
     return Math.floor((end - start) / (24 * 60 * 60 * 1000)) + 1;
   };
 
-  const submitLeave = () => {
+  // Phase 4 leave-request bug fix: route every submission through the new
+  // /api/leave-requests endpoint. The /api/settings/bulk route is owner-only,
+  // so staff submissions never reached the database before this change.
+  const submitLeave = async () => {
     setFormError('');
     setFormSuccess('');
     if (!form.userId || !form.startDate || !form.endDate) {
@@ -57,25 +60,68 @@ export default function LeaveTrackerPageModule({ users, settings, updateSetting,
       setFormError('End date cannot be before start date.');
       return;
     }
-    const req = {
-      id: crypto.randomUUID(),
-      ...form,
-      days: daysBetween(form.startDate, form.endDate),
-      status: 'Pending',
-      createdAt: new Date().toISOString(),
-      createdBy: currentUser?.name || currentUser?.id || '',
-    };
-    updateSetting('leaveRequests', [req, ...leaveRequests]);
+    const days = daysBetween(form.startDate, form.endDate);
+    const callerName = currentUser?.name || currentUser?.id || '';
+    const backendJsonFn = typeof window !== 'undefined' ? window.__APG_BACKEND_JSON__ : null;
+    let req = null;
+    if (typeof backendJsonFn === 'function') {
+      try {
+        const resp = await backendJsonFn('/leave-requests', {
+          method: 'POST',
+          body: JSON.stringify({
+            userId: form.userId,
+            type: form.type,
+            startDate: form.startDate,
+            endDate: form.endDate,
+            reason: form.reason,
+          }),
+        });
+        req = resp && resp.request ? resp.request : null;
+      } catch (err) {
+        setFormError('Could not submit leave request. Please retry.');
+        return;
+      }
+    }
+    if (!req) {
+      req = {
+        id: (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function')
+          ? crypto.randomUUID()
+          : `leave-${Date.now()}-${Math.floor(Math.random() * 1e6)}`,
+        ...form,
+        days,
+        status: 'Pending',
+        createdAt: new Date().toISOString(),
+        createdBy: callerName,
+      };
+    }
+    if (typeof updateSetting === 'function') {
+      updateSetting('leaveRequests', (prev) => {
+        const base = Array.isArray(prev) ? prev : leaveRequests || [];
+        if (base.some((r) => r && r.id === req.id)) return base;
+        return [req, ...base];
+      });
+    }
     setForm((v) => ({ ...v, reason: '' }));
     setFormSuccess('Leave request submitted.');
     setTimeout(() => setFormSuccess(''), 2000);
   };
 
-  const updateStatus = (id, status) => {
+  const updateStatus = async (id, status) => {
     if (!canApprove) return;
+    const backendJsonFn = typeof window !== 'undefined' ? window.__APG_BACKEND_JSON__ : null;
+    if (typeof backendJsonFn === 'function') {
+      try {
+        await backendJsonFn(`/leave-requests/${encodeURIComponent(id)}`, {
+          method: 'PATCH',
+          body: JSON.stringify({ status }),
+        });
+      } catch {
+        // Fall through to local-only update so the owner still sees a change.
+      }
+    }
     updateSetting(
       'leaveRequests',
-      leaveRequests.map((r) => (r.id === id
+      (prev) => (Array.isArray(prev) ? prev : leaveRequests || []).map((r) => (r.id === id
         ? { ...r, status, actionAt: new Date().toISOString(), actionBy: currentUser?.name || currentUser?.id || '' }
         : r)),
     );

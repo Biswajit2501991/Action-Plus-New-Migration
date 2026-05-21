@@ -43,6 +43,7 @@ export function memberRowToApp(row, children = {}) {
     familyPrimaryMemberId: row.family_primary_member_id,
     lastSmsSent: row.last_sms_sent_json || undefined,
     updatedBy: row.updated_by,
+    assignedGymCodeId: row.assigned_gym_code_id || null,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
     paymentHistory: children.payments || [],
@@ -96,6 +97,7 @@ export function appMemberToRow(m, gymId) {
     family_primary_member_id: m.familyPrimaryMemberId || null,
     last_sms_sent_json: m.lastSmsSent || null,
     updated_by: emptyText(m.updatedBy),
+    assigned_gym_code_id: m.assignedGymCodeId ? String(m.assignedGymCodeId).trim() : null,
     created_at: createdAt,
     updated_at: updatedAt,
   };
@@ -179,6 +181,7 @@ export function staffRowToApp(row, sections = [], access = {}) {
       passwordResetApprovedAt,
     ),
     lastLoginAt: row.last_login_at || '',
+    gymCodeId: row.gym_code_id || null,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   };
@@ -323,6 +326,7 @@ export function visitorRowToApp(row) {
     tentativeJoiningDate: row.tentative_joining_date,
     lastCalledAt: row.last_called_at,
     lastCalledBy: row.last_called_by,
+    assignedGymCodeId: row.assigned_gym_code_id || null,
     addedAt: row.added_at,
   };
 }
@@ -341,6 +345,7 @@ export function appVisitorToRow(v, gymId) {
     tentative_joining_date: toDate(v.tentativeJoiningDate),
     last_called_at: toTs(v.lastCalledAt),
     last_called_by: v.lastCalledBy || null,
+    assigned_gym_code_id: v.assignedGymCodeId ? String(v.assignedGymCodeId).trim() : null,
     added_at: toTs(v.addedAt),
     created_at: toTs(v.addedAt) || new Date().toISOString(),
     updated_at: new Date().toISOString(),

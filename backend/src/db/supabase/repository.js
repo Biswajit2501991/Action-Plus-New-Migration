@@ -93,10 +93,18 @@ async function loadMemberChildren(sb, gid, memberIds) {
   return { paymentsByMember, messagesByMember, attachmentsByMember, injuryByMember };
 }
 
-async function readMembers(scope) {
+async function readMembers(scope, branchScope = null) {
   const sb = getSupabase();
   const gid = gymId();
-  const memberRows = await fetchAll((from, to) => sb.from(T.members).select('*').eq('gym_id', gid).range(from, to));
+  const memberRows = await fetchAll((from, to) => {
+    let q = sb.from(T.members).select('*').eq('gym_id', gid);
+    // Phase 2 zero-leak: when caller passes a branchScope (non-owner staff with a gym_code_id),
+    // we filter at the SQL layer so that cross-branch (and NULL/legacy) rows never leave Supabase.
+    if (branchScope && branchScope.gymCodeId) {
+      q = q.eq('assigned_gym_code_id', branchScope.gymCodeId);
+    }
+    return q.range(from, to);
+  });
   const memberIds = memberRows.map((r) => r.id);
   const children = await loadMemberChildren(sb, gid, memberIds);
   const members = memberRows.map((row) => memberRowToApp(row, {
@@ -107,6 +115,144 @@ async function readMembers(scope) {
   }));
   return sandboxFilter(members, scope);
 }
+
+/**
+ * Surgical single-member update — used by PATCH /api/members/:memberId.
+ *
+ * Replaces the 4,000-RPC bulk-PUT fan-out (full members snapshot + per-member child sync)
+ * with one targeted UPDATE. This is the durable path for gym-code reassignment.
+ *
+ * @param {string} memberCode  external "memberId" string (member_code column)
+ * @param {object} patch       app-shaped partial fields; only the keys present are written
+ * @param {object} [branchScope]  { gymCodeId, isOwner } — staff can only touch their branch
+ * @returns {Promise<object|null>} App-shaped refreshed member, or null when row not visible
+ */
+async function updateMemberFields(memberCode, patch, branchScope = null) {
+  const sb = getSupabase();
+  const gid = gymId();
+  const code = String(memberCode || '').trim();
+  if (!code) {
+    const err = new Error('member-code-required');
+    err.status = 400;
+    throw err;
+  }
+  if (!patch || typeof patch !== 'object') {
+    const err = new Error('patch-required');
+    err.status = 400;
+    throw err;
+  }
+
+  // We tolerate (data-anomaly) duplicate member_codes by picking the most recently
+  // updated row. .maybeSingle() throws on >1 — that's correct for assertions but
+  // unhelpful when the legacy snapshot has accidental dupes from old imports.
+  const { data: dupRows, error: selErr } = await sb
+    .from(T.members)
+    .select('id, gym_id, member_code, assigned_gym_code_id, updated_at')
+    .eq('gym_id', gid)
+    .eq('member_code', code)
+    .order('updated_at', { ascending: false })
+    .limit(1);
+  if (selErr) throw new Error(`member lookup: ${selErr.message}`);
+  const existingRow = Array.isArray(dupRows) && dupRows.length ? dupRows[0] : null;
+  if (!existingRow) {
+    const err = new Error('member-not-found');
+    err.status = 404;
+    throw err;
+  }
+
+  if (branchScope && branchScope.gymCodeId && !branchScope.isOwner) {
+    const existingCode = String(existingRow.assigned_gym_code_id || '');
+    if (existingCode !== String(branchScope.gymCodeId)) {
+      // Staff cannot read or mutate rows outside their branch. We surface 404 (not 403)
+      // so an attacker cannot probe for member existence via timing/error differences.
+      const err = new Error('member-not-found');
+      err.status = 404;
+      throw err;
+    }
+    if (Object.prototype.hasOwnProperty.call(patch, 'assignedGymCodeId')) {
+      const want = String(patch.assignedGymCodeId || '').trim();
+      if (want && want !== String(branchScope.gymCodeId)) {
+        const err = new Error('cross-branch-write-forbidden');
+        err.status = 403;
+        err.detail = { memberCode: code, requested: want, allowed: branchScope.gymCodeId };
+        throw err;
+      }
+    }
+  }
+
+  const projection = appMemberToRow({
+    memberId: code,
+    ...patch,
+    updatedAt: patch.updatedAt || new Date().toISOString(),
+  }, gid);
+  const dbPatch = {};
+  for (const key of Object.keys(patch)) {
+    const mapping = MEMBER_PATCH_KEY_MAP[key];
+    if (!mapping) continue;
+    dbPatch[mapping] = projection[mapping];
+  }
+  dbPatch.updated_at = projection.updated_at;
+  if (projection.updated_by) dbPatch.updated_by = projection.updated_by;
+
+  const { error: updErr } = await sb
+    .from(T.members)
+    .update(dbPatch)
+    .eq('id', existingRow.id);
+  if (updErr) throw new Error(`member update: ${updErr.message}`);
+
+  const { data: refreshed, error: refErr } = await sb
+    .from(T.members)
+    .select('*')
+    .eq('id', existingRow.id)
+    .single();
+  if (refErr) throw new Error(`member reload: ${refErr.message}`);
+
+  const children = await loadMemberChildren(sb, gid, [refreshed.id]);
+  notifyCollectionChange('members');
+
+  return memberRowToApp(refreshed, {
+    payments: children.paymentsByMember.get(refreshed.id) || [],
+    messages: children.messagesByMember.get(refreshed.id) || [],
+    attachments: children.attachmentsByMember.get(refreshed.id) || [],
+    injuryNotes: children.injuryByMember.get(refreshed.id) || [],
+  });
+}
+
+/** Whitelist of app-fields → DB columns that PATCH is allowed to touch. */
+const MEMBER_PATCH_KEY_MAP = {
+  name: 'full_name',
+  email: 'email',
+  mobile: 'mobile',
+  dob: 'dob',
+  gender: 'gender',
+  address: 'address',
+  staff: 'assigned_staff',
+  plan: 'plan_name',
+  status: 'status',
+  holdDuration: 'hold_duration',
+  amount: 'amount',
+  paymentMethod: 'payment_method',
+  joiningDate: 'joining_date',
+  billingDate: 'billing_date',
+  billingDateUpdatedAt: 'billing_date_updated_at',
+  nextPaymentDate: 'next_payment_date',
+  paymentBy: 'payment_by',
+  payMonth: 'pay_month',
+  remark: 'remark',
+  photo: 'photo_url',
+  medicalSkipped: 'medical_skipped',
+  medicalAnswers: 'medical_answers_json',
+  ackAccepted: 'ack_accepted',
+  ackSignature: 'ack_signature',
+  ackDate: 'ack_date',
+  parentGuardianName: 'parent_guardian_name',
+  parentGuardianDob: 'parent_guardian_dob',
+  parentGuardianSignature: 'parent_guardian_signature',
+  familyGroupId: 'family_group_id',
+  familyPrimaryMemberId: 'family_primary_member_id',
+  lastSmsSent: 'last_sms_sent_json',
+  assignedGymCodeId: 'assigned_gym_code_id',
+};
 
 async function deleteMemberChildren(sb, memberIds) {
   if (!memberIds.length) return;
@@ -712,10 +858,16 @@ async function writePtProfiles(settings, gid) {
   }
 }
 
-async function readVisitors(scope) {
+async function readVisitors(scope, branchScope = null) {
   const sb = getSupabase();
   const gid = gymId();
-  const rows = await fetchAll((from, to) => sb.from(T.visitors).select('*').eq('gym_id', gid).range(from, to));
+  const rows = await fetchAll((from, to) => {
+    let q = sb.from(T.visitors).select('*').eq('gym_id', gid);
+    if (branchScope && branchScope.gymCodeId) {
+      q = q.eq('assigned_gym_code_id', branchScope.gymCodeId);
+    }
+    return q.range(from, to);
+  });
   return sandboxFilter((rows || []).map(visitorRowToApp), scope);
 }
 
@@ -835,14 +987,14 @@ async function writeSmsEvents(events, scope) {
   notifyCollectionChange('smsEvents');
 }
 
-export async function readCollection(key, fallback = [], scope = null) {
+export async function readCollection(key, fallback = [], scope = null, branchScope = null) {
   switch (key) {
     case KEY_MEMBERS:
-      return readMembers(scope);
+      return readMembers(scope, branchScope);
     case KEY_USERS:
       return readUsers(scope);
     case KEY_VISITORS:
-      return readVisitors(scope);
+      return readVisitors(scope, branchScope);
     case KEY_LOGS:
       return readLogs(scope);
     case KEY_FINANCE:
@@ -853,6 +1005,8 @@ export async function readCollection(key, fallback = [], scope = null) {
       return fallback;
   }
 }
+
+export { updateMemberFields };
 
 export async function writeCollection(key, value, scope = null) {
   switch (key) {

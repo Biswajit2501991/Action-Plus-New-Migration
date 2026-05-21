@@ -6,7 +6,7 @@ import { staffRowToApp } from '../db/supabase/mappers.js';
 import { ALL_SECTIONS, DEFAULT_ACCESS, normalizeAccess } from '../../../src/features/access/permissions.js';
 import { hashPassword, verifyPassword } from './passwords.js';
 
-function staffClaims(staffLoginId, gymIdValue) {
+function staffClaims(staffLoginId, gymIdValue, gymCodeIdValue) {
   const id = String(staffLoginId || '').trim().toLowerCase();
   const role = id === 'owner' ? 'owner' : 'staff';
   const claims = {
@@ -15,11 +15,14 @@ function staffClaims(staffLoginId, gymIdValue) {
     permissions: role === 'owner' ? ['*'] : [],
   };
   if (gymIdValue) claims.gymId = String(gymIdValue);
+  // gymCodeId is the multi-tenant branch scope; owner has it too (defaults to HQ)
+  // but the API layer treats `owner` as cross-branch via apg_jwt_is_owner().
+  if (gymCodeIdValue) claims.gymCodeId = String(gymCodeIdValue);
   return claims;
 }
 
-export function signStaffToken(staffLoginId, gymIdValue) {
-  return jwt.sign(staffClaims(staffLoginId, gymIdValue), env.JWT_SECRET, {
+export function signStaffToken(staffLoginId, gymIdValue, gymCodeIdValue) {
+  return jwt.sign(staffClaims(staffLoginId, gymIdValue, gymCodeIdValue), env.JWT_SECRET, {
     expiresIn: env.JWT_EXPIRES_IN,
   });
 }
@@ -99,8 +102,8 @@ export async function loginStaff(identifier, password) {
   if (String(user.id || '').toLowerCase() === 'owner') {
     await ensureOwnerSectionsPersisted(sb, row.id).catch(() => {});
   }
-  const token = signStaffToken(user.id, row.gym_id);
-  return { ok: true, token, user: { ...user, lastLoginAt: now } };
+  const token = signStaffToken(user.id, row.gym_id, row.gym_code_id);
+  return { ok: true, token, user: { ...user, gymCodeId: row.gym_code_id || null, lastLoginAt: now } };
 }
 
 export async function getStaffAppUser(staffLoginId) {

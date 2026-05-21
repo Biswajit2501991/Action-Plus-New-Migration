@@ -6,6 +6,7 @@ import os from 'node:os';
 import { spawn } from 'node:child_process';
 import { gzip, gunzip } from 'node:zlib';
 import { promisify } from 'node:util';
+import { randomUUID } from 'node:crypto';
 import { env } from './config/env.js';
 import { isOriginAllowed } from './config/cors.js';
 import { query } from './db/adapter.js';
@@ -34,6 +35,15 @@ import { requireOwner, requireOwnerUnlessProcessControl } from './middleware/req
 import { Access } from './auth/accessControl.js';
 import { requireAccess, requireLogsBulkAccess } from './middleware/permissions.js';
 import authRouter from './routes/auth.js';
+import gymCodesRouter from './routes/gymCodes.js';
+import {
+  authIsOwner,
+  stampBranchOnRows,
+  assertBranchWriteAllowed,
+  loadBranchScope,
+  logMatchesBranchScope,
+} from './auth/branchFilter.js';
+import { getSupabase } from './db/supabase/client.js';
 
 const app = express();
 app.set('trust proxy', true);
@@ -274,6 +284,25 @@ async function readScopedCollection(req, key, fallback = []) {
   return readJsonCollection(key, fallback, scope);
 }
 
+/**
+ * Phase 2 zero-leak read: members/visitors are filtered at the SQL layer using the
+ * staff JWT's gym_code_id. Owners (no branchScope) see everything; staff get a Set
+ * scoped to their own branch_id, never seeing rows from other branches OR untagged
+ * legacy rows.
+ */
+function buildBranchScope(req) {
+  if (!req.auth) return null;
+  if (authIsOwner(req.auth)) return { isOwner: true, gymCodeId: null };
+  if (!req.auth.gymCodeId) return null;
+  return { isOwner: false, gymCodeId: String(req.auth.gymCodeId) };
+}
+
+async function readBranchScopedCollection(req, key, fallback = []) {
+  const scope = readSandboxScope(req);
+  const branchScope = buildBranchScope(req);
+  return readJsonCollection(key, fallback, scope, branchScope);
+}
+
 async function writeScopedCollection(req, key, incomingRows = []) {
   const scope = readSandboxScope(req);
   await writeJsonCollection(key, incomingRows, scope);
@@ -323,6 +352,9 @@ app.use('/api/auth', authRouter);
 
 app.use('/api', requireApiAuth);
 app.use('/api', bindGymContext);
+
+// Phase 2 gym-codes feature: list is authenticated-only, write is owner-only (inside the router).
+app.use('/api/gym-codes', gymCodesRouter);
 
 app.get('/api/realtime/stream', (req, res) => {
   if (!useSupabase()) {
@@ -418,23 +450,128 @@ app.post('/api/process/start', requireOwnerUnlessProcessControl, (req, res) => {
 });
 
 app.get('/api/members', requireAccess(Access.membersRead), async (req, res) => {
-  const members = await readScopedCollection(req, 'apg.members', []);
+  // Phase 2 zero-leak: branch filter pushed into Supabase SQL via buildBranchScope.
+  // Staff requests never pull cross-branch (or NULL-tagged legacy) rows out of the DB.
+  const members = await readBranchScopedCollection(req, 'apg.members', []);
   res.json(members);
 });
 
+// Phase 4 Payment RBAC backend defense-in-depth.
+//
+// Staff are allowed to add and edit payment history rows (a recurring part of
+// daily operations), but they cannot DELETE rows — that authority is reserved
+// for owners. To make this enforceable on the server, we diff the incoming
+// paymentHistory against the persisted snapshot for each member, by stable id.
+// If any row id present on the server is missing from the incoming payload
+// from a non-owner caller, we reject the entire bulk PUT with 403. This
+// prevents the UI from being bypassed via a hand-crafted bulk request.
+function assertPaymentDeleteAllowed(incomingMembers, existingMembers, auth) {
+  if (authIsOwner(auth)) return; // owners can delete anything
+  const byId = new Map(
+    (existingMembers || []).map((m) => [String(m?.memberId || ''), m])
+  );
+  const removed = [];
+  for (const next of incomingMembers || []) {
+    const code = String(next?.memberId || '').trim();
+    if (!code) continue;
+    const prev = byId.get(code);
+    if (!prev) continue; // brand-new member; nothing to compare against
+    const prevHist = Array.isArray(prev.paymentHistory) ? prev.paymentHistory : [];
+    if (!prevHist.length) continue;
+    const nextHist = Array.isArray(next.paymentHistory) ? next.paymentHistory : [];
+    const nextIds = new Set(
+      nextHist
+        .map((p) => String(p?.id || '').trim())
+        .filter(Boolean)
+    );
+    for (const p of prevHist) {
+      const pid = String(p?.id || '').trim();
+      if (!pid) continue;
+      if (!nextIds.has(pid)) removed.push({ memberCode: code, paymentId: pid });
+    }
+  }
+  if (removed.length) {
+    const err = new Error('payment-delete-forbidden');
+    err.status = 403;
+    err.detail = { removed: removed.slice(0, 5) };
+    throw err;
+  }
+}
+
 app.put('/api/members/bulk', requireAccess(Access.membersWrite), async (req, res) => {
-  await writeScopedCollection(req, 'apg.members', req.body?.members || []);
+  const incoming = Array.isArray(req.body?.members) ? req.body.members : [];
+  try {
+    assertBranchWriteAllowed(incoming, req.auth);
+  } catch (err) {
+    return res.status(err.status || 403).json({
+      error: err.message,
+      detail: err.detail || null,
+    });
+  }
+  // Defense-in-depth: prevent non-owner callers from quietly stripping payment
+  // entries out of the snapshot. We read the current members BEFORE writing so
+  // the diff sees the freshest server state.
+  try {
+    if (!authIsOwner(req.auth)) {
+      const existing = await readJsonCollection('apg.members', [], readSandboxScope(req), buildBranchScope(req));
+      assertPaymentDeleteAllowed(incoming, existing, req.auth);
+    }
+  } catch (err) {
+    return res.status(err.status || 403).json({
+      error: err.message,
+      detail: err.detail || null,
+    });
+  }
+  // Owner without explicit selection => stamped HQ via their JWT gymCodeId;
+  // staff => stamped from their JWT gymCodeId; safe no-op for already-tagged rows.
+  const stamped = stampBranchOnRows(incoming, req.auth);
+  await writeScopedCollection(req, 'apg.members', stamped);
   queueDatabaseBackup('members-bulk');
   res.json({ ok: true });
 });
 
+/**
+ * Surgical single-member mutation. Replaces the bulk-PUT fan-out for everyday edits
+ * (especially gym-code reassignment) which used to timeout against Supabase.
+ * Body: { patch: { ...partial app-member fields }, expectedAssignedGymCodeId?: string }
+ */
+app.patch('/api/members/:memberId', requireAccess(Access.membersWrite), async (req, res) => {
+  const memberCode = String(req.params.memberId || '').trim();
+  const patch = req.body?.patch && typeof req.body.patch === 'object' ? req.body.patch : null;
+  if (!memberCode) return res.status(400).json({ error: 'member-code-required' });
+  if (!patch) return res.status(400).json({ error: 'patch-required' });
+  const branchScope = buildBranchScope(req);
+  try {
+    const { updateMember } = await import('./db/dataStore.js');
+    const updated = await updateMember(memberCode, patch, branchScope);
+    queueDatabaseBackup('members-patch');
+    return res.json({ ok: true, member: updated });
+  } catch (err) {
+    const status = err?.status || 500;
+    return res.status(status).json({
+      error: err?.message || 'member-patch-failed',
+      detail: err?.detail || null,
+    });
+  }
+});
+
 app.get('/api/visitors', requireAccess(Access.visitorsRead), async (req, res) => {
-  const visitors = await readScopedCollection(req, 'apg.visitors', []);
+  const visitors = await readBranchScopedCollection(req, 'apg.visitors', []);
   res.json(visitors);
 });
 
 app.put('/api/visitors/bulk', requireAccess(Access.visitorsWrite), async (req, res) => {
-  await writeScopedCollection(req, 'apg.visitors', req.body?.visitors || []);
+  const incoming = Array.isArray(req.body?.visitors) ? req.body.visitors : [];
+  try {
+    assertBranchWriteAllowed(incoming, req.auth);
+  } catch (err) {
+    return res.status(err.status || 403).json({
+      error: err.message,
+      detail: err.detail || null,
+    });
+  }
+  const stamped = stampBranchOnRows(incoming, req.auth);
+  await writeScopedCollection(req, 'apg.visitors', stamped);
   queueDatabaseBackup('visitors-bulk');
   res.json({ ok: true });
 });
@@ -466,6 +603,133 @@ app.put('/api/settings/bulk', requireOwner, async (req, res) => {
   await writeScopedSettings(req, req.body?.settings || {});
   queueDatabaseBackup('settings-bulk');
   res.json({ ok: true });
+});
+
+// ----------------------------------------------------------------------------
+// Leave Requests — dedicated mutation surface that bypasses the owner-only
+// /api/settings/bulk route. The previous architecture forced staff settings
+// writes through that route which 403'd for non-owners, so submitted leaves
+// never made it to the database and the owner never received a notification.
+//
+// These routes write only to the `leaveRequests` key of the scoped settings
+// document. They do not allow staff to mutate any other setting.
+// ----------------------------------------------------------------------------
+
+function leaveRequestIsOwnerCaller(req) {
+  return authIsOwner(req?.auth);
+}
+
+function sanitizeLeaveRequestInput(body, callerIsOwner, callerUserId) {
+  const safe = body && typeof body === 'object' ? body : {};
+  const TYPES = new Set(['Casual', 'Sick', 'Emergency', 'Unpaid']);
+  const requestedUserId = String(safe.userId || '').trim();
+  // Staff can only submit leave for themselves. Owners can submit on behalf of
+  // anyone (e.g. when retroactively logging a phone-in absence).
+  const userId = callerIsOwner && requestedUserId ? requestedUserId : callerUserId;
+  if (!userId) return { error: 'userId-required' };
+  const startDate = String(safe.startDate || '').trim();
+  const endDate = String(safe.endDate || '').trim();
+  if (!startDate || !endDate) return { error: 'date-range-required' };
+  const start = new Date(startDate);
+  const end = new Date(endDate);
+  if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime())) return { error: 'invalid-dates' };
+  if (end < start) return { error: 'end-before-start' };
+  const days = Math.floor((end - start) / (24 * 60 * 60 * 1000)) + 1;
+  const type = TYPES.has(safe.type) ? safe.type : 'Casual';
+  const reason = String(safe.reason || '').trim().slice(0, 500);
+  return { userId, type, startDate, endDate, days, reason };
+}
+
+app.post('/api/leave-requests', async (req, res) => {
+  try {
+    const callerIsOwner = leaveRequestIsOwnerCaller(req);
+    const callerUserId = String(req.auth?.userId || '').trim();
+    if (!callerUserId) return res.status(401).json({ error: 'auth-required' });
+    const parsed = sanitizeLeaveRequestInput(req.body, callerIsOwner, callerUserId);
+    if (parsed.error) return res.status(400).json({ error: parsed.error });
+
+    const current = (await readScopedSettings(req)) || {};
+    const existing = Array.isArray(current.leaveRequests) ? current.leaveRequests : [];
+    const request = {
+      id: randomUUID(),
+      userId: parsed.userId,
+      type: parsed.type,
+      startDate: parsed.startDate,
+      endDate: parsed.endDate,
+      days: parsed.days,
+      reason: parsed.reason,
+      status: 'Pending',
+      createdAt: new Date().toISOString(),
+      createdBy: callerUserId,
+    };
+    const next = { ...current, leaveRequests: [request, ...existing] };
+    await writeScopedSettings(req, next);
+    queueDatabaseBackup('leave-request-create');
+    return res.json({ ok: true, request });
+  } catch (error) {
+    return res.status(500).json({
+      error: 'leave-request-create-failed',
+      message: String(error?.message || error),
+    });
+  }
+});
+
+app.patch('/api/leave-requests/:id', requireOwner, async (req, res) => {
+  try {
+    const id = String(req.params.id || '').trim();
+    if (!id) return res.status(400).json({ error: 'id-required' });
+    const STATUSES = new Set(['Pending', 'Approved', 'Rejected']);
+    const status = STATUSES.has(req.body?.status) ? req.body.status : null;
+    if (!status) return res.status(400).json({ error: 'invalid-status' });
+
+    const current = (await readScopedSettings(req)) || {};
+    const existing = Array.isArray(current.leaveRequests) ? current.leaveRequests : [];
+    let updated = null;
+    const nextList = existing.map((r) => {
+      if (r?.id !== id) return r;
+      updated = {
+        ...r,
+        status,
+        actionAt: new Date().toISOString(),
+        actionBy: String(req.auth?.userId || 'owner'),
+      };
+      return updated;
+    });
+    if (!updated) return res.status(404).json({ error: 'leave-request-not-found' });
+
+    const next = { ...current, leaveRequests: nextList };
+    await writeScopedSettings(req, next);
+    queueDatabaseBackup('leave-request-update');
+    return res.json({ ok: true, request: updated });
+  } catch (error) {
+    return res.status(500).json({
+      error: 'leave-request-update-failed',
+      message: String(error?.message || error),
+    });
+  }
+});
+
+// Owner-only cleanup for E2E teardown: removes all leave requests created by
+// the listed user IDs (typically e2e-staff-* test accounts). Returns the
+// remaining count so tests can assert success deterministically.
+app.post('/api/leave-requests/cleanup', requireOwner, async (req, res) => {
+  try {
+    const userIds = Array.isArray(req.body?.userIds) ? req.body.userIds.map((x) => String(x || '').trim()).filter(Boolean) : [];
+    if (!userIds.length) return res.json({ ok: true, removed: 0, remaining: null });
+    const current = (await readScopedSettings(req)) || {};
+    const existing = Array.isArray(current.leaveRequests) ? current.leaveRequests : [];
+    const removeSet = new Set(userIds);
+    const remaining = existing.filter((r) => !removeSet.has(String(r?.userId || '')) && !removeSet.has(String(r?.createdBy || '')));
+    const removed = existing.length - remaining.length;
+    const next = { ...current, leaveRequests: remaining };
+    await writeScopedSettings(req, next);
+    return res.json({ ok: true, removed, remaining: remaining.length });
+  } catch (error) {
+    return res.status(500).json({
+      error: 'leave-request-cleanup-failed',
+      message: String(error?.message || error),
+    });
+  }
 });
 
 app.post('/api/attendance/punch', requireAccess(Access.attendancePunch), async (req, res) => {
@@ -501,7 +765,11 @@ app.put('/api/attendance/records', requireAccess(Access.attendanceWrite), async 
 
 app.get('/api/logs', requireAccess(Access.logsRead), async (req, res) => {
   const logs = await readScopedCollection(req, 'apg.logs', []);
-  res.json(logs);
+  if (authIsOwner(req.auth) || !req.auth?.gymCodeId) return res.json(logs);
+  // Branch-scoped staff: load the set of memberCodes/staffLogins/visitorIds for their branch
+  // then keep only logs whose entityId is in that set.
+  const scope = await loadBranchScope(getSupabase(), req.auth);
+  res.json(logs.filter((l) => logMatchesBranchScope(l, scope)));
 });
 
 app.put('/api/logs/bulk', requireLogsBulkAccess, async (req, res) => {
@@ -512,7 +780,14 @@ app.put('/api/logs/bulk', requireLogsBulkAccess, async (req, res) => {
 
 app.get('/api/finance', requireAccess(Access.financeRead), async (req, res) => {
   const finance = await readScopedCollection(req, 'apg.finance', []);
-  res.json(finance);
+  if (authIsOwner(req.auth) || !req.auth?.gymCodeId) return res.json(finance);
+  // Branch-scope: keep only transactions whose memberId is in the branch's member set.
+  const scope = await loadBranchScope(getSupabase(), req.auth);
+  res.json(finance.filter((t) => {
+    const mid = String(t?.memberId || '').trim();
+    if (!mid) return true; // unattached expense / manual entry visible to all staff in branch
+    return scope.memberCodes?.has(mid);
+  }));
 });
 
 app.put('/api/finance/bulk', requireAccess(Access.financeWrite), async (req, res) => {
@@ -523,7 +798,13 @@ app.put('/api/finance/bulk', requireAccess(Access.financeWrite), async (req, res
 
 app.get('/api/sms-events', requireAccess(Access.smsRead), async (req, res) => {
   const events = await readScopedCollection(req, 'apg.sms.events', []);
-  res.json(events);
+  if (authIsOwner(req.auth) || !req.auth?.gymCodeId) return res.json(events);
+  const scope = await loadBranchScope(getSupabase(), req.auth);
+  res.json(events.filter((e) => {
+    const mid = String(e?.memberId || '').trim();
+    if (!mid) return false; // sms events without member are owner-only
+    return scope.memberCodes?.has(mid);
+  }));
 });
 
 app.put('/api/sms-events/bulk', requireAccess(Access.smsWrite), async (req, res) => {

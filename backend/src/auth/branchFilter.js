@@ -8,6 +8,74 @@ export function authIsOwner(auth) {
   return Array.isArray(auth.roles) && auth.roles.includes('owner');
 }
 
+/**
+ * Strict branch filter (Phase 2 zero-leak contract).
+ *
+ * - Owner: sees everything.
+ * - Staff with a gymCodeId: ONLY rows whose `assignedGymCodeId` exactly matches the
+ *   staff branch. Untagged (NULL) legacy rows are explicitly hidden — they used to leak
+ *   to every staff member and that violated the no-cross-tenant directive.
+ * - Staff without a gymCodeId: nothing (locked-down by default until the staff record
+ *   is repaired).
+ *
+ * In practice the GET routes apply this filter at the SQL layer, so this function is
+ * the in-memory belt-and-braces (used for SSE payloads, unit tests, etc.).
+ */
+export function filterRowsByBranch(rows, auth) {
+  if (!Array.isArray(rows)) return [];
+  if (authIsOwner(auth)) return rows;
+  if (!auth) return [];
+  if (!auth.gymCodeId) return [];
+  const code = String(auth.gymCodeId);
+  return rows.filter((r) => {
+    const rowCode = String(r?.assignedGymCodeId || '').trim();
+    return rowCode === code;
+  });
+}
+
+/** Stamp `assignedGymCodeId` from staff JWT when missing. Owner gets `defaultCode` (HQ) if omitted. */
+export function stampBranchOnRows(rows, auth, defaultCode = null) {
+  if (!Array.isArray(rows)) return [];
+  const fromAuth = auth?.gymCodeId ? String(auth.gymCodeId) : null;
+  const isOwner = authIsOwner(auth);
+  return rows.map((r) => {
+    if (!r || typeof r !== 'object') return r;
+    if (r.assignedGymCodeId) return r;
+    // Owner with no selection falls back to HQ; staff is stamped from JWT.
+    const code = isOwner ? (defaultCode || fromAuth) : fromAuth;
+    if (!code) return r;
+    return { ...r, assignedGymCodeId: code };
+  });
+}
+
+/**
+ * Reject write payload if staff is touching rows outside their branch.
+ * Throws an Error with `.status = 403` so the route handler can return the right HTTP status.
+ */
+export function assertBranchWriteAllowed(rows, auth) {
+  if (!Array.isArray(rows) || rows.length === 0) return;
+  if (authIsOwner(auth)) return;
+  if (!auth?.gymCodeId) {
+    const err = new Error('branch-scope-missing');
+    err.status = 403;
+    throw err;
+  }
+  const code = String(auth.gymCodeId);
+  for (const r of rows) {
+    const rowCode = r?.assignedGymCodeId ? String(r.assignedGymCodeId).trim() : '';
+    if (rowCode && rowCode !== code) {
+      const err = new Error('cross-branch-write-forbidden');
+      err.status = 403;
+      err.detail = {
+        violatingRow: r?.memberId || r?.id || null,
+        expectedGymCodeId: code,
+        gotGymCodeId: rowCode,
+      };
+      throw err;
+    }
+  }
+}
+
 /** @returns {Promise<{ limited: boolean, gymCodeId: string|null, memberCodes: Set<string>|null, staffLogins: Set<string>|null, visitorIds: Set<string>|null }>} */
 export async function loadBranchScope(sb, auth) {
   if (!auth?.gymCodeId || authIsOwner(auth)) {

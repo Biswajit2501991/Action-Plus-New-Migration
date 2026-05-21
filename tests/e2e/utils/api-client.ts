@@ -74,3 +74,129 @@ export async function setStaffPassword(
     body: JSON.stringify({ staffId, newPassword }),
   });
 }
+
+export type GymCode = { id: string; code: string; name?: string; branchName?: string };
+
+export async function listGymCodes(token: string): Promise<GymCode[]> {
+  return apiJson<GymCode[]>('/api/gym-codes', token);
+}
+
+export async function createGymCode(
+  token: string,
+  body: { code: string; name: string },
+): Promise<GymCode> {
+  return apiJson<GymCode>('/api/gym-codes', token, {
+    method: 'POST',
+    body: JSON.stringify(body),
+  });
+}
+
+export async function deleteGymCode(token: string, id: string): Promise<void> {
+  // DELETE returns 204 / empty body — apiJson would crash on empty JSON parse.
+  const res = await rawApi(`/api/gym-codes/${encodeURIComponent(id)}`, token, { method: 'DELETE' });
+  if (!res.ok) {
+    const text = await res.text();
+    throw new Error(`DELETE /api/gym-codes/${id} → ${res.status}: ${text}`);
+  }
+}
+
+export type LoginResult = { token: string; user: { id: string; gymCodeId?: string | null } };
+
+export async function login(identifier: string, password: string): Promise<LoginResult> {
+  const res = await fetch(`${API_BASE}/api/auth/login`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ identifier, password }),
+  });
+  if (!res.ok) {
+    const text = await res.text();
+    throw new Error(`login failed ${res.status}: ${text}`);
+  }
+  return res.json();
+}
+
+export async function listMembers(token: string): Promise<Array<{ memberId: string; assignedGymCodeId?: string | null }>> {
+  return apiJson('/api/members', token);
+}
+
+export async function patchMember(
+  token: string,
+  memberId: string,
+  patch: Record<string, unknown>,
+): Promise<{ ok: boolean; member: { memberId: string; assignedGymCodeId?: string | null } }> {
+  return apiJson(`/api/members/${encodeURIComponent(memberId)}`, token, {
+    method: 'PATCH',
+    body: JSON.stringify({ patch }),
+  });
+}
+
+export async function rawApi(path: string, token: string, init: RequestInit = {}): Promise<Response> {
+  return fetch(`${API_BASE}${path}`, {
+    ...init,
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${token}`,
+      ...(init.headers || {}),
+    },
+  });
+}
+
+// ----------------------------------------------------------------------------
+// Phase 4 leave-request endpoints. The new POST /api/leave-requests bypasses
+// the owner-only /api/settings/bulk route so staff can submit their own leaves
+// and the owner receives a real-time notification via SSE.
+// ----------------------------------------------------------------------------
+
+export type LeaveRequest = {
+  id: string;
+  userId: string;
+  type: 'Casual' | 'Sick' | 'Emergency' | 'Unpaid';
+  startDate: string;
+  endDate: string;
+  days: number;
+  reason: string;
+  status: 'Pending' | 'Approved' | 'Rejected';
+  createdAt: string;
+  createdBy: string;
+};
+
+export async function createLeaveRequest(
+  token: string,
+  body: {
+    userId?: string;
+    type?: LeaveRequest['type'];
+    startDate: string;
+    endDate: string;
+    reason?: string;
+  },
+): Promise<{ ok: boolean; request: LeaveRequest }> {
+  return apiJson('/api/leave-requests', token, {
+    method: 'POST',
+    body: JSON.stringify(body),
+  });
+}
+
+export async function updateLeaveRequestStatus(
+  token: string,
+  id: string,
+  status: LeaveRequest['status'],
+): Promise<{ ok: boolean; request: LeaveRequest }> {
+  return apiJson(`/api/leave-requests/${encodeURIComponent(id)}`, token, {
+    method: 'PATCH',
+    body: JSON.stringify({ status }),
+  });
+}
+
+export async function cleanupLeaveRequestsForUsers(
+  token: string,
+  userIds: string[],
+): Promise<{ ok: boolean; removed: number; remaining: number | null }> {
+  return apiJson('/api/leave-requests/cleanup', token, {
+    method: 'POST',
+    body: JSON.stringify({ userIds }),
+  });
+}
+
+export async function getSettings(token: string): Promise<Record<string, unknown>> {
+  return apiJson('/api/settings', token);
+}

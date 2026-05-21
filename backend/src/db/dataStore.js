@@ -16,11 +16,41 @@ export function dataBackendLabel() {
   return useSupabase() ? 'supabase' : 'sqlite';
 }
 
-export async function readJsonCollection(key, fallback = [], scope = null) {
-  if (useSupabase()) return supabaseStore.readCollection(key, fallback, scope);
+export async function readJsonCollection(key, fallback = [], scope = null, branchScope = null) {
+  if (useSupabase()) return supabaseStore.readCollection(key, fallback, scope, branchScope);
   const allRows = await kvStore.readJsonCollection(key, fallback);
-  if (!scope) return allRows;
-  return allRows.filter((row) => String(row?.sandboxId || '') === scope.sandboxId);
+  const sandboxed = scope ? allRows.filter((row) => String(row?.sandboxId || '') === scope.sandboxId) : allRows;
+  if (!branchScope || !branchScope.gymCodeId) return sandboxed;
+  // SQLite parity: legacy non-Supabase backend filters the same shape (members/visitors).
+  return sandboxed.filter((row) => String(row?.assignedGymCodeId || '') === String(branchScope.gymCodeId));
+}
+
+export async function updateMember(memberCode, patch, branchScope = null) {
+  if (useSupabase()) return supabaseStore.updateMemberFields(memberCode, patch, branchScope);
+  const rows = await kvStore.readJsonCollection('apg.members', []);
+  const idx = rows.findIndex((m) => String(m?.memberId || '').trim() === String(memberCode).trim());
+  if (idx === -1) {
+    const err = new Error('member-not-found');
+    err.status = 404;
+    throw err;
+  }
+  if (branchScope && branchScope.gymCodeId && !branchScope.isOwner) {
+    const existing = String(rows[idx]?.assignedGymCodeId || '');
+    if (existing !== String(branchScope.gymCodeId)) {
+      const err = new Error('member-not-found');
+      err.status = 404;
+      throw err;
+    }
+    if (Object.prototype.hasOwnProperty.call(patch, 'assignedGymCodeId') && String(patch.assignedGymCodeId || '') !== String(branchScope.gymCodeId)) {
+      const err = new Error('cross-branch-write-forbidden');
+      err.status = 403;
+      throw err;
+    }
+  }
+  const next = { ...rows[idx], ...patch, updatedAt: new Date().toISOString() };
+  rows[idx] = next;
+  await kvStore.writeJsonCollection('apg.members', rows);
+  return next;
 }
 
 export async function writeJsonCollection(key, value, scope = null) {

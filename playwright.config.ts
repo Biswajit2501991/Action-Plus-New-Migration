@@ -45,4 +45,6 @@ export default defineConfig({
         },
       ],
   globalSetup: './tests/e2e/global-setup.ts',
+  // Phase 4: tear down accumulated e2e-staff-* test profiles + their leaves.
+  globalTeardown: './tests/e2e/global-teardown.ts',
 });
