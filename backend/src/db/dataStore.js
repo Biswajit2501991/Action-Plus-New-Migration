@@ -193,6 +193,129 @@ function applyAttendancePunchToRecords(records, { userId, punchType, atIso, time
   return next;
 }
 
+/**
+ * Owner-only bulk delete of staff attendance rows where attendance_date is in
+ * [startDate, endDate] (YYYY-MM-DD). Mirrors the behaviour on both backends so
+ * the sqlite fallback stays usable for local dev.
+ */
+export async function deleteAttendanceRecordsInRange(scope, payload) {
+  const start = String(payload?.startDate || '').slice(0, 10);
+  const end = String(payload?.endDate || '').slice(0, 10);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(start) || !/^\d{4}-\d{2}-\d{2}$/.test(end)) {
+    throw new Error('startDate and endDate must be YYYY-MM-DD');
+  }
+  if (start > end) throw new Error('startDate must be <= endDate');
+  if (useSupabase()) {
+    return supabaseStore.deleteAttendanceRecordsInRange(scope, { startDate: start, endDate: end });
+  }
+  const settings = (await readJsonValue('apg.settings', {}, scope)) || {};
+  const records = Array.isArray(settings.staffAttendance) ? settings.staffAttendance : [];
+  const kept = [];
+  let deleted = 0;
+  for (const r of records) {
+    const d = String(r?.date || '').slice(0, 10);
+    if (d >= start && d <= end) {
+      deleted += 1;
+      continue;
+    }
+    kept.push(r);
+  }
+  settings.staffAttendance = kept;
+  await writeJsonValue('apg.settings', settings, scope);
+  return { deleted };
+}
+
+/** Returns the WhatsApp templates for the active gym as { templates, updatedAt }. */
+export async function readWhatsappTemplates(scope) {
+  if (useSupabase()) return supabaseStore.getWhatsappTemplates(scope);
+  const settings = (await readJsonValue('apg.settings', {}, scope)) || {};
+  const sms = settings.smsTemplates && typeof settings.smsTemplates === 'object' ? settings.smsTemplates : {};
+  return { templates: { ...sms }, updatedAt: null };
+}
+
+/**
+ * Append a single audit log entry without round-tripping the entire
+ * collection. Used by the cleanup endpoints so destructive owner actions
+ * still leave a breadcrumb cheaply. Errors are swallowed at the caller.
+ */
+export async function appendAuditLogEntry(scope, entry) {
+  if (useSupabase()) return supabaseStore.insertAuditLogRow(scope, entry);
+  const rows = await kvStore.readJsonCollection('apg.logs', []);
+  await kvStore.writeJsonCollection('apg.logs', [entry, ...rows]);
+}
+
+/**
+ * Owner-only delete of audit_log rows whose timestamp is inside
+ * [startIso, endIso]. On Supabase this is a single SQL DELETE; on sqlite we
+ * fall back to the slow filter-and-rewrite path. Returns { deleted, remaining }.
+ */
+export async function deleteLogsInRange(scope, { startIso, endIso }) {
+  if (useSupabase()) {
+    const startMs = Date.parse(startIso);
+    const endMs = Date.parse(endIso);
+    if (!Number.isFinite(startMs) || !Number.isFinite(endMs)) {
+      throw new Error('startIso/endIso must be parseable timestamps');
+    }
+    const { deleted } = await supabaseStore.deleteAuditLogsInRange(scope, { startIso, endIso });
+    return { deleted, remaining: null };
+  }
+  const all = await kvStore.readJsonCollection('apg.logs', []);
+  const startMs = Date.parse(startIso);
+  const endMs = Date.parse(endIso);
+  const kept = (Array.isArray(all) ? all : []).filter((entry) => {
+    const ts = Date.parse(entry?.ts || '');
+    if (!Number.isFinite(ts)) return true;
+    return ts < startMs || ts > endMs;
+  });
+  await kvStore.writeJsonCollection('apg.logs', kept);
+  return { deleted: all.length - kept.length, remaining: kept.length };
+}
+
+/**
+ * Owner-only destructive delete of staff rows by staff_login_id. On Supabase
+ * this hits the staff_users table directly (the upsert-only writeUsers path
+ * cannot delete). On SQLite we fall back to read-filter-write of apg.users.
+ *
+ * Returns { deleted: string[], skipped: string[] } where `deleted` is the list
+ * of staff_login_id values actually removed from the persistent store.
+ */
+export async function deleteStaffUsers(scope, ids = []) {
+  const wanted = (Array.isArray(ids) ? ids : [])
+    .map((x) => String(x || '').trim())
+    .filter(Boolean);
+  if (!wanted.length) return { deleted: [], skipped: [] };
+  if (useSupabase()) return supabaseStore.deleteStaffUsers(scope, wanted);
+  const all = await kvStore.readJsonCollection('apg.users', []);
+  const wantSet = new Set(wanted);
+  const kept = (Array.isArray(all) ? all : []).filter((u) => !wantSet.has(String(u?.id || '').trim()));
+  const removedSet = new Set(
+    (Array.isArray(all) ? all : [])
+      .map((u) => String(u?.id || '').trim())
+      .filter((id) => id && wantSet.has(id)),
+  );
+  await kvStore.writeJsonCollection('apg.users', kept);
+  const deleted = Array.from(removedSet);
+  const skipped = wanted.filter((id) => !removedSet.has(id));
+  return { deleted, skipped };
+}
+
+/** Surgical single-template save (owner-only at the route layer). */
+export async function writeWhatsappTemplate(scope, payload) {
+  const key = String(payload?.key || '').trim();
+  if (!/^[a-z][a-zA-Z0-9_-]{0,63}$/.test(key)) {
+    throw new Error('template key must match /^[a-z][a-zA-Z0-9_-]{0,63}$/');
+  }
+  const body = String(payload?.body == null ? '' : payload.body);
+  if (body.length > 8000) throw new Error('template body exceeds 8000 chars');
+  if (useSupabase()) return supabaseStore.upsertWhatsappTemplate(scope, { key, body });
+  const settings = (await readJsonValue('apg.settings', {}, scope)) || {};
+  const sms = settings.smsTemplates && typeof settings.smsTemplates === 'object' ? settings.smsTemplates : {};
+  const nowIso = new Date().toISOString();
+  settings.smsTemplates = { ...sms, [key]: body };
+  await writeJsonValue('apg.settings', settings, scope);
+  return { key, body, updatedAt: nowIso };
+}
+
 export async function pingDataStore() {
   if (useSupabase()) {
     const sb = getSupabase();

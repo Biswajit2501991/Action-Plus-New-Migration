@@ -23,6 +23,12 @@ import {
   writeJsonValue,
   punchStaffAttendance,
   upsertStaffAttendanceRecords,
+  deleteAttendanceRecordsInRange,
+  readWhatsappTemplates,
+  writeWhatsappTemplate,
+  appendAuditLogEntry,
+  deleteLogsInRange,
+  deleteStaffUsers,
 } from './db/dataStore.js';
 import { addSseClient, sseClientCount } from './realtime/hub.js';
 import {
@@ -318,6 +324,56 @@ async function writeScopedSettings(req, value) {
   await writeJsonValue('apg.settings', value || {}, scope);
 }
 
+/**
+ * Normalize a {startDate, endDate} pair coming from a date-range cleanup
+ * request into both a calendar-day pair (YYYY-MM-DD) for display/audit AND a
+ * millisecond pair for filtering. Returns null when either input is missing
+ * or unparseable so the caller can 400 the request.
+ */
+function normalizeDateRange(rawStart, rawEnd) {
+  const rawS = String(rawStart || '').trim();
+  const rawE = String(rawEnd || '').trim();
+  if (!rawS || !rawE) return null;
+  const isDateOnly = (s) => /^\d{4}-\d{2}-\d{2}$/.test(s);
+  const startDate = isDateOnly(rawS) ? rawS : rawS.slice(0, 10);
+  const endDate = isDateOnly(rawE) ? rawE : rawE.slice(0, 10);
+  if (!isDateOnly(startDate) || !isDateOnly(endDate)) return null;
+  if (startDate > endDate) return null;
+  const startMs = isDateOnly(rawS)
+    ? Date.parse(`${rawS}T00:00:00.000Z`)
+    : Date.parse(rawS);
+  const endMs = isDateOnly(rawE)
+    ? Date.parse(`${rawE}T23:59:59.999Z`)
+    : Date.parse(rawE);
+  if (!Number.isFinite(startMs) || !Number.isFinite(endMs)) return null;
+  return { startDate, endDate, startMs, endMs };
+}
+
+/**
+ * Best-effort single-row audit log append. Uses the surgical
+ * appendAuditLogEntry helper (single INSERT on Supabase, single in-place
+ * append on sqlite) so destructive owner actions cost milliseconds, not the
+ * seconds the legacy collection round-trip would have cost.
+ */
+async function appendAuditLog(req, { action, entityType = '', entityId = '', before = null, after = null }) {
+  try {
+    const actorId = String(req.auth?.userId || 'system').trim() || 'system';
+    const entry = {
+      id: randomUUID(),
+      ts: new Date().toISOString(),
+      actor: actorId,
+      action: String(action || '').trim(),
+      entityType: String(entityType || ''),
+      entityId: String(entityId || ''),
+      before: before == null ? null : before,
+      after: after == null ? null : after,
+    };
+    await appendAuditLogEntry(readSandboxScope(req), entry);
+  } catch (err) {
+    console.error('[apg] appendAuditLog failed', err?.message || err);
+  }
+}
+
 async function healthPayload(extra = {}) {
   return {
     service: 'gym-backend',
@@ -594,6 +650,70 @@ app.put('/api/users/bulk', requireOwner, async (req, res) => {
   }
 });
 
+// Owner-only focused staff bulk-delete. Refuses to remove protected seed
+// owners (Bis, Raja), any user whose role is 'owner', or the requester
+// themselves. Returns the lists of deleted + skipped ids so the UI can
+// surface "n removed, k skipped because…" without re-reading the collection.
+const PROTECTED_STAFF_IDS = new Set(['Bis', 'Raja', 'owner']);
+app.post('/api/users/cleanup', requireOwner, async (req, res) => {
+  try {
+    const incoming = Array.isArray(req.body?.userIds) ? req.body.userIds : [];
+    const targets = new Set(
+      incoming
+        .map((x) => String(x || '').trim())
+        .filter(Boolean),
+    );
+    if (!targets.size) {
+      return res.json({ ok: true, deleted: [], skipped: [], reason: 'no-ids' });
+    }
+    const requesterId = String(req.auth?.userId || '').trim();
+    // Read the live staff list so protection rules (owner role, requester self,
+    // seed ids) can be enforced before we touch persistent storage.
+    const existing = await readJsonCollection('apg.users', [], null);
+    const lookup = new Map();
+    for (const user of existing) {
+      const id = String(user?.id || '').trim();
+      if (id) lookup.set(id, user);
+    }
+    const toDelete = [];
+    const skipped = [];
+    for (const id of targets) {
+      const user = lookup.get(id);
+      const isOwnerRow = user ? String(user?.role || '').toLowerCase() === 'owner' : false;
+      const isProtected = PROTECTED_STAFF_IDS.has(id) || isOwnerRow || (requesterId && id === requesterId);
+      if (isProtected) {
+        skipped.push({ id, reason: isOwnerRow ? 'owner_role' : (id === requesterId ? 'self' : 'seed_account') });
+        continue;
+      }
+      toDelete.push(id);
+    }
+    if (!toDelete.length) {
+      return res.json({ ok: true, deleted: [], skipped });
+    }
+    // Destructive path: hits staff_users directly on Supabase. The legacy
+    // writeJsonCollection('apg.users', kept) path is upsert-only by design,
+    // which is why cleanup needs its own primitive.
+    const { deleted, skipped: storeSkipped } = await deleteStaffUsers(readSandboxScope(req), toDelete);
+    const mergedSkipped = [
+      ...skipped,
+      ...(Array.isArray(storeSkipped) ? storeSkipped.map((id) => ({ id: String(id), reason: 'not_found' })) : []),
+    ];
+    if (!deleted.length) {
+      return res.json({ ok: true, deleted: [], skipped: mergedSkipped });
+    }
+    await appendAuditLog(req, {
+      action: 'staff.bulk_deleted',
+      entityType: 'user',
+      entityId: deleted.join(','),
+      after: { deleted, skipped: mergedSkipped },
+    });
+    queueDatabaseBackup('users-cleanup');
+    return res.json({ ok: true, deleted, skipped: mergedSkipped });
+  } catch (error) {
+    return res.status(500).json({ error: 'users_cleanup_failed', message: String(error?.message || error) });
+  }
+});
+
 app.get('/api/settings', requireAccess(Access.settingsRead), async (req, res) => {
   const settings = await readScopedSettings(req);
   res.json(settings || {});
@@ -603,6 +723,45 @@ app.put('/api/settings/bulk', requireOwner, async (req, res) => {
   await writeScopedSettings(req, req.body?.settings || {});
   queueDatabaseBackup('settings-bulk');
   res.json({ ok: true });
+});
+
+// ----------------------------------------------------------------------------
+// WhatsApp templates — surgical, owner-only single-key editing surface that
+// avoids shipping the whole settings blob on every keystroke. Reads remain
+// open to anyone with settings-read (so staff can preview the active body
+// without owner privileges); writes are strictly owner-gated and audit-logged.
+// ----------------------------------------------------------------------------
+app.get('/api/whatsapp-templates', requireAccess(Access.settingsRead), async (req, res) => {
+  try {
+    const { templates, updatedAt } = await readWhatsappTemplates(readSandboxScope(req));
+    return res.json({ ok: true, templates: templates || {}, updatedAt: updatedAt || null });
+  } catch (error) {
+    return res.status(500).json({ error: 'whatsapp_templates_read_failed', message: String(error?.message || error) });
+  }
+});
+
+app.patch('/api/whatsapp-templates/:key', requireOwner, async (req, res) => {
+  try {
+    const key = String(req.params?.key || '').trim();
+    if (!/^[a-z][a-zA-Z0-9_-]{0,63}$/.test(key)) {
+      return res.status(400).json({ error: 'invalid_key', message: 'template key must match /^[a-z][a-zA-Z0-9_-]{0,63}$/' });
+    }
+    const body = String(req.body?.body == null ? '' : req.body.body);
+    if (body.length > 8000) {
+      return res.status(413).json({ error: 'body_too_long', message: 'template body exceeds 8000 chars' });
+    }
+    const saved = await writeWhatsappTemplate(readSandboxScope(req), { key, body });
+    await appendAuditLog(req, {
+      action: 'whatsapp.template.updated',
+      entityType: 'whatsapp_template',
+      entityId: key,
+      after: { key, length: body.length, updatedAt: saved.updatedAt },
+    });
+    queueDatabaseBackup('whatsapp-template');
+    return res.json({ ok: true, template: saved });
+  } catch (error) {
+    return res.status(500).json({ error: 'whatsapp_template_save_failed', message: String(error?.message || error) });
+  }
 });
 
 // ----------------------------------------------------------------------------
@@ -763,6 +922,33 @@ app.put('/api/attendance/records', requireAccess(Access.attendanceWrite), async 
   }
 });
 
+// Owner-only bulk delete of attendance rows whose attendance_date is inside
+// [startDate, endDate] (inclusive, YYYY-MM-DD). Returns the deleted count and
+// echoes the range so the UI can confirm.
+app.post('/api/attendance/cleanup', requireOwner, async (req, res) => {
+  try {
+    const startDate = String(req.body?.startDate || '').slice(0, 10);
+    const endDate = String(req.body?.endDate || '').slice(0, 10);
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(startDate) || !/^\d{4}-\d{2}-\d{2}$/.test(endDate)) {
+      return res.status(400).json({ error: 'invalid_range', message: 'startDate/endDate must be YYYY-MM-DD' });
+    }
+    if (startDate > endDate) {
+      return res.status(400).json({ error: 'invalid_range', message: 'startDate must be <= endDate' });
+    }
+    const { deleted } = await deleteAttendanceRecordsInRange(readSandboxScope(req), { startDate, endDate });
+    await appendAuditLog(req, {
+      action: 'attendance.range.cleared',
+      entityType: 'attendance',
+      entityId: `${startDate}__${endDate}`,
+      after: { startDate, endDate, deleted },
+    });
+    queueDatabaseBackup('attendance-cleanup');
+    return res.json({ ok: true, deleted, startDate, endDate });
+  } catch (error) {
+    return res.status(500).json({ error: 'attendance_cleanup_failed', message: String(error?.message || error) });
+  }
+});
+
 app.get('/api/logs', requireAccess(Access.logsRead), async (req, res) => {
   const logs = await readScopedCollection(req, 'apg.logs', []);
   if (authIsOwner(req.auth) || !req.auth?.gymCodeId) return res.json(logs);
@@ -776,6 +962,34 @@ app.put('/api/logs/bulk', requireLogsBulkAccess, async (req, res) => {
   await writeScopedCollection(req, 'apg.logs', req.body?.logs || []);
   queueDatabaseBackup('logs-bulk');
   res.json({ ok: true });
+});
+
+// Owner-only delete of log entries whose timestamp falls inside the supplied
+// range. Inputs may be either ISO timestamps or YYYY-MM-DD dates; date-only
+// is widened to the full day. The audit entry recording the deletion is
+// written AFTER the cleanup so it survives. On Supabase the cleanup is a
+// single SQL DELETE — no collection round-trip — keeping it usable on busy
+// gyms with tens of thousands of audit rows.
+app.post('/api/logs/cleanup', requireOwner, async (req, res) => {
+  try {
+    const range = normalizeDateRange(req.body?.startDate, req.body?.endDate);
+    if (!range) {
+      return res.status(400).json({ error: 'invalid_range', message: 'startDate/endDate required (ISO date or timestamp)' });
+    }
+    const startIso = new Date(range.startMs).toISOString();
+    const endIso = new Date(range.endMs).toISOString();
+    const { deleted, remaining } = await deleteLogsInRange(readSandboxScope(req), { startIso, endIso });
+    await appendAuditLog(req, {
+      action: 'logs.range.cleared',
+      entityType: 'logs',
+      entityId: `${range.startDate}__${range.endDate}`,
+      after: { startDate: range.startDate, endDate: range.endDate, deleted },
+    });
+    queueDatabaseBackup('logs-cleanup');
+    return res.json({ ok: true, deleted, remaining: remaining == null ? null : remaining, startDate: range.startDate, endDate: range.endDate });
+  } catch (error) {
+    return res.status(500).json({ error: 'logs_cleanup_failed', message: String(error?.message || error) });
+  }
 });
 
 app.get('/api/finance', requireAccess(Access.financeRead), async (req, res) => {

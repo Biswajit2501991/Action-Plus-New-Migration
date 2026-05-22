@@ -1211,6 +1211,224 @@ export async function upsertStaffAttendanceRecords(_scope, appRecords = []) {
   return list.length;
 }
 
+/**
+ * Owner-only bulk delete: removes attendance rows where attendance_date is
+ * inside [startDate, endDate] (inclusive, ISO calendar dates: YYYY-MM-DD).
+ * Returns the count actually deleted.
+ */
+export async function deleteAttendanceRecordsInRange(_scope, { startDate, endDate }) {
+  const sb = getSupabase();
+  const gid = gymId();
+  const start = String(startDate || '').slice(0, 10);
+  const end = String(endDate || '').slice(0, 10);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(start) || !/^\d{4}-\d{2}-\d{2}$/.test(end)) {
+    throw new Error('startDate and endDate must be YYYY-MM-DD');
+  }
+  if (start > end) {
+    throw new Error('startDate must be <= endDate');
+  }
+  // Two-step: select ids first so we can report exact deleted count even when
+  // Postgres returns no count metadata. Then perform the delete.
+  const { data: doomed, error: selErr } = await sb
+    .from(T.staff_attendance_records)
+    .select('id')
+    .eq('gym_id', gid)
+    .gte('attendance_date', start)
+    .lte('attendance_date', end);
+  if (selErr) throw selErr;
+  const ids = (doomed || []).map((r) => r.id);
+  if (!ids.length) return { deleted: 0 };
+  for (const idBatch of chunk(ids, 200)) {
+    const { error } = await sb
+      .from(T.staff_attendance_records)
+      .delete()
+      .eq('gym_id', gid)
+      .in('id', idBatch);
+    if (error) throw error;
+  }
+  notifyCollectionChange('settings');
+  return { deleted: ids.length };
+}
+
+/**
+ * Owner-only fast path for log cleanup. The legacy collection round-trip
+ * (read → filter → writeLogs → syncGymRowsByExternalId) is correct but
+ * O(total_rows), which is unusable on a populated gym. This helper issues a
+ * single SQL DELETE against audit_logs filtered by logged_at and the active
+ * gym scope. Returns the count actually deleted.
+ */
+export async function deleteAuditLogsInRange(_scope, { startIso, endIso }) {
+  const sb = getSupabase();
+  const gid = gymId();
+  if (!startIso || !endIso) throw new Error('startIso and endIso required');
+  const gymScoped = await auditLogsHasGymColumn(sb);
+  let countQuery = sb
+    .from(T.audit_logs)
+    .select('id', { count: 'exact', head: true })
+    .gte('logged_at', startIso)
+    .lte('logged_at', endIso);
+  if (gymScoped) countQuery = countQuery.eq('gym_id', gid);
+  const { count, error: countErr } = await countQuery;
+  if (countErr) throw countErr;
+  let deleteQuery = sb
+    .from(T.audit_logs)
+    .delete()
+    .gte('logged_at', startIso)
+    .lte('logged_at', endIso);
+  if (gymScoped) deleteQuery = deleteQuery.eq('gym_id', gid);
+  const { error: delErr } = await deleteQuery;
+  if (delErr) throw delErr;
+  notifyCollectionChange('logs');
+  return { deleted: count || 0 };
+}
+
+/**
+ * Lightweight, single-row audit log insert. The legacy writeLogs path
+ * round-trips the entire audit_logs collection through syncGymRowsByExternalId
+ * — that's correct but ruinous when the only goal is "append one row".
+ * This helper does exactly that and nothing more.
+ */
+export async function insertAuditLogRow(_scope, entry) {
+  const sb = getSupabase();
+  const gid = gymId();
+  if (!entry || typeof entry !== 'object') return;
+  const row = appLogToRow(entry, gid);
+  try {
+    const gymScoped = await auditLogsHasGymColumn(sb);
+    if (!gymScoped) delete row.gym_id;
+    const { error } = await sb.from(T.audit_logs).insert(row);
+    if (error) {
+      // Most likely a unique-id collision (we generate uuids so this is
+      // vanishingly unlikely). Don't throw — audit-log failures must never
+      // roll back the primary mutation.
+      console.error('[apg] insertAuditLogRow failed', error.message || error);
+      return;
+    }
+    notifyCollectionChange('logs');
+  } catch (err) {
+    console.error('[apg] insertAuditLogRow exception', err?.message || err);
+  }
+}
+
+/** Returns the gym's WhatsApp templates as { [key]: body }. */
+export async function getWhatsappTemplates(_scope) {
+  const sb = getSupabase();
+  const gid = gymId();
+  const { data, error } = await sb
+    .from(T.settings_templates)
+    .select('template_key, body, updated_at')
+    .eq('gym_id', gid)
+    .eq('channel', 'whatsapp');
+  if (error) throw error;
+  const templates = {};
+  let latestUpdated = null;
+  for (const row of data || []) {
+    const key = String(row.template_key || '').trim();
+    if (!key) continue;
+    templates[key] = String(row.body || '');
+    if (!latestUpdated || (row.updated_at && row.updated_at > latestUpdated)) {
+      latestUpdated = row.updated_at;
+    }
+  }
+  return { templates, updatedAt: latestUpdated };
+}
+
+/**
+ * Surgical single-template upsert. Mutates exactly one row in
+ * settings_templates (gym_id, template_key, channel='whatsapp'), keeping
+ * every other template intact. Owner-gated by the caller.
+ */
+export async function upsertWhatsappTemplate(_scope, { key, body }) {
+  const sb = getSupabase();
+  const gid = gymId();
+  const safeKey = String(key || '').trim();
+  if (!/^[a-z][a-zA-Z0-9_-]{0,63}$/.test(safeKey)) {
+    throw new Error('template key must match /^[a-z][a-zA-Z0-9_-]{0,63}$/');
+  }
+  const safeBody = String(body == null ? '' : body);
+  if (safeBody.length > 8000) {
+    throw new Error('template body exceeds 8000 chars');
+  }
+  const nowIso = new Date().toISOString();
+  // Try upsert on the natural key (gym_id, template_key) first; fall back to
+  // delete-then-insert if the unique index isn't there yet.
+  const upsertRow = {
+    gym_id: gid,
+    template_key: safeKey,
+    channel: 'whatsapp',
+    body: safeBody,
+    updated_at: nowIso,
+  };
+  const { error: upsertErr } = await sb
+    .from(T.settings_templates)
+    .upsert(upsertRow, { onConflict: 'gym_id,template_key' });
+  if (upsertErr) {
+    await sb
+      .from(T.settings_templates)
+      .delete()
+      .eq('gym_id', gid)
+      .eq('template_key', safeKey)
+      .eq('channel', 'whatsapp');
+    const { error: insErr } = await sb.from(T.settings_templates).insert(upsertRow);
+    if (insErr) throw new Error(`settings_templates upsert failed: ${insErr.message}`);
+  }
+  notifyCollectionChange('settings');
+  return { key: safeKey, body: safeBody, updatedAt: nowIso };
+}
+
+/**
+ * Hard-delete the staff rows whose staff_login_id is in `loginIds`. Owner-gated
+ * at the route layer. Returns { deleted: [], skipped: [] } where deleted lists
+ * staff_login_id values that were actually removed. Cleans up dependent
+ * sections/access rows first to avoid FK violations.
+ *
+ * NB: `writeUsers` above is intentionally upsert-only to protect production
+ * (a partial browser PUT must never wipe accounts). Cleanup is the only path
+ * that may destructively delete staff and therefore goes through this fn.
+ */
+export async function deleteStaffUsers(_scope, loginIds = []) {
+  const sb = getSupabase();
+  const gid = gymId();
+  const wanted = new Set(
+    (Array.isArray(loginIds) ? loginIds : [])
+      .map((x) => String(x || '').trim())
+      .filter(Boolean),
+  );
+  if (!wanted.size) return { deleted: [], skipped: [] };
+
+  // Resolve PKs for the requested login ids inside this gym only.
+  const { data: rows, error: lookupErr } = await sb
+    .from(T.staff_users)
+    .select('id, staff_login_id')
+    .eq('gym_id', gid)
+    .in('staff_login_id', Array.from(wanted));
+  if (lookupErr) throw new Error(`staff lookup failed: ${lookupErr.message}`);
+
+  const present = (rows || []).filter((r) => r && r.id && r.staff_login_id);
+  if (!present.length) return { deleted: [], skipped: Array.from(wanted) };
+
+  const pks = present.map((r) => r.id);
+  const removedLogins = present.map((r) => String(r.staff_login_id));
+
+  // Best-effort dependent cleanup; ignore errors here so the staff row delete
+  // below remains the canonical source of truth for the operation's success.
+  await sb.from(T.staff_user_sections).delete().in('staff_user_id', pks).then(() => {}, () => {});
+  await sb.from(T.staff_user_access).delete().in('staff_user_id', pks).then(() => {}, () => {});
+
+  const { error: delErr } = await sb
+    .from(T.staff_users)
+    .delete()
+    .in('id', pks)
+    .eq('gym_id', gid);
+  if (delErr) throw new Error(`staff delete failed: ${delErr.message}`);
+
+  for (const id of removedLogins) invalidateStaffAccessCache(id);
+  notifyCollectionChange('users');
+
+  const skipped = Array.from(wanted).filter((id) => !removedLogins.includes(id));
+  return { deleted: removedLogins, skipped };
+}
+
 export async function ping() {
   const sb = getSupabase();
   const { error } = await sb.from(T.gyms).select('id').eq('id', gymId()).maybeSingle();

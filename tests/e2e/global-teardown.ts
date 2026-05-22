@@ -128,6 +128,47 @@ async function globalTeardown(_config: FullConfig) {
     }
   }
 
+  // ---- Phase 4 mop-up: synthetic 2099-01-01..05 attendance/logs ----------
+  // The attendance/logs cleanup specs use 2099-01-* as a "no-real-data" zone.
+  // If a spec failed before its own afterAll, the rows leak. Sweep them now.
+  const SYNTHETIC_RANGE = { startDate: '2099-01-01', endDate: '2099-01-31' };
+  try {
+    const res = await fetch(`${apiURL}/api/attendance/cleanup`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${token}`,
+      },
+      body: JSON.stringify(SYNTHETIC_RANGE),
+    });
+    if (!res.ok) {
+      warn(`/api/attendance/cleanup returned ${res.status}`);
+    } else {
+      const data = await res.json();
+      if ((data?.deleted ?? 0) > 0) log(`swept ${data.deleted} synthetic attendance row(s)`);
+    }
+  } catch (err) {
+    warn(`attendance synthetic cleanup failed: ${(err as Error).message}`);
+  }
+  try {
+    const res = await fetch(`${apiURL}/api/logs/cleanup`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${token}`,
+      },
+      body: JSON.stringify(SYNTHETIC_RANGE),
+    });
+    if (!res.ok) {
+      warn(`/api/logs/cleanup returned ${res.status}`);
+    } else {
+      const data = await res.json();
+      if ((data?.deleted ?? 0) > 0) log(`swept ${data.deleted} synthetic log row(s)`);
+    }
+  } catch (err) {
+    warn(`logs synthetic cleanup failed: ${(err as Error).message}`);
+  }
+
   log('done');
 }
 

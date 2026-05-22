@@ -200,3 +200,140 @@ export async function cleanupLeaveRequestsForUsers(
 export async function getSettings(token: string): Promise<Record<string, unknown>> {
   return apiJson('/api/settings', token);
 }
+
+// ----------------------------------------------------------------------------
+// Phase 1 bulk delete + WhatsApp template endpoints. All cleanup routes are
+// owner-only at the server (requireOwner middleware). Helpers return the
+// server payload verbatim so specs can assert on { deleted, skipped } etc.
+// ----------------------------------------------------------------------------
+
+export type AttendanceRecord = {
+  id?: string;
+  userId: string;
+  date: string;
+  status?: string;
+  checkIn?: string;
+  checkOut?: string;
+  note?: string;
+  firstLoginAt?: string;
+  lastLogoutAt?: string;
+  updatedAt?: string;
+  updatedBy?: string;
+};
+
+export async function upsertAttendanceRecords(
+  token: string,
+  records: AttendanceRecord[],
+): Promise<{ ok: boolean; count: number }> {
+  return apiJson('/api/attendance/records', token, {
+    method: 'PUT',
+    body: JSON.stringify({ records }),
+  });
+}
+
+export async function cleanupAttendanceRange(
+  token: string,
+  startDate: string,
+  endDate: string,
+): Promise<{ ok: boolean; deleted: number; startDate: string; endDate: string }> {
+  return apiJson('/api/attendance/cleanup', token, {
+    method: 'POST',
+    body: JSON.stringify({ startDate, endDate }),
+  });
+}
+
+export type LogEntry = {
+  id: string;
+  ts: string;
+  actor: string;
+  action: string;
+  entityType?: string;
+  entityId?: string;
+  before?: unknown;
+  after?: unknown;
+};
+
+export async function listLogs(token: string): Promise<LogEntry[]> {
+  return apiJson<LogEntry[]>('/api/logs', token);
+}
+
+export async function replaceLogs(
+  token: string,
+  logs: LogEntry[],
+): Promise<{ ok: boolean }> {
+  return apiJson('/api/logs/bulk', token, {
+    method: 'PUT',
+    body: JSON.stringify({ logs }),
+  });
+}
+
+export async function cleanupLogsRange(
+  token: string,
+  startDate: string,
+  endDate: string,
+): Promise<{ ok: boolean; deleted: number; remaining: number; startDate: string; endDate: string }> {
+  return apiJson('/api/logs/cleanup', token, {
+    method: 'POST',
+    body: JSON.stringify({ startDate, endDate }),
+  });
+}
+
+export async function cleanupStaffUsers(
+  token: string,
+  userIds: string[],
+): Promise<{ ok: boolean; deleted: string[]; skipped: Array<{ id: string; reason: string }>; reason?: string }> {
+  return apiJson('/api/users/cleanup', token, {
+    method: 'POST',
+    body: JSON.stringify({ userIds }),
+  });
+}
+
+export type WhatsappTemplatesResponse = {
+  ok: boolean;
+  templates: Record<string, string>;
+  updatedAt: string | null;
+};
+
+export async function getWhatsappTemplates(
+  token: string,
+): Promise<WhatsappTemplatesResponse> {
+  return apiJson<WhatsappTemplatesResponse>('/api/whatsapp-templates', token);
+}
+
+export async function patchWhatsappTemplate(
+  token: string,
+  key: string,
+  body: string,
+): Promise<{ ok: boolean; template: { key: string; body: string; updatedAt: string } }> {
+  return apiJson(`/api/whatsapp-templates/${encodeURIComponent(key)}`, token, {
+    method: 'PATCH',
+    body: JSON.stringify({ body }),
+  });
+}
+
+export type FinanceTransaction = {
+  id: string;
+  date: string;
+  amount: number;
+  type?: 'income' | 'expense';
+  status?: 'success' | 'pending' | string;
+  memberId?: string;
+  memberName?: string;
+  plan?: string;
+  method?: string;
+  note?: string;
+};
+
+export async function listFinance(token: string): Promise<FinanceTransaction[]> {
+  return apiJson<FinanceTransaction[]>('/api/finance', token);
+}
+
+export async function replaceFinance(
+  token: string,
+  finance: FinanceTransaction[],
+): Promise<{ ok: boolean }> {
+  return apiJson('/api/finance/bulk', token, {
+    method: 'PUT',
+    body: JSON.stringify({ finance }),
+  });
+}

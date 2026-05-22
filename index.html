@@ -2299,7 +2299,10 @@ Phone: +91-7047157510`;
       gymCodesPanelOpen: 'apg.settings.gymCodesOpen',
     };
     const AUTH_SESSION_KEY = 'apg.auth.session';
-    const AUTH_SESSION_TTL_MS = 15 * 60 * 1000;
+    // Must stay aligned with backend JWT_EXPIRES_IN (default 12h) and v2 auth-storage.
+    // A 15m client TTL was logging staff out while the JWT was still valid.
+    const AUTH_SESSION_TTL_MS = 12 * 60 * 60 * 1000;
+    const AUTH_SESSION_IDLE_MS = 8 * 60 * 60 * 1000;
     const HEAVY_STORAGE_KEYS = [
       STORAGE_KEYS.members,
       STORAGE_KEYS.users,
@@ -2351,6 +2354,47 @@ Phone: +91-7047157510`;
       const parsed = readAuthSession();
       return parsed?.token ? String(parsed.token) : '';
     };
+    const authUserIdsMatch = (a, b) => String(a || '').trim().toLowerCase() === String(b || '').trim().toLowerCase();
+    const isAuthSessionExpired = (parsed) => {
+      if (!parsed || typeof parsed !== 'object') return true;
+      const expiresAt = Number(parsed.expiresAt || 0);
+      const lastActivityAt = Number(parsed.lastActivityAt || parsed.expiresAt || 0);
+      const now = Date.now();
+      if (!Number.isFinite(expiresAt) || expiresAt <= 0) return true;
+      if (now > expiresAt) return true;
+      if (Number.isFinite(lastActivityAt) && lastActivityAt > 0 && now - lastActivityAt > AUTH_SESSION_IDLE_MS) return true;
+      return false;
+    };
+    const touchAuthSession = (userId, token) => {
+      if (!userId) return;
+      const now = Date.now();
+      const existing = readAuthSession();
+      const nextToken = token ? String(token) : (existing?.token ? String(existing.token) : '');
+      try {
+        localStorage.setItem(AUTH_SESSION_KEY, JSON.stringify({
+          userId: String(userId),
+          token: nextToken,
+          expiresAt: now + AUTH_SESSION_TTL_MS,
+          lastActivityAt: now,
+        }));
+      } catch {}
+    };
+    const revalidateAuthSessionFromServer = async () => {
+      const parsed = readAuthSession();
+      if (!parsed?.token || isAuthSessionExpired(parsed)) return null;
+      try {
+        const me = await fetch(`${getBackendApiBaseUrl()}/auth/me`, {
+          headers: { Authorization: `Bearer ${parsed.token}`, 'Content-Type': 'application/json' },
+        });
+        if (!me.ok) return null;
+        const data = await me.json();
+        const uid = data?.user?.id || data?.userId || parsed.userId;
+        touchAuthSession(uid, parsed.token);
+        return data;
+      } catch {
+        return null;
+      }
+    };
     const usersForApi = (list) => (Array.isArray(list) ? list : []).map((u) => {
       if (!u || typeof u !== 'object') return u;
       const { password, photo, ...safe } = u;
@@ -2380,7 +2424,7 @@ Phone: +91-7047157510`;
       }
       return { ...rec, access };
     };
-    const backendJson = async (path, init = {}) => {
+    const backendJson = async (path, init = {}, attempt = 0) => {
       const syncCtx = (typeof window !== 'undefined' && window.__APG_SYNC_CONTEXT__ && typeof window.__APG_SYNC_CONTEXT__ === 'object')
         ? window.__APG_SYNC_CONTEXT__
         : {};
@@ -2397,8 +2441,16 @@ Phone: +91-7047157510`;
         ...init,
       });
       if (res.status === 401) {
-        try { localStorage.removeItem(AUTH_SESSION_KEY); } catch {}
-        throw new Error('backend-401');
+        if (attempt === 0 && authToken) {
+          const revived = await revalidateAuthSessionFromServer();
+          if (revived) return backendJson(path, init, 1);
+        }
+        if (isAuthSessionExpired(readAuthSession())) {
+          try { localStorage.removeItem(AUTH_SESSION_KEY); } catch {}
+        }
+        const err = new Error('backend-401');
+        err.status = 401;
+        throw err;
       }
       if (!res.ok) {
         let detail = `backend-${res.status}`;
@@ -2411,7 +2463,12 @@ Phone: +91-7047157510`;
         err.status = res.status;
         throw err;
       }
-      return res.json();
+      const data = await res.json();
+      const session = readAuthSession();
+      if (session?.userId) {
+        touchAuthSession(session.userId, authToken || session.token);
+      }
+      return data;
     };
     // Phase 4 leave-request fix: expose backendJson globally so the fallback
     // LeaveTrackerPage closure can dispatch /api/leave-requests writes when the
@@ -3032,6 +3089,7 @@ Phone: +91-7047157510`;
       const readSessionMinutesLeft = React.useCallback(() => {
         try {
           const parsed = JSON.parse(localStorage.getItem(AUTH_SESSION_KEY) || 'null');
+          if (isAuthSessionExpired(parsed)) return 0;
           const expiresAt = Number(parsed?.expiresAt || 0);
           if (!Number.isFinite(expiresAt) || expiresAt <= 0) return null;
           const msLeft = expiresAt - Date.now();
@@ -3042,18 +3100,11 @@ Phone: +91-7047157510`;
         }
       }, []);
       const sessionExpiryLabel = sessionMinutesLeft == null ? '' : `Session: ${sessionMinutesLeft}m`;
-      const writeAuthSession = React.useCallback((userId, token) => {
-        if (!userId) return;
-        try {
-          localStorage.setItem(AUTH_SESSION_KEY, JSON.stringify({
-            userId: String(userId),
-            token: token ? String(token) : readAuthToken(),
-            expiresAt: Date.now() + AUTH_SESSION_TTL_MS,
-          }));
-        } catch {}
-      }, []);
       const clearAuthSession = React.useCallback(() => {
         try { localStorage.removeItem(AUTH_SESSION_KEY); } catch {}
+      }, []);
+      const writeAuthSession = React.useCallback((userId, token) => {
+        touchAuthSession(userId, token);
       }, []);
 
       // Users state: stores login credentials and the list of sections each user can access.
@@ -4805,57 +4856,58 @@ Phone: +91-7047157510`;
           return { ...prevObj, staffAttendance: nextRecords };
         });
       }, [users, settings.staffAttendance]);
+      const authRestoreStartedRef = React.useRef(false);
       React.useEffect(() => {
         if (user?.id) {
           setAuthSessionReady(true);
           return;
         }
+        if (authRestoreStartedRef.current) return;
+        authRestoreStartedRef.current = true;
         let parsed = null;
         try {
           parsed = JSON.parse(localStorage.getItem(AUTH_SESSION_KEY) || 'null');
         } catch {
           parsed = null;
         }
-        if (!parsed || !parsed.userId || !Number.isFinite(Number(parsed.expiresAt))) {
-          clearAuthSession();
-          setAuthSessionReady(true);
-          return;
-        }
-        if (Date.now() > Number(parsed.expiresAt)) {
+        if (!parsed || !parsed.userId || isAuthSessionExpired(parsed)) {
           clearAuthSession();
           setAuthSessionReady(true);
           return;
         }
         (async () => {
           if (parsed.token && dataSyncMode === 'backend') {
-            try {
-              const me = await fetch(`${getBackendApiBaseUrl()}/auth/me`, {
-                headers: { Authorization: `Bearer ${parsed.token}`, 'Content-Type': 'application/json' },
+            const data = await revalidateAuthSessionFromServer();
+            const rec = data?.user ? prepareStaffUser(data.user) : null;
+            if (rec && !rec.blocked) {
+              const nowIso = new Date().toISOString();
+              writeAuthSession(rec.id, parsed.token);
+              setUser({ ...rec, lastLoginAt: nowIso });
+              setUsers((prev) => {
+                const exists = prev.some((u) => authUserIdsMatch(u.id, rec.id));
+                if (exists) return prev.map((u) => (authUserIdsMatch(u.id, rec.id) ? { ...prepareStaffUser({ ...u, ...rec }), lastLoginAt: nowIso } : u));
+                return [...prev, { ...rec, lastLoginAt: nowIso }];
               });
-              if (me.ok) {
-                const data = await me.json();
-                const rec = data?.user ? prepareStaffUser(data.user) : null;
-                if (rec && !rec.blocked) {
-                  const nowIso = new Date().toISOString();
-                  writeAuthSession(rec.id, parsed.token);
-                  setUser({ ...rec, lastLoginAt: nowIso });
-                  setUsers((prev) => {
-                    const exists = prev.some((u) => u.id === rec.id);
-                    if (exists) return prev.map((u) => (u.id === rec.id ? { ...prepareStaffUser({ ...u, ...rec }), lastLoginAt: nowIso } : u));
-                    return [...prev, { ...rec, lastLoginAt: nowIso }];
-                  });
-                  markLoginAttendance(rec, nowIso);
-                  pushAttendancePunch('login', rec, nowIso);
-                  setActiveTab('Dashboard');
-                  setDashMode('summary');
-                  setAuthSessionReady(true);
-                  hydrateFromBackend().catch(() => setBackendHydrated(false));
-                  return;
-                }
-              }
-            } catch {}
+              markLoginAttendance(rec, nowIso);
+              pushAttendancePunch('login', rec, nowIso);
+              setActiveTab('Dashboard');
+              setDashMode('summary');
+              setAuthSessionReady(true);
+              hydrateFromBackend().catch(() => setBackendHydrated(false));
+              return;
+            }
+            // Token present but /auth/me failed (network blip or revoked JWT).
+            // Do NOT fall back to a stale local users cache — that was logging
+            // legitimate staff out when apg.users had not hydrated yet.
+            if (!isAuthSessionExpired(parsed)) {
+              setAuthSessionReady(true);
+              return;
+            }
+            clearAuthSession();
+            setAuthSessionReady(true);
+            return;
           }
-          const rec = (users || []).find((u) => String(u?.id || '') === String(parsed.userId));
+          const rec = (users || []).find((u) => authUserIdsMatch(u?.id, parsed.userId));
           if (!rec || rec.blocked) {
             clearAuthSession();
             setAuthSessionReady(true);
@@ -4864,7 +4916,7 @@ Phone: +91-7047157510`;
           const nowIso = new Date().toISOString();
           const sessionUser = prepareStaffUser(rec);
           setUser({ ...sessionUser, lastLoginAt: nowIso });
-          setUsers((prev) => prev.map((u) => (u.id === rec.id ? { ...prepareStaffUser({ ...u, ...sessionUser }), lastLoginAt: nowIso } : u)));
+          setUsers((prev) => prev.map((u) => (authUserIdsMatch(u.id, rec.id) ? { ...prepareStaffUser({ ...u, ...sessionUser }), lastLoginAt: nowIso } : u)));
           markLoginAttendance(sessionUser, nowIso);
           pushAttendancePunch('login', sessionUser, nowIso);
           setActiveTab('Dashboard');
@@ -4872,28 +4924,45 @@ Phone: +91-7047157510`;
           writeAuthSession(rec.id, parsed.token || '');
           setAuthSessionReady(true);
         })();
-      }, [users, user?.id, dataSyncMode, clearAuthSession, writeAuthSession, hydrateFromBackend]);
+      }, [user?.id, dataSyncMode, clearAuthSession, writeAuthSession, hydrateFromBackend]);
       React.useEffect(() => {
         if (!user?.id) return;
         const extendSession = () => {
           const now = Date.now();
-          if (now - sessionTouchRef.current < 4000) return;
+          let parsed = null;
+          try { parsed = JSON.parse(localStorage.getItem(AUTH_SESSION_KEY) || 'null'); } catch { parsed = null; }
+          const msLeft = Number(parsed?.expiresAt || 0) - now;
+          const urgentRenewal = msLeft > 0 && msLeft < 10 * 60 * 1000;
+          if (!urgentRenewal && now - sessionTouchRef.current < 4000) return;
           sessionTouchRef.current = now;
           writeAuthSession(user.id, readAuthToken());
           setSessionMinutesLeft(readSessionMinutesLeft());
         };
+        const onVisibility = () => {
+          if (typeof document !== 'undefined' && document.visibilityState === 'visible') {
+            extendSession();
+          }
+        };
         extendSession();
-        const events = ['click', 'keydown', 'touchstart', 'scroll'];
-        events.forEach((name) => window.addEventListener(name, extendSession));
-        const timer = setInterval(() => {
+        const events = ['click', 'keydown', 'touchstart', 'scroll', 'pointerdown', 'mousemove'];
+        events.forEach((name) => window.addEventListener(name, extendSession, { passive: true }));
+        document.addEventListener('visibilitychange', onVisibility);
+        const timer = setInterval(async () => {
           let parsed = null;
           try { parsed = JSON.parse(localStorage.getItem(AUTH_SESSION_KEY) || 'null'); } catch { parsed = null; }
-          if (!parsed || String(parsed.userId || '') !== String(user.id)) {
+          if (!parsed || !authUserIdsMatch(parsed.userId, user.id)) {
             clearAuthSession();
             setUser(null);
             return;
           }
-          if (Date.now() > Number(parsed.expiresAt || 0)) {
+          if (isAuthSessionExpired(parsed)) {
+            const revived = await revalidateAuthSessionFromServer();
+            if (revived?.user && !revived.user.blocked) {
+              const rec = prepareStaffUser(revived.user);
+              writeAuthSession(rec.id, parsed.token);
+              setSessionMinutesLeft(readSessionMinutesLeft());
+              return;
+            }
             clearAuthSession();
             setUser(null);
             setNotificationOpen(false);
@@ -4908,6 +4977,7 @@ Phone: +91-7047157510`;
         }, 15000);
         return () => {
           events.forEach((name) => window.removeEventListener(name, extendSession));
+          document.removeEventListener('visibilitychange', onVisibility);
           clearInterval(timer);
         };
       }, [user?.id, clearAuthSession, writeAuthSession, readSessionMinutesLeft]);
@@ -7203,14 +7273,29 @@ Please pay by: ${formattedLastDate}`;
               />
             )}
             {activeTab === 'Logs' && (
-              <LogsPage logs={logs} currentUser={user} access={normalizeAccess(user?.access)} displayTimeZone={displayTimeZone} onClearLogs={() => {
-                if (!(user && user.id === 'owner')) return;
-                const ok = window.confirm('Clear all logs? This cannot be undone.');
-                if (!ok) return;
-                setLogs([]);
-                setToast('All logs cleared.');
-                setTimeout(() => setToast(''), 2000);
-              }} />
+              <LogsPage
+                logs={logs}
+                currentUser={user}
+                access={normalizeAccess(user?.access)}
+                displayTimeZone={displayTimeZone}
+                onClearLogs={() => {
+                  if (!(user && user.id === 'owner')) return;
+                  const ok = window.confirm('Clear all logs? This cannot be undone.');
+                  if (!ok) return;
+                  setLogs([]);
+                  setToast('All logs cleared.');
+                  setTimeout(() => setToast(''), 2000);
+                }}
+                onRefreshLogs={async () => {
+                  try {
+                    const remoteLogs = await backendJson('/logs');
+                    if (Array.isArray(remoteLogs)) setLogs(remoteLogs);
+                  } catch (err) {
+                    setToast(`Logs refresh failed: ${err?.message || err}`);
+                    setTimeout(() => setToast(''), 2000);
+                  }
+                }}
+              />
             )}
             {/* Placeholders for future sections */}
             {activeTab === 'WhatsApp SMS' && (
@@ -13368,6 +13453,23 @@ function PTClientsPage({ members, users, settings, updateSetting, currentUser, a
       const [date, setDate] = React.useState(iso(new Date()));
       const [expandedStaffId, setExpandedStaffId] = React.useState('');
       const [historyPageByStaff, setHistoryPageByStaff] = React.useState({});
+      // Phase 4: paginated "Attendance Records" table + owner-only date-range
+      // cleanup. State sits at the page level so the modal can drive a refresh
+      // of the same records list it just truncated.
+      const isOwnerForAttendance = currentUser?.id === 'owner';
+      const [recordsPage, setRecordsPage] = React.useState(1);
+      const RECORDS_PAGE_SIZE = 10;
+      const [clearModalOpen, setClearModalOpen] = React.useState(false);
+      const todayIso = iso(new Date());
+      const defaultClearStart = (() => {
+        const d = new Date();
+        d.setDate(d.getDate() - 30);
+        return iso(d);
+      })();
+      const [clearRange, setClearRange] = React.useState({ start: defaultClearStart, end: todayIso });
+      const [clearing, setClearing] = React.useState(false);
+      const [clearError, setClearError] = React.useState('');
+      const [clearResult, setClearResult] = React.useState(null);
       const attendanceAccess = normalizeAccess(access).attendance;
       const canViewAttendance = attendanceAccess?.viewAttendance !== false;
       const canMarkAllPresent = attendanceAccess?.markAllPresent !== false;
@@ -13580,6 +13682,189 @@ function PTClientsPage({ members, users, settings, updateSetting, currentUser, a
               );
             })}
           </div>
+
+          {/* Phase 4: paginated Attendance Records table. Lives below the
+              daily roster so the per-day quick-edit UI is still the first
+              thing visible, but owners can scroll to a Logs-style ledger
+              and bulk-purge a date range without leaving the page. */}
+          {(() => {
+            const allRecords = Array.isArray(settings.staffAttendance) ? settings.staffAttendance : [];
+            const userNameById = new Map((users || []).map((u) => [u.id, u.name || u.id]));
+            const sortedRecords = [...allRecords].sort((a, b) => String(b?.date || '').localeCompare(String(a?.date || '')));
+            const totalRecords = sortedRecords.length;
+            const totalPages = Math.max(1, Math.ceil(totalRecords / RECORDS_PAGE_SIZE));
+            const safePage = Math.min(Math.max(1, recordsPage), totalPages);
+            const startIdx = (safePage - 1) * RECORDS_PAGE_SIZE;
+            const pageRecords = sortedRecords.slice(startIdx, startIdx + RECORDS_PAGE_SIZE);
+            return (
+              <div className="rounded-3xl border border-slate-200 bg-white p-3 sm:p-4 space-y-3" data-testid="attendance-records-table">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <div>
+                    <h2 className="text-base sm:text-lg font-semibold text-slate-900">Attendance Records</h2>
+                    <p className="text-xs text-slate-500">Newest first · 10 per page · {totalRecords} total</p>
+                  </div>
+                  {isOwnerForAttendance && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setClearError('');
+                        setClearResult(null);
+                        setClearRange({ start: defaultClearStart, end: todayIso });
+                        setClearModalOpen(true);
+                      }}
+                      data-testid="attendance-clear-range-btn"
+                      className="rounded-full border border-rose-300 bg-rose-50 px-3 py-1.5 text-xs font-semibold text-rose-700 hover:bg-rose-100 dark:border-rose-700 dark:bg-rose-900/30 dark:text-rose-200"
+                    >
+                      Owner Only · Clear Records
+                    </button>
+                  )}
+                </div>
+                <div className="overflow-x-auto">
+                  <table className="min-w-full text-xs">
+                    <thead>
+                      <tr className="bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-200">
+                        <th className="px-2 py-2 text-left">Date</th>
+                        <th className="px-2 py-2 text-left">Staff</th>
+                        <th className="px-2 py-2 text-left">Status</th>
+                        <th className="px-2 py-2 text-left">First Login</th>
+                        <th className="px-2 py-2 text-left">Last Logout</th>
+                        <th className="px-2 py-2 text-left">Updated</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {pageRecords.map((r) => (
+                        <tr key={r.id || `${r.date}__${r.userId}`} className="border-b border-slate-200 dark:border-slate-700" data-testid="attendance-record-row">
+                          <td className="px-2 py-1.5 whitespace-nowrap font-semibold text-slate-800 dark:text-slate-100">{formatDateTz(r.date, displayTimeZone)}</td>
+                          <td className="px-2 py-1.5 whitespace-nowrap text-slate-700 dark:text-slate-200">{userNameById.get(r.userId) || r.userId || '—'}</td>
+                          <td className="px-2 py-1.5 whitespace-nowrap">
+                            <span className={cx('rounded-full px-2 py-0.5 text-[10px] font-semibold border', (r.status || 'Absent') === 'Present' ? 'bg-emerald-50 text-emerald-700 border-emerald-200' : (r.status === 'Leave' ? 'bg-amber-50 text-amber-700 border-amber-200' : 'bg-slate-100 text-slate-600 border-slate-200'))}>{r.status || 'Absent'}</span>
+                          </td>
+                          <td className="px-2 py-1.5 whitespace-nowrap text-slate-600 dark:text-slate-300">{r.firstLoginAt ? formatDateTimeTz(r.firstLoginAt, displayTimeZone) : '—'}</td>
+                          <td className="px-2 py-1.5 whitespace-nowrap text-slate-600 dark:text-slate-300">{r.lastLogoutAt ? formatDateTimeTz(r.lastLogoutAt, displayTimeZone) : '—'}</td>
+                          <td className="px-2 py-1.5 whitespace-nowrap text-slate-500 dark:text-slate-400">{r.updatedAt ? formatDateTimeTz(r.updatedAt, displayTimeZone) : '—'}</td>
+                        </tr>
+                      ))}
+                      {pageRecords.length === 0 && (
+                        <tr>
+                          <td colSpan={6} className="px-2 py-3 text-center text-slate-500 dark:text-slate-400">No attendance records.</td>
+                        </tr>
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+                {totalRecords > RECORDS_PAGE_SIZE && (
+                  <div className="flex items-center justify-between text-xs text-slate-600 dark:text-slate-300">
+                    <span>Page {safePage} / {totalPages}</span>
+                    <div className="flex items-center gap-2">
+                      <button
+                        type="button"
+                        onClick={() => setRecordsPage((p) => Math.max(1, p - 1))}
+                        disabled={safePage <= 1}
+                        className="rounded border border-slate-300 bg-white px-2 py-1 disabled:opacity-50 dark:bg-slate-800 dark:border-slate-600"
+                      >Prev</button>
+                      <button
+                        type="button"
+                        onClick={() => setRecordsPage((p) => Math.min(totalPages, p + 1))}
+                        disabled={safePage >= totalPages}
+                        className="rounded border border-slate-300 bg-white px-2 py-1 disabled:opacity-50 dark:bg-slate-800 dark:border-slate-600"
+                      >Next</button>
+                    </div>
+                  </div>
+                )}
+              </div>
+            );
+          })()}
+
+          {/* Owner-only date-range cleanup modal. Posts to
+              /api/attendance/cleanup and surgically removes the matching
+              rows from settings.staffAttendance via updateSetting so the
+              records table refreshes without a full pull. */}
+          {clearModalOpen && isOwnerForAttendance && (
+            <div className="fixed inset-0 z-[60] flex items-center justify-center apg-modal-backdrop p-4" data-testid="attendance-clear-modal">
+              <div className="w-full max-w-md rounded-2xl bg-white p-4 shadow-xl space-y-3 dark:bg-slate-900">
+                <div className="flex items-center justify-between">
+                  <div className="text-lg font-semibold text-slate-900 dark:text-slate-100">Clear Attendance Records</div>
+                  <button onClick={() => setClearModalOpen(false)} className="rounded-lg px-2 py-1 hover:bg-slate-100 dark:hover:bg-slate-800" aria-label="Close">✕</button>
+                </div>
+                <div className="text-xs text-slate-600 dark:text-slate-300">Deletes every attendance row whose date falls inside this range, for the current branch. This cannot be undone.</div>
+                <div className="grid grid-cols-2 gap-2">
+                  <label className="text-xs text-slate-600 dark:text-slate-300">
+                    Start
+                    <input
+                      type="date"
+                      value={clearRange.start}
+                      onChange={(e) => setClearRange((prev) => ({ ...prev, start: e.target.value }))}
+                      className="mt-1 w-full rounded-xl border border-slate-300 px-3 py-2 text-sm dark:bg-slate-800 dark:border-slate-600"
+                      data-testid="attendance-clear-start"
+                    />
+                  </label>
+                  <label className="text-xs text-slate-600 dark:text-slate-300">
+                    End
+                    <input
+                      type="date"
+                      value={clearRange.end}
+                      onChange={(e) => setClearRange((prev) => ({ ...prev, end: e.target.value }))}
+                      className="mt-1 w-full rounded-xl border border-slate-300 px-3 py-2 text-sm dark:bg-slate-800 dark:border-slate-600"
+                      data-testid="attendance-clear-end"
+                    />
+                  </label>
+                </div>
+                {clearError && (
+                  <div className="rounded-xl border border-rose-300 bg-rose-50 px-3 py-2 text-xs text-rose-700">{clearError}</div>
+                )}
+                {clearResult && (
+                  <div className="rounded-xl border border-emerald-300 bg-emerald-50 px-3 py-2 text-xs text-emerald-700" data-testid="attendance-clear-result">
+                    Removed {clearResult.deleted} record(s) between {clearResult.startDate} and {clearResult.endDate}.
+                  </div>
+                )}
+                <div className="flex justify-end gap-2 pt-1">
+                  <button
+                    type="button"
+                    onClick={() => setClearModalOpen(false)}
+                    className="rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm dark:bg-slate-800 dark:border-slate-600"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="button"
+                    disabled={clearing || !clearRange.start || !clearRange.end}
+                    onClick={async () => {
+                      setClearError('');
+                      setClearResult(null);
+                      const start = String(clearRange.start || '').slice(0, 10);
+                      const end = String(clearRange.end || '').slice(0, 10);
+                      if (!start || !end) { setClearError('Pick a start and end date.'); return; }
+                      if (start > end) { setClearError('Start date must be on or before end date.'); return; }
+                      const backend = typeof window !== 'undefined' ? window.__APG_BACKEND_JSON__ : null;
+                      if (!backend) { setClearError('Backend is offline; cannot clear records.'); return; }
+                      try {
+                        setClearing(true);
+                        const out = await backend('/attendance/cleanup', { method: 'POST', body: JSON.stringify({ startDate: start, endDate: end }) });
+                        setClearResult(out || { deleted: 0, startDate: start, endDate: end });
+                        if (typeof updateSetting === 'function') {
+                          const existing = Array.isArray(settings.staffAttendance) ? settings.staffAttendance : [];
+                          const filtered = existing.filter((row) => {
+                            const d = String(row?.date || '').slice(0, 10);
+                            return !(d >= start && d <= end);
+                          });
+                          updateSetting('staffAttendance', filtered);
+                        }
+                        setRecordsPage(1);
+                      } catch (err) {
+                        setClearError(String(err?.message || err));
+                      } finally {
+                        setClearing(false);
+                      }
+                    }}
+                    className="rounded-full bg-rose-600 px-4 py-2 text-sm font-medium text-white hover:bg-rose-700 disabled:opacity-50"
+                    data-testid="attendance-clear-confirm"
+                  >
+                    {clearing ? 'Clearing…' : 'Clear Records'}
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
         </div>
       );
     }
@@ -14604,12 +14889,22 @@ function PTClientsPage({ members, users, settings, updateSetting, currentUser, a
     }
 
     // ---- Logs Page ----
-    function LogsPage({ logs, currentUser, onClearLogs, access, displayTimeZone = 'IST' }) {
+    function LogsPage({ logs, currentUser, onClearLogs, access, displayTimeZone = 'IST', onRefreshLogs }) {
       const [filter, setFilter] = React.useState('');
       const logsAccess = normalizeAccess(access).logs;
       const canViewLogs = logsAccess?.viewLogs !== false;
       const canExportLogs = logsAccess?.exportLogs !== false;
       const canClearLogs = logsAccess?.clearLogs !== false;
+      const isOwnerForLogs = currentUser?.id === 'owner';
+      // Phase 4: owner-only "Delete by Date Range" UI. Hooks live next to the
+      // existing filter state so a single render commits all the new fields.
+      const todayIsoForLogs = iso(new Date());
+      const sevenDaysAgoIso = (() => { const d = new Date(); d.setDate(d.getDate() - 7); return iso(d); })();
+      const [logsRangeModalOpen, setLogsRangeModalOpen] = React.useState(false);
+      const [logsRange, setLogsRange] = React.useState({ start: sevenDaysAgoIso, end: todayIsoForLogs });
+      const [logsRangeBusy, setLogsRangeBusy] = React.useState(false);
+      const [logsRangeError, setLogsRangeError] = React.useState('');
+      const [logsRangeResult, setLogsRangeResult] = React.useState(null);
       const [actorFilter, setActorFilter] = React.useState('');
       const [actionFilter, setActionFilter] = React.useState('');
       const [entityFilter, setEntityFilter] = React.useState('');
@@ -14864,6 +15159,21 @@ function PTClientsPage({ members, users, settings, updateSetting, currentUser, a
               </div>
             </div>
             <div className="flex items-center gap-2 flex-wrap">
+              {isOwnerForLogs && canClearLogs && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setLogsRangeError('');
+                    setLogsRangeResult(null);
+                    setLogsRange({ start: sevenDaysAgoIso, end: todayIsoForLogs });
+                    setLogsRangeModalOpen(true);
+                  }}
+                  data-testid="logs-clear-range-btn"
+                  className="rounded-xl px-3 py-2 min-h-[44px] text-sm font-medium border border-amber-300 bg-amber-50 text-amber-800 hover:bg-amber-100"
+                >
+                  Delete by Date Range
+                </button>
+              )}
               {currentUser && currentUser.id === 'owner' && canClearLogs && (
                 <button
                   onClick={() => onClearLogs && onClearLogs()}
@@ -14875,6 +15185,84 @@ function PTClientsPage({ members, users, settings, updateSetting, currentUser, a
               <button disabled={!canExportLogs} onClick={exportCsv} className="rounded-xl px-3 py-2 min-h-[44px] text-sm font-medium bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed">Export to CSV</button>
             </div>
           </div>
+          {logsRangeModalOpen && isOwnerForLogs && (
+            <div className="fixed inset-0 z-[60] flex items-center justify-center apg-modal-backdrop p-4" data-testid="logs-clear-modal">
+              <div className="w-full max-w-md rounded-2xl bg-white p-4 shadow-xl space-y-3 dark:bg-slate-900">
+                <div className="flex items-center justify-between">
+                  <div className="text-lg font-semibold text-slate-900 dark:text-slate-100">Delete Logs by Date Range</div>
+                  <button type="button" onClick={() => setLogsRangeModalOpen(false)} className="rounded-lg px-2 py-1 hover:bg-slate-100 dark:hover:bg-slate-800" aria-label="Close">✕</button>
+                </div>
+                <div className="text-xs text-slate-600 dark:text-slate-300">
+                  Removes every audit log entry whose timestamp falls inside this range. The audit
+                  entry recording this purge is written <strong>after</strong> the cleanup so it
+                  survives.
+                </div>
+                <div className="grid grid-cols-2 gap-2">
+                  <label className="text-xs text-slate-600 dark:text-slate-300">
+                    Start
+                    <input
+                      type="date"
+                      value={logsRange.start}
+                      onChange={(e) => setLogsRange((prev) => ({ ...prev, start: e.target.value }))}
+                      className="mt-1 w-full rounded-xl border border-slate-300 px-3 py-2 text-sm dark:bg-slate-800 dark:border-slate-600"
+                      data-testid="logs-clear-start"
+                    />
+                  </label>
+                  <label className="text-xs text-slate-600 dark:text-slate-300">
+                    End
+                    <input
+                      type="date"
+                      value={logsRange.end}
+                      onChange={(e) => setLogsRange((prev) => ({ ...prev, end: e.target.value }))}
+                      className="mt-1 w-full rounded-xl border border-slate-300 px-3 py-2 text-sm dark:bg-slate-800 dark:border-slate-600"
+                      data-testid="logs-clear-end"
+                    />
+                  </label>
+                </div>
+                {logsRangeError && (
+                  <div className="rounded-xl border border-rose-300 bg-rose-50 px-3 py-2 text-xs text-rose-700">{logsRangeError}</div>
+                )}
+                {logsRangeResult && (
+                  <div className="rounded-xl border border-emerald-300 bg-emerald-50 px-3 py-2 text-xs text-emerald-700" data-testid="logs-clear-result">
+                    Removed {logsRangeResult.deleted} entries between {logsRangeResult.startDate} and {logsRangeResult.endDate}. {logsRangeResult.remaining} remain.
+                  </div>
+                )}
+                <div className="flex justify-end gap-2 pt-1">
+                  <button type="button" onClick={() => setLogsRangeModalOpen(false)} className="rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm dark:bg-slate-800 dark:border-slate-600">Cancel</button>
+                  <button
+                    type="button"
+                    disabled={logsRangeBusy || !logsRange.start || !logsRange.end}
+                    onClick={async () => {
+                      setLogsRangeError('');
+                      setLogsRangeResult(null);
+                      const start = String(logsRange.start || '').slice(0, 10);
+                      const end = String(logsRange.end || '').slice(0, 10);
+                      if (!start || !end) { setLogsRangeError('Pick a start and end date.'); return; }
+                      if (start > end) { setLogsRangeError('Start date must be on or before end date.'); return; }
+                      const backend = typeof window !== 'undefined' ? window.__APG_BACKEND_JSON__ : null;
+                      if (!backend) { setLogsRangeError('Backend is offline; cannot delete logs.'); return; }
+                      try {
+                        setLogsRangeBusy(true);
+                        const out = await backend('/logs/cleanup', { method: 'POST', body: JSON.stringify({ startDate: start, endDate: end }) });
+                        setLogsRangeResult(out);
+                        if (typeof onRefreshLogs === 'function') {
+                          try { await onRefreshLogs(); } catch {}
+                        }
+                      } catch (err) {
+                        setLogsRangeError(String(err?.message || err));
+                      } finally {
+                        setLogsRangeBusy(false);
+                      }
+                    }}
+                    className="rounded-full bg-rose-600 px-4 py-2 text-sm font-medium text-white hover:bg-rose-700 disabled:opacity-50"
+                    data-testid="logs-clear-confirm"
+                  >
+                    {logsRangeBusy ? 'Deleting…' : 'Delete Range'}
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
           <div className="mb-4 grid grid-cols-1 md:grid-cols-5 gap-2">
             <select value={actorFilter} onChange={(e) => setActorFilter(e.target.value)} className="rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm">
               <option value="">Select Users</option>
@@ -15062,6 +15450,11 @@ function PTClientsPage({ members, users, settings, updateSetting, currentUser, a
       const [autoSyncPage, setAutoSyncPage] = React.useState(1);
       const [expandedTemplates, setExpandedTemplates] = React.useState({});
       const [templateEditor, setTemplateEditor] = React.useState({ open: false, key: '', value: '' });
+      // Phase 1: surgical save state. The focused PATCH endpoint replaces the
+      // old "ship the whole settings blob" approach so two staff editing
+      // different templates can't accidentally clobber each other's work.
+      const [templateSaving, setTemplateSaving] = React.useState(false);
+      const [templateSaveError, setTemplateSaveError] = React.useState('');
       const messageCenterRef = React.useRef(null);
       const [preview, setPreview] = React.useState({ open: false, member: null, templateKey: '' });
       const VARIABLE_KEYS = ['[CustomerName]','[PLAN]','[CurrentPlan]','[Amount]','[BillingDate]','[PaymentBy]','[GymStartdate]','[NextPaymentDate]','[PaymentMethod]','[SystemDetails]'];
@@ -15733,38 +16126,75 @@ function PTClientsPage({ members, users, settings, updateSetting, currentUser, a
             </div>
           </div>
           {templateEditor.open && (
-            <div className="fixed inset-0 z-50 flex items-center justify-center apg-modal-backdrop p-4">
+            <div className="fixed inset-0 z-50 flex items-center justify-center apg-modal-backdrop p-4" data-testid="whatsapp-template-modal">
               <div className="w-full max-w-3xl rounded-2xl bg-white p-4 shadow-xl space-y-3">
                 <div className="flex items-center justify-between">
                   <div className="text-lg font-semibold">Edit template: {templateEditor.key}</div>
                   <button
-                    onClick={() => setTemplateEditor({ open: false, key: '', value: '' })}
+                    onClick={() => { setTemplateEditor({ open: false, key: '', value: '' }); setTemplateSaveError(''); }}
                     className="rounded-lg px-2 py-1 hover:bg-slate-100"
                   >
                     ✕
                   </button>
                 </div>
-                <div className="text-xs text-slate-500">You can scroll and edit the full message here.</div>
+                <div className="text-xs text-slate-500">You can scroll and edit the full message here. Save writes directly to the database.</div>
                 <textarea
                   value={templateEditor.value}
                   onChange={(e) => setTemplateEditor((prev) => ({ ...prev, value: e.target.value }))}
                   className="h-[48vh] w-full rounded-xl border border-slate-300 bg-white p-3 text-sm leading-6 font-medium text-slate-800 focus:outline-none focus:ring-2 focus:ring-blue-300"
+                  data-testid="whatsapp-template-textarea"
                 />
+                {templateSaveError && (
+                  <div className="rounded-xl border border-rose-300 bg-rose-50 px-3 py-2 text-xs text-rose-700" data-testid="whatsapp-template-error">
+                    {templateSaveError}
+                  </div>
+                )}
                 <div className="flex justify-end gap-2">
                   <button
-                    onClick={() => setTemplateEditor({ open: false, key: '', value: '' })}
+                    onClick={() => { setTemplateEditor({ open: false, key: '', value: '' }); setTemplateSaveError(''); }}
                     className="rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm"
+                    disabled={templateSaving}
                   >
                     Cancel
                   </button>
                   <button
-                    onClick={() => {
-                      updateSetting('smsTemplates', { ...templates, [templateEditor.key]: templateEditor.value });
-                      setTemplateEditor({ open: false, key: '', value: '' });
+                    onClick={async () => {
+                      // Phase 1 contract: PATCH /api/whatsapp-templates/:key
+                      // persists exactly one row. We optimistically update
+                      // local state so the editor "feels" instant, then roll
+                      // back if the server rejects the save.
+                      setTemplateSaveError('');
+                      const key = String(templateEditor.key || '').trim();
+                      const value = String(templateEditor.value == null ? '' : templateEditor.value);
+                      if (!key) { setTemplateSaveError('Missing template key.'); return; }
+                      const backend = typeof window !== 'undefined' ? window.__APG_BACKEND_JSON__ : null;
+                      const previous = templates[key];
+                      try {
+                        setTemplateSaving(true);
+                        updateSetting('smsTemplates', { ...templates, [key]: value });
+                        if (backend) {
+                          await backend(`/whatsapp-templates/${encodeURIComponent(key)}`, {
+                            method: 'PATCH',
+                            body: JSON.stringify({ body: value }),
+                          });
+                          if (typeof logEvent === 'function') {
+                            try { logEvent('whatsapp.template.updated', 'whatsapp_template', key, { length: (previous || '').length }, { length: value.length }); } catch {}
+                          }
+                        }
+                        setTemplateEditor({ open: false, key: '', value: '' });
+                      } catch (err) {
+                        // Roll back the optimistic update on failure.
+                        updateSetting('smsTemplates', { ...templates, [key]: previous == null ? '' : previous });
+                        setTemplateSaveError(`Save failed: ${err?.message || err}`);
+                      } finally {
+                        setTemplateSaving(false);
+                      }
                     }}
-                    className="rounded-full bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700"
+                    disabled={templateSaving}
+                    data-testid="whatsapp-template-save"
+                    className="rounded-full bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50"
                   >
-                    Save
+                    {templateSaving ? 'Saving…' : 'Save'}
                   </button>
                 </div>
               </div>
@@ -16006,7 +16436,13 @@ function PTClientsPage({ members, users, settings, updateSetting, currentUser, a
         for (let i = 3; i >= 0; i -= 1) {
           const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
           const label = MONTHS[d.getMonth()];
+          // A "Revenue Trend" must reflect collected income only — including
+          // expenses (negative or positive) gave a misleading net. Pending
+          // income is also excluded to match the Total Revenue card so the
+          // bar heights line up with the headline number.
           const total = filteredTransactions.reduce((sum, t) => {
+            if (t?.type === 'expense') return sum;
+            if (t?.status === 'pending') return sum;
             const td = asUTC(t.date);
             if (!td || td.getFullYear() !== d.getFullYear() || td.getMonth() !== d.getMonth()) return sum;
             return sum + Number(t.amount || 0);
@@ -16016,6 +16452,7 @@ function PTClientsPage({ members, users, settings, updateSetting, currentUser, a
         return months;
       }, [filteredTransactions]);
       const highestMonth = Math.max(1, ...monthTotals.map(x => x.total));
+      const hasAnyMonthData = monthTotals.some((x) => Number(x.total) > 0);
 
       const planBreakup = React.useMemo(() => {
         const counts = {};
@@ -16363,20 +16800,45 @@ function PTClientsPage({ members, users, settings, updateSetting, currentUser, a
 
           <div className="grid grid-cols-1 xl:grid-cols-3 gap-4">
             {canFinanceTrend && (
-            <div className={cx(cardBase, 'xl:col-span-2')}>
+            <div className={cx(cardBase, 'xl:col-span-2')} data-testid="finance-trend-card">
               <div className="text-lg font-semibold text-slate-900 dark:text-slate-100 mb-4">Revenue Trend (Last 4 Months)</div>
-              <div className="h-48 flex items-end gap-3">
-                {monthTotals.map(x => {
-                  const h = Math.max(16, Math.round((x.total / highestMonth) * 160));
-                  return (
-                    <div key={x.label} className="flex-1 flex flex-col items-center gap-2">
-                      <div className="text-xs text-slate-500">₹{x.total.toLocaleString('en-IN')}</div>
-                      <div className="w-full rounded-t-lg bg-blue-500/80" style={{ height: `${h}px` }} />
-                      <div className="text-xs text-slate-700">{x.label}</div>
-                    </div>
-                  );
-                })}
-              </div>
+              {hasAnyMonthData ? (
+                <div className="h-48 flex items-end gap-3" data-testid="finance-trend-chart">
+                  {monthTotals.map((x) => {
+                    // Cap the proportional height so a stub remains for zero
+                    // months without flooding the card on outlier peaks.
+                    const ratio = highestMonth > 0 ? Number(x.total) / highestMonth : 0;
+                    const h = Math.max(6, Math.round(ratio * 160));
+                    return (
+                      <div
+                        key={x.label}
+                        className="flex-1 flex flex-col items-center gap-2"
+                        data-testid="finance-trend-bar"
+                        data-month={x.label}
+                        data-amount={String(x.total || 0)}
+                      >
+                        <div className="text-xs font-semibold text-slate-700 dark:text-slate-100">
+                          ₹{Number(x.total || 0).toLocaleString('en-IN')}
+                        </div>
+                        <div
+                          className="w-full rounded-t-lg bg-gradient-to-t from-blue-700 to-blue-400 ring-1 ring-blue-300/60 dark:from-blue-500 dark:to-blue-300 dark:ring-blue-200/40 shadow-[0_2px_6px_rgba(30,64,175,0.25)]"
+                          style={{ height: `${h}px`, minHeight: '6px' }}
+                        />
+                        <div className="text-xs font-medium text-slate-700 dark:text-slate-200">{x.label}</div>
+                      </div>
+                    );
+                  })}
+                </div>
+              ) : (
+                <div
+                  className="h-48 flex flex-col items-center justify-center text-center gap-2 rounded-xl border border-dashed border-slate-300 bg-slate-50 text-slate-500 dark:border-slate-700 dark:bg-slate-900/40 dark:text-slate-300"
+                  data-testid="finance-trend-empty"
+                >
+                  <div className="text-3xl" aria-hidden="true">📊</div>
+                  <div className="text-sm font-semibold">No revenue recorded in the last 4 months</div>
+                  <div className="text-xs">Once a paid income transaction is logged, it will appear here.</div>
+                </div>
+              )}
             </div>
             )}
             {canFinancePlan && (
@@ -16903,6 +17365,68 @@ function PTClientsPage({ members, users, settings, updateSetting, currentUser, a
       const [supportAccessOpen, setSupportAccessOpen] = React.useState(false);
       const [backendAccessOpen, setBackendAccessOpen] = React.useState(false);
       const isOwner = currentUser && currentUser.id === 'owner';
+      // Phase 4 owner-only bulk delete. selectedStaffIds is a Set for O(1)
+      // toggle/contains checks. We persist no state across reloads — the
+      // selection is purely an in-memory tactical convenience.
+      const [selectedStaffIds, setSelectedStaffIds] = React.useState(() => new Set());
+      const [bulkDeleting, setBulkDeleting] = React.useState(false);
+      const [bulkResult, setBulkResult] = React.useState(null);
+      const [bulkError, setBulkError] = React.useState('');
+      const PROTECTED_STAFF_IDS_FE = React.useMemo(() => new Set(['Bis', 'Raja', 'owner']), []);
+      const isStaffSelectable = (u) => {
+        if (!u) return false;
+        if (PROTECTED_STAFF_IDS_FE.has(String(u.id))) return false;
+        if (String(u.role || '').toLowerCase() === 'owner') return false;
+        if (u.id === currentUser?.id) return false;
+        return true;
+      };
+      const selectableUsers = React.useMemo(() => (users || []).filter(isStaffSelectable), [users, currentUser]);
+      const allSelectable = selectableUsers.length > 0;
+      const allSelected = allSelectable && selectableUsers.every((u) => selectedStaffIds.has(u.id));
+      const toggleStaffSelection = (id) => {
+        setSelectedStaffIds((prev) => {
+          const next = new Set(prev);
+          if (next.has(id)) next.delete(id);
+          else next.add(id);
+          return next;
+        });
+      };
+      const toggleSelectAllStaff = () => {
+        setSelectedStaffIds((prev) => {
+          if (selectableUsers.every((u) => prev.has(u.id))) return new Set();
+          const next = new Set(prev);
+          selectableUsers.forEach((u) => next.add(u.id));
+          return next;
+        });
+      };
+      const performBulkStaffDelete = async () => {
+        if (!isOwner) return;
+        const ids = Array.from(selectedStaffIds).filter((id) => id && !PROTECTED_STAFF_IDS_FE.has(id));
+        if (!ids.length) return;
+        const backend = typeof window !== 'undefined' ? window.__APG_BACKEND_JSON__ : null;
+        if (!backend) { setBulkError('Backend is offline; cannot delete.'); return; }
+        setBulkError('');
+        setBulkResult(null);
+        setBulkDeleting(true);
+        try {
+          const out = await backend('/users/cleanup', { method: 'POST', body: JSON.stringify({ userIds: ids }) });
+          const removed = Array.isArray(out?.deleted) ? out.deleted : [];
+          const skipped = Array.isArray(out?.skipped) ? out.skipped : [];
+          setBulkResult({ removed, skipped });
+          if (removed.length && typeof setUsers === 'function') {
+            const removedSet = new Set(removed);
+            setUsers((prev) => (Array.isArray(prev) ? prev.filter((u) => !removedSet.has(u.id)) : prev));
+          }
+          setSelectedStaffIds(new Set());
+          if (typeof logEvent === 'function') {
+            try { logEvent('staff.bulk_deleted', 'user', removed.join(','), { ids }, { removed, skipped }); } catch {}
+          }
+        } catch (err) {
+          setBulkError(String(err?.message || err));
+        } finally {
+          setBulkDeleting(false);
+        }
+      };
       const closeStaffModal = () => {
         setModalOpen(false);
         setError('');
@@ -17644,9 +18168,58 @@ function PTClientsPage({ members, users, settings, updateSetting, currentUser, a
           </div>
 
           <div className="rounded-3xl bg-white border border-slate-200 p-4 shadow-sm overflow-x-auto text-slate-900">
+            {isOwner && (
+              <div className="mb-3 flex flex-wrap items-center justify-between gap-2" data-testid="staff-bulk-toolbar">
+                <div className="text-xs text-slate-600">
+                  {selectedStaffIds.size > 0
+                    ? <span data-testid="staff-bulk-selected-count">{selectedStaffIds.size} staff selected</span>
+                    : 'Select staff to enable bulk delete.'}
+                </div>
+                {selectedStaffIds.size > 0 && (
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() => setSelectedStaffIds(new Set())}
+                      className="rounded-full border border-slate-300 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-50"
+                    >
+                      Clear Selection
+                    </button>
+                    <button
+                      type="button"
+                      onClick={performBulkStaffDelete}
+                      disabled={bulkDeleting}
+                      data-testid="staff-bulk-delete-btn"
+                      className="rounded-full bg-rose-600 px-4 py-1.5 text-xs font-semibold text-white hover:bg-rose-700 disabled:opacity-50"
+                    >
+                      {bulkDeleting ? 'Deleting…' : `Delete Selected (${selectedStaffIds.size})`}
+                    </button>
+                  </div>
+                )}
+              </div>
+            )}
+            {bulkError && (
+              <div className="mb-3 rounded-xl border border-rose-300 bg-rose-50 px-3 py-2 text-xs text-rose-700">{bulkError}</div>
+            )}
+            {bulkResult && (
+              <div className="mb-3 rounded-xl border border-emerald-300 bg-emerald-50 px-3 py-2 text-xs text-emerald-700" data-testid="staff-bulk-result">
+                Removed {bulkResult.removed.length} staff{bulkResult.skipped.length ? ` · skipped ${bulkResult.skipped.length} protected account(s)` : ''}.
+              </div>
+            )}
             <table className="min-w-full text-sm text-slate-900 hidden md:table">
               <thead>
                 <tr className="bg-blue-50 text-blue-700">
+                  {isOwner && (
+                    <th className="px-2 py-2 text-left w-8">
+                      <input
+                        type="checkbox"
+                        aria-label="Select all staff"
+                        data-testid="staff-select-all"
+                        checked={allSelected}
+                        onChange={toggleSelectAllStaff}
+                        disabled={!allSelectable}
+                      />
+                    </th>
+                  )}
                   <th className="px-3 py-2 text-left">Photo</th>
                   <th className="px-3 py-2 text-left">Username</th>
                   <th className="px-3 py-2 text-left">Name</th>
@@ -17661,6 +18234,18 @@ function PTClientsPage({ members, users, settings, updateSetting, currentUser, a
               <tbody>
                 {users.map(u => (
                   <tr key={u.id} className="border-b border-slate-200 hover:bg-slate-50">
+                    {isOwner && (
+                      <td className="px-2 py-2 whitespace-nowrap">
+                        <input
+                          type="checkbox"
+                          aria-label={`Select ${u.id}`}
+                          data-testid={`staff-select-${u.id}`}
+                          checked={selectedStaffIds.has(u.id)}
+                          onChange={() => toggleStaffSelection(u.id)}
+                          disabled={!isStaffSelectable(u)}
+                        />
+                      </td>
+                    )}
                     <td className="px-3 py-2 whitespace-nowrap text-slate-900">
                       <Avatar name={u.name || u.id} photo={u.photo || u.avatar || null} className="h-8 w-8" />
                     </td>
@@ -17730,7 +18315,7 @@ function PTClientsPage({ members, users, settings, updateSetting, currentUser, a
                   </tr>
                 ))}
                 {users.length === 0 && (
-                  <tr><td colSpan={9} className="text-center px-3 py-4 text-slate-500">No staff members yet.</td></tr>
+                  <tr><td colSpan={isOwner ? 10 : 9} className="text-center px-3 py-4 text-slate-500">No staff members yet.</td></tr>
                 )}
               </tbody>
             </table>
