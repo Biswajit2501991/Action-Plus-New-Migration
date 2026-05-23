@@ -34,6 +34,11 @@ import {
   preserveNonEmptyLookups,
   shouldSkipLookupCategorySync,
 } from './settingsLookupLogic.js';
+import {
+  dedupeRoleTemplates,
+  roleTemplateRowToApp,
+  roleTemplateToRow,
+} from './roleTemplateLogic.js';
 
 const KEY_MEMBERS = 'apg.members';
 const KEY_USERS = 'apg.users';
@@ -729,13 +734,7 @@ function buildSettingsObject({ lookups, templates, configRow, staffDir, roles, l
     avatar: s.avatar_url,
   }));
 
-  settings.roleTemplates = (roles || []).map((r) => ({
-    id: String(r.id),
-    title: r.title,
-    subtitle: r.subtitle,
-    sections: Array.isArray(r.sections_json) ? r.sections_json : [],
-    color: r.color_class,
-  }));
+  settings.roleTemplates = dedupeRoleTemplates((roles || []).map((r) => roleTemplateRowToApp(r)));
 
   settings.leaveRequests = (leaveRows || []).map((r) => ({
     id: r.external_request_id,
@@ -954,19 +953,25 @@ async function writeSettings(settings, scope) {
     );
   }
 
-  await sb.from(T.staff_role_templates).delete().eq('gym_id', gid);
-  const roles = Array.isArray(s.roleTemplates) ? s.roleTemplates : [];
-  for (let idx = 0; idx < roles.length; idx += 1) {
-    const role = roles[idx];
-    await sb.from(T.staff_role_templates).insert({
-      gym_id: gid,
-      title: role.title || 'Role',
-      subtitle: role.subtitle || null,
-      sections_json: Array.isArray(role.sections) ? role.sections : [],
-      color_class: role.color || null,
-      sort_order: idx,
-      created_at: new Date().toISOString(),
+  const roles = dedupeRoleTemplates(Array.isArray(s.roleTemplates) ? s.roleTemplates : []);
+  const roleRows = roles.map((role, idx) => roleTemplateToRow(gid, role, idx));
+  try {
+    await syncGymRowsByExternalId(sb, T.staff_role_templates, {
+      gymId: gid,
+      externalIdColumn: 'external_template_id',
+      rows: roleRows,
+      onConflict: 'gym_id,external_template_id',
     });
+  } catch (err) {
+    const msg = String(err?.message || err);
+    if (!msg.includes('external_template_id')) throw err;
+    await sb.from(T.staff_role_templates).delete().eq('gym_id', gid);
+    for (const part of chunk(roleRows, 80)) {
+      if (!part.length) continue;
+      const legacy = part.map(({ external_template_id, ...row }) => row);
+      const { error } = await sb.from(T.staff_role_templates).insert(legacy);
+      if (error) throw new Error(`staff_role_templates legacy insert: ${error.message}`);
+    }
   }
 
   const configJson = {
