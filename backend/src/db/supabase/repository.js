@@ -29,6 +29,11 @@ import {
   paymentHistoryCanonicalDedupeKey,
   paymentRowMatchesId,
 } from './paymentIds.js';
+import {
+  applySettingsConfigJson,
+  preserveNonEmptyLookups,
+  shouldSkipLookupCategorySync,
+} from './settingsLookupLogic.js';
 
 const KEY_MEMBERS = 'apg.members';
 const KEY_USERS = 'apg.users';
@@ -710,17 +715,10 @@ function buildSettingsObject({ lookups, templates, configRow, staffDir, roles, l
     if (t.channel === 'whatsapp') settings.smsTemplates[t.template_key] = t.body;
   }
 
-  if (configRow) {
-    settings.fineSmsEnabled = configRow.fine_sms_enabled !== false;
-    settings.fineSmsGraceDays = Number(configRow.fine_sms_grace_days || 0);
-    settings.fineSmsImmediateRoles = configRow.fine_sms_immediate_roles_json || [];
-    settings.financeUseEstimatedExpense = configRow.finance_use_estimated_expense !== false;
-    const cfg = configRow.config_json && typeof configRow.config_json === 'object' ? configRow.config_json : {};
-    Object.assign(settings, cfg);
-    for (const [key] of LOOKUP_CATEGORIES) {
-      if (Array.isArray(settings[key])) {
-        settings[key] = [...new Set(settings[key].map((v) => String(v || '').trim()).filter(Boolean))];
-      }
+  applySettingsConfigJson(settings, configRow);
+  for (const [key] of LOOKUP_CATEGORIES) {
+    if (Array.isArray(settings[key])) {
+      settings[key] = [...new Set(settings[key].map((v) => String(v || '').trim()).filter(Boolean))];
     }
   }
 
@@ -819,6 +817,9 @@ async function syncLookupValues(sb, gid, settings) {
       .filter(Boolean);
     const wantSet = new Set(wantList);
     const have = active.filter((r) => r.category === category);
+    if (shouldSkipLookupCategorySync(wantList, have)) {
+      continue;
+    }
     const haveByValue = new Map(have.map((r) => [String(r.value || '').trim(), r]));
     for (const row of have) {
       const val = String(row.value || '').trim();
@@ -921,13 +922,8 @@ async function writeSettings(settings, scope) {
   const sb = getSupabase();
   const gid = gymId();
   const existing = await readSettings(scope);
-  const s = settings && typeof settings === 'object' ? { ...settings } : {};
-  // Partial bulk payloads must not wipe lookup arrays that were omitted from the body.
-  for (const [key] of LOOKUP_CATEGORIES) {
-    if (!Array.isArray(s[key]) && Array.isArray(existing?.[key])) {
-      s[key] = existing[key];
-    }
-  }
+  let s = settings && typeof settings === 'object' ? { ...settings } : {};
+  s = preserveNonEmptyLookups(s, existing);
 
   await syncLookupValues(sb, gid, s);
 

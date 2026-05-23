@@ -201,6 +201,16 @@ export async function getSettings(token: string): Promise<Record<string, unknown
   return apiJson('/api/settings', token);
 }
 
+export async function putSettingsBulk(
+  token: string,
+  settings: Record<string, unknown>,
+): Promise<{ ok: boolean }> {
+  return apiJson('/api/settings/bulk', token, {
+    method: 'PUT',
+    body: JSON.stringify({ settings }),
+  });
+}
+
 export async function addSettingsLookup(
   token: string,
   category: string,

@@ -2335,19 +2335,31 @@ Phone: +91-7047157510`;
       SETTINGS_LOOKUP_KEYS.forEach((k) => { pick[k] = s[k]; });
       return JSON.stringify(pick);
     };
+    const mergeSettingsLookupList = (prevList, remoteList, lookupGuardActive) => {
+      const prev = Array.isArray(prevList) ? prevList : [];
+      const remote = Array.isArray(remoteList) ? remoteList : null;
+      if (lookupGuardActive && prev.length) return prev;
+      if (remote === null && prev.length) return prev;
+      // Never let an empty remote pull wipe a populated list (legacy config_json / race).
+      if (remote && remote.length === 0 && prev.length > 0) return prev;
+      if (remote !== null) return remote;
+      return prev;
+    };
     const mergeSettingsPull = (prev, remote, lookupGuardActive) => {
       if (!remote || typeof remote !== 'object') return prev;
       const merged = { ...prev, ...remote };
       SETTINGS_LOOKUP_KEYS.forEach((k) => {
-        const prevList = Array.isArray(prev?.[k]) ? prev[k] : [];
-        const remoteList = Array.isArray(remote[k]) ? remote[k] : null;
-        if (lookupGuardActive && prevList.length) {
-          merged[k] = prevList;
-          return;
-        }
-        if (remoteList === null && prevList.length) merged[k] = prevList;
+        merged[k] = mergeSettingsLookupList(prev?.[k], remote[k], lookupGuardActive);
       });
       return merged;
+    };
+    const settingsLookupArraysAllEmpty = (s) => {
+      if (!s || typeof s !== 'object') return true;
+      return SETTINGS_LOOKUP_KEYS.every((k) => !Array.isArray(s[k]) || s[k].length === 0);
+    };
+    const settingsHasAnyLookupData = (s) => {
+      if (!s || typeof s !== 'object') return false;
+      return SETTINGS_LOOKUP_KEYS.some((k) => Array.isArray(s[k]) && s[k].length > 0);
     };
     function useAppScrollLock(active) {
       React.useEffect(() => {
@@ -3398,13 +3410,16 @@ Phone: +91-7047157510`;
           setVisitors((prev) => mergeRemoteVisitorsWithLocal(prev, remoteVisitors));
         }
         if (remoteSettings && typeof remoteSettings === 'object' && Object.keys(remoteSettings).length > 0) {
-          setSettings((prev) => ({
-            ...remoteSettings,
-            staffAttendance: mergeStaffAttendanceRecords(
-              Array.isArray(prev?.staffAttendance) ? prev.staffAttendance : [],
-              Array.isArray(remoteSettings.staffAttendance) ? remoteSettings.staffAttendance : [],
-            ),
-          }));
+          setSettings((prev) => {
+            const merged = mergeSettingsPull(prev, remoteSettings, false);
+            return {
+              ...merged,
+              staffAttendance: mergeStaffAttendanceRecords(
+                Array.isArray(prev?.staffAttendance) ? prev.staffAttendance : [],
+                Array.isArray(remoteSettings.staffAttendance) ? remoteSettings.staffAttendance : [],
+              ),
+            };
+          });
         }
         if (Array.isArray(remoteLogs) && remoteLogs.length > 0) setLogs(remoteLogs);
         if (Array.isArray(remoteFinance) && remoteFinance.length > 0) setFinanceTransactions(remoteFinance);
@@ -3876,6 +3891,11 @@ Phone: +91-7047157510`;
         settingsBulkPrevRef.current = settings;
         if (lookupOnly || settingsSkipNextBulkRef.current) {
           settingsSkipNextBulkRef.current = false;
+          return;
+        }
+        const prevHadLookups = settingsHasAnyLookupData(prev);
+        const wouldWipeLookups = settingsLookupArraysAllEmpty(settings);
+        if (prevHadLookups && wouldWipeLookups) {
           return;
         }
         const timer = setTimeout(() => {
