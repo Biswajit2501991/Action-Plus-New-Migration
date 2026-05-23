@@ -5934,35 +5934,41 @@ Please pay by: ${formattedLastDate}`;
         unlock();
         return true;
       };
+      const computePaymentDeletePatch = (memberRow, mId, pId, removed) => {
+        if (!memberRow || String(memberRow.memberId || '').trim() !== String(mId).trim()) return null;
+        const baseHist = Array.isArray(memberRow.paymentHistory) ? memberRow.paymentHistory : [];
+        const nextRows = baseHist.filter((r) => !paymentRowMatchesId(r, mId, pId));
+        const removedRaw = baseHist.length > nextRows.length;
+        const isLegacy = String(removed?.source || '').trim().toLowerCase() === 'legacy'
+          || String(pId || '').startsWith('legacy-');
+        const clearLegacyOnly = !removedRaw && isLegacy;
+        const nextLatestPaidAt = normalizeMemberPaymentHistory({ ...memberRow, paymentHistory: nextRows })
+          .map((r) => String(r.paidAt || ''))
+          .filter(Boolean)
+          .sort((a, b) => parseApgTimeMs(b) - parseApgTimeMs(a))[0] || '';
+        if (!removedRaw && !clearLegacyOnly) return null;
+        return {
+          ...memberRow,
+          paymentHistory: nextRows,
+          paymentReceivedAt: clearLegacyOnly ? '' : (nextLatestPaidAt || memberRow.paymentReceivedAt || ''),
+          updatedAt: new Date().toISOString(),
+        };
+      };
       const applyLocalPaymentDelete = (mId, pId, removed) => {
-        const payDelTs = new Date().toISOString();
-        let paymentDeleteUpdatedMember = null;
-        setMembers((prev) => prev.map((x) => {
-          if (x.memberId !== mId) return x;
-          const baseHist = Array.isArray(x.paymentHistory) ? x.paymentHistory : [];
-          const nextRows = baseHist.filter((r) => !paymentRowMatchesId(r, mId, pId));
-          const removedRaw = baseHist.length > nextRows.length;
-          const clearLegacyOnly = !removedRaw && String(removed?.source || '').trim().toLowerCase() === 'legacy';
-          const nextLatestPaidAt = normalizeMemberPaymentHistory({ ...x, paymentHistory: nextRows })
-            .map((r) => String(r.paidAt || ''))
-            .filter(Boolean)
-            .sort((a, b) => parseApgTimeMs(b) - parseApgTimeMs(a))[0] || '';
-          paymentDeleteUpdatedMember = {
-            ...x,
-            paymentHistory: nextRows,
-            paymentReceivedAt: clearLegacyOnly ? '' : (nextLatestPaidAt || x.paymentReceivedAt || ''),
-            updatedAt: payDelTs,
-          };
-          return paymentDeleteUpdatedMember;
-        }));
-        return paymentDeleteUpdatedMember;
+        const target = (members || []).find((x) => String(x.memberId || '').trim() === String(mId).trim());
+        const patched = computePaymentDeletePatch(target, mId, pId, removed);
+        if (!patched) return null;
+        setMembers((prev) => prev.map((x) => (
+          String(x.memberId || '').trim() === String(mId).trim() ? patched : x
+        )));
+        return patched;
       };
       const confirmDeleteMemberPaymentEntry = async () => {
         if (paymentDeleteBusy) return false;
         const mId = String(paymentDeletePrompt.memberId || '').trim();
         const pId = String(paymentDeletePrompt.paymentId || '').trim();
         if (!mId || !pId) return false;
-        const target = (members || []).find((x) => x.memberId === mId);
+        const target = (members || []).find((x) => String(x.memberId || '').trim() === String(mId).trim());
         const beforeRows = normalizeMemberPaymentHistory(target);
         const removed = beforeRows.find((x) => paymentRowMatchesId(x, mId, pId));
         if (!removed) {
@@ -5973,20 +5979,31 @@ Please pay by: ${formattedLastDate}`;
         }
         setPaymentDeleteBusy(true);
         const membersBefore = members;
+        const useBackendApi = Boolean(readAuthToken()) && dataSyncMode !== 'local';
         try {
-          if (dataSyncMode === 'backend') {
+          if (useBackendApi) {
             const result = await backendJson(
               `/members/${encodeURIComponent(mId)}/payments/${encodeURIComponent(pId)}`,
               { method: 'DELETE' },
             );
-            if (!result?.deleted || !result?.member) {
-              throw new Error('Payment was not removed from the database.');
+            if (!result?.deleted) {
+              throw new Error(result?.error || 'Payment was not removed from the database.');
             }
-            setMembers((prev) => prev.map((x) => (x.memberId === mId ? result.member : x)));
+            if (result.member) {
+              setMembers((prev) => prev.map((x) => (
+                String(x.memberId || '').trim() === String(mId).trim() ? result.member : x
+              )));
+            } else {
+              const patched = computePaymentDeletePatch(target, mId, pId, removed);
+              if (!patched) throw new Error('Payment was not removed from the database.');
+              setMembers((prev) => prev.map((x) => (
+                String(x.memberId || '').trim() === String(mId).trim() ? patched : x
+              )));
+            }
             clearMemberAwaitingBackendSync(mId);
           } else {
             const updated = applyLocalPaymentDelete(mId, pId, removed);
-            if (!updated) throw new Error('Payment delete failed locally.');
+            if (!updated) throw new Error('Could not remove this payment from local data. Try refreshing the page.');
           }
           logEvent('member.payment.deleted', 'member', mId, removed, {
             memberName: target?.name || '',
@@ -6013,7 +6030,7 @@ Please pay by: ${formattedLastDate}`;
         const mId = String(memberId || '').trim();
         const pId = String(paymentId || '').trim();
         if (!mId || !pId) return false;
-        const target = (members || []).find((x) => x.memberId === mId);
+        const target = (members || []).find((x) => String(x.memberId || '').trim() === String(mId).trim());
         const beforeRows = normalizeMemberPaymentHistory(target);
         const removed = beforeRows.find((x) => paymentRowMatchesId(x, mId, pId));
         if (!removed) return false;
