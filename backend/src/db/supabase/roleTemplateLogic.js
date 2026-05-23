@@ -79,3 +79,19 @@ export function roleTemplateToRow(gid, role, sortOrder) {
     created_at: new Date().toISOString(),
   };
 }
+
+/** Bulk PUT must not touch roles unless roleTemplates is explicitly provided. */
+export function mergeSettingsPreservingRoleTemplates(incoming, existing) {
+  const s = incoming && typeof incoming === 'object' ? { ...incoming } : {};
+  const ex = existing && typeof existing === 'object' ? existing : {};
+  if (!Array.isArray(s.roleTemplates)) {
+    s.roleTemplates = Array.isArray(ex.roleTemplates) ? dedupeRoleTemplates(ex.roleTemplates) : [];
+  } else {
+    s.roleTemplates = dedupeRoleTemplates(s.roleTemplates);
+  }
+  return s;
+}
+
+export function roleTemplateTitleKey(row) {
+  return slugifyRoleTitle(row?.title) || String(row?.external_template_id || row?.id || '');
+}

@@ -2354,7 +2354,14 @@ Phone: +91-7047157510`;
       if (!s || typeof s !== 'object') return '{}';
       const clone = { ...s };
       SETTINGS_LOOKUP_KEYS.forEach((k) => { delete clone[k]; });
+      delete clone.roleTemplates;
       return JSON.stringify(clone);
+    };
+    const settingsForBulkSync = (s) => {
+      if (!s || typeof s !== 'object') return {};
+      const out = { ...s };
+      delete out.roleTemplates;
+      return out;
     };
     const settingsLookupSignature = (s) => {
       if (!s || typeof s !== 'object') return '{}';
@@ -3585,37 +3592,6 @@ Phone: +91-7047157510`;
           try { es?.close(); } catch {}
         };
       }, [dataSyncMode, user?.id]);
-      // Keep role templates aligned with latest app sections (once per stable id; no bulk-sync storm).
-      const roleTemplateSectionsSyncedRef = React.useRef(new Set());
-      React.useEffect(() => {
-        const templates = dedupeRoleTemplates(Array.isArray(settings.roleTemplates) ? settings.roleTemplates : []);
-        let changed = false;
-        const nextTemplates = templates.map((t) => {
-          if (!t || !t.id) return t;
-          const stableId = stableRoleTemplateId(t);
-          let required = [];
-          if (stableId === 'frontdesk' || slugifyRoleTitle(t.title) === 'front-desk-manager') {
-            required = ['Dashboard', 'Members', 'PT Clients', 'WhatsApp SMS', 'Finance', 'Attendance', 'Leave Tracker', 'Settings'];
-          }
-          if (!required.length) return t;
-          if (roleTemplateSectionsSyncedRef.current.has(stableId)) return t;
-          const current = Array.isArray(t.sections) ? t.sections : [];
-          const nextSections = Array.from(new Set([...current, ...required]));
-          const changedTemplate = nextSections.length !== current.length || nextSections.some((s, i) => s !== current[i]);
-          if (!changedTemplate) {
-            roleTemplateSectionsSyncedRef.current.add(stableId);
-            return t;
-          }
-          changed = true;
-          roleTemplateSectionsSyncedRef.current.add(stableId);
-          return { ...t, id: stableId, sections: nextSections };
-        });
-        if (changed) {
-          settingsSkipNextBulkRef.current = true;
-          setSettings((prev) => ({ ...prev, roleTemplates: dedupeRoleTemplates(nextTemplates) }));
-        }
-      }, [settings.roleTemplates]);
-
       // ----- Filtering state -----
       // Filters for the members page. Keys: plan, status, billingMonth,
       // paymentMethod, staff, joinFrom, joinTo, billFrom, billTo. We load
@@ -3947,7 +3923,7 @@ Phone: +91-7047157510`;
         const timer = setTimeout(() => {
           backendJson('/settings/bulk', {
             method: 'PUT',
-            body: JSON.stringify({ settings }),
+            body: JSON.stringify({ settings: settingsForBulkSync(settings) }),
           }).catch(() => queueSyncSnapshot('settings', settings).then(() => setOfflineQueueCount((c) => c + 1)).catch(() => {}));
         }, BACKEND_BULK_DEBOUNCE_MS);
         return () => clearTimeout(timer);
@@ -7559,6 +7535,7 @@ Please pay by: ${formattedLastDate}`;
                 setSettings={setSettings}
                 currentUser={user}
                 dataSyncMode={dataSyncMode}
+                backendJson={backendJson}
                 logEvent={logEvent}
                 onApprovePasswordReset={approvePasswordResetRequest}
                 gymCodes={gymCodes}
@@ -17632,7 +17609,7 @@ function PTClientsPage({ members, users, settings, updateSetting, currentUser, a
 
     // ---- User Management Page ----
     // This page allows the owner to add new staff and assign which sections they can access.
-    function UserManagementPage({ users, setUsers, settings, setSettings, currentUser, dataSyncMode = 'local', logEvent, onApprovePasswordReset, gymCodes = [], hqGymCodeId = null, gymCodeLabel = () => '—' }) {
+    function UserManagementPage({ users, setUsers, settings, setSettings, currentUser, dataSyncMode = 'local', backendJson = null, logEvent, onApprovePasswordReset, gymCodes = [], hqGymCodeId = null, gymCodeLabel = () => '—' }) {
       const [modalOpen, setModalOpen] = React.useState(false);
       const [photoPickerOpen, setPhotoPickerOpen] = React.useState(false);
       const [form, setForm] = React.useState({ id: '', password: '', name: '', email: '', sections: [], access: { ...DEFAULT_ACCESS }, blocked: false, blockedReason: '', blockedAt: '', updatedBy: '', photo: null, testProfile: false, sandboxId: '', gymCodeId: '' });
@@ -17838,7 +17815,24 @@ function PTClientsPage({ members, users, settings, updateSetting, currentUser, a
           return { ...prev, sections: next };
         });
       };
-      const saveRoleTemplate = () => {
+      const persistRoleTemplates = async (nextList) => {
+        const deduped = dedupeRoleTemplates(nextList);
+        setSettings((prev) => ({ ...prev, roleTemplates: deduped }));
+        if (dataSyncMode !== 'backend' || !backendJson || !isOwner) return deduped;
+        try {
+          const saved = await backendJson('/settings/role-templates', {
+            method: 'PUT',
+            body: JSON.stringify({ roleTemplates: deduped }),
+          });
+          const fromServer = dedupeRoleTemplates(saved?.roleTemplates || deduped);
+          setSettings((prev) => ({ ...prev, roleTemplates: fromServer }));
+          return fromServer;
+        } catch (err) {
+          setRoleError(String(err?.message || err || 'Failed to save role templates.'));
+          throw err;
+        }
+      };
+      const saveRoleTemplate = async () => {
         setRoleError('');
         const title = roleForm.title.trim();
         const subtitle = roleForm.subtitle.trim();
@@ -17857,34 +17851,32 @@ function PTClientsPage({ members, users, settings, updateSetting, currentUser, a
           sections: [...roleForm.sections],
           color: roleForm.color || 'bg-emerald-50 border-emerald-200',
         };
-        setSettings((prev) => {
-          const list = dedupeRoleTemplates(
-            Array.isArray(prev.roleTemplates) && prev.roleTemplates.length ? prev.roleTemplates : [...DEFAULT_ROLE_TEMPLATES],
-          );
-          const editKey = editingRoleId ? stableRoleTemplateId({ id: editingRoleId, title }) : '';
-          const withoutDupes = list.filter((r) => stableRoleTemplateId(r) !== nextRole.id && stableRoleTemplateId(r) !== editKey);
-          if (editingRoleId) {
-            return { ...prev, roleTemplates: dedupeRoleTemplates([...withoutDupes, nextRole]) };
-          }
-          return { ...prev, roleTemplates: dedupeRoleTemplates([nextRole, ...withoutDupes]) };
-        });
-        logEvent && logEvent(editingRoleId ? 'staff.role_template.updated' : 'staff.role_template.created', 'settings', nextRole.id, null, nextRole);
-        setRoleModalOpen(false);
+        const list = dedupeRoleTemplates(
+          Array.isArray(settings.roleTemplates) && settings.roleTemplates.length ? settings.roleTemplates : [...DEFAULT_ROLE_TEMPLATES],
+        );
+        const editKey = editingRoleId ? stableRoleTemplateId({ id: editingRoleId, title }) : '';
+        const withoutDupes = list.filter((r) => stableRoleTemplateId(r) !== nextRole.id && stableRoleTemplateId(r) !== editKey);
+        const nextList = editingRoleId
+          ? dedupeRoleTemplates([...withoutDupes, nextRole])
+          : dedupeRoleTemplates([nextRole, ...withoutDupes]);
+        try {
+          await persistRoleTemplates(nextList);
+          logEvent && logEvent(editingRoleId ? 'staff.role_template.updated' : 'staff.role_template.created', 'settings', nextRole.id, null, nextRole);
+          setRoleModalOpen(false);
+        } catch {}
       };
-      const deleteRoleTemplate = (role) => {
+      const deleteRoleTemplate = async (role) => {
         if (!isOwner) return;
         const ok = window.confirm(`Delete role template "${role.title}"?`);
         if (!ok) return;
-        setSettings((prev) => {
-          const dropId = stableRoleTemplateId(role);
-          const list = dedupeRoleTemplates(Array.isArray(prev.roleTemplates) ? prev.roleTemplates : []);
-          return {
-            ...prev,
-            roleTemplates: list.filter((r) => stableRoleTemplateId(r) !== dropId),
-          };
-        });
-        if (selectedRole === role.id) setSelectedRole('');
-        logEvent && logEvent('staff.role_template.deleted', 'settings', role.id, role, null);
+        const dropId = stableRoleTemplateId(role);
+        const list = dedupeRoleTemplates(Array.isArray(settings.roleTemplates) ? settings.roleTemplates : []);
+        const nextList = list.filter((r) => stableRoleTemplateId(r) !== dropId);
+        try {
+          await persistRoleTemplates(nextList);
+          if (selectedRole === role.id) setSelectedRole('');
+          logEvent && logEvent('staff.role_template.deleted', 'settings', role.id, role, null);
+        } catch {}
       };
 
       const onStaffPhotoFile = async (file) => {

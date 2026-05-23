@@ -36,7 +36,9 @@ import {
 } from './settingsLookupLogic.js';
 import {
   dedupeRoleTemplates,
+  mergeSettingsPreservingRoleTemplates,
   roleTemplateRowToApp,
+  roleTemplateTitleKey,
   roleTemplateToRow,
 } from './roleTemplateLogic.js';
 
@@ -647,12 +649,66 @@ async function writeUsers(users, scope) {
   notifyCollectionChange('users');
 }
 
+async function cleanupDuplicateRoleTemplateRows(sb, gid) {
+  const rows = await fetchAll((from, to) =>
+    sb.from(T.staff_role_templates).select('id, title, sections_json, sort_order, external_template_id').eq('gym_id', gid).order('sort_order').range(from, to),
+  );
+  if (!rows || rows.length < 2) return;
+  const byTitle = new Map();
+  const deleteIds = [];
+  for (const row of rows) {
+    const tk = roleTemplateTitleKey(row);
+    if (!tk) continue;
+    const prev = byTitle.get(tk);
+    if (!prev) {
+      byTitle.set(tk, row);
+      continue;
+    }
+    const prevSecs = Array.isArray(prev.sections_json) ? prev.sections_json.length : 0;
+    const rowSecs = Array.isArray(row.sections_json) ? row.sections_json.length : 0;
+    const keep = rowSecs >= prevSecs ? row : prev;
+    const drop = keep.id === row.id ? prev : row;
+    byTitle.set(tk, keep);
+    deleteIds.push(drop.id);
+  }
+  for (const part of chunk(deleteIds, 80)) {
+    if (!part.length) continue;
+    const { error } = await sb.from(T.staff_role_templates).delete().in('id', part);
+    if (error) throw new Error(`staff_role_templates dedupe cleanup: ${error.message}`);
+  }
+}
+
+async function syncRoleTemplatesToDb(sb, gid, roleTemplates) {
+  const roles = dedupeRoleTemplates(Array.isArray(roleTemplates) ? roleTemplates : []);
+  const roleRows = roles.map((role, idx) => roleTemplateToRow(gid, role, idx));
+  try {
+    await syncGymRowsByExternalId(sb, T.staff_role_templates, {
+      gymId: gid,
+      externalIdColumn: 'external_template_id',
+      rows: roleRows,
+      onConflict: 'gym_id,external_template_id',
+    });
+  } catch (err) {
+    const msg = String(err?.message || err);
+    if (!msg.includes('external_template_id')) throw err;
+    await sb.from(T.staff_role_templates).delete().eq('gym_id', gid);
+    for (const part of chunk(roleRows, 80)) {
+      if (!part.length) continue;
+      const legacy = part.map(({ external_template_id, ...row }) => row);
+      const { error } = await sb.from(T.staff_role_templates).insert(legacy);
+      if (error) throw new Error(`staff_role_templates legacy insert: ${error.message}`);
+    }
+  }
+  return roles;
+}
+
 async function readSettings(scope) {
   if (scope) {
     return readSettingsSandbox(scope.sandboxId);
   }
   const sb = getSupabase();
   const gid = gymId();
+  await cleanupDuplicateRoleTemplateRows(sb, gid);
 
   const [
     lookups,
@@ -921,8 +977,14 @@ async function writeSettings(settings, scope) {
   const sb = getSupabase();
   const gid = gymId();
   const existing = await readSettings(scope);
-  let s = settings && typeof settings === 'object' ? { ...settings } : {};
+  const incoming = settings && typeof settings === 'object' ? settings : {};
+  const hasRoleTemplates = Object.prototype.hasOwnProperty.call(incoming, 'roleTemplates');
+  let s = { ...incoming };
   s = preserveNonEmptyLookups(s, existing);
+  s = mergeSettingsPreservingRoleTemplates(
+    hasRoleTemplates ? s : { ...s, roleTemplates: undefined },
+    existing,
+  );
 
   await syncLookupValues(sb, gid, s);
 
@@ -953,25 +1015,8 @@ async function writeSettings(settings, scope) {
     );
   }
 
-  const roles = dedupeRoleTemplates(Array.isArray(s.roleTemplates) ? s.roleTemplates : []);
-  const roleRows = roles.map((role, idx) => roleTemplateToRow(gid, role, idx));
-  try {
-    await syncGymRowsByExternalId(sb, T.staff_role_templates, {
-      gymId: gid,
-      externalIdColumn: 'external_template_id',
-      rows: roleRows,
-      onConflict: 'gym_id,external_template_id',
-    });
-  } catch (err) {
-    const msg = String(err?.message || err);
-    if (!msg.includes('external_template_id')) throw err;
-    await sb.from(T.staff_role_templates).delete().eq('gym_id', gid);
-    for (const part of chunk(roleRows, 80)) {
-      if (!part.length) continue;
-      const legacy = part.map(({ external_template_id, ...row }) => row);
-      const { error } = await sb.from(T.staff_role_templates).insert(legacy);
-      if (error) throw new Error(`staff_role_templates legacy insert: ${error.message}`);
-    }
+  if (hasRoleTemplates) {
+    await syncRoleTemplatesToDb(sb, gid, s.roleTemplates);
   }
 
   const configJson = {
@@ -1243,6 +1288,17 @@ export async function readSettingsValue(scope = null) {
 
 export async function writeSettingsValue(value, scope = null) {
   return writeSettings(value, scope);
+}
+
+/** Owner-only surgical role template sync (avoids settings bulk insert races). */
+export async function writeRoleTemplatesValue(roleTemplates, scope = null) {
+  if (scope) return dedupeRoleTemplates(roleTemplates);
+  const sb = getSupabase();
+  const gid = gymId();
+  await cleanupDuplicateRoleTemplateRows(sb, gid);
+  const saved = await syncRoleTemplatesToDb(sb, gid, roleTemplates);
+  notifyCollectionChange('settings');
+  return saved;
 }
 
 export async function purgeSandbox(sandboxId) {

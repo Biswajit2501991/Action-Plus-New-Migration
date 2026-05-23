@@ -32,6 +32,7 @@ import {
   addSettingsLookup,
   deleteSettingsLookup,
   deleteMemberPayment,
+  writeRoleTemplates,
 } from './db/dataStore.js';
 import { addSseClient, sseClientCount } from './realtime/hub.js';
 import {
@@ -758,6 +759,29 @@ app.put('/api/settings/bulk', requireOwner, async (req, res) => {
   await writeScopedSettings(req, req.body?.settings || {});
   queueDatabaseBackup('settings-bulk');
   res.json({ ok: true });
+});
+
+app.put('/api/settings/role-templates', requireOwner, async (req, res) => {
+  try {
+    const roleTemplates = req.body?.roleTemplates;
+    if (!Array.isArray(roleTemplates)) {
+      return res.status(400).json({ error: 'role_templates_required', message: 'roleTemplates array is required' });
+    }
+    const saved = await writeRoleTemplates(readSandboxScope(req), roleTemplates);
+    await appendAuditLog(req, {
+      action: 'settings.role_templates.updated',
+      entityType: 'settings',
+      entityId: 'roleTemplates',
+      after: { count: saved.length },
+    });
+    queueDatabaseBackup('settings-role-templates');
+    return res.json({ ok: true, roleTemplates: saved });
+  } catch (error) {
+    return res.status(500).json({
+      error: 'role_templates_save_failed',
+      message: String(error?.message || error),
+    });
+  }
 });
 
 const SETTINGS_LOOKUP_KEYS = new Set([

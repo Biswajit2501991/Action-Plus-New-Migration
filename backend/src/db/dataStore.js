@@ -347,6 +347,14 @@ export async function addSettingsLookup(scope, payload) {
 }
 
 /** Surgical delete of one settings lookup value (owner-only at the route layer). */
+export async function writeRoleTemplates(scope, roleTemplates) {
+  if (useSupabase()) return supabaseStore.writeRoleTemplatesValue(roleTemplates, scope);
+  const settings = (await readJsonValue('apg.settings', {}, scope)) || {};
+  settings.roleTemplates = Array.isArray(roleTemplates) ? roleTemplates : [];
+  await writeJsonValue('apg.settings', settings, scope);
+  return settings.roleTemplates;
+}
+
 export async function deleteSettingsLookup(scope, payload) {
   const category = String(payload?.category || '').trim();
   const value = String(payload?.value || '').trim();

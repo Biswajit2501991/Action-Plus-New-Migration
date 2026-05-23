@@ -211,6 +211,16 @@ export async function putSettingsBulk(
   });
 }
 
+export async function putRoleTemplates(
+  token: string,
+  roleTemplates: unknown[],
+): Promise<{ ok: boolean; roleTemplates: unknown[] }> {
+  return apiJson('/api/settings/role-templates', token, {
+    method: 'PUT',
+    body: JSON.stringify({ roleTemplates }),
+  });
+}
+
 export async function addSettingsLookup(
   token: string,
   category: string,
