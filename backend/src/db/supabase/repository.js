@@ -25,7 +25,10 @@ import { hashPassword } from '../../auth/passwords.js';
 import { syncGymRowsByExternalId, syncMemberChildRows } from './collectionSync.js';
 import { bulkUpsertMemberRows, membersBulkUpsertReady } from './membersWrite.js';
 import { chunk, emptyText, fetchAll, paymentBillingDate, toDate, toTs } from './utils.js';
-import { paymentRowMatchesId } from './paymentIds.js';
+import {
+  paymentHistoryCanonicalDedupeKey,
+  paymentRowMatchesId,
+} from './paymentIds.js';
 
 const KEY_MEMBERS = 'apg.members';
 const KEY_USERS = 'apg.users';
@@ -144,7 +147,12 @@ export async function deleteMemberPayment(memberCode, paymentId, branchScope = n
     throw err;
   }
 
-  const after = before.filter((p) => !paymentRowMatchesId(p, code, pid));
+  const removedCanon = paymentHistoryCanonicalDedupeKey(removed);
+  const after = before.filter((p) => {
+    if (paymentRowMatchesId(p, code, pid)) return false;
+    if (removedCanon && paymentHistoryCanonicalDedupeKey(p) === removedCanon) return false;
+    return true;
+  });
   const sb = getSupabase();
   const gid = gymId();
   const { data: memberRow, error: rowErr } = await sb
@@ -173,6 +181,13 @@ export async function deleteMemberPayment(memberCode, paymentId, branchScope = n
 
   notifyCollectionChange('members');
   const refreshed = await readMemberByCode(code, branchScope);
+  const stillPresent = (refreshed?.paymentHistory || []).some((p) => paymentRowMatchesId(p, code, pid)
+    || (removedCanon && paymentHistoryCanonicalDedupeKey(p) === removedCanon));
+  if (stillPresent) {
+    const err = new Error('payment-delete-not-persisted');
+    err.status = 500;
+    throw err;
+  }
   return { ok: true, deleted: true, paymentId: pid, member: refreshed };
 }
 

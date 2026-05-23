@@ -2620,8 +2620,9 @@ Phone: +91-7047157510`;
       return tx >= ty ? x : y;
     };
     const stablePaymentHistoryRowId = (row, memberId = '') => {
-      if (row && row.id != null && String(row.id).trim() && !String(row.id).startsWith('sig:')) {
-        return String(row.id).trim();
+      if (row && row.id != null) {
+        const raw = String(row.id).trim();
+        if (raw) return raw;
       }
       if (!row || typeof row !== 'object') return '';
       const paidAt = String(row.paidAt || row.receivedAt || row.date || row.ts || '').trim();
@@ -2639,7 +2640,18 @@ Phone: +91-7047157510`;
       if (!pid || !row) return false;
       const rawId = String(row.id || '').trim();
       if (rawId && rawId === pid) return true;
-      return stablePaymentHistoryRowId({ ...row, id: '' }, memberId) === pid;
+      if (stablePaymentHistoryRowId({ ...row, id: '' }, memberId) === pid) return true;
+      const canon = paymentHistoryCanonicalDedupeKey(row);
+      if (canon && pid.startsWith('sig:')) {
+        const parts = pid.split('|');
+        if (parts.length >= 2) {
+          const sigDay = parts[1] || '';
+          const sigAmt = Number(parts[2] || 0);
+          const rowDay = localCalendarDateKey(row.paidAt || row.receivedAt || row.date || row.ts);
+          if (rowDay === sigDay && Number(row.amount || 0) === sigAmt) return true;
+        }
+      }
+      return false;
     };
     const normalizeMemberPaymentHistory = (member) => {
       const list = Array.isArray(member?.paymentHistory) ? member.paymentHistory : [];
@@ -2761,7 +2773,16 @@ Phone: +91-7047157510`;
       }
       return localPhoto || remotePhoto || '';
     };
-    const mergeRemoteMembersWithLocal = (localMembers, remoteMembers) => {
+    const pickMergedPaymentHistory = (localRow, remoteRow, localTs, remoteTs, syncPending) => {
+      const id = String(localRow?.memberId || remoteRow?.memberId || '').trim();
+      const L = Array.isArray(localRow?.paymentHistory) ? localRow.paymentHistory : [];
+      const R = Array.isArray(remoteRow?.paymentHistory) ? remoteRow.paymentHistory : [];
+      if (syncPending && id && syncPending[id]) return L;
+      if (localTs > remoteTs) return L;
+      if (remoteTs > localTs) return R;
+      return mergePaymentHistoryArrays(L, R, 120);
+    };
+    const mergeRemoteMembersWithLocal = (localMembers, remoteMembers, syncPending = null) => {
       const locals = Array.isArray(localMembers) ? localMembers : [];
       const remotes = Array.isArray(remoteMembers) ? remoteMembers : [];
       const remoteById = new Map(remotes.map((m) => [String(m?.memberId || ''), m]));
@@ -2794,7 +2815,7 @@ Phone: +91-7047157510`;
           messageHistory: mergeMessageHistoryArrays(localRow?.messageHistory, remoteRow?.messageHistory, 50),
           reminderSentAt: newerIsoPrefer(localRow?.reminderSentAt, remoteRow?.reminderSentAt),
           paymentReceivedAt: newerIsoPrefer(localRow?.paymentReceivedAt, remoteRow?.paymentReceivedAt),
-          paymentHistory: mergePaymentHistoryArrays(localRow?.paymentHistory, remoteRow?.paymentHistory, 120),
+          paymentHistory: pickMergedPaymentHistory(localRow, remoteRow, localTs, remoteTs, syncPending),
         };
         const billingSrc = pickMemberBillingSource(localRow, remoteRow, mergedCore);
         mergedRows.push({
@@ -3922,7 +3943,7 @@ Phone: +91-7047157510`;
             .then((remoteMembers) => {
               if (!alive || !Array.isArray(remoteMembers)) return;
               setMembers((prev) => {
-                const merged = mergeRemoteMembersWithLocal(prev, remoteMembers);
+                const merged = mergeRemoteMembersWithLocal(prev, remoteMembers, memberSyncPending);
                 const prevSig = JSON.stringify(Array.isArray(prev) ? prev : []);
                 const nextSig = JSON.stringify(merged);
                 return prevSig === nextSig ? prev : merged;
@@ -3943,7 +3964,7 @@ Phone: +91-7047157510`;
           clearInterval(timer);
           window.removeEventListener('apg-realtime', onRealtime);
         };
-      }, [dataSyncMode, realtimeConnected, pruneMemberAwaitingBackendSync]);
+      }, [dataSyncMode, realtimeConnected, pruneMemberAwaitingBackendSync, memberSyncPending]);
       // Pull visitor updates from backend so multi-device changes appear without refresh.
       React.useEffect(() => {
         if (dataSyncMode !== 'backend') return;
@@ -5937,7 +5958,12 @@ Please pay by: ${formattedLastDate}`;
       const computePaymentDeletePatch = (memberRow, mId, pId, removed) => {
         if (!memberRow || String(memberRow.memberId || '').trim() !== String(mId).trim()) return null;
         const baseHist = Array.isArray(memberRow.paymentHistory) ? memberRow.paymentHistory : [];
-        const nextRows = baseHist.filter((r) => !paymentRowMatchesId(r, mId, pId));
+        const removedCanon = removed ? paymentHistoryCanonicalDedupeKey(removed) : '';
+        const nextRows = baseHist.filter((r) => {
+          if (paymentRowMatchesId(r, mId, pId)) return false;
+          if (removedCanon && paymentHistoryCanonicalDedupeKey(r) === removedCanon) return false;
+          return true;
+        });
         const removedRaw = baseHist.length > nextRows.length;
         const isLegacy = String(removed?.source || '').trim().toLowerCase() === 'legacy'
           || String(pId || '').startsWith('legacy-');
@@ -5989,18 +6015,15 @@ Please pay by: ${formattedLastDate}`;
             if (!result?.deleted) {
               throw new Error(result?.error || 'Payment was not removed from the database.');
             }
-            if (result.member) {
-              setMembers((prev) => prev.map((x) => (
-                String(x.memberId || '').trim() === String(mId).trim() ? result.member : x
-              )));
-            } else {
-              const patched = computePaymentDeletePatch(target, mId, pId, removed);
-              if (!patched) throw new Error('Payment was not removed from the database.');
-              setMembers((prev) => prev.map((x) => (
-                String(x.memberId || '').trim() === String(mId).trim() ? patched : x
-              )));
+            let savedMember = result.member || null;
+            if (!savedMember) {
+              savedMember = computePaymentDeletePatch(target, mId, pId, removed);
+              if (!savedMember) throw new Error('Payment was not removed from the database.');
             }
-            clearMemberAwaitingBackendSync(mId);
+            setMembers((prev) => prev.map((x) => (
+              String(x.memberId || '').trim() === String(mId).trim() ? savedMember : x
+            )));
+            markMemberAwaitingBackendSync(mId, savedMember);
           } else {
             const updated = applyLocalPaymentDelete(mId, pId, removed);
             if (!updated) throw new Error('Could not remove this payment from local data. Try refreshing the page.');
