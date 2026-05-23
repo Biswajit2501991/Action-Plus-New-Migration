@@ -2322,6 +2322,53 @@ Phone: +91-7047157510`;
       return 'http://localhost:4000/api';
     };
     const BACKEND_BULK_DEBOUNCE_MS = 2500;
+    const SETTINGS_LOOKUP_KEYS = ['plans', 'statuses', 'paymentMethods', 'holdDurations', 'genders', 'expenseCategories', 'exerciseTypes'];
+    const settingsNonLookupSignature = (s) => {
+      if (!s || typeof s !== 'object') return '{}';
+      const clone = { ...s };
+      SETTINGS_LOOKUP_KEYS.forEach((k) => { delete clone[k]; });
+      return JSON.stringify(clone);
+    };
+    const settingsLookupSignature = (s) => {
+      if (!s || typeof s !== 'object') return '{}';
+      const pick = {};
+      SETTINGS_LOOKUP_KEYS.forEach((k) => { pick[k] = s[k]; });
+      return JSON.stringify(pick);
+    };
+    const mergeSettingsPull = (prev, remote, lookupGuardActive) => {
+      if (!remote || typeof remote !== 'object') return prev;
+      const merged = { ...prev, ...remote };
+      SETTINGS_LOOKUP_KEYS.forEach((k) => {
+        const prevList = Array.isArray(prev?.[k]) ? prev[k] : [];
+        const remoteList = Array.isArray(remote[k]) ? remote[k] : null;
+        if (lookupGuardActive && prevList.length) {
+          merged[k] = prevList;
+          return;
+        }
+        if (remoteList === null && prevList.length) merged[k] = prevList;
+      });
+      return merged;
+    };
+    function useAppScrollLock(active) {
+      React.useEffect(() => {
+        if (!active) return undefined;
+        const root = document.documentElement;
+        const body = document.body;
+        const main = document.querySelector('.apg-body > main.apg-main-scroll');
+        root.classList.add('apg-scroll-lock');
+        body.classList.add('apg-scroll-lock');
+        if (main) main.classList.add('apg-scroll-lock');
+        const scrollbarWidth = window.innerWidth - document.documentElement.clientWidth;
+        const prevPad = body.style.paddingRight;
+        if (scrollbarWidth > 0) body.style.paddingRight = `${scrollbarWidth}px`;
+        return () => {
+          root.classList.remove('apg-scroll-lock');
+          body.classList.remove('apg-scroll-lock');
+          if (main) main.classList.remove('apg-scroll-lock');
+          body.style.paddingRight = prevPad;
+        };
+      }, [active]);
+    }
     const STORAGE_SOFT_LIMIT_BYTES = 4.5 * 1024 * 1024; // ~4.5MB budget
     const MAX_IMPORT_FILE_BYTES = 5 * 1024 * 1024; // 5MB guardrail for backup imports
     const MAX_IMAGE_FILE_BYTES = 10 * 1024 * 1024; // 10MB input guard
@@ -2586,6 +2633,13 @@ Phone: +91-7047157510`;
       const note = String(row.note || '').trim();
       const billingMonth = String(row.billingMonth || '').trim();
       return `sig:${memberId}|${paidDay}|${amount}|${method}|${by}|${source}|${note}|${billingMonth}`;
+    };
+    const paymentRowMatchesId = (row, memberId, paymentId) => {
+      const pid = String(paymentId || '').trim();
+      if (!pid || !row) return false;
+      const rawId = String(row.id || '').trim();
+      if (rawId && rawId === pid) return true;
+      return stablePaymentHistoryRowId({ ...row, id: '' }, memberId) === pid;
     };
     const normalizeMemberPaymentHistory = (member) => {
       const list = Array.isArray(member?.paymentHistory) ? member.paymentHistory : [];
@@ -3511,6 +3565,13 @@ Phone: +91-7047157510`;
       const [realtimeConnected, setRealtimeConnected] = React.useState(false);
       const REALTIME_POLL_FAST_MS = 2500;
       const REALTIME_POLL_SLOW_MS = 20000;
+      const settingsLookupGuardUntilRef = React.useRef(0);
+      const settingsBulkPrevRef = React.useRef(null);
+      const settingsSkipNextBulkRef = React.useRef(false);
+      const touchSettingsLookupGuard = React.useCallback((ms = 8000) => {
+        settingsLookupGuardUntilRef.current = Date.now() + ms;
+        settingsSkipNextBulkRef.current = true;
+      }, []);
       const [syncRuntimeReady, setSyncRuntimeReady] = React.useState(false);
       const [backendHydrated, setBackendHydrated] = React.useState(false);
       const [memberSyncPending, setMemberSyncPending] = React.useState({});
@@ -3787,6 +3848,15 @@ Phone: +91-7047157510`;
           return;
         }
         if (!isOwnerStaffUser(user)) return;
+        const prev = settingsBulkPrevRef.current;
+        const lookupOnly = prev
+          && settingsNonLookupSignature(prev) === settingsNonLookupSignature(settings)
+          && settingsLookupSignature(prev) !== settingsLookupSignature(settings);
+        settingsBulkPrevRef.current = settings;
+        if (lookupOnly || settingsSkipNextBulkRef.current) {
+          settingsSkipNextBulkRef.current = false;
+          return;
+        }
         const timer = setTimeout(() => {
           backendJson('/settings/bulk', {
             method: 'PUT',
@@ -3944,13 +4014,16 @@ Phone: +91-7047157510`;
         if (dataSyncMode !== 'backend') return;
         let alive = true;
         const pullSettings = () => {
+          if (settingsLookupGuardUntilRef.current > Date.now()) return;
           backendJson('/settings')
             .then((remote) => {
               if (!alive || !remote || typeof remote !== 'object') return;
+              const guardActive = settingsLookupGuardUntilRef.current > Date.now();
               setSettings((prev) => {
+                const merged = mergeSettingsPull(prev, remote, guardActive);
                 const prevSig = JSON.stringify(prev || {});
-                const nextSig = JSON.stringify(remote || {});
-                return prevSig === nextSig ? prev : remote;
+                const nextSig = JSON.stringify(merged || {});
+                return prevSig === nextSig ? prev : merged;
               });
             })
             .catch(() => {});
@@ -3959,12 +4032,13 @@ Phone: +91-7047157510`;
           if (ev?.detail?.collection === 'settings' && alive) pullSettings();
         };
         window.addEventListener('apg-realtime', onRealtime);
-        // Slower base poll than users; SSE drives the fast path.
-        const pollMs = realtimeConnected ? REALTIME_POLL_SLOW_MS : REALTIME_POLL_FAST_MS;
-        const timer = setInterval(pullSettings, pollMs);
+        pullSettings();
+        // When SSE is connected, rely on realtime events only (saves Supabase quota).
+        const pollMs = realtimeConnected ? 0 : REALTIME_POLL_FAST_MS;
+        const timer = pollMs > 0 ? setInterval(pullSettings, pollMs) : null;
         return () => {
           alive = false;
-          clearInterval(timer);
+          if (timer) clearInterval(timer);
           window.removeEventListener('apg-realtime', onRealtime);
         };
       }, [dataSyncMode, realtimeConnected]);
@@ -4057,6 +4131,7 @@ Phone: +91-7047157510`;
         amount: 0,
         paidAt: '',
       });
+      const [paymentDeleteBusy, setPaymentDeleteBusy] = React.useState(false);
       const [leaveTrackerFocus, setLeaveTrackerFocus] = React.useState({ requestId: '', userId: '' });
       const [visitorNotificationFocusId, setVisitorNotificationFocusId] = React.useState('');
       const HISTORY_LIMIT = 5;
@@ -4120,6 +4195,20 @@ Phone: +91-7047157510`;
       const [familyLinkPrompt, setFamilyLinkPrompt] = React.useState(null);
       const [csvImportState, setCsvImportState] = React.useState({ open: false, fileName: '', rows: [], summary: { added: 0, updated: 0, skipped: 0 } });
       const csvImportInputRef = React.useRef(null);
+      const appModalScrollLock = quickExpenseOpen
+        || addOpen
+        || addTypeOpen
+        || visitorFormOpen
+        || Boolean(editMember)
+        || Boolean(deleteCandidate)
+        || Boolean(holdActivationPrompt)
+        || Boolean(familyLinkPrompt)
+        || Boolean(csvImportState.open)
+        || resetModalOpen
+        || paymentEntryModal.open
+        || paymentDeletePrompt.open
+        || mobileMenuOpen;
+      useAppScrollLock(appModalScrollLock);
       const leaveNotifications = React.useMemo(() => {
         if (!(user && user.id === 'owner')) return [];
         const reqs = Array.isArray(settings?.leaveRequests) ? settings.leaveRequests : [];
@@ -5766,9 +5855,8 @@ Please pay by: ${formattedLastDate}`;
             if (x.memberId !== memberId) return x;
             const baseHist = Array.isArray(x.paymentHistory) ? x.paymentHistory : [];
             const nextHist = baseHist.map((r) => {
-              const rid = stablePaymentHistoryRowId(r, memberId);
-              if (String(rid) === editingId || String(r.id) === editingId) {
-                return { ...r, ...afterRow };
+              if (paymentRowMatchesId(r, memberId, editingId)) {
+                return { ...r, ...afterRow, id: afterRow.id || stablePaymentHistoryRowId(afterRow, memberId) };
               }
               return r;
             });
@@ -5846,27 +5934,14 @@ Please pay by: ${formattedLastDate}`;
         unlock();
         return true;
       };
-      const confirmDeleteMemberPaymentEntry = () => {
-        const mId = String(paymentDeletePrompt.memberId || '').trim();
-        const pId = String(paymentDeletePrompt.paymentId || '').trim();
-        if (!mId || !pId) return false;
-        const target = (members || []).find((x) => x.memberId === mId);
-        const beforeRows = normalizeMemberPaymentHistory(target);
-        const removed = beforeRows.find((x) => String(x.id) === pId);
-        if (!removed) {
-          setPaymentDeletePrompt({ open: false, memberId: '', memberName: '', paymentId: '', amount: 0, paidAt: '' });
-          return false;
-        }
-        setPaymentDeletePrompt({ open: false, memberId: '', memberName: '', paymentId: '', amount: 0, paidAt: '' });
+      const applyLocalPaymentDelete = (mId, pId, removed) => {
         const payDelTs = new Date().toISOString();
         let paymentDeleteUpdatedMember = null;
         setMembers((prev) => prev.map((x) => {
           if (x.memberId !== mId) return x;
-          const nextRows = (Array.isArray(x.paymentHistory) ? x.paymentHistory : []).filter((r) => {
-            const rid = stablePaymentHistoryRowId(r, mId);
-            return rid !== pId;
-          });
-          const removedRaw = (Array.isArray(x.paymentHistory) ? x.paymentHistory.length : 0) > nextRows.length;
+          const baseHist = Array.isArray(x.paymentHistory) ? x.paymentHistory : [];
+          const nextRows = baseHist.filter((r) => !paymentRowMatchesId(r, mId, pId));
+          const removedRaw = baseHist.length > nextRows.length;
           const clearLegacyOnly = !removedRaw && String(removed?.source || '').trim().toLowerCase() === 'legacy';
           const nextLatestPaidAt = normalizeMemberPaymentHistory({ ...x, paymentHistory: nextRows })
             .map((r) => String(r.paidAt || ''))
@@ -5880,17 +5955,58 @@ Please pay by: ${formattedLastDate}`;
           };
           return paymentDeleteUpdatedMember;
         }));
-        if (paymentDeleteUpdatedMember) queueMicrotask(() => markMemberAwaitingBackendSync(mId, paymentDeleteUpdatedMember));
-        logEvent('member.payment.deleted', 'member', mId, removed, {
-          memberName: target?.name || '',
-          paymentId: pId,
-          amount: removed.amount || 0,
-          paidAt: removed.paidAt || '',
-          method: removed.method || '',
-        });
-        setToast('Payment entry deleted.');
-        setTimeout(() => setToast(''), 2200);
-        return true;
+        return paymentDeleteUpdatedMember;
+      };
+      const confirmDeleteMemberPaymentEntry = async () => {
+        if (paymentDeleteBusy) return false;
+        const mId = String(paymentDeletePrompt.memberId || '').trim();
+        const pId = String(paymentDeletePrompt.paymentId || '').trim();
+        if (!mId || !pId) return false;
+        const target = (members || []).find((x) => x.memberId === mId);
+        const beforeRows = normalizeMemberPaymentHistory(target);
+        const removed = beforeRows.find((x) => paymentRowMatchesId(x, mId, pId));
+        if (!removed) {
+          setPaymentDeletePrompt({ open: false, memberId: '', memberName: '', paymentId: '', amount: 0, paidAt: '' });
+          setToast('Payment entry not found.');
+          setTimeout(() => setToast(''), 2200);
+          return false;
+        }
+        setPaymentDeleteBusy(true);
+        const membersBefore = members;
+        try {
+          if (dataSyncMode === 'backend') {
+            const result = await backendJson(
+              `/members/${encodeURIComponent(mId)}/payments/${encodeURIComponent(pId)}`,
+              { method: 'DELETE' },
+            );
+            if (!result?.deleted || !result?.member) {
+              throw new Error('Payment was not removed from the database.');
+            }
+            setMembers((prev) => prev.map((x) => (x.memberId === mId ? result.member : x)));
+            clearMemberAwaitingBackendSync(mId);
+          } else {
+            const updated = applyLocalPaymentDelete(mId, pId, removed);
+            if (!updated) throw new Error('Payment delete failed locally.');
+          }
+          logEvent('member.payment.deleted', 'member', mId, removed, {
+            memberName: target?.name || '',
+            paymentId: pId,
+            amount: removed.amount || 0,
+            paidAt: removed.paidAt || '',
+            method: removed.method || '',
+          });
+          setToast('Payment entry deleted.');
+          setTimeout(() => setToast(''), 2200);
+          setPaymentDeletePrompt({ open: false, memberId: '', memberName: '', paymentId: '', amount: 0, paidAt: '' });
+          return true;
+        } catch (err) {
+          setMembers(membersBefore);
+          setToast(`Failed to delete payment: ${String(err?.message || err || 'Unknown error')}`);
+          setTimeout(() => setToast(''), 3500);
+          return false;
+        } finally {
+          setPaymentDeleteBusy(false);
+        }
       };
       const deleteMemberPaymentEntry = (memberId, paymentId) => {
         if (!(String(user?.id || '').trim().toLowerCase() === 'owner' || String(user?.role || '').trim().toLowerCase() === 'owner')) return false;
@@ -5899,7 +6015,7 @@ Please pay by: ${formattedLastDate}`;
         if (!mId || !pId) return false;
         const target = (members || []).find((x) => x.memberId === mId);
         const beforeRows = normalizeMemberPaymentHistory(target);
-        const removed = beforeRows.find((x) => String(x.id) === pId);
+        const removed = beforeRows.find((x) => paymentRowMatchesId(x, mId, pId));
         if (!removed) return false;
         setPaymentDeletePrompt({
           open: true,
@@ -6743,7 +6859,7 @@ Please pay by: ${formattedLastDate}`;
             membersView={membersView}
             setMembersView={setMembersView}
           />
-          <main className="flex-1 overflow-y-auto pt-[112px] md:pt-0 pb-28 md:pb-0 w-full bg-[#F8FAFC] md:bg-transparent">
+          <main className="apg-main-scroll flex-1 overflow-y-auto pt-[112px] md:pt-0 pb-28 md:pb-0 w-full bg-[#F8FAFC] md:bg-transparent">
             {openedFromFileProtocol && (
               <div className="mx-3 mt-3 md:mx-8 md:mt-6 rounded-xl border border-amber-300 bg-amber-50 px-3 py-2 text-xs md:text-sm text-amber-900">
                 File mode detected (`file://`). Backend sync and shared data may not work here. Open
@@ -7180,6 +7296,8 @@ Please pay by: ${formattedLastDate}`;
                 gymCodes={gymCodes}
                 refreshGymCodes={refreshGymCodes}
                 backendJson={backendJson}
+                dataSyncMode={dataSyncMode}
+                touchSettingsLookupGuard={touchSettingsLookupGuard}
                 onExport={exportData}
                 onImport={importData}
                 onResetFreshStart={resetDataToOwnerBaseline}
@@ -7538,17 +7656,20 @@ Please pay by: ${formattedLastDate}`;
                 <div className="flex justify-end gap-2">
                   <button
                     type="button"
+                    disabled={paymentDeleteBusy}
                     onClick={() => setPaymentDeletePrompt({ open: false, memberId: '', memberName: '', paymentId: '', amount: 0, paidAt: '' })}
-                    className="rounded-xl border border-slate-300 bg-white px-4 py-2 text-sm font-semibold text-slate-700"
+                    className="rounded-xl border border-slate-300 bg-white px-4 py-2 text-sm font-semibold text-slate-700 disabled:opacity-50"
                   >
                     Cancel
                   </button>
                   <button
                     type="button"
-                    onClick={confirmDeleteMemberPaymentEntry}
-                    className="rounded-xl border border-rose-300 bg-rose-50 px-4 py-2 text-sm font-semibold text-rose-700 hover:bg-rose-100"
+                    disabled={paymentDeleteBusy}
+                    onClick={() => { confirmDeleteMemberPaymentEntry(); }}
+                    className="rounded-xl border border-rose-300 bg-rose-50 px-4 py-2 text-sm font-semibold text-rose-700 hover:bg-rose-100 disabled:opacity-50"
+                    data-testid="confirm-delete-payment"
                   >
-                    Delete Payment
+                    {paymentDeleteBusy ? 'Deleting…' : 'Delete Payment'}
                   </button>
                 </div>
               </div>
@@ -7899,8 +8020,8 @@ Please pay by: ${formattedLastDate}`;
                   <h3 className="text-lg font-semibold text-slate-900">Add Expense</h3>
                   <button onClick={() => setQuickExpenseOpen(false)} className="rounded-xl p-2 text-slate-500 hover:bg-slate-100">✕</button>
                 </div>
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                  <div>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                  <div className="min-w-0">
                     <label className="text-xs font-semibold text-slate-600">Date</label>
                     <input
                       type="date"
@@ -7909,7 +8030,7 @@ Please pay by: ${formattedLastDate}`;
                       className="mt-1 w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm"
                     />
                   </div>
-                  <div>
+                  <div className="min-w-0">
                     <label className="text-xs font-semibold text-slate-600">Amount</label>
                     <input
                       type="number"
@@ -7918,7 +8039,7 @@ Please pay by: ${formattedLastDate}`;
                       value={quickExpenseDraft.amount}
                       onChange={(e) => setQuickExpenseDraft((p) => ({ ...p, amount: e.target.value }))}
                       placeholder="Enter amount"
-                      className="mt-1 w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm"
+                      className="mt-1 w-full min-w-0 rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm"
                     />
                   </div>
                 </div>
@@ -7927,7 +8048,7 @@ Please pay by: ${formattedLastDate}`;
                   <select
                     value={quickExpenseDraft.category}
                     onChange={(e) => setQuickExpenseDraft((p) => ({ ...p, category: e.target.value }))}
-                    className="mt-1 w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm"
+                    className="mt-1 w-full min-w-0 rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm"
                   >
                     {expenseCategories.map((cat) => (
                       <option key={cat} value={cat}>{cat}</option>
@@ -10701,6 +10822,7 @@ function DashboardView({ members, memberSyncPending = {}, onEdit, onStatusChange
       }, [members, applyFilters]);
       const winbackCount = grouped.Deactivated.length;
       const [metricModal, setMetricModal] = React.useState('');
+      useAppScrollLock(Boolean(metricModal));
       const [modalSearch, setModalSearch] = React.useState('');
       const [modalAppliedSearch, setModalAppliedSearch] = React.useState('');
       const [modalSortField, setModalSortField] = React.useState('name');
@@ -11948,7 +12070,7 @@ function EditMemberModal({ member, onClose, onSave, planOptions, statusOptions, 
                 <div className="text-sm font-semibold text-slate-700">Visitor Details</div>
               </div>
             </div>
-            <div className="p-5 grid grid-cols-1 md:grid-cols-2 gap-3">
+            <div className="p-5 grid grid-cols-1 lg:grid-cols-2 gap-3">
               <div className="md:col-span-2">
                 <label className="text-sm font-medium">Full Name*</label>
                 <input value={form.fullName} onBlur={() => setTouched((p) => ({ ...p, fullName: true }))} onChange={(e) => setForm((p) => ({ ...p, fullName: e.target.value }))} className={inputCls('fullName')} />
@@ -12746,8 +12868,8 @@ function EditMemberModal({ member, onClose, onSave, planOptions, statusOptions, 
                 </div>
               )}
               {step === 1 && (
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 sm:gap-4">
-                  <div>
+                <div className="grid grid-cols-1 lg:grid-cols-2 gap-3 sm:gap-4">
+                  <div className="min-w-0">
                     <label className="text-sm font-medium">Form Number{reqMark}</label>
                     <input
                       id="add-member-formNo"
@@ -14095,13 +14217,13 @@ function PTClientsPage({ members, users, settings, updateSetting, currentUser, a
               <h3 className="text-base font-semibold text-slate-900 dark:text-slate-100">Create Leave Request</h3>
               {formError && <div className="rounded-xl border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-700">{formError}</div>}
               {formSuccess && <div className="rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-700">{formSuccess}</div>}
-              <div className="grid grid-cols-1 md:grid-cols-5 gap-3">
-                <div><label className="text-xs text-slate-500 dark:text-slate-300">Staff</label><select value={form.userId} onChange={(e) => setForm(v => ({ ...v, userId: e.target.value }))} className="mt-1 w-full rounded-xl border border-slate-300 px-3 py-2 text-sm bg-white text-slate-900 dark:bg-slate-800 dark:text-slate-100 dark:border-slate-600">{staff.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}</select></div>
-                <div><label className="text-xs text-slate-500 dark:text-slate-300">Type</label><select value={form.type} onChange={(e) => setForm(v => ({ ...v, type: e.target.value }))} className="mt-1 w-full rounded-xl border border-slate-300 px-3 py-2 text-sm bg-white text-slate-900 dark:bg-slate-800 dark:text-slate-100 dark:border-slate-600"><option>Casual</option><option>Sick</option><option>Emergency</option><option>Unpaid</option></select></div>
-                <div><label className="text-xs text-slate-500 dark:text-slate-300">Start</label><input type="date" value={form.startDate} onChange={(e) => setForm(v => ({ ...v, startDate: e.target.value }))} className="mt-1 w-full rounded-xl border border-slate-300 px-3 py-2 text-sm bg-white text-slate-900 dark:bg-slate-800 dark:text-slate-100 dark:border-slate-600" /></div>
-                <div><label className="text-xs text-slate-500 dark:text-slate-300">End</label><input type="date" value={form.endDate} onChange={(e) => setForm(v => ({ ...v, endDate: e.target.value }))} className="mt-1 w-full rounded-xl border border-slate-300 px-3 py-2 text-sm bg-white text-slate-900 dark:bg-slate-800 dark:text-slate-100 dark:border-slate-600" /></div>
-                <div className="md:self-end"><button onClick={submitLeave} className="w-full rounded-full bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700">Submit</button></div>
-                <div className="md:col-span-5"><input value={form.reason} onChange={(e) => setForm(v => ({ ...v, reason: e.target.value }))} placeholder="Reason for leave request" className="w-full rounded-xl border border-slate-300 px-3 py-2 text-sm bg-white text-slate-900 placeholder:text-slate-400 dark:bg-slate-800 dark:text-slate-100 dark:placeholder:text-slate-400 dark:border-slate-600" /></div>
+              <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-5 gap-3">
+                <div className="min-w-0"><label className="text-xs text-slate-500 dark:text-slate-300">Staff</label><select value={form.userId} onChange={(e) => setForm(v => ({ ...v, userId: e.target.value }))} className="mt-1 w-full min-w-0 rounded-xl border border-slate-300 px-3 py-2 text-sm bg-white text-slate-900 dark:bg-slate-800 dark:text-slate-100 dark:border-slate-600">{staff.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}</select></div>
+                <div className="min-w-0"><label className="text-xs text-slate-500 dark:text-slate-300">Type</label><select value={form.type} onChange={(e) => setForm(v => ({ ...v, type: e.target.value }))} className="mt-1 w-full min-w-0 rounded-xl border border-slate-300 px-3 py-2 text-sm bg-white text-slate-900 dark:bg-slate-800 dark:text-slate-100 dark:border-slate-600"><option>Casual</option><option>Sick</option><option>Emergency</option><option>Unpaid</option></select></div>
+                <div className="min-w-0"><label className="text-xs text-slate-500 dark:text-slate-300">Start</label><input type="date" value={form.startDate} onChange={(e) => setForm(v => ({ ...v, startDate: e.target.value }))} className="mt-1 w-full min-w-0 rounded-xl border border-slate-300 px-3 py-2 text-sm bg-white text-slate-900 dark:bg-slate-800 dark:text-slate-100 dark:border-slate-600" /></div>
+                <div className="min-w-0"><label className="text-xs text-slate-500 dark:text-slate-300">End</label><input type="date" value={form.endDate} onChange={(e) => setForm(v => ({ ...v, endDate: e.target.value }))} className="mt-1 w-full min-w-0 rounded-xl border border-slate-300 px-3 py-2 text-sm bg-white text-slate-900 dark:bg-slate-800 dark:text-slate-100 dark:border-slate-600" /></div>
+                <div className="sm:col-span-2 xl:col-span-1 xl:self-end min-w-0"><button type="button" onClick={submitLeave} className="w-full rounded-full bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700">Submit</button></div>
+                <div className="sm:col-span-2 xl:col-span-5 min-w-0"><input value={form.reason} onChange={(e) => setForm(v => ({ ...v, reason: e.target.value }))} placeholder="Reason for leave request" className="w-full min-w-0 rounded-xl border border-slate-300 px-3 py-2 text-sm bg-white text-slate-900 placeholder:text-slate-400 dark:bg-slate-800 dark:text-slate-100 dark:placeholder:text-slate-400 dark:border-slate-600" /></div>
               </div>
             </div>
             )}
@@ -14226,8 +14348,13 @@ function PTClientsPage({ members, users, settings, updateSetting, currentUser, a
       };
 
     // ---- Settings Page ----
-    function SettingsPage({ settings, updateSetting, members, users = [], access, storageInfo, backendStorageInfo, dataSyncMode, offlineQueueCount = 0, canResetFreshStart = false, availableBackups = [], onExport, onImport, onResetFreshStart, onRestoreFromBackup, onDeleteBackup, onDeleteBackupsOlderThan, onKeepLatestBackups, currentUser = null, gymCodes = [], refreshGymCodes = () => {}, backendJson = null }) {
-      const [newValues, setNewValues] = React.useState({ plans: '', statuses: '', paymentMethods: '', holdDurations: '', genders: '' });
+    function SettingsPage({ settings, updateSetting, members, users = [], access, storageInfo, backendStorageInfo, dataSyncMode, offlineQueueCount = 0, canResetFreshStart = false, availableBackups = [], onExport, onImport, onResetFreshStart, onRestoreFromBackup, onDeleteBackup, onDeleteBackupsOlderThan, onKeepLatestBackups, currentUser = null, gymCodes = [], refreshGymCodes = () => {}, backendJson = null, touchSettingsLookupGuard = () => {} }) {
+      const [newValues, setNewValues] = React.useState({
+        plans: '', statuses: '', paymentMethods: '', holdDurations: '', genders: '',
+        expenseCategories: '', exerciseTypes: '',
+      });
+      const [lookupBusyKey, setLookupBusyKey] = React.useState('');
+      const [lookupError, setLookupError] = React.useState('');
       const [openSettingKey, setOpenSettingKey] = React.useState('');
       const importRef = React.useRef(null);
       // Gym Codes (multi-tenant branches) — owner only.
@@ -14340,25 +14467,77 @@ function PTClientsPage({ members, users, settings, updateSetting, currentUser, a
         applyTelemetry();
         return () => window.removeEventListener('apg:module-loader', onTelemetry);
       }, []);
-      const handleAdd = (key) => {
-        const val = newValues[key].trim();
+      const persistLookupMutation = async (key, mutateLocal, { apiCall, buildNextSettings }) => {
+        touchSettingsLookupGuard(10000);
+        if (dataSyncMode === 'backend' && backendJson && isOwnerForCodes) {
+          setLookupBusyKey(key);
+          setLookupError('');
+          try {
+            await apiCall();
+            mutateLocal();
+            touchSettingsLookupGuard(6000);
+          } catch (err) {
+            const status = Number(err?.status || 0);
+            if (status === 404 && typeof buildNextSettings === 'function') {
+              try {
+                await backendJson('/settings/bulk', {
+                  method: 'PUT',
+                  body: JSON.stringify({ settings: buildNextSettings() }),
+                });
+                mutateLocal();
+                touchSettingsLookupGuard(6000);
+              } catch (bulkErr) {
+                setLookupError(
+                  'Settings API not found (404). Restart the backend (Backend tab → Restart), then try again. '
+                  + String(bulkErr?.message || bulkErr || ''),
+                );
+              }
+            } else {
+              setLookupError(String(err?.message || err || 'Failed to save setting.'));
+            }
+          } finally {
+            setLookupBusyKey('');
+          }
+          return;
+        }
+        mutateLocal();
+      };
+      const handleAdd = async (key) => {
+        const val = String(newValues[key] || '').trim();
         if (!val) return;
         const currentValues = Array.isArray(settings[key]) ? settings[key] : [];
         if (currentValues.includes(val)) {
-          setNewValues(v => ({ ...v, [key]: '' }));
+          setNewValues((v) => ({ ...v, [key]: '' }));
           return;
         }
-        updateSetting(key, [...currentValues, val]);
-        setNewValues(v => ({ ...v, [key]: '' }));
+        const nextList = [...currentValues, val];
+        await persistLookupMutation(
+          key,
+          () => {
+            updateSetting(key, nextList);
+            setNewValues((v) => ({ ...v, [key]: '' }));
+          },
+          {
+            apiCall: () => backendJson('/settings/lookups', { method: 'POST', body: JSON.stringify({ category: key, value: val }) }),
+            buildNextSettings: () => ({ ...settings, [key]: nextList }),
+          },
+        );
       };
-      const removeOpt = (key, val) => {
-        // Prevent deletion if any member uses this value
-        if (key === 'plans' && members.some(m => m.plan === val)) return;
-        if (key === 'statuses' && members.some(m => m.status === val)) return;
-        if (key === 'holdDurations' && members.some(m => m.holdDuration === val)) return;
-        if (key === 'paymentMethods' && members.some(m => m.paymentMethod === val)) return;
+      const removeOpt = async (key, val) => {
+        if (key === 'plans' && members.some((m) => m.plan === val)) return;
+        if (key === 'statuses' && members.some((m) => m.status === val)) return;
+        if (key === 'holdDurations' && members.some((m) => m.holdDuration === val)) return;
+        if (key === 'paymentMethods' && members.some((m) => m.paymentMethod === val)) return;
         const currentValues = Array.isArray(settings[key]) ? settings[key] : [];
-        updateSetting(key, currentValues.filter(x => x !== val));
+        const nextList = currentValues.filter((x) => x !== val);
+        await persistLookupMutation(
+          key,
+          () => updateSetting(key, nextList),
+          {
+            apiCall: () => backendJson('/settings/lookups', { method: 'DELETE', body: JSON.stringify({ category: key, value: val }) }),
+            buildNextSettings: () => ({ ...settings, [key]: nextList }),
+          },
+        );
       };
       const settingsAccess = normalizeAccess(access).settings;
       const fineImmediateRoleOptions = React.useMemo(() => {
@@ -14380,6 +14559,9 @@ function PTClientsPage({ members, users, settings, updateSetting, currentUser, a
       ].filter(x => x.allowed);
       return (
         <div className="p-3 md:p-8 space-y-6">
+          {lookupError && (
+            <div className="rounded-xl border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-700" data-testid="settings-lookup-error">{lookupError}</div>
+          )}
           <div className="flex items-center justify-between gap-2">
             <h1 className="text-xl md:text-2xl font-semibold text-slate-900 mb-4">Settings</h1>
             <span
@@ -14762,7 +14944,7 @@ function PTClientsPage({ members, users, settings, updateSetting, currentUser, a
             const isOpen = openSettingKey === key;
             const values = Array.isArray(settings[key]) ? settings[key] : [];
             return (
-              <div key={key} className="rounded-3xl bg-white p-4 shadow-sm space-y-3">
+              <div key={key} className="rounded-3xl bg-white p-4 shadow-sm space-y-3" data-testid={`settings-panel-${key}`}>
                 <button
                   type="button"
                   onClick={() => setOpenSettingKey((prev) => (prev === key ? '' : key))}
@@ -14785,8 +14967,8 @@ function PTClientsPage({ members, users, settings, updateSetting, currentUser, a
                       ))}
                     </div>
                     <div className="flex items-center gap-2">
-                      <input value={newValues[key]} onChange={(e) => setNewValues(nv => ({ ...nv, [key]: e.target.value }))} placeholder={`Enter new ${key.slice(0,-1)}`} className="flex-1 rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 placeholder:text-slate-500" />
-                      <button onClick={() => handleAdd(key)} className="rounded-full px-4 py-2 text-sm font-medium bg-blue-600 hover:bg-blue-700 text-white">Add</button>
+                      <input value={newValues[key] || ''} onChange={(e) => setNewValues(nv => ({ ...nv, [key]: e.target.value }))} placeholder={`Enter new ${key.slice(0,-1)}`} className="flex-1 min-w-0 rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 placeholder:text-slate-500" data-testid={`settings-input-${key}`} />
+                      <button type="button" disabled={lookupBusyKey === key} onClick={() => handleAdd(key)} className="rounded-full px-4 py-2 text-sm font-medium bg-blue-600 hover:bg-blue-700 text-white disabled:opacity-50" data-testid={`settings-add-${key}`}>Add</button>
                     </div>
                   </>
                 )}
@@ -16719,17 +16901,17 @@ function PTClientsPage({ members, users, settings, updateSetting, currentUser, a
             </button>
           </div>
           {showExpenseForm && canFinanceManageExpenses && (
-            <div className="rounded-2xl border border-rose-200 bg-white p-4 shadow-sm grid grid-cols-1 md:grid-cols-5 gap-3 dark:border-rose-700 dark:bg-slate-900">
-              <div><label className="text-xs text-slate-500">Date</label><input type="date" value={expenseDraft.date} onChange={(e) => setExpenseDraft(v => ({ ...v, date: e.target.value }))} className="mt-1 w-full rounded-xl border border-slate-300 px-3 py-2 text-sm text-slate-900" /></div>
-              <div>
+            <div className="rounded-2xl border border-rose-200 bg-white p-4 shadow-sm grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-5 gap-3 dark:border-rose-700 dark:bg-slate-900">
+              <div className="min-w-0"><label className="text-xs text-slate-500">Date</label><input type="date" value={expenseDraft.date} onChange={(e) => setExpenseDraft(v => ({ ...v, date: e.target.value }))} className="mt-1 w-full min-w-0 rounded-xl border border-slate-300 px-3 py-2 text-sm text-slate-900" /></div>
+              <div className="min-w-0">
                 <label className="text-xs text-slate-500">Category</label>
-                <select value={expenseDraft.category} onChange={(e) => setExpenseDraft(v => ({ ...v, category: e.target.value }))} className="mt-1 w-full rounded-xl border border-slate-300 px-3 py-2 text-sm text-slate-900">
+                <select value={expenseDraft.category} onChange={(e) => setExpenseDraft(v => ({ ...v, category: e.target.value }))} className="mt-1 w-full min-w-0 rounded-xl border border-slate-300 px-3 py-2 text-sm text-slate-900">
                   {expenseCategories.map((cat) => <option key={cat} value={cat}>{cat}</option>)}
                 </select>
               </div>
-              <div><label className="text-xs text-slate-500">Amount</label><input type="number" min="0" value={expenseDraft.amount} onChange={(e) => setExpenseDraft(v => ({ ...v, amount: e.target.value }))} className="mt-1 w-full rounded-xl border border-slate-300 px-3 py-2 text-sm text-slate-900" /></div>
-              <div className="md:col-span-2"><label className="text-xs text-slate-500">Note *</label><input value={expenseDraft.note} onChange={(e) => setExpenseDraft(v => ({ ...v, note: e.target.value }))} className="mt-1 w-full rounded-xl border border-slate-300 px-3 py-2 text-sm text-slate-900 placeholder:text-slate-500" placeholder="Expense note is mandatory" /></div>
-              <div className="md:col-span-5 flex justify-end"><button onClick={addExpenseRow} className="rounded-full bg-rose-600 px-4 py-2 text-sm font-medium text-white hover:bg-rose-700">Save Expense</button></div>
+              <div className="min-w-0"><label className="text-xs text-slate-500">Amount</label><input type="number" min="0" value={expenseDraft.amount} onChange={(e) => setExpenseDraft(v => ({ ...v, amount: e.target.value }))} className="mt-1 w-full min-w-0 rounded-xl border border-slate-300 px-3 py-2 text-sm text-slate-900" /></div>
+              <div className="sm:col-span-2 xl:col-span-2 min-w-0"><label className="text-xs text-slate-500">Note *</label><input value={expenseDraft.note} onChange={(e) => setExpenseDraft(v => ({ ...v, note: e.target.value }))} className="mt-1 w-full min-w-0 rounded-xl border border-slate-300 px-3 py-2 text-sm text-slate-900 placeholder:text-slate-500" placeholder="Expense note is mandatory" /></div>
+              <div className="sm:col-span-2 xl:col-span-5 flex justify-end"><button type="button" onClick={addExpenseRow} className="rounded-full bg-rose-600 px-4 py-2 text-sm font-medium text-white hover:bg-rose-700">Save Expense</button></div>
             </div>
           )}
 

@@ -5,6 +5,17 @@
   intentionally remains minimal.
 */
 
+/* Lock document + luxury main scroll pane while any modal is open */
+html.apg-scroll-lock,
+html.apg-scroll-lock body {
+  overflow: hidden !important;
+  overscroll-behavior: none;
+}
+html.apg-scroll-lock .apg-main-scroll {
+  overflow: hidden !important;
+  overscroll-behavior: none;
+}
+
 /* Modal / pop-up backdrop: ~50% soft depth blur + dark tint (unmount removes GPU layer) */
 .apg-modal-backdrop {
   background-color: rgba(0, 0, 0, 0.4);

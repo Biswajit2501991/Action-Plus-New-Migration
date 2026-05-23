@@ -9,6 +9,15 @@ export function toDate(value, { required = false } = {}) {
   return s.length >= 10 ? s.slice(0, 10) : s;
 }
 
+/** Payment billing_date: never persist epoch placeholder when paidAt is known. */
+export function paymentBillingDate(p) {
+  const direct = toDate(p?.billingDate);
+  if (direct && direct !== '1970-01-01') return direct;
+  const paid = toTs(p?.paidAt || p?.receivedAt || p?.date || p?.ts);
+  if (paid) return paid.slice(0, 10);
+  return null;
+}
+
 export function toTs(value) {
   const s = String(value || '').trim();
   if (!s) return null;

@@ -24,7 +24,8 @@ import { invalidateStaffAccessCache } from '../../auth/accessControl.js';
 import { hashPassword } from '../../auth/passwords.js';
 import { syncGymRowsByExternalId, syncMemberChildRows } from './collectionSync.js';
 import { bulkUpsertMemberRows, membersBulkUpsertReady } from './membersWrite.js';
-import { chunk, emptyText, fetchAll, toDate, toTs } from './utils.js';
+import { chunk, emptyText, fetchAll, paymentBillingDate, toDate, toTs } from './utils.js';
+import { paymentRowMatchesId } from './paymentIds.js';
 
 const KEY_MEMBERS = 'apg.members';
 const KEY_USERS = 'apg.users';
@@ -91,6 +92,88 @@ async function loadMemberChildren(sb, gid, memberIds) {
   }
 
   return { paymentsByMember, messagesByMember, attachmentsByMember, injuryByMember };
+}
+
+async function readMemberByCode(memberCode, branchScope = null) {
+  const sb = getSupabase();
+  const gid = gymId();
+  const code = String(memberCode || '').trim();
+  if (!code) return null;
+  let q = sb.from(T.members).select('*').eq('gym_id', gid).eq('member_code', code);
+  if (branchScope && branchScope.gymCodeId) {
+    q = q.eq('assigned_gym_code_id', branchScope.gymCodeId);
+  }
+  const { data: rows, error } = await q.order('updated_at', { ascending: false }).limit(1);
+  if (error) throw new Error(`member lookup: ${error.message}`);
+  const row = Array.isArray(rows) && rows.length ? rows[0] : null;
+  if (!row) return null;
+  const children = await loadMemberChildren(sb, gid, [row.id]);
+  return memberRowToApp(row, {
+    payments: children.paymentsByMember.get(row.id) || [],
+    messages: children.messagesByMember.get(row.id) || [],
+    attachments: children.attachmentsByMember.get(row.id) || [],
+    injuryNotes: children.injuryByMember.get(row.id) || [],
+  });
+}
+
+/**
+ * Surgical payment-row delete — syncs member_payment_history for one member only.
+ * Returns 404 when no row matches paymentId (stable sig: or external id).
+ */
+export async function deleteMemberPayment(memberCode, paymentId, branchScope = null) {
+  const code = String(memberCode || '').trim();
+  const pid = String(paymentId || '').trim();
+  if (!code || !pid) {
+    const err = new Error('member-code-and-payment-id-required');
+    err.status = 400;
+    throw err;
+  }
+
+  const member = await readMemberByCode(code, branchScope);
+  if (!member) {
+    const err = new Error('member-not-found');
+    err.status = 404;
+    throw err;
+  }
+
+  const before = Array.isArray(member.paymentHistory) ? member.paymentHistory : [];
+  const removed = before.find((p) => paymentRowMatchesId(p, code, pid));
+  if (!removed) {
+    const err = new Error('payment-not-found');
+    err.status = 404;
+    throw err;
+  }
+
+  const after = before.filter((p) => !paymentRowMatchesId(p, code, pid));
+  const sb = getSupabase();
+  const gid = gymId();
+  const { data: memberRow, error: rowErr } = await sb
+    .from(T.members)
+    .select('id')
+    .eq('gym_id', gid)
+    .eq('member_code', code)
+    .order('updated_at', { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  if (rowErr) throw new Error(`member pk lookup: ${rowErr.message}`);
+  if (!memberRow?.id) {
+    const err = new Error('member-not-found');
+    err.status = 404;
+    throw err;
+  }
+
+  const { payRows } = buildMemberChildRows({ memberId: code, paymentHistory: after }, gid, memberRow.id);
+  await syncMemberChildRows(sb, T.member_payment_history, {
+    gymId: gid,
+    memberId: memberRow.id,
+    externalIdColumn: 'external_payment_id',
+    rows: payRows,
+    onConflict: 'gym_id,member_id,external_payment_id',
+  });
+
+  notifyCollectionChange('members');
+  const refreshed = await readMemberByCode(code, branchScope);
+  return { ok: true, deleted: true, paymentId: pid, member: refreshed };
 }
 
 async function readMembers(scope, branchScope = null) {
@@ -302,7 +385,7 @@ function buildMemberChildRows(m, gid, memberPk) {
       amount: Number(p.amount || 0),
       method: emptyText(p.method || p.paymentMethod),
       billing_month: emptyText(p.billingMonth),
-      billing_date: toDate(p.billingDate, { required: true }),
+      billing_date: paymentBillingDate(p),
       recorded_by: emptyText(p.recordedBy || p.by),
       source: emptyText(p.source),
       note: emptyText(p.note),
@@ -698,31 +781,140 @@ async function readSettingsSandbox(sandboxId) {
   return {};
 }
 
+function resolveLookupCategory(categoryOrKey) {
+  const raw = String(categoryOrKey || '').trim();
+  if (!raw) return null;
+  const row = LOOKUP_CATEGORIES.find(([k, c]) => k === raw || c === raw);
+  return row ? { key: row[0], category: row[1] } : null;
+}
+
+/** Diff-based lookup sync — inserts missing values and deletes removed ones only. */
+async function syncLookupValues(sb, gid, settings) {
+  const s = settings && typeof settings === 'object' ? settings : {};
+  const existing = await fetchAll((from, to) =>
+    sb.from(T.settings_lookup_values).select('id, category, value, sort_order, is_active').eq('gym_id', gid).range(from, to),
+  );
+  const active = (existing || []).filter((r) => r.is_active !== false);
+  const toDeleteIds = [];
+  const toInsert = [];
+
+  for (const [key, category] of LOOKUP_CATEGORIES) {
+    const wantList = (Array.isArray(s[key]) ? s[key] : [])
+      .map((v) => String(v || '').trim())
+      .filter(Boolean);
+    const wantSet = new Set(wantList);
+    const have = active.filter((r) => r.category === category);
+    const haveByValue = new Map(have.map((r) => [String(r.value || '').trim(), r]));
+    for (const row of have) {
+      const val = String(row.value || '').trim();
+      if (!wantSet.has(val)) toDeleteIds.push(row.id);
+    }
+    let sortBase = have.reduce((max, r) => Math.max(max, Number(r.sort_order || 0)), -1) + 1;
+    wantList.forEach((value, idx) => {
+      if (!haveByValue.has(value)) {
+        toInsert.push({
+          gym_id: gid,
+          category,
+          value,
+          sort_order: sortBase + idx,
+          is_active: true,
+        });
+      }
+    });
+  }
+
+  for (const part of chunk(toDeleteIds, 80)) {
+    if (part.length) await sb.from(T.settings_lookup_values).delete().in('id', part);
+  }
+  for (const part of chunk(toInsert, 80)) {
+    if (part.length) await sb.from(T.settings_lookup_values).insert(part);
+  }
+}
+
+/**
+ * Surgical single-value insert for settings lookup lists (plans, statuses, etc.).
+ * Owner-gated at the route layer.
+ */
+export async function addSettingsLookupValue(_scope, { category, value }) {
+  const resolved = resolveLookupCategory(category);
+  if (!resolved) throw new Error('invalid_lookup_category');
+  const val = String(value || '').trim();
+  if (!val || val.length > 120) throw new Error('invalid_lookup_value');
+
+  const sb = getSupabase();
+  const gid = gymId();
+  const { data: dup } = await sb
+    .from(T.settings_lookup_values)
+    .select('id')
+    .eq('gym_id', gid)
+    .eq('category', resolved.category)
+    .eq('value', val)
+    .eq('is_active', true)
+    .maybeSingle();
+  if (dup?.id) {
+    return { ok: true, category: resolved.key, value: val, duplicate: true };
+  }
+
+  const rows = await fetchAll((from, to) =>
+    sb
+      .from(T.settings_lookup_values)
+      .select('sort_order')
+      .eq('gym_id', gid)
+      .eq('category', resolved.category)
+      .order('sort_order', { ascending: false })
+      .limit(1)
+      .range(from, to),
+  );
+  const nextSort = rows.length ? Number(rows[0].sort_order || 0) + 1 : 0;
+  const { error } = await sb.from(T.settings_lookup_values).insert({
+    gym_id: gid,
+    category: resolved.category,
+    value: val,
+    sort_order: nextSort,
+    is_active: true,
+  });
+  if (error) throw error;
+  notifyCollectionChange('settings');
+  return { ok: true, category: resolved.key, value: val };
+}
+
+/**
+ * Surgical single-value delete for settings lookup lists.
+ */
+export async function deleteSettingsLookupValue(_scope, { category, value }) {
+  const resolved = resolveLookupCategory(category);
+  if (!resolved) throw new Error('invalid_lookup_category');
+  const val = String(value || '').trim();
+  if (!val) throw new Error('invalid_lookup_value');
+
+  const sb = getSupabase();
+  const gid = gymId();
+  const { data, error } = await sb
+    .from(T.settings_lookup_values)
+    .delete()
+    .eq('gym_id', gid)
+    .eq('category', resolved.category)
+    .eq('value', val)
+    .select('id');
+  if (error) throw error;
+  notifyCollectionChange('settings');
+  return { ok: true, category: resolved.key, value: val, deleted: (data || []).length };
+}
+
 async function writeSettings(settings, scope) {
   if (scope) return;
   const sb = getSupabase();
   const gid = gymId();
-  const s = settings && typeof settings === 'object' ? settings : {};
+  const existing = await readSettings(scope);
+  const s = settings && typeof settings === 'object' ? { ...settings } : {};
+  // Partial bulk payloads must not wipe lookup arrays that were omitted from the body.
+  for (const [key] of LOOKUP_CATEGORIES) {
+    if (!Array.isArray(s[key]) && Array.isArray(existing?.[key])) {
+      s[key] = existing[key];
+    }
+  }
 
-  await sb.from(T.settings_lookup_values).delete().eq('gym_id', gid);
-  const lookupRows = [];
-  let sort = 0;
-  for (const [key, category] of LOOKUP_CATEGORIES) {
-    const values = Array.isArray(s[key]) ? s[key] : [];
-    values.forEach((value, idx) => {
-      lookupRows.push({
-        gym_id: gid,
-        category,
-        value: String(value),
-        sort_order: sort + idx,
-        is_active: true,
-      });
-    });
-    sort += values.length;
-  }
-  for (const part of chunk(lookupRows, 80)) {
-    if (part.length) await sb.from(T.settings_lookup_values).insert(part);
-  }
+  await syncLookupValues(sb, gid, s);
 
   await sb.from(T.settings_templates).delete().eq('gym_id', gid);
   const sms = s.smsTemplates && typeof s.smsTemplates === 'object' ? s.smsTemplates : {};

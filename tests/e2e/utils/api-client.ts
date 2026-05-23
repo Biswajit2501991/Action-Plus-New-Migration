@@ -201,6 +201,28 @@ export async function getSettings(token: string): Promise<Record<string, unknown
   return apiJson('/api/settings', token);
 }
 
+export async function addSettingsLookup(
+  token: string,
+  category: string,
+  value: string,
+): Promise<{ ok: boolean; category: string; value: string }> {
+  return apiJson('/api/settings/lookups', token, {
+    method: 'POST',
+    body: JSON.stringify({ category, value }),
+  });
+}
+
+export async function deleteSettingsLookup(
+  token: string,
+  category: string,
+  value: string,
+): Promise<{ ok: boolean; category: string; value: string; deleted?: number }> {
+  return apiJson('/api/settings/lookups', token, {
+    method: 'DELETE',
+    body: JSON.stringify({ category, value }),
+  });
+}
+
 // ----------------------------------------------------------------------------
 // Phase 1 bulk delete + WhatsApp template endpoints. All cleanup routes are
 // owner-only at the server (requireOwner middleware). Helpers return the

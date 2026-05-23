@@ -29,6 +29,9 @@ import {
   appendAuditLogEntry,
   deleteLogsInRange,
   deleteStaffUsers,
+  addSettingsLookup,
+  deleteSettingsLookup,
+  deleteMemberPayment,
 } from './db/dataStore.js';
 import { addSseClient, sseClientCount } from './realtime/hub.js';
 import {
@@ -611,6 +614,38 @@ app.patch('/api/members/:memberId', requireAccess(Access.membersWrite), async (r
   }
 });
 
+/**
+ * Owner-only surgical payment delete. Persists to member_payment_history immediately
+ * (no debounced full-members bulk). Returns 404 when the row is not found after DB sync.
+ */
+app.delete('/api/members/:memberId/payments/:paymentId', requireOwner, async (req, res) => {
+  const memberCode = String(req.params.memberId || '').trim();
+  const paymentId = decodeURIComponent(String(req.params.paymentId || '').trim());
+  if (!memberCode || !paymentId) {
+    return res.status(400).json({ error: 'member-code-and-payment-id-required', deleted: false });
+  }
+  const branchScope = buildBranchScope(req);
+  try {
+    const result = await deleteMemberPayment(memberCode, paymentId, branchScope);
+    await appendAuditLog(req, {
+      action: 'member.payment.deleted',
+      entityType: 'member',
+      entityId: memberCode,
+      after: { paymentId, deleted: true },
+    });
+    queueDatabaseBackup('member-payment-delete');
+    return res.status(200).json(result);
+  } catch (err) {
+    const status = err?.status || 500;
+    const deleted = status === 404 ? false : undefined;
+    return res.status(status).json({
+      error: err?.message || 'payment-delete-failed',
+      deleted: deleted ?? false,
+      detail: err?.detail || null,
+    });
+  }
+});
+
 app.get('/api/visitors', requireAccess(Access.visitorsRead), async (req, res) => {
   const visitors = await readBranchScopedCollection(req, 'apg.visitors', []);
   res.json(visitors);
@@ -723,6 +758,73 @@ app.put('/api/settings/bulk', requireOwner, async (req, res) => {
   await writeScopedSettings(req, req.body?.settings || {});
   queueDatabaseBackup('settings-bulk');
   res.json({ ok: true });
+});
+
+const SETTINGS_LOOKUP_KEYS = new Set([
+  'plans',
+  'statuses',
+  'paymentMethods',
+  'holdDurations',
+  'genders',
+  'expenseCategories',
+  'exerciseTypes',
+]);
+
+app.post('/api/settings/lookups', requireOwner, async (req, res) => {
+  try {
+    const category = String(req.body?.category || '').trim();
+    const value = String(req.body?.value || '').trim();
+    if (!SETTINGS_LOOKUP_KEYS.has(category)) {
+      return res.status(400).json({ error: 'invalid_category', message: 'Unknown lookup category' });
+    }
+    if (!value || value.length > 120) {
+      return res.status(400).json({ error: 'invalid_value', message: 'Lookup value is required (max 120 chars)' });
+    }
+    const saved = await addSettingsLookup(readSandboxScope(req), { category, value });
+    await appendAuditLog(req, {
+      action: 'settings.lookup.added',
+      entityType: 'settings_lookup',
+      entityId: `${category}:${value}`,
+      after: saved,
+    });
+    queueDatabaseBackup('settings-lookup-add');
+    return res.json(saved);
+  } catch (error) {
+    const msg = String(error?.message || error);
+    if (msg === 'invalid_lookup_category' || msg === 'invalid_lookup_value') {
+      return res.status(400).json({ error: msg });
+    }
+    return res.status(500).json({ error: 'settings_lookup_add_failed', message: msg });
+  }
+});
+
+app.delete('/api/settings/lookups', requireOwner, async (req, res) => {
+  try {
+    const category = String(req.body?.category || '').trim();
+    const value = String(req.body?.value || '').trim();
+    if (!SETTINGS_LOOKUP_KEYS.has(category)) {
+      return res.status(400).json({ error: 'invalid_category', message: 'Unknown lookup category' });
+    }
+    if (!value) {
+      return res.status(400).json({ error: 'invalid_value', message: 'Lookup value is required' });
+    }
+    const result = await deleteSettingsLookup(readSandboxScope(req), { category, value });
+    await appendAuditLog(req, {
+      action: 'settings.lookup.removed',
+      entityType: 'settings_lookup',
+      entityId: `${category}:${value}`,
+      before: { category, value },
+      after: result,
+    });
+    queueDatabaseBackup('settings-lookup-delete');
+    return res.json(result);
+  } catch (error) {
+    const msg = String(error?.message || error);
+    if (msg === 'invalid_lookup_category' || msg === 'invalid_lookup_value') {
+      return res.status(400).json({ error: msg });
+    }
+    return res.status(500).json({ error: 'settings_lookup_delete_failed', message: msg });
+  }
 });
 
 // ----------------------------------------------------------------------------

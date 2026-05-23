@@ -25,6 +25,29 @@ export async function readJsonCollection(key, fallback = [], scope = null, branc
   return sandboxed.filter((row) => String(row?.assignedGymCodeId || '') === String(branchScope.gymCodeId));
 }
 
+export async function deleteMemberPayment(memberCode, paymentId, branchScope = null) {
+  if (useSupabase()) return supabaseStore.deleteMemberPayment(memberCode, paymentId, branchScope);
+  const rows = await kvStore.readJsonCollection('apg.members', []);
+  const code = String(memberCode || '').trim();
+  const pid = String(paymentId || '').trim();
+  const idx = rows.findIndex((m) => String(m?.memberId || '').trim() === code);
+  if (idx === -1) {
+    const err = new Error('member-not-found');
+    err.status = 404;
+    throw err;
+  }
+  const hist = Array.isArray(rows[idx].paymentHistory) ? rows[idx].paymentHistory : [];
+  const after = hist.filter((p) => String(p?.id || '') !== pid);
+  if (after.length === hist.length) {
+    const err = new Error('payment-not-found');
+    err.status = 404;
+    throw err;
+  }
+  rows[idx] = { ...rows[idx], paymentHistory: after, updatedAt: new Date().toISOString() };
+  await kvStore.writeJsonCollection('apg.members', rows);
+  return { ok: true, deleted: true, paymentId: pid, member: rows[idx] };
+}
+
 export async function updateMember(memberCode, patch, branchScope = null) {
   if (useSupabase()) return supabaseStore.updateMemberFields(memberCode, patch, branchScope);
   const rows = await kvStore.readJsonCollection('apg.members', []);
@@ -297,6 +320,44 @@ export async function deleteStaffUsers(scope, ids = []) {
   const deleted = Array.from(removedSet);
   const skipped = wanted.filter((id) => !removedSet.has(id));
   return { deleted, skipped };
+}
+
+const SETTINGS_LOOKUP_KEYS = new Set([
+  'plans',
+  'statuses',
+  'paymentMethods',
+  'holdDurations',
+  'genders',
+  'expenseCategories',
+  'exerciseTypes',
+]);
+
+/** Surgical add of one settings lookup value (owner-only at the route layer). */
+export async function addSettingsLookup(scope, payload) {
+  const category = String(payload?.category || '').trim();
+  const value = String(payload?.value || '').trim();
+  if (!SETTINGS_LOOKUP_KEYS.has(category)) throw new Error('invalid_lookup_category');
+  if (!value) throw new Error('invalid_lookup_value');
+  if (useSupabase()) return supabaseStore.addSettingsLookupValue(scope, { category, value });
+  const settings = (await readJsonValue('apg.settings', {}, scope)) || {};
+  const list = Array.isArray(settings[category]) ? settings[category] : [];
+  if (!list.includes(value)) settings[category] = [...list, value];
+  await writeJsonValue('apg.settings', settings, scope);
+  return { ok: true, category, value };
+}
+
+/** Surgical delete of one settings lookup value (owner-only at the route layer). */
+export async function deleteSettingsLookup(scope, payload) {
+  const category = String(payload?.category || '').trim();
+  const value = String(payload?.value || '').trim();
+  if (!SETTINGS_LOOKUP_KEYS.has(category)) throw new Error('invalid_lookup_category');
+  if (!value) throw new Error('invalid_lookup_value');
+  if (useSupabase()) return supabaseStore.deleteSettingsLookupValue(scope, { category, value });
+  const settings = (await readJsonValue('apg.settings', {}, scope)) || {};
+  const list = Array.isArray(settings[category]) ? settings[category] : [];
+  settings[category] = list.filter((x) => x !== value);
+  await writeJsonValue('apg.settings', settings, scope);
+  return { ok: true, category, value, deleted: list.length - settings[category].length };
 }
 
 /** Surgical single-template save (owner-only at the route layer). */
