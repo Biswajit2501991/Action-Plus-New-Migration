@@ -4,6 +4,7 @@ import { initMembersTableName } from './tables.js';
 import * as kvStore from './kvStore.js';
 import { getSupabase } from './supabase/client.js';
 import { membersBulkUpsertReady } from './supabase/membersWrite.js';
+import { visitorsHaveGymCodeColumn } from './supabase/visitorsSchema.js';
 import * as supabaseStore from './supabase/repository.js';
 
 export function useSupabase() {
@@ -485,6 +486,7 @@ export async function pingDataStore() {
     const sb = getSupabase();
     await initMembersTableName(sb);
     await membersBulkUpsertReady();
+    await visitorsHaveGymCodeColumn(sb);
     return supabaseStore.ping();
   }
   await kvStore.readJsonCollection('apg.members', []);

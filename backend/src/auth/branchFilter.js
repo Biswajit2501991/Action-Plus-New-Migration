@@ -1,6 +1,7 @@
 import { T } from '../db/tables.js';
 import { gymId } from '../db/supabase/client.js';
 import { fetchAll } from '../db/supabase/utils.js';
+import { visitorsHaveGymCodeColumn } from '../db/supabase/visitorsSchema.js';
 
 export function authIsOwner(auth) {
   if (!auth) return false;
@@ -83,6 +84,7 @@ export async function loadBranchScope(sb, auth) {
   }
   const gid = gymId();
   const gymCodeId = String(auth.gymCodeId);
+  const visitorsGymCodeReady = await visitorsHaveGymCodeColumn(sb);
   const [memberRows, staffRows, visitorRows] = await Promise.all([
     fetchAll((from, to) =>
       sb.from(T.members).select('member_code').eq('gym_id', gid).eq('assigned_gym_code_id', gymCodeId).range(from, to),
@@ -90,9 +92,13 @@ export async function loadBranchScope(sb, auth) {
     fetchAll((from, to) =>
       sb.from(T.staff_users).select('staff_login_id').eq('gym_id', gid).eq('gym_code_id', gymCodeId).range(from, to),
     ),
-    fetchAll((from, to) =>
-      sb.from(T.visitors).select('external_visitor_id').eq('gym_id', gid).eq('assigned_gym_code_id', gymCodeId).range(from, to),
-    ),
+    visitorsGymCodeReady
+      ? fetchAll((from, to) =>
+        sb.from(T.visitors).select('external_visitor_id').eq('gym_id', gid).eq('assigned_gym_code_id', gymCodeId).range(from, to),
+      )
+      : fetchAll((from, to) =>
+        sb.from(T.visitors).select('external_visitor_id').eq('gym_id', gid).range(from, to),
+      ),
   ]);
   return {
     limited: true,

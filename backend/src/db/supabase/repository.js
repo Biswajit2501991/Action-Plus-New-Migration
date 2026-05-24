@@ -27,6 +27,7 @@ import { hashPassword } from '../../auth/passwords.js';
 import { syncGymRowsByExternalId, syncMemberChildRows } from './collectionSync.js';
 import { bulkUpsertMemberRows, membersBulkUpsertReady } from './membersWrite.js';
 import { chunk, emptyText, fetchAll, paymentBillingDate, toDate, toTs } from './utils.js';
+import { stripVisitorGymCodeColumn, visitorsHaveGymCodeColumn } from './visitorsSchema.js';
 import {
   paymentHistoryCanonicalDedupeKey,
   paymentRowMatchesId,
@@ -1304,9 +1305,10 @@ export async function patchPtClientProfile(memberCode, incomingProfile, meta = {
 async function readVisitors(scope, branchScope = null) {
   const sb = getSupabase();
   const gid = gymId();
+  const branchFilter = branchScope?.gymCodeId && await visitorsHaveGymCodeColumn(sb);
   const rows = await fetchAll((from, to) => {
     let q = sb.from(T.visitors).select('*').eq('gym_id', gid);
-    if (branchScope && branchScope.gymCodeId) {
+    if (branchFilter) {
       q = q.eq('assigned_gym_code_id', branchScope.gymCodeId);
     }
     return q.range(from, to);
@@ -1318,9 +1320,13 @@ async function writeVisitors(visitors, scope) {
   const sb = getSupabase();
   const gid = gymId();
   const incoming = sandboxFilter(Array.isArray(visitors) ? visitors : [], scope);
+  const includeGymCode = await visitorsHaveGymCodeColumn(sb);
   const rows = incoming
     .filter((v) => v?.id)
-    .map((v) => appVisitorToRow(v, gid));
+    .map((v) => {
+      const row = appVisitorToRow(v, gid);
+      return includeGymCode ? row : stripVisitorGymCodeColumn(row);
+    });
   await syncGymRowsByExternalId(sb, T.visitors, {
     gymId: gid,
     externalIdColumn: 'external_visitor_id',

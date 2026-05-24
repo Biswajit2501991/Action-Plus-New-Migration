@@ -12,6 +12,7 @@ import { isOriginAllowed } from './config/cors.js';
 import { query } from './db/adapter.js';
 import { membersTableName } from './db/tables.js';
 import { membersBulkUpsertReady } from './db/supabase/membersWrite.js';
+import { visitorsHaveGymCodeColumn } from './db/supabase/visitorsSchema.js';
 import {
   dataBackendLabel,
   pingDataStore,
@@ -390,6 +391,7 @@ async function healthPayload(extra = {}) {
     dataBackend: dataBackendLabel(),
     membersTable: useSupabase() ? membersTableName : null,
     membersBulkUpsert: useSupabase() ? await membersBulkUpsertReady() : null,
+    visitorsGymCodeColumn: useSupabase() ? await visitorsHaveGymCodeColumn(getSupabase()) : null,
     realtime: useSupabase() ? { ...realtimeListenerStatus(), sseClients: sseClientCount() } : null,
     ...extra,
   };
