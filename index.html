@@ -2572,19 +2572,100 @@ Phone: +91-7047157510`;
         }));
       } catch {}
     };
+    /** Load diagnostics — on by default; disable with localStorage.setItem('apg:timing','0'). */
+    const apgLoadTimingEnabled = () => {
+      try {
+        if (typeof window !== 'undefined') {
+          if (window.__APG_TIMING__ === false) return false;
+          if (window.__APG_TIMING__ === true) return true;
+          const q = new URLSearchParams(window.location.search);
+          if (q.get('apgTiming') === '0') return false;
+          if (q.has('apgTiming')) return true;
+        }
+        return localStorage.getItem('apg:timing') !== '0';
+      } catch {
+        return true;
+      }
+    };
+    const apgLoadTimingEntries = [];
+    const apgLoadTimingPayloadMeta = (data) => {
+      const meta = {};
+      if (Array.isArray(data)) meta.rows = data.length;
+      else if (data && typeof data === 'object') meta.keys = Object.keys(data).length;
+      try {
+        const bytes = JSON.stringify(data ?? null).length;
+        meta.kb = Math.round(bytes / 1024);
+      } catch {}
+      return meta;
+    };
+    const apgLoadTimingRecord = (phase, label, ms, meta = {}) => {
+      if (!apgLoadTimingEnabled()) return;
+      const row = {
+        phase,
+        label,
+        ms: Math.round(ms),
+        ...meta,
+      };
+      apgLoadTimingEntries.push(row);
+      const extra = [
+        meta.rows != null ? `${meta.rows} rows` : '',
+        meta.keys != null ? `${meta.keys} keys` : '',
+        meta.kb != null ? `${meta.kb} KB` : '',
+        meta.status != null ? `HTTP ${meta.status}` : '',
+        meta.err ? String(meta.err) : '',
+      ].filter(Boolean).join(' · ');
+      console.info(`[APG load] ${phase} · ${label} · ${row.ms}ms${extra ? ` · ${extra}` : ''}`);
+    };
+    const apgLoadTimingStart = () => {
+      apgLoadTimingEntries.length = 0;
+      if (typeof performance !== 'undefined') performance.mark('apg-load-start');
+      apgLoadTimingRecord('milestone', 'page script ready', performance.now(), { sinceNav: true });
+    };
+    const apgLoadTimingFinish = (phase, totalMs) => {
+      if (!apgLoadTimingEnabled()) return;
+      console.info(`[APG load] ${phase} · TOTAL · ${Math.round(totalMs)}ms`);
+      const sorted = [...apgLoadTimingEntries].sort((a, b) => b.ms - a.ms);
+      console.table(sorted.map(({ phase: p, label, ms, rows, keys, kb, status, err }) => ({
+        phase: p,
+        label,
+        ms,
+        rows: rows ?? '',
+        keys: keys ?? '',
+        kb: kb ?? '',
+        status: status ?? '',
+        err: err ?? '',
+      })));
+      if (typeof window !== 'undefined') {
+        window.__APG_LOAD_TIMING__ = { phase, totalMs: Math.round(totalMs), entries: sorted };
+      }
+    };
+    const apgLoadTimingMark = (label) => {
+      if (!apgLoadTimingEnabled() || typeof performance === 'undefined') return;
+      apgLoadTimingRecord('milestone', label, performance.now(), { sinceNav: true });
+    };
     const revalidateAuthSessionFromServer = async () => {
       const parsed = readAuthSession();
       if (!parsed?.token || isAuthSessionExpired(parsed)) return null;
+      const t0 = typeof performance !== 'undefined' ? performance.now() : 0;
       try {
         const me = await fetch(`${getBackendApiBaseUrl()}/auth/me`, {
           headers: { Authorization: `Bearer ${parsed.token}`, 'Content-Type': 'application/json' },
         });
-        if (!me.ok) return null;
+        if (!me.ok) {
+          apgLoadTimingRecord('auth', 'GET /auth/me', performance.now() - t0, { status: me.status, ok: false });
+          return null;
+        }
         const data = await me.json();
         const uid = data?.user?.id || data?.userId || parsed.userId;
         touchAuthSession(uid, parsed.token);
+        apgLoadTimingRecord('auth', 'GET /auth/me', performance.now() - t0, {
+          status: me.status,
+          ok: true,
+          keys: data && typeof data === 'object' ? Object.keys(data).length : 0,
+        });
         return data;
-      } catch {
+      } catch (err) {
+        apgLoadTimingRecord('auth', 'GET /auth/me', performance.now() - t0, { ok: false, err: String(err?.message || err) });
         return null;
       }
     };
@@ -2621,6 +2702,33 @@ Phone: +91-7047157510`;
         return { ...rec, access, sections: [...ALL_SECTIONS] };
       }
       return { ...rec, access };
+    };
+    const apgTimedBackendJson = async (phase, label, path, init) => {
+      const t0 = performance.now();
+      try {
+        const data = await backendJson(path, init);
+        apgLoadTimingRecord(phase, label || path, performance.now() - t0, apgLoadTimingPayloadMeta(data));
+        return data;
+      } catch (err) {
+        apgLoadTimingRecord(phase, label || path, performance.now() - t0, { err: String(err?.message || err) });
+        throw err;
+      }
+    };
+    const APG_SETTINGS_FETCH_TIMEOUT_MS = 20000;
+    const apgTimedBackendJsonWithTimeout = async (phase, label, path, timeoutMs = APG_SETTINGS_FETCH_TIMEOUT_MS) => {
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), timeoutMs);
+      try {
+        return await apgTimedBackendJson(phase, label, path, { signal: controller.signal });
+      } catch (err) {
+        if (controller.signal.aborted) {
+          apgLoadTimingRecord(phase, label || path, timeoutMs, { err: 'client-timeout' });
+          throw new Error('client-timeout');
+        }
+        throw err;
+      } finally {
+        clearTimeout(timer);
+      }
     };
     const backendJson = async (path, init = {}, attempt = 0) => {
       const syncCtx = (typeof window !== 'undefined' && window.__APG_SYNC_CONTEXT__ && typeof window.__APG_SYNC_CONTEXT__ === 'object')
@@ -2674,6 +2782,7 @@ Phone: +91-7047157510`;
     // and sync context, so there's no risk of stale state.
     if (typeof window !== 'undefined') {
       window.__APG_BACKEND_JSON__ = backendJson;
+      apgLoadTimingStart();
     }
     const parseApgTimeMs = (v) => {
       const t = new Date(String(v || '').trim()).getTime();
@@ -3566,7 +3675,9 @@ Phone: +91-7047157510`;
         const endDate = String(r.endDate || '').slice(0, 10);
         if (!/^\d{4}-\d{2}-\d{2}$/.test(startDate) || !/^\d{4}-\d{2}-\d{2}$/.test(endDate)) return;
         try {
-          const rows = await backendJson(
+          const rows = await apgTimedBackendJson(
+            'deferred',
+            'GET /attendance/records',
             `/attendance/records?startDate=${encodeURIComponent(startDate)}&endDate=${encodeURIComponent(endDate)}`,
           );
           if (!Array.isArray(rows)) return;
@@ -3576,54 +3687,80 @@ Phone: +91-7047157510`;
           }));
         } catch {}
       }, [dataSyncMode]);
+      const hydrateSettingsFromBackend = React.useCallback(async () => {
+        try {
+          const [core, leave] = await Promise.all([
+            apgTimedBackendJsonWithTimeout('hydrate-bg', 'GET /settings?scope=core', '/settings?scope=core').catch(() => ({})),
+            apgTimedBackendJsonWithTimeout('hydrate-bg', 'GET /settings?scope=leave', '/settings?scope=leave').catch(() => ({})),
+          ]);
+          const remoteSettings = {
+            ...(core && typeof core === 'object' ? core : {}),
+            ...(leave && typeof leave === 'object' ? leave : {}),
+          };
+          if (!Object.keys(remoteSettings).length) return;
+          settingsSkipNextBulkRef.current = true;
+          settingsLookupGuardUntilRef.current = Date.now() + 15000;
+          const tMerge = performance.now();
+          setSettings((prev) => {
+            const withoutStalePt = { ...(prev && typeof prev === 'object' ? prev : {}) };
+            delete withoutStalePt.ptClientProfiles;
+            return mergeSettingsPull(withoutStalePt, remoteSettings, false);
+          });
+          apgLoadTimingRecord('hydrate-bg', 'merge:settings (CPU)', performance.now() - tMerge, apgLoadTimingPayloadMeta(remoteSettings));
+        } catch {}
+      }, []);
       const hydrateDeferredCollections = React.useCallback(async () => {
+        const tDeferred = performance.now();
         const [remoteVisitors, remoteFinance, remoteSmsEvents] = await Promise.all([
-          backendJson('/visitors').catch(() => []),
-          backendJson('/finance').catch(() => []),
-          backendJson('/sms-events').catch(() => []),
+          apgTimedBackendJson('deferred', 'GET /visitors', '/visitors').catch(() => []),
+          apgTimedBackendJson('deferred', 'GET /finance', '/finance').catch(() => []),
+          apgTimedBackendJson('deferred', 'GET /sms-events', '/sms-events').catch(() => []),
         ]);
         if (Array.isArray(remoteVisitors) && remoteVisitors.length > 0) {
           setVisitors((prev) => mergeRemoteVisitorsWithLocal(prev, remoteVisitors));
         }
-        if (Array.isArray(remoteFinance) && remoteFinance.length > 0) setFinanceTransactions(remoteFinance);
+        if (Array.isArray(remoteFinance) && remoteFinance.length > 0) {
+          financeSkipNextBulkRef.current = true;
+          setFinanceTransactions(remoteFinance);
+        }
         if (Array.isArray(remoteSmsEvents) && remoteSmsEvents.length > 0) setSmsEvents(remoteSmsEvents);
         await pullStaffAttendance().catch(() => {});
+        apgLoadTimingFinish('deferred hydrate', performance.now() - tDeferred);
       }, [pullStaffAttendance]);
       const hydrateFromBackend = React.useCallback(async () => {
         if (backendHydrateInFlightRef.current) return backendHydrateInFlightRef.current;
         const run = (async () => {
+          const tHydrate = performance.now();
+          apgLoadTimingRecord('hydrate', 'hydrate started', 0);
           try {
-            const [remoteUsers, remoteMembers, remoteSettings, remoteGymCodes] = await Promise.all([
-              backendJson('/users').catch(() => []),
-              backendJson('/members').catch(() => []),
-              Promise.all([
-                backendJson('/settings?scope=core').catch(() => ({})),
-                backendJson('/settings?scope=leave').catch(() => ({})),
-              ]).then(([core, leave]) => ({ ...(core || {}), ...(leave || {}) })),
-              backendJson('/gym-codes').catch(() => []),
+            const [remoteUsers, remoteMembers, remoteGymCodes] = await Promise.all([
+              apgTimedBackendJson('hydrate', 'GET /users', '/users').catch(() => []),
+              apgTimedBackendJson('hydrate', 'GET /members', '/members').catch(() => []),
+              apgTimedBackendJson('hydrate', 'GET /gym-codes', '/gym-codes').catch(() => []),
             ]);
+            const tClear = performance.now();
             if (Array.isArray(remoteGymCodes)) setGymCodes(remoteGymCodes);
             await clearQueuedSnapshots().catch(() => {});
             setOfflineQueueCount(0);
+            apgLoadTimingRecord('hydrate', 'clearQueuedSnapshots', performance.now() - tClear);
             if (Array.isArray(remoteUsers) && remoteUsers.length > 0) {
+              const tMerge = performance.now();
               const normalizedRemoteUsers = remoteUsers.map((u) => prepareStaffUser(u));
+              usersSkipNextBulkRef.current = true;
               setUsers((prev) => mergeRemoteUsersWithLocal(prev, normalizedRemoteUsers));
+              apgLoadTimingRecord('hydrate', 'merge:users (CPU)', performance.now() - tMerge, { rows: remoteUsers.length });
             }
             if (Array.isArray(remoteMembers) && remoteMembers.length > 0) {
+              const tMerge = performance.now();
               setMembers((prev) => mergeRemoteMembersWithLocal(prev, remoteMembers));
-            }
-            if (remoteSettings && typeof remoteSettings === 'object' && Object.keys(remoteSettings).length > 0) {
-              setSettings((prev) => {
-                // Drop stale browser-cached PT profiles on login hydrate — PT is loaded
-                // lazily from scope=pt and must not block remote calendar data.
-                const withoutStalePt = { ...(prev && typeof prev === 'object' ? prev : {}) };
-                delete withoutStalePt.ptClientProfiles;
-                return mergeSettingsPull(withoutStalePt, remoteSettings, false);
-              });
+              apgLoadTimingRecord('hydrate', 'merge:members (CPU)', performance.now() - tMerge, { rows: remoteMembers.length });
             }
             setUser((prev) => (prev?.id ? prepareStaffUser(prev) : prev));
             hydrateCompletedAtRef.current = Date.now();
             setBackendHydrated(true);
+            apgLoadTimingMark('backendHydrated (dashboard unblocked)');
+            apgLoadTimingFinish('critical hydrate', performance.now() - tHydrate);
+            hydrateSettingsFromBackend().catch(() => {});
             hydrateDeferredCollections().catch(() => {});
           } finally {
             backendHydrateInFlightRef.current = null;
@@ -3631,16 +3768,19 @@ Phone: +91-7047157510`;
         })();
         backendHydrateInFlightRef.current = run;
         return run;
-      }, [hydrateDeferredCollections]);
+      }, [hydrateDeferredCollections, hydrateSettingsFromBackend]);
       // Probe backend reachability (no auth). Full data loads after login.
       React.useEffect(() => {
         let alive = true;
         (async () => {
+          const tHealth = performance.now();
           try {
             await fetch(`${getBackendApiBaseUrl()}/health`, { cache: 'no-store' });
+            apgLoadTimingRecord('boot', 'GET /health', performance.now() - tHealth, { ok: true });
             if (!alive) return;
             setDataSyncMode('backend');
-          } catch {
+          } catch (err) {
+            apgLoadTimingRecord('boot', 'GET /health', performance.now() - tHealth, { ok: false, err: String(err?.message || err) });
             if (!alive) return;
             setDataSyncMode('local');
             setBackendHydrated(false);
@@ -3858,8 +3998,12 @@ Phone: +91-7047157510`;
       const membersSyncCursorRef = React.useRef(null);
       const backendHydrateInFlightRef = React.useRef(null);
       const hydrateCompletedAtRef = React.useRef(0);
+      const usersSkipNextBulkRef = React.useRef(false);
+      const financeSkipNextBulkRef = React.useRef(false);
       const skipPostHydratePoll = () => hydrateCompletedAtRef.current > 0
         && (Date.now() - hydrateCompletedAtRef.current) < 5000;
+      const skipBulkPushAfterHydrate = () => hydrateCompletedAtRef.current > 0
+        && (Date.now() - hydrateCompletedAtRef.current) < 15000;
       React.useEffect(() => {
         if (!Array.isArray(members) || members.length === 0) return;
         let max = 0;
@@ -4147,6 +4291,7 @@ Phone: +91-7047157510`;
           return;
         }
         if (!isOwnerStaffUser(user)) return;
+        if (skipBulkPushAfterHydrate()) return;
         const prev = settingsBulkPrevRef.current;
         const lookupOnly = prev
           && settingsNonLookupSignature(prev) === settingsNonLookupSignature(settings)
@@ -4193,6 +4338,11 @@ Phone: +91-7047157510`;
           queueSyncSnapshot('finance', financeTransactions).then(() => setOfflineQueueCount((c) => c + 1)).catch(() => {});
           return;
         }
+        if (financeSkipNextBulkRef.current) {
+          financeSkipNextBulkRef.current = false;
+          return;
+        }
+        if (skipBulkPushAfterHydrate()) return;
         const timer = setTimeout(() => {
           backendJson('/finance/bulk', {
             method: 'PUT',
@@ -4403,6 +4553,11 @@ Phone: +91-7047157510`;
           return;
         }
         if (!isOwnerStaffUser(user)) return;
+        if (usersSkipNextBulkRef.current) {
+          usersSkipNextBulkRef.current = false;
+          return;
+        }
+        if (skipBulkPushAfterHydrate()) return;
         const payload = usersForApi(users);
         const timer = setTimeout(() => {
           backendJson('/users/bulk', {
@@ -5354,8 +5509,10 @@ Phone: +91-7047157510`;
           return;
         }
         (async () => {
+          const tAuth = performance.now();
           if (parsed.token && dataSyncMode === 'backend') {
             const data = await revalidateAuthSessionFromServer();
+            apgLoadTimingRecord('auth', 'auth restore (total)', performance.now() - tAuth);
             const rec = data?.user ? prepareStaffUser(data.user) : null;
             if (rec && !rec.blocked) {
               const nowIso = new Date().toISOString();
@@ -5371,6 +5528,7 @@ Phone: +91-7047157510`;
               setActiveTab('Dashboard');
               setDashMode('summary');
               setAuthSessionReady(true);
+              apgLoadTimingMark('authSessionReady (login UI shown)');
               return;
             }
             // Token present but /auth/me failed (network blip or revoked JWT).

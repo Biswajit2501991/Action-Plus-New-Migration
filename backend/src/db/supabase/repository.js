@@ -823,8 +823,6 @@ async function readSettings(scope, options = {}) {
     return { ptClientProfiles: await buildPtProfilesFromRows(sb, gid, ptRows) };
   }
 
-  if (wantCore) await cleanupDuplicateRoleTemplateRows(sb, gid);
-
   const fetches = [];
   if (wantCore) {
     fetches.push(
