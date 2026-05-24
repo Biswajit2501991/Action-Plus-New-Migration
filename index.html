@@ -2432,8 +2432,13 @@ Phone: +91-7047157510`;
       } else {
         merged.staffAttendance = Array.isArray(prev?.staffAttendance) ? prev.staffAttendance : [];
       }
+      if (Array.isArray(remote.leaveRequests)) merged.leaveRequests = remote.leaveRequests;
+      if (remote.ptClientProfiles && typeof remote.ptClientProfiles === 'object') {
+        merged.ptClientProfiles = { ...(prev?.ptClientProfiles || {}), ...remote.ptClientProfiles };
+      }
       return merged;
     };
+    const LOGS_LIST_QUERY = 'view=list&days=90&limit=500';
     const settingsLookupArraysAllEmpty = (s) => {
       if (!s || typeof s !== 'object') return true;
       return SETTINGS_LOOKUP_KEYS.every((k) => !Array.isArray(s[k]) || s[k].length === 0);
@@ -3519,12 +3524,14 @@ Phone: +91-7047157510`;
         } catch {}
       }, [dataSyncMode]);
       const hydrateFromBackend = React.useCallback(async () => {
-        const [remoteUsers, remoteMembers, remoteVisitors, remoteSettings, remoteLogs, remoteFinance, remoteSmsEvents, remoteGymCodes] = await Promise.all([
+        const [remoteUsers, remoteMembers, remoteVisitors, remoteSettings, remoteFinance, remoteSmsEvents, remoteGymCodes] = await Promise.all([
           backendJson('/users').catch(() => []),
           backendJson('/members').catch(() => []),
           backendJson('/visitors').catch(() => []),
-          backendJson('/settings').catch(() => ({})),
-          backendJson('/logs').catch(() => []),
+          Promise.all([
+            backendJson('/settings?scope=core').catch(() => ({})),
+            backendJson('/settings?scope=leave').catch(() => ({})),
+          ]).then(([core, leave]) => ({ ...(core || {}), ...(leave || {}) })),
           backendJson('/finance').catch(() => []),
           backendJson('/sms-events').catch(() => []),
           backendJson('/gym-codes').catch(() => []),
@@ -3545,7 +3552,6 @@ Phone: +91-7047157510`;
         if (remoteSettings && typeof remoteSettings === 'object' && Object.keys(remoteSettings).length > 0) {
           setSettings((prev) => mergeSettingsPull(prev, remoteSettings, false));
         }
-        if (Array.isArray(remoteLogs) && remoteLogs.length > 0) setLogs(remoteLogs);
         if (Array.isArray(remoteFinance) && remoteFinance.length > 0) setFinanceTransactions(remoteFinance);
         if (Array.isArray(remoteSmsEvents) && remoteSmsEvents.length > 0) setSmsEvents(remoteSmsEvents);
         await pullStaffAttendance().catch(() => {});
@@ -3773,6 +3779,29 @@ Phone: +91-7047157510`;
           }
           return changed ? next : prev;
         });
+      }, []);
+      const membersSyncCursorRef = React.useRef(null);
+      React.useEffect(() => {
+        if (!Array.isArray(members) || members.length === 0) return;
+        let max = 0;
+        for (const m of members) {
+          const t = memberSortTimestamp(m);
+          if (t > max) max = t;
+        }
+        if (max > 0) membersSyncCursorRef.current = new Date(max - 3000).toISOString();
+      }, [members]);
+      const pullSettingsSlices = React.useCallback(async (slices = ['core']) => {
+        const parts = await Promise.all(
+          (Array.isArray(slices) ? slices : ['core']).map((scope) =>
+            backendJson(`/settings?scope=${encodeURIComponent(scope)}`).catch(() => ({})),
+          ),
+        );
+        return parts.reduce((acc, part) => ({ ...acc, ...(part && typeof part === 'object' ? part : {}) }), {});
+      }, []);
+      const pullLogsList = React.useCallback(async (query = LOGS_LIST_QUERY) => {
+        const remoteLogs = await backendJson(`/logs?${query}`).catch(() => []);
+        if (Array.isArray(remoteLogs)) setLogs(remoteLogs);
+        return remoteLogs;
       }, []);
       const memberDetailInFlightRef = React.useRef(new Set());
       const fetchMemberDetail = React.useCallback(async (memberId) => {
@@ -4101,10 +4130,14 @@ Phone: +91-7047157510`;
       }, [smsEvents, dataSyncMode, syncRuntimeReady, backendHydrated]);
       // Pull member updates from backend so multi-device changes appear without refresh.
       React.useEffect(() => {
-        if (dataSyncMode !== 'backend') return;
+        if (dataSyncMode !== 'backend' || !backendHydrated) return;
         let alive = true;
         const pullMembers = () => {
-          backendJson('/members')
+          const useDelta = Boolean(membersSyncCursorRef.current);
+          const path = useDelta
+            ? `/members?updatedSince=${encodeURIComponent(membersSyncCursorRef.current)}`
+            : '/members';
+          backendJson(path)
             .then((remoteMembers) => {
               if (!alive || !Array.isArray(remoteMembers)) return;
               setMembers((prev) => {
@@ -4129,7 +4162,7 @@ Phone: +91-7047157510`;
           if (timer) clearInterval(timer);
           window.removeEventListener('apg-realtime', onRealtime);
         };
-      }, [dataSyncMode, realtimeConnected, pruneMemberAwaitingBackendSync, memberSyncPending, scheduleDebouncedPull]);
+      }, [dataSyncMode, realtimeConnected, backendHydrated, pruneMemberAwaitingBackendSync, memberSyncPending, scheduleDebouncedPull]);
       // Pull visitor updates from backend so multi-device changes appear without refresh.
       React.useEffect(() => {
         if (dataSyncMode !== 'backend') return;
@@ -4201,7 +4234,7 @@ Phone: +91-7047157510`;
         let alive = true;
         const pullSettings = () => {
           if (settingsLookupGuardUntilRef.current > Date.now()) return;
-          backendJson('/settings')
+          pullSettingsSlices(['core', 'leave'])
             .then((remote) => {
               if (!alive || !remote || typeof remote !== 'object') return;
               const guardActive = settingsLookupGuardUntilRef.current > Date.now();
@@ -4229,7 +4262,7 @@ Phone: +91-7047157510`;
           if (timer) clearInterval(timer);
           window.removeEventListener('apg-realtime', onRealtime);
         };
-      }, [dataSyncMode, realtimeConnected, scheduleDebouncedPull, pullStaffAttendance]);
+      }, [dataSyncMode, realtimeConnected, scheduleDebouncedPull, pullStaffAttendance, pullSettingsSlices]);
 
       // Persist users to localStorage whenever they change. This ensures that newly added
       // staff or updated roles survive page reloads.
@@ -4281,6 +4314,24 @@ Phone: +91-7047157510`;
 
       // Active view state: 'Dashboard', 'Members', 'WhatsApp SMS', 'Finance', 'Staff', 'Settings', 'Logs', 'Support'
       const [activeTab, setActiveTab] = React.useState('Dashboard');
+      React.useEffect(() => {
+        if (dataSyncMode !== 'backend' || !backendHydrated) return;
+        if (activeTab === 'Logs') pullLogsList().catch(() => {});
+        if (activeTab === 'Leave Tracker') {
+          pullSettingsSlices(['leave']).then((remote) => {
+            if (remote && typeof remote === 'object') {
+              setSettings((prev) => mergeSettingsPull(prev, remote, false));
+            }
+          }).catch(() => {});
+        }
+        if (activeTab === 'PT Clients') {
+          pullSettingsSlices(['pt']).then((remote) => {
+            if (remote && typeof remote === 'object') {
+              setSettings((prev) => mergeSettingsPull(prev, remote, false));
+            }
+          }).catch(() => {});
+        }
+      }, [activeTab, dataSyncMode, backendHydrated, pullLogsList, pullSettingsSlices]);
       // Dashboard view mode: summary or list
       const [dashMode, setDashMode] = React.useState('summary');
       const [dashFilter, setDashFilter] = React.useState('Active');
@@ -7534,8 +7585,8 @@ Please pay by: ${formattedLastDate}`;
                       backendJson('/users').catch(() => []),
                       backendJson('/members').catch(() => []),
                       backendJson('/visitors').catch(() => []),
-                      backendJson('/settings').catch(() => ({})),
-                      backendJson('/logs').catch(() => []),
+                      backendJson('/settings?scope=full').catch(() => ({})),
+                      backendJson('/logs?view=full&limit=5000&days=365').catch(() => []),
                       backendJson('/finance').catch(() => []),
                       backendJson('/sms-events').catch(() => []),
                     ]);
@@ -7626,8 +7677,7 @@ Please pay by: ${formattedLastDate}`;
                 }}
                 onRefreshLogs={async () => {
                   try {
-                    const remoteLogs = await backendJson('/logs');
-                    if (Array.isArray(remoteLogs)) setLogs(remoteLogs);
+                    await pullLogsList('view=list&days=365&limit=1000');
                   } catch (err) {
                     setToast(`Logs refresh failed: ${err?.message || err}`);
                     setTimeout(() => setToast(''), 2000);

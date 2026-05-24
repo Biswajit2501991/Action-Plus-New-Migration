@@ -11,6 +11,11 @@ export const MEMBER_LIST_COLUMNS = [
   'updated_by', 'assigned_gym_code_id', 'created_at', 'updated_at',
 ].join(',');
 
+/** Audit log columns for list pulls — excludes before/after JSON blobs. */
+export const LOG_LIST_COLUMNS = [
+  'id', 'external_log_id', 'actor_name', 'action', 'entity_type', 'entity_id', 'logged_at', 'gym_id',
+].join(',');
+
 export function memberRowToApp(row, children = {}, options = {}) {
   const slim = Boolean(options.slim);
   const medical = !slim && row.medical_answers_json && typeof row.medical_answers_json === 'object'
@@ -302,16 +307,21 @@ export function appFinanceToRow(t, gymId, memberId = null) {
   };
 }
 
-export function logRowToApp(row) {
-  return {
+export function logRowToApp(row, options = {}) {
+  const slim = Boolean(options.slim);
+  const base = {
     id: row.external_log_id || String(row.id),
     actor: row.actor_name,
     action: row.action,
     entityType: row.entity_type,
     entityId: row.entity_id,
+    ts: row.logged_at,
+  };
+  if (slim) return base;
+  return {
+    ...base,
     before: row.before_json,
     after: row.after_json,
-    ts: row.logged_at,
   };
 }
 

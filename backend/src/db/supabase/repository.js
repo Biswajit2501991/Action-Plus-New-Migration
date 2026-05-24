@@ -15,6 +15,7 @@ import {
   logRowToApp,
   memberRowToApp,
   MEMBER_LIST_COLUMNS,
+  LOG_LIST_COLUMNS,
   messageRowToApp,
   paymentRowToApp,
   smsRowToApp,
@@ -209,6 +210,7 @@ async function readMembers(scope, branchScope = null, options = {}) {
   const gid = gymId();
   const slim = options.view === 'list' || options.includeChildren === false;
   const columns = slim ? MEMBER_LIST_COLUMNS : '*';
+  const updatedSince = toTs(options.updatedSince);
   const memberRows = await fetchAll((from, to) => {
     let q = sb.from(T.members).select(columns).eq('gym_id', gid);
     // Phase 2 zero-leak: when caller passes a branchScope (non-owner staff with a gym_code_id),
@@ -216,6 +218,7 @@ async function readMembers(scope, branchScope = null, options = {}) {
     if (branchScope && branchScope.gymCodeId) {
       q = q.eq('assigned_gym_code_id', branchScope.gymCodeId);
     }
+    if (updatedSince) q = q.gte('updated_at', updatedSince);
     return q.range(from, to);
   });
   if (slim) {
@@ -788,43 +791,106 @@ async function syncRoleTemplatesToDb(sb, gid, roleTemplates) {
   return roles;
 }
 
-async function readSettings(scope) {
+async function readSettings(scope, options = {}) {
   if (scope) {
     return readSettingsSandbox(scope.sandboxId);
   }
   const sb = getSupabase();
   const gid = gymId();
-  await cleanupDuplicateRoleTemplateRows(sb, gid);
+  const settingsScope = String(options.scope || 'full').trim().toLowerCase();
+  const wantCore = settingsScope === 'full' || settingsScope === 'core';
+  const wantLeave = settingsScope === 'full' || settingsScope === 'leave';
+  const wantPt = settingsScope === 'full' || settingsScope === 'pt';
 
-  const [
-    lookups,
-    templates,
-    configRow,
-    staffDir,
-    roles,
-    leaveRows,
-    ptRows,
-  ] = await Promise.all([
-    fetchAll((from, to) => sb.from(T.settings_lookup_values).select('*').eq('gym_id', gid).order('sort_order').range(from, to)),
-    fetchAll((from, to) => sb.from(T.settings_templates).select('*').eq('gym_id', gid).range(from, to)),
-    sb.from(T.settings_app_config).select('*').eq('gym_id', gid).maybeSingle(),
-    fetchAll((from, to) => sb.from(T.settings_staff_directory).select('*').eq('gym_id', gid).range(from, to)),
-    fetchAll((from, to) => sb.from(T.staff_role_templates).select('*').eq('gym_id', gid).order('sort_order').range(from, to)),
-    fetchAll((from, to) => sb.from(T.leave_requests).select('*').eq('gym_id', gid).range(from, to)),
-    fetchAll((from, to) => sb.from(T.pt_client_profiles).select('*').eq('gym_id', gid).range(from, to)),
-  ]);
+  if (settingsScope === 'leave') {
+    const leaveRows = await fetchAll((from, to) =>
+      sb.from(T.leave_requests).select('*').eq('gym_id', gid).range(from, to));
+    return { leaveRequests: mapLeaveRows(leaveRows) };
+  }
+
+  if (settingsScope === 'pt') {
+    const ptRows = await fetchAll((from, to) =>
+      sb.from(T.pt_client_profiles).select('*').eq('gym_id', gid).range(from, to));
+    return { ptClientProfiles: await buildPtProfilesFromRows(sb, gid, ptRows) };
+  }
+
+  if (wantCore) await cleanupDuplicateRoleTemplateRows(sb, gid);
+
+  const fetches = [];
+  if (wantCore) {
+    fetches.push(
+      fetchAll((from, to) => sb.from(T.settings_lookup_values).select('*').eq('gym_id', gid).order('sort_order').range(from, to)),
+      fetchAll((from, to) => sb.from(T.settings_templates).select('*').eq('gym_id', gid).range(from, to)),
+      sb.from(T.settings_app_config).select('*').eq('gym_id', gid).maybeSingle(),
+      fetchAll((from, to) => sb.from(T.settings_staff_directory).select('*').eq('gym_id', gid).range(from, to)),
+      fetchAll((from, to) => sb.from(T.staff_role_templates).select('*').eq('gym_id', gid).order('sort_order').range(from, to)),
+    );
+  }
+  if (wantLeave && settingsScope === 'full') {
+    fetches.push(fetchAll((from, to) => sb.from(T.leave_requests).select('*').eq('gym_id', gid).range(from, to)));
+  }
+  if (wantPt && settingsScope === 'full') {
+    fetches.push(fetchAll((from, to) => sb.from(T.pt_client_profiles).select('*').eq('gym_id', gid).range(from, to)));
+  }
+
+  const results = await Promise.all(fetches);
+  let idx = 0;
+  const lookups = wantCore ? results[idx++] : [];
+  const templates = wantCore ? results[idx++] : [];
+  const configRow = wantCore ? results[idx++] : { data: null };
+  const staffDir = wantCore ? results[idx++] : [];
+  const roles = wantCore ? results[idx++] : [];
+  const leaveRows = wantLeave && settingsScope === 'full' ? results[idx++] : [];
+  const ptRows = wantPt && settingsScope === 'full' ? results[idx++] : [];
 
   const settings = buildSettingsObject({
     lookups,
     templates,
-    configRow: configRow.data,
+    configRow: configRow?.data ?? null,
     staffDir,
     roles,
     leaveRows,
     attendanceRows: [],
   });
-  await enrichPtProfiles(settings);
+
+  if (wantPt && settingsScope === 'full') {
+    settings.ptClientProfiles = await buildPtProfilesFromRows(sb, gid, ptRows);
+  }
+
   return settings;
+}
+
+function mapLeaveRows(leaveRows) {
+  return (leaveRows || []).map((r) => ({
+    id: r.external_request_id,
+    userId: r.staff_login_id,
+    type: r.leave_type,
+    startDate: r.start_date,
+    endDate: r.end_date,
+    reason: r.reason,
+    status: r.status,
+    approvedBy: r.approved_by,
+    createdAt: r.created_at,
+  }));
+}
+
+async function buildPtProfilesFromRows(sb, gid, ptRowsPrefetched) {
+  const ptRows = ptRowsPrefetched ?? await fetchAll((from, to) =>
+    sb.from(T.pt_client_profiles).select('*').eq('gym_id', gid).range(from, to));
+  const profiles = {};
+  const memberPks = [...new Set((ptRows || []).map((p) => p.member_id).filter(Boolean))];
+  const idToCode = new Map();
+  for (const idChunk of chunk(memberPks, 100)) {
+    const { data, error } = await sb.from(T.members).select('id, member_code').eq('gym_id', gid).in('id', idChunk);
+    if (error) throw error;
+    for (const row of data || []) idToCode.set(row.id, row.member_code);
+  }
+  for (const p of ptRows || []) {
+    const code = idToCode.get(p.member_id);
+    if (!code) continue;
+    profiles[code] = p.plan_json && typeof p.plan_json === 'object' ? p.plan_json : {};
+  }
+  return profiles;
 }
 
 function buildSettingsObject({ lookups, templates, configRow, staffDir, roles, leaveRows, attendanceRows }) {
@@ -876,17 +942,7 @@ function buildSettingsObject({ lookups, templates, configRow, staffDir, roles, l
 
   settings.roleTemplates = dedupeRoleTemplates((roles || []).map((r) => roleTemplateRowToApp(r)));
 
-  settings.leaveRequests = (leaveRows || []).map((r) => ({
-    id: r.external_request_id,
-    userId: r.staff_login_id,
-    type: r.leave_type,
-    startDate: r.start_date,
-    endDate: r.end_date,
-    reason: r.reason,
-    status: r.status,
-    approvedBy: r.approved_by,
-    createdAt: r.created_at,
-  }));
+  settings.leaveRequests = mapLeaveRows(leaveRows);
 
   settings.staffAttendance = (attendanceRows || []).map((r) => ({
     id: r.external_record_id,
@@ -915,18 +971,7 @@ function buildSettingsObject({ lookups, templates, configRow, staffDir, roles, l
 async function enrichPtProfiles(settings) {
   const sb = getSupabase();
   const gid = gymId();
-  const [ptRows, members] = await Promise.all([
-    fetchAll((from, to) => sb.from(T.pt_client_profiles).select('*').eq('gym_id', gid).range(from, to)),
-    fetchAll((from, to) => sb.from(T.members).select('id, member_code').eq('gym_id', gid).range(from, to)),
-  ]);
-  const idToCode = new Map((members || []).map((m) => [m.id, m.member_code]));
-  const profiles = {};
-  for (const p of ptRows || []) {
-    const code = idToCode.get(p.member_id);
-    if (!code) continue;
-    profiles[code] = p.plan_json && typeof p.plan_json === 'object' ? p.plan_json : {};
-  }
-  settings.ptClientProfiles = profiles;
+  settings.ptClientProfiles = await buildPtProfilesFromRows(sb, gid, null);
 }
 
 async function readSettingsSandbox(sandboxId) {
@@ -1234,16 +1279,39 @@ async function auditLogsHasGymColumn(sb) {
   return auditLogsGymScoped;
 }
 
-async function readLogs(scope) {
+async function readLogs(scope, options = {}) {
   const sb = getSupabase();
   const gid = gymId();
   const gymScoped = await auditLogsHasGymColumn(sb);
-  const rows = await fetchAll((from, to) => {
-    let q = sb.from(T.audit_logs).select('*').order('logged_at', { ascending: false });
-    if (gymScoped) q = q.eq('gym_id', gid);
-    return q.range(from, to);
-  });
-  return sandboxFilter((rows || []).map(logRowToApp), scope);
+  const hasPaging = options.limit != null || options.offset != null || options.days != null
+    || options.startDate != null || options.endDate != null || options.view != null;
+
+  if (!hasPaging) {
+    const rows = await fetchAll((from, to) => {
+      let q = sb.from(T.audit_logs).select('*').order('logged_at', { ascending: false });
+      if (gymScoped) q = q.eq('gym_id', gid);
+      return q.range(from, to);
+    });
+    return sandboxFilter((rows || []).map((row) => logRowToApp(row)), scope);
+  }
+
+  const slim = options.view !== 'full';
+  const columns = slim ? LOG_LIST_COLUMNS : '*';
+  const limit = Math.min(Math.max(Number(options.limit) || 500, 1), 2000);
+  const offset = Math.max(Number(options.offset) || 0, 0);
+  const days = Math.min(Math.max(Number(options.days) || 90, 1), 365);
+  const startIso = toTs(options.startDate);
+  const endIso = toTs(options.endDate);
+
+  let q = sb.from(T.audit_logs).select(columns).order('logged_at', { ascending: false });
+  if (gymScoped) q = q.eq('gym_id', gid);
+  if (startIso) q = q.gte('logged_at', startIso);
+  else q = q.gte('logged_at', new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString());
+  if (endIso) q = q.lte('logged_at', endIso);
+  q = q.range(offset, offset + limit - 1);
+  const { data, error } = await q;
+  if (error) throw new Error(`audit_logs read: ${error.message}`);
+  return sandboxFilter((data || []).map((row) => logRowToApp(row, { slim })), scope);
 }
 
 async function writeLogs(logs, scope) {
@@ -1309,7 +1377,7 @@ export async function readCollection(key, fallback = [], scope = null, branchSco
     case KEY_VISITORS:
       return readVisitors(scope, branchScope);
     case KEY_LOGS:
-      return readLogs(scope);
+      return readLogs(scope, options);
     case KEY_FINANCE:
       return readFinance(scope);
     case KEY_SMS:
@@ -1340,10 +1408,8 @@ export async function writeCollection(key, value, scope = null) {
   }
 }
 
-export async function readSettingsValue(scope = null) {
-  const settings = await readSettings(scope);
-  await enrichPtProfiles(settings);
-  return settings;
+export async function readSettingsValue(scope = null, options = {}) {
+  return readSettings(scope, options);
 }
 
 export async function writeSettingsValue(value, scope = null) {

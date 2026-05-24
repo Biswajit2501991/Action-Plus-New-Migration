@@ -28,6 +28,15 @@ export async function readJsonCollection(key, fallback = [], scope = null, branc
     const { slimAppMember } = await import('./supabase/mappers.js');
     return filtered.map(slimAppMember);
   }
+  if (key === 'apg.members' && options.updatedSince) {
+    const sinceMs = new Date(options.updatedSince).getTime();
+    if (Number.isFinite(sinceMs)) {
+      filtered = filtered.filter((row) => {
+        const ts = new Date(row?.updatedAt || row?.createdAt || 0).getTime();
+        return ts >= sinceMs;
+      });
+    }
+  }
   return filtered;
 }
 
@@ -138,9 +147,9 @@ export async function writeJsonCollection(key, value, scope = null) {
   return kvStore.writeJsonCollection(key, [...kept, ...scopedRows]);
 }
 
-export async function readJsonValue(key, fallback = null, scope = null) {
+export async function readJsonValue(key, fallback = null, scope = null, options = {}) {
   if (useSupabase()) {
-    if (key === 'apg.settings') return supabaseStore.readSettingsValue(scope);
+    if (key === 'apg.settings') return supabaseStore.readSettingsValue(scope, options);
     return fallback;
   }
   if (!scope) return kvStore.readJsonValue(key, fallback);

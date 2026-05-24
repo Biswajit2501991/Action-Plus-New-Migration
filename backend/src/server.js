@@ -514,9 +514,11 @@ app.get('/api/members', requireAccess(Access.membersRead), async (req, res) => {
   // Phase 2 zero-leak: branch filter pushed into Supabase SQL via buildBranchScope.
   // Default view=list skips child tables + heavy columns to cut Supabase egress.
   const view = String(req.query?.view || 'list').trim().toLowerCase();
+  const updatedSince = String(req.query?.updatedSince || '').trim();
   const scope = readSandboxScope(req);
   const branchScope = buildBranchScope(req);
   const options = view === 'full' ? { view: 'full' } : { view: 'list' };
+  if (updatedSince) options.updatedSince = updatedSince;
   const members = await readJsonCollection('apg.members', [], scope, branchScope, options);
   res.json(members);
 });
@@ -730,7 +732,10 @@ app.post('/api/users/cleanup', requireOwner, async (req, res) => {
 });
 
 app.get('/api/settings', requireAccess(Access.settingsRead), async (req, res) => {
-  const settings = await readScopedSettings(req);
+  const settingsScope = String(req.query?.scope || 'full').trim().toLowerCase();
+  const scope = readSandboxScope(req);
+  const { readSettingsValue } = await import('./db/dataStore.js');
+  const settings = await readSettingsValue(scope, { scope: settingsScope });
   res.json(settings || {});
 });
 
@@ -1081,12 +1086,26 @@ app.post('/api/attendance/cleanup', requireOwner, async (req, res) => {
 });
 
 app.get('/api/logs', requireAccess(Access.logsRead), async (req, res) => {
-  const logs = await readScopedCollection(req, 'apg.logs', []);
+  const scope = readSandboxScope(req);
+  const view = String(req.query?.view || '').trim().toLowerCase();
+  const limit = req.query?.limit;
+  const offset = req.query?.offset;
+  const days = req.query?.days;
+  const startDate = req.query?.startDate;
+  const endDate = req.query?.endDate;
+  const hasPaging = view || limit != null || offset != null || days != null || startDate || endDate;
+  const options = hasPaging ? {
+    view: view || 'list',
+    limit,
+    offset,
+    days,
+    startDate,
+    endDate,
+  } : {};
+  const logs = await readJsonCollection('apg.logs', [], scope, null, options);
   if (authIsOwner(req.auth) || !req.auth?.gymCodeId) return res.json(logs);
-  // Branch-scoped staff: load the set of memberCodes/staffLogins/visitorIds for their branch
-  // then keep only logs whose entityId is in that set.
-  const scope = await loadBranchScope(getSupabase(), req.auth);
-  res.json(logs.filter((l) => logMatchesBranchScope(l, scope)));
+  const branchScope = await loadBranchScope(getSupabase(), req.auth);
+  res.json(logs.filter((l) => logMatchesBranchScope(l, branchScope)));
 });
 
 app.put('/api/logs/bulk', requireLogsBulkAccess, async (req, res) => {

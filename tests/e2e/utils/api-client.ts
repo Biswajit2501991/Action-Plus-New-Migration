@@ -115,8 +115,13 @@ export async function login(identifier: string, password: string): Promise<Login
   return res.json();
 }
 
-export async function listMembers(token: string): Promise<Array<{ memberId: string; assignedGymCodeId?: string | null }>> {
-  return apiJson('/api/members', token);
+export async function listMembers(token: string, query = ''): Promise<Array<{ memberId: string; assignedGymCodeId?: string | null }>> {
+  const qs = String(query || '').trim();
+  return apiJson(`/api/members${qs ? (qs.startsWith('?') ? qs : `?${qs}`) : ''}`, token);
+}
+
+export async function listMembersSince(token: string, updatedSince: string): Promise<Array<{ memberId: string; assignedGymCodeId?: string | null }>> {
+  return listMembers(token, `updatedSince=${encodeURIComponent(updatedSince)}`);
 }
 
 export async function fetchMember(token: string, memberId: string): Promise<Record<string, unknown>> {
@@ -308,8 +313,9 @@ export type LogEntry = {
   after?: unknown;
 };
 
-export async function listLogs(token: string): Promise<LogEntry[]> {
-  return apiJson<LogEntry[]>('/api/logs', token);
+export async function listLogs(token: string, query = ''): Promise<LogEntry[]> {
+  const qs = String(query || '').trim();
+  return apiJson<LogEntry[]>(`/api/logs${qs ? (qs.startsWith('?') ? qs : `?${qs}`) : ''}`, token);
 }
 
 export async function replaceLogs(
