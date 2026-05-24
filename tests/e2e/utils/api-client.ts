@@ -263,6 +263,15 @@ export type AttendanceRecord = {
   updatedBy?: string;
 };
 
+export async function fetchAttendanceRecords(
+  token: string,
+  startDate: string,
+  endDate: string,
+): Promise<AttendanceRecord[]> {
+  const q = new URLSearchParams({ startDate, endDate });
+  return apiJson(`/api/attendance/records?${q.toString()}`, token);
+}
+
 export async function upsertAttendanceRecords(
   token: string,
   records: AttendanceRecord[],

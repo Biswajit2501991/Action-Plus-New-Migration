@@ -717,7 +717,6 @@ async function readSettings(scope) {
     staffDir,
     roles,
     leaveRows,
-    attendanceRows,
     ptRows,
   ] = await Promise.all([
     fetchAll((from, to) => sb.from(T.settings_lookup_values).select('*').eq('gym_id', gid).order('sort_order').range(from, to)),
@@ -726,7 +725,6 @@ async function readSettings(scope) {
     fetchAll((from, to) => sb.from(T.settings_staff_directory).select('*').eq('gym_id', gid).range(from, to)),
     fetchAll((from, to) => sb.from(T.staff_role_templates).select('*').eq('gym_id', gid).order('sort_order').range(from, to)),
     fetchAll((from, to) => sb.from(T.leave_requests).select('*').eq('gym_id', gid).range(from, to)),
-    fetchAll((from, to) => sb.from(T.staff_attendance_records).select('*').eq('gym_id', gid).range(from, to)),
     fetchAll((from, to) => sb.from(T.pt_client_profiles).select('*').eq('gym_id', gid).range(from, to)),
   ]);
 
@@ -737,7 +735,7 @@ async function readSettings(scope) {
     staffDir,
     roles,
     leaveRows,
-    attendanceRows,
+    attendanceRows: [],
   });
   await enrichPtProfiles(settings);
   return settings;
@@ -1054,31 +1052,7 @@ async function writeSettings(settings, scope) {
     if (part.length) await sb.from(T.leave_requests).insert(part);
   }
 
-  await sb.from(T.staff_attendance_records).delete().eq('gym_id', gid);
-  const attendanceRows = (Array.isArray(s.staffAttendance) ? s.staffAttendance : []).map((r) => ({
-    gym_id: gid,
-    external_record_id: String(r.id || crypto.randomUUID()),
-    staff_login_id: String(r.userId || ''),
-    attendance_date: toDate(r.date),
-    status: String(r.status || 'Present'),
-    check_in: r.checkIn || null,
-    check_out: r.checkOut || null,
-    note: r.note || null,
-    first_login_at: toTs(r.firstLoginAt),
-    last_logout_at: toTs(r.lastLogoutAt),
-    auto_present_window_until: toTs(r.autoPresentWindowUntil),
-    timezone_at_mark: r.timeZoneAtMark || null,
-    auto_marked: Boolean(r.autoMarked),
-    marked_by: r.markedBy || null,
-    leave_request_id: r.leaveRequestId || null,
-    leave_auto_synced: Boolean(r.leaveAutoSynced),
-    updated_by: r.updatedBy || null,
-    created_at: toTs(r.updatedAt) || new Date().toISOString(),
-    updated_at: toTs(r.updatedAt) || new Date().toISOString(),
-  }));
-  for (const part of chunk(attendanceRows, 80)) {
-    if (part.length) await sb.from(T.staff_attendance_records).insert(part);
-  }
+  // Attendance persists via /api/attendance/* only — never wipe 17MB+ history from settings bulk.
 
   await writePtProfiles(s, gid);
   notifyCollectionChange('settings');
@@ -1460,6 +1434,47 @@ export async function punchStaffAttendance(_scope, { userId, punchType, atIso, t
   await upsertAttendanceRow(sb, gid, appRecord);
   notifyCollectionChange('settings');
   return appRecord;
+}
+
+const ATTENDANCE_LIST_COLUMNS = [
+  'external_record_id',
+  'staff_login_id',
+  'attendance_date',
+  'status',
+  'check_in',
+  'check_out',
+  'note',
+  'first_login_at',
+  'last_logout_at',
+  'auto_present_window_until',
+  'timezone_at_mark',
+  'auto_marked',
+  'marked_by',
+  'leave_request_id',
+  'leave_auto_synced',
+  'updated_by',
+  'updated_at',
+].join(', ');
+
+/** Date-bounded attendance read for GET /api/attendance/records (egress-safe). */
+export async function readStaffAttendanceInRange(_scope, { startDate, endDate }) {
+  const sb = getSupabase();
+  const gid = gymId();
+  const start = String(startDate || '').slice(0, 10);
+  const end = String(endDate || '').slice(0, 10);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(start) || !/^\d{4}-\d{2}-\d{2}$/.test(end)) {
+    throw new Error('startDate and endDate must be YYYY-MM-DD');
+  }
+  if (start > end) throw new Error('startDate must be <= endDate');
+  const rows = await fetchAll((from, to) =>
+    sb.from(T.staff_attendance_records)
+      .select(ATTENDANCE_LIST_COLUMNS)
+      .eq('gym_id', gid)
+      .gte('attendance_date', start)
+      .lte('attendance_date', end)
+      .order('attendance_date', { ascending: false })
+      .range(from, to));
+  return (rows || []).map((r) => attendanceRowToApp(r));
 }
 
 /** Upsert one or more attendance rows without wiping the gym table. */

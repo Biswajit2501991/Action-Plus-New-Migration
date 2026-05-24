@@ -3,7 +3,7 @@ import {
   apiHealthOk,
   cleanupAttendanceRange,
   cleanupStaffUsers,
-  getSettings,
+  fetchAttendanceRecords,
   upsertAttendanceRecords,
   upsertStaff,
 } from '../utils/api-client';
@@ -63,12 +63,10 @@ test.describe('@critical Attendance cleanup by date range', () => {
       const writeRes = await upsertAttendanceRecords(ownerToken, records);
       expect(writeRes.ok).toBe(true);
 
-      // Sanity: rows are in settings.staffAttendance.
-      const settingsBefore = (await getSettings(ownerToken)) as {
-        staffAttendance?: Array<{ userId: string; date: string }>;
-      };
-      const ours = (settingsBefore.staffAttendance || []).filter((r) => r.userId === userId);
-      expect(ours.length).toBeGreaterThanOrEqual(records.length);
+      // Sanity: rows are returned by the date-bounded attendance API.
+      const oursBefore = (await fetchAttendanceRecords(ownerToken, '2099-01-01', '2099-01-03'))
+        .filter((r) => r.userId === userId);
+      expect(oursBefore.length).toBeGreaterThanOrEqual(records.length);
 
       // Cleanup ONLY 2099-01-01 and 2099-01-02.
       const cleanup = await cleanupAttendanceRange(ownerToken, '2099-01-01', '2099-01-02');
@@ -77,10 +75,8 @@ test.describe('@critical Attendance cleanup by date range', () => {
       expect(cleanup.startDate).toBe('2099-01-01');
       expect(cleanup.endDate).toBe('2099-01-02');
 
-      const settingsAfter = (await getSettings(ownerToken)) as {
-        staffAttendance?: Array<{ userId: string; date: string }>;
-      };
-      const oursAfter = (settingsAfter.staffAttendance || []).filter((r) => r.userId === userId);
+      const oursAfter = (await fetchAttendanceRecords(ownerToken, '2099-01-01', '2099-01-03'))
+        .filter((r) => r.userId === userId);
       expect(oursAfter.find((r) => r.date === '2099-01-01' || r.date === '2099-01-02')).toBeUndefined();
       expect(oursAfter.find((r) => r.date === '2099-01-03'), '2099-01-03 row must survive').toBeTruthy();
 

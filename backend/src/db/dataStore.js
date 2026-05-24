@@ -217,6 +217,22 @@ function applyAttendancePunchToRecords(records, { userId, punchType, atIso, time
 }
 
 /**
+ * Read staff attendance rows in a calendar-date range (YYYY-MM-DD inclusive).
+ * Supabase path avoids loading the full attendance table via settings.
+ */
+export async function readStaffAttendanceInRange(scope, { startDate, endDate }) {
+  if (useSupabase()) return supabaseStore.readStaffAttendanceInRange(scope, { startDate, endDate });
+  const settings = (await readJsonValue('apg.settings', {}, scope)) || {};
+  const records = Array.isArray(settings.staffAttendance) ? settings.staffAttendance : [];
+  const start = String(startDate || '').slice(0, 10);
+  const end = String(endDate || '').slice(0, 10);
+  return records.filter((r) => {
+    const d = String(r?.date || '').slice(0, 10);
+    return d >= start && d <= end;
+  });
+}
+
+/**
  * Owner-only bulk delete of staff attendance rows where attendance_date is in
  * [startDate, endDate] (YYYY-MM-DD). Mirrors the behaviour on both backends so
  * the sqlite fallback stays usable for local dev.

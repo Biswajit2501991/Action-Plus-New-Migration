@@ -23,6 +23,7 @@ import {
   writeJsonValue,
   punchStaffAttendance,
   upsertStaffAttendanceRecords,
+  readStaffAttendanceInRange,
   deleteAttendanceRecordsInRange,
   readWhatsappTemplates,
   writeWhatsappTemplate,
@@ -1012,6 +1013,32 @@ app.post('/api/leave-requests/cleanup', requireOwner, async (req, res) => {
   } catch (error) {
     return res.status(500).json({
       error: 'leave-request-cleanup-failed',
+      message: String(error?.message || error),
+    });
+  }
+});
+
+app.get('/api/attendance/records', requireAccess((a) => a.attendance?.viewAttendance !== false), async (req, res) => {
+  try {
+    const startDate = String(req.query?.startDate || '').slice(0, 10);
+    const endDate = String(req.query?.endDate || '').slice(0, 10);
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(startDate) || !/^\d{4}-\d{2}-\d{2}$/.test(endDate)) {
+      return res.status(400).json({
+        error: 'invalid_range',
+        message: 'startDate and endDate query params required (YYYY-MM-DD)',
+      });
+    }
+    if (startDate > endDate) {
+      return res.status(400).json({
+        error: 'invalid_range',
+        message: 'startDate must be <= endDate',
+      });
+    }
+    const records = await readStaffAttendanceInRange(readSandboxScope(req), { startDate, endDate });
+    return res.json(records);
+  } catch (error) {
+    return res.status(500).json({
+      error: 'attendance_read_failed',
       message: String(error?.message || error),
     });
   }

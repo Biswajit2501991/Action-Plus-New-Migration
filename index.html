@@ -1045,6 +1045,13 @@
       (Array.isArray(localRows) ? localRows : []).forEach(put);
       return Array.from(map.values()).sort((a, b) => String(b.date || '').localeCompare(String(a.date || '')));
     };
+    /** Default window for lazy attendance fetch (matches Attendance page history + records). */
+    const staffAttendanceDefaultRange = () => {
+      const end = new Date();
+      const start = new Date();
+      start.setMonth(start.getMonth() - 3);
+      return { startDate: iso(start), endDate: iso(end) };
+    };
     // Add n days to a date (returns a Date or null).
     const addDays = (d, n) => {
       const base = asUTC(d);
@@ -2361,6 +2368,7 @@ Phone: +91-7047157510`;
       if (!s || typeof s !== 'object') return {};
       const out = { ...s };
       delete out.roleTemplates;
+      delete out.staffAttendance;
       return out;
     };
     const settingsLookupSignature = (s) => {
@@ -2392,6 +2400,12 @@ Phone: +91-7047157510`;
         merged[k] = mergeSettingsLookupList(prev?.[k], remote[k], lookupGuardActive);
       });
       merged.roleTemplates = mergeSettingsRoleTemplates(prev?.roleTemplates, remote.roleTemplates);
+      const remoteAttendance = Array.isArray(remote.staffAttendance) ? remote.staffAttendance : [];
+      if (remoteAttendance.length > 0) {
+        merged.staffAttendance = mergeStaffAttendanceRecords(prev?.staffAttendance, remoteAttendance);
+      } else {
+        merged.staffAttendance = Array.isArray(prev?.staffAttendance) ? prev.staffAttendance : [];
+      }
       return merged;
     };
     const settingsLookupArraysAllEmpty = (s) => {
@@ -3426,6 +3440,23 @@ Phone: +91-7047157510`;
         }
         return null;
       }, []);
+      const pullStaffAttendance = React.useCallback(async (range) => {
+        if (dataSyncMode !== 'backend' || !readAuthToken()) return;
+        const r = range || staffAttendanceDefaultRange();
+        const startDate = String(r.startDate || '').slice(0, 10);
+        const endDate = String(r.endDate || '').slice(0, 10);
+        if (!/^\d{4}-\d{2}-\d{2}$/.test(startDate) || !/^\d{4}-\d{2}-\d{2}$/.test(endDate)) return;
+        try {
+          const rows = await backendJson(
+            `/attendance/records?startDate=${encodeURIComponent(startDate)}&endDate=${encodeURIComponent(endDate)}`,
+          );
+          if (!Array.isArray(rows)) return;
+          setSettings((prev) => ({
+            ...(prev && typeof prev === 'object' ? prev : {}),
+            staffAttendance: mergeStaffAttendanceRecords(prev?.staffAttendance, rows),
+          }));
+        } catch {}
+      }, [dataSyncMode]);
       const hydrateFromBackend = React.useCallback(async () => {
         const [remoteUsers, remoteMembers, remoteVisitors, remoteSettings, remoteLogs, remoteFinance, remoteSmsEvents, remoteGymCodes] = await Promise.all([
           backendJson('/users').catch(() => []),
@@ -3451,23 +3482,15 @@ Phone: +91-7047157510`;
           setVisitors((prev) => mergeRemoteVisitorsWithLocal(prev, remoteVisitors));
         }
         if (remoteSettings && typeof remoteSettings === 'object' && Object.keys(remoteSettings).length > 0) {
-          setSettings((prev) => {
-            const merged = mergeSettingsPull(prev, remoteSettings, false);
-            return {
-              ...merged,
-              staffAttendance: mergeStaffAttendanceRecords(
-                Array.isArray(prev?.staffAttendance) ? prev.staffAttendance : [],
-                Array.isArray(remoteSettings.staffAttendance) ? remoteSettings.staffAttendance : [],
-              ),
-            };
-          });
+          setSettings((prev) => mergeSettingsPull(prev, remoteSettings, false));
         }
         if (Array.isArray(remoteLogs) && remoteLogs.length > 0) setLogs(remoteLogs);
         if (Array.isArray(remoteFinance) && remoteFinance.length > 0) setFinanceTransactions(remoteFinance);
         if (Array.isArray(remoteSmsEvents) && remoteSmsEvents.length > 0) setSmsEvents(remoteSmsEvents);
+        await pullStaffAttendance().catch(() => {});
         setUser((prev) => (prev?.id ? prepareStaffUser(prev) : prev));
         setBackendHydrated(true);
-      }, []);
+      }, [pullStaffAttendance]);
       // Probe backend reachability (no auth). Full data loads after login.
       React.useEffect(() => {
         let alive = true;
@@ -3623,6 +3646,21 @@ Phone: +91-7047157510`;
       const [realtimeConnected, setRealtimeConnected] = React.useState(false);
       const REALTIME_POLL_FAST_MS = 2500;
       const REALTIME_POLL_SLOW_MS = 20000;
+      /** When SSE is healthy, avoid 20s full-table polling; safety poll only. */
+      const REALTIME_POLL_SAFETY_MS = 120000;
+      const REALTIME_PULL_DEBOUNCE_MS = 4000;
+      const realtimePullTimersRef = React.useRef({});
+      const scheduleDebouncedPull = React.useCallback((key, fn) => {
+        const timers = realtimePullTimersRef.current;
+        if (timers[key]) clearTimeout(timers[key]);
+        timers[key] = setTimeout(() => {
+          delete timers[key];
+          fn();
+        }, REALTIME_PULL_DEBOUNCE_MS);
+      }, []);
+      React.useEffect(() => () => {
+        Object.values(realtimePullTimersRef.current).forEach((t) => clearTimeout(t));
+      }, []);
       const settingsLookupGuardUntilRef = React.useRef(0);
       const settingsBulkPrevRef = React.useRef(null);
       const settingsSkipNextBulkRef = React.useRef(false);
@@ -3995,18 +4033,18 @@ Phone: +91-7047157510`;
             .catch(() => {});
         };
         const onRealtime = (ev) => {
-          if (ev?.detail?.collection === 'members' && alive) pullMembers();
+          if (ev?.detail?.collection === 'members' && alive) scheduleDebouncedPull('members', pullMembers);
         };
         window.addEventListener('apg-realtime', onRealtime);
         pullMembers();
-        const pollMs = realtimeConnected ? REALTIME_POLL_SLOW_MS : REALTIME_POLL_FAST_MS;
-        const timer = setInterval(pullMembers, pollMs);
+        const pollMs = realtimeConnected ? REALTIME_POLL_SAFETY_MS : REALTIME_POLL_FAST_MS;
+        const timer = pollMs > 0 ? setInterval(pullMembers, pollMs) : null;
         return () => {
           alive = false;
-          clearInterval(timer);
+          if (timer) clearInterval(timer);
           window.removeEventListener('apg-realtime', onRealtime);
         };
-      }, [dataSyncMode, realtimeConnected, pruneMemberAwaitingBackendSync, memberSyncPending]);
+      }, [dataSyncMode, realtimeConnected, pruneMemberAwaitingBackendSync, memberSyncPending, scheduleDebouncedPull]);
       // Pull visitor updates from backend so multi-device changes appear without refresh.
       React.useEffect(() => {
         if (dataSyncMode !== 'backend') return;
@@ -4025,18 +4063,18 @@ Phone: +91-7047157510`;
             .catch(() => {});
         };
         const onRealtime = (ev) => {
-          if (ev?.detail?.collection === 'visitors' && alive) pullVisitors();
+          if (ev?.detail?.collection === 'visitors' && alive) scheduleDebouncedPull('visitors', pullVisitors);
         };
         window.addEventListener('apg-realtime', onRealtime);
         pullVisitors();
-        const pollMs = realtimeConnected ? REALTIME_POLL_SLOW_MS : REALTIME_POLL_FAST_MS;
-        const timer = setInterval(pullVisitors, pollMs);
+        const pollMs = realtimeConnected ? REALTIME_POLL_SAFETY_MS : REALTIME_POLL_FAST_MS;
+        const timer = pollMs > 0 ? setInterval(pullVisitors, pollMs) : null;
         return () => {
           alive = false;
-          clearInterval(timer);
+          if (timer) clearInterval(timer);
           window.removeEventListener('apg-realtime', onRealtime);
         };
-      }, [dataSyncMode, realtimeConnected]);
+      }, [dataSyncMode, realtimeConnected, scheduleDebouncedPull]);
       // Pull staff/user updates from backend so multi-device changes appear without refresh.
       React.useEffect(() => {
         if (dataSyncMode !== 'backend') return;
@@ -4056,18 +4094,18 @@ Phone: +91-7047157510`;
             .catch(() => {});
         };
         const onRealtime = (ev) => {
-          if (ev?.detail?.collection === 'users' && alive) pullUsers();
+          if (ev?.detail?.collection === 'users' && alive) scheduleDebouncedPull('users', pullUsers);
         };
         window.addEventListener('apg-realtime', onRealtime);
         pullUsers();
-        const pollMs = realtimeConnected ? REALTIME_POLL_SLOW_MS : REALTIME_POLL_FAST_MS;
-        const timer = setInterval(pullUsers, pollMs);
+        const pollMs = realtimeConnected ? REALTIME_POLL_SAFETY_MS : REALTIME_POLL_FAST_MS;
+        const timer = pollMs > 0 ? setInterval(pullUsers, pollMs) : null;
         return () => {
           alive = false;
-          clearInterval(timer);
+          if (timer) clearInterval(timer);
           window.removeEventListener('apg-realtime', onRealtime);
         };
-      }, [dataSyncMode, realtimeConnected]);
+      }, [dataSyncMode, realtimeConnected, scheduleDebouncedPull]);
 
       // Phase 4 leave-request notification fix: pull settings on SSE
       // 'settings' broadcast so that when staff POSTs /api/leave-requests, the
@@ -4092,11 +4130,13 @@ Phone: +91-7047157510`;
             .catch(() => {});
         };
         const onRealtime = (ev) => {
-          if (ev?.detail?.collection === 'settings' && alive) pullSettings();
+          if (ev?.detail?.collection === 'settings' && alive) {
+            scheduleDebouncedPull('settings', pullSettings);
+            scheduleDebouncedPull('attendance', () => pullStaffAttendance());
+          }
         };
         window.addEventListener('apg-realtime', onRealtime);
         pullSettings();
-        // When SSE is connected, rely on realtime events only (saves Supabase quota).
         const pollMs = realtimeConnected ? 0 : REALTIME_POLL_FAST_MS;
         const timer = pollMs > 0 ? setInterval(pullSettings, pollMs) : null;
         return () => {
@@ -4104,7 +4144,7 @@ Phone: +91-7047157510`;
           if (timer) clearInterval(timer);
           window.removeEventListener('apg-realtime', onRealtime);
         };
-      }, [dataSyncMode, realtimeConnected]);
+      }, [dataSyncMode, realtimeConnected, scheduleDebouncedPull, pullStaffAttendance]);
 
       // Persist users to localStorage whenever they change. This ensures that newly added
       // staff or updated roles survive page reloads.
@@ -4702,7 +4742,7 @@ Phone: +91-7047157510`;
       const pushAttendancePunch = async (punchType, authUser, nowIso) => {
         if (dataSyncMode !== 'backend' || !readAuthToken() || !authUser?.id) return;
         try {
-          await backendJson('/attendance/punch', {
+          const result = await backendJson('/attendance/punch', {
             method: 'POST',
             body: JSON.stringify({
               type: punchType,
@@ -4711,6 +4751,12 @@ Phone: +91-7047157510`;
               actorName: authUser.name || authUser.id,
             }),
           });
+          if (result?.record) {
+            setSettings((prev) => ({
+              ...(prev && typeof prev === 'object' ? prev : {}),
+              staffAttendance: mergeStaffAttendanceRecords(prev?.staffAttendance, [result.record]),
+            }));
+          }
         } catch {}
       };
       const pushAttendanceRecords = async (records) => {
@@ -7549,6 +7595,7 @@ Please pay by: ${formattedLastDate}`;
                 settings={settings}
                 updateSetting={updateSettingValue}
                 syncAttendanceRecords={pushAttendanceRecords}
+                refreshStaffAttendance={pullStaffAttendance}
                 currentUser={user}
                 access={normalizeAccess(user?.access)}
                 displayTimeZone={displayTimeZone}
@@ -13654,7 +13701,7 @@ function PTClientsPage({ members, users, settings, updateSetting, currentUser, a
     }
 
     // ---- Attendance Page ----
-    function AttendancePage({ users, settings, updateSetting, syncAttendanceRecords, currentUser, access, displayTimeZone = 'IST' }) {
+    function AttendancePage({ users, settings, updateSetting, syncAttendanceRecords, refreshStaffAttendance, currentUser, access, displayTimeZone = 'IST' }) {
       const [date, setDate] = React.useState(iso(new Date()));
       const [expandedStaffId, setExpandedStaffId] = React.useState('');
       const [historyPageByStaff, setHistoryPageByStaff] = React.useState({});
@@ -13662,6 +13709,17 @@ function PTClientsPage({ members, users, settings, updateSetting, currentUser, a
       // cleanup. State sits at the page level so the modal can drive a refresh
       // of the same records list it just truncated.
       const isOwnerForAttendance = currentUser?.id === 'owner';
+      React.useEffect(() => {
+        if (typeof refreshStaffAttendance !== 'function') return;
+        const end = iso(new Date());
+        const start = new Date();
+        if (isOwnerForAttendance) {
+          start.setFullYear(start.getFullYear() - 5);
+        } else {
+          start.setMonth(start.getMonth() - 3);
+        }
+        refreshStaffAttendance({ startDate: iso(start), endDate: end });
+      }, [refreshStaffAttendance, isOwnerForAttendance]);
       const [recordsPage, setRecordsPage] = React.useState(1);
       const RECORDS_PAGE_SIZE = 10;
       const [clearModalOpen, setClearModalOpen] = React.useState(false);
