@@ -16,13 +16,62 @@ export function dataBackendLabel() {
   return useSupabase() ? 'supabase' : 'sqlite';
 }
 
-export async function readJsonCollection(key, fallback = [], scope = null, branchScope = null) {
-  if (useSupabase()) return supabaseStore.readCollection(key, fallback, scope, branchScope);
+export async function readJsonCollection(key, fallback = [], scope = null, branchScope = null, options = {}) {
+  if (useSupabase()) return supabaseStore.readCollection(key, fallback, scope, branchScope, options);
   const allRows = await kvStore.readJsonCollection(key, fallback);
   const sandboxed = scope ? allRows.filter((row) => String(row?.sandboxId || '') === scope.sandboxId) : allRows;
-  if (!branchScope || !branchScope.gymCodeId) return sandboxed;
-  // SQLite parity: legacy non-Supabase backend filters the same shape (members/visitors).
-  return sandboxed.filter((row) => String(row?.assignedGymCodeId || '') === String(branchScope.gymCodeId));
+  let filtered = sandboxed;
+  if (branchScope && branchScope.gymCodeId) {
+    filtered = sandboxed.filter((row) => String(row?.assignedGymCodeId || '') === String(branchScope.gymCodeId));
+  }
+  if (key === 'apg.members' && (options.view === 'list' || options.includeChildren === false)) {
+    const { slimAppMember } = await import('./supabase/mappers.js');
+    return filtered.map(slimAppMember);
+  }
+  return filtered;
+}
+
+export async function readMember(memberCode, branchScope = null) {
+  if (useSupabase()) return supabaseStore.readMemberByCode(memberCode, branchScope);
+  const rows = await kvStore.readJsonCollection('apg.members', []);
+  const code = String(memberCode || '').trim();
+  const found = rows.find((m) => String(m?.memberId || '').trim() === code);
+  if (!found) return null;
+  if (branchScope && branchScope.gymCodeId && !branchScope.isOwner) {
+    if (String(found.assignedGymCodeId || '') !== String(branchScope.gymCodeId)) return null;
+  }
+  return found;
+}
+
+export async function assertStaffPaymentDeletesAllowed(incomingMembers, branchScope = null) {
+  if (useSupabase()) return supabaseStore.assertStaffPaymentDeletesAllowed(incomingMembers, branchScope);
+  // SQLite parity: compare against KV snapshot for members that include paymentHistory.
+  const withPayments = (incomingMembers || []).filter((m) =>
+    Object.prototype.hasOwnProperty.call(m || {}, 'paymentHistory'));
+  if (!withPayments.length) return;
+  const rows = await kvStore.readJsonCollection('apg.members', []);
+  const byId = new Map(rows.map((m) => [String(m?.memberId || ''), m]));
+  const removed = [];
+  for (const next of withPayments) {
+    const code = String(next?.memberId || '').trim();
+    if (!code) continue;
+    const prev = byId.get(code);
+    if (!prev) continue;
+    const prevHist = Array.isArray(prev.paymentHistory) ? prev.paymentHistory : [];
+    if (!prevHist.length) continue;
+    const nextHist = Array.isArray(next.paymentHistory) ? next.paymentHistory : [];
+    const nextIds = new Set(nextHist.map((p) => String(p?.id || '').trim()).filter(Boolean));
+    for (const p of prevHist) {
+      const pid = String(p?.id || '').trim();
+      if (pid && !nextIds.has(pid)) removed.push({ memberCode: code, paymentId: pid });
+    }
+  }
+  if (removed.length) {
+    const err = new Error('payment-delete-forbidden');
+    err.status = 403;
+    err.detail = { removed: removed.slice(0, 5) };
+    throw err;
+  }
 }
 
 export async function deleteMemberPayment(memberCode, paymentId, branchScope = null) {

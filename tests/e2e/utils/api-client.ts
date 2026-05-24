@@ -119,6 +119,10 @@ export async function listMembers(token: string): Promise<Array<{ memberId: stri
   return apiJson('/api/members', token);
 }
 
+export async function fetchMember(token: string, memberId: string): Promise<Record<string, unknown>> {
+  return apiJson(`/api/members/${encodeURIComponent(memberId)}`, token);
+}
+
 export async function patchMember(
   token: string,
   memberId: string,

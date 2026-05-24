@@ -512,52 +512,30 @@ app.post('/api/process/start', requireOwnerUnlessProcessControl, (req, res) => {
 
 app.get('/api/members', requireAccess(Access.membersRead), async (req, res) => {
   // Phase 2 zero-leak: branch filter pushed into Supabase SQL via buildBranchScope.
-  // Staff requests never pull cross-branch (or NULL-tagged legacy) rows out of the DB.
-  const members = await readBranchScopedCollection(req, 'apg.members', []);
+  // Default view=list skips child tables + heavy columns to cut Supabase egress.
+  const view = String(req.query?.view || 'list').trim().toLowerCase();
+  const scope = readSandboxScope(req);
+  const branchScope = buildBranchScope(req);
+  const options = view === 'full' ? { view: 'full' } : { view: 'list' };
+  const members = await readJsonCollection('apg.members', [], scope, branchScope, options);
   res.json(members);
 });
 
-// Phase 4 Payment RBAC backend defense-in-depth.
-//
-// Staff are allowed to add and edit payment history rows (a recurring part of
-// daily operations), but they cannot DELETE rows — that authority is reserved
-// for owners. To make this enforceable on the server, we diff the incoming
-// paymentHistory against the persisted snapshot for each member, by stable id.
-// If any row id present on the server is missing from the incoming payload
-// from a non-owner caller, we reject the entire bulk PUT with 403. This
-// prevents the UI from being bypassed via a hand-crafted bulk request.
-function assertPaymentDeleteAllowed(incomingMembers, existingMembers, auth) {
-  if (authIsOwner(auth)) return; // owners can delete anything
-  const byId = new Map(
-    (existingMembers || []).map((m) => [String(m?.memberId || ''), m])
-  );
-  const removed = [];
-  for (const next of incomingMembers || []) {
-    const code = String(next?.memberId || '').trim();
-    if (!code) continue;
-    const prev = byId.get(code);
-    if (!prev) continue; // brand-new member; nothing to compare against
-    const prevHist = Array.isArray(prev.paymentHistory) ? prev.paymentHistory : [];
-    if (!prevHist.length) continue;
-    const nextHist = Array.isArray(next.paymentHistory) ? next.paymentHistory : [];
-    const nextIds = new Set(
-      nextHist
-        .map((p) => String(p?.id || '').trim())
-        .filter(Boolean)
-    );
-    for (const p of prevHist) {
-      const pid = String(p?.id || '').trim();
-      if (!pid) continue;
-      if (!nextIds.has(pid)) removed.push({ memberCode: code, paymentId: pid });
-    }
+app.get('/api/members/:memberId', requireAccess(Access.membersRead), async (req, res) => {
+  const memberCode = decodeURIComponent(String(req.params.memberId || '').trim());
+  if (!memberCode) return res.status(400).json({ error: 'member-code-required' });
+  const branchScope = buildBranchScope(req);
+  try {
+    const { readMember } = await import('./db/dataStore.js');
+    const member = await readMember(memberCode, branchScope);
+    if (!member) return res.status(404).json({ error: 'member-not-found' });
+    return res.json(member);
+  } catch (err) {
+    return res.status(err?.status || 500).json({
+      error: err?.message || 'member-read-failed',
+    });
   }
-  if (removed.length) {
-    const err = new Error('payment-delete-forbidden');
-    err.status = 403;
-    err.detail = { removed: removed.slice(0, 5) };
-    throw err;
-  }
-}
+});
 
 app.put('/api/members/bulk', requireAccess(Access.membersWrite), async (req, res) => {
   const incoming = Array.isArray(req.body?.members) ? req.body.members : [];
@@ -570,12 +548,12 @@ app.put('/api/members/bulk', requireAccess(Access.membersWrite), async (req, res
     });
   }
   // Defense-in-depth: prevent non-owner callers from quietly stripping payment
-  // entries out of the snapshot. We read the current members BEFORE writing so
-  // the diff sees the freshest server state.
+  // entries out of the snapshot. Slim bulk sync omits paymentHistory; guard only
+  // runs when paymentHistory is present in the payload (pending member sync).
   try {
     if (!authIsOwner(req.auth)) {
-      const existing = await readJsonCollection('apg.members', [], readSandboxScope(req), buildBranchScope(req));
-      assertPaymentDeleteAllowed(incoming, existing, req.auth);
+      const { assertStaffPaymentDeletesAllowed } = await import('./db/dataStore.js');
+      await assertStaffPaymentDeletesAllowed(incoming, buildBranchScope(req));
     }
   } catch (err) {
     return res.status(err.status || 403).json({

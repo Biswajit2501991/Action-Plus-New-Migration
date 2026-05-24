@@ -1,14 +1,25 @@
 import crypto from 'node:crypto';
 import { emptyText, financeStatusFromNumeric, financeStatusToNumeric, toDate, toTs } from './utils.js';
 
-export function memberRowToApp(row, children = {}) {
-  const medical = row.medical_answers_json && typeof row.medical_answers_json === 'object'
+/** Columns fetched for list pulls — excludes photo + heavy JSON/signature blobs. */
+export const MEMBER_LIST_COLUMNS = [
+  'id', 'member_code', 'form_no', 'full_name', 'email', 'mobile', 'dob', 'gender', 'address',
+  'assigned_staff', 'plan_name', 'status', 'hold_duration', 'amount', 'payment_method',
+  'joining_date', 'billing_date', 'billing_date_updated_at', 'next_payment_date', 'payment_by',
+  'pay_month', 'remark', 'medical_skipped', 'ack_accepted', 'ack_date', 'parent_guardian_name',
+  'parent_guardian_dob', 'family_group_id', 'family_primary_member_id', 'last_sms_sent_json',
+  'updated_by', 'assigned_gym_code_id', 'created_at', 'updated_at',
+].join(',');
+
+export function memberRowToApp(row, children = {}, options = {}) {
+  const slim = Boolean(options.slim);
+  const medical = !slim && row.medical_answers_json && typeof row.medical_answers_json === 'object'
     ? { ...row.medical_answers_json }
     : {};
-  if (children.injuryNotes?.length) {
+  if (!slim && children.injuryNotes?.length) {
     medical.injuryNotesLog = children.injuryNotes;
   }
-  return {
+  const base = {
     memberId: row.member_code,
     formNo: row.form_no,
     name: row.full_name,
@@ -30,15 +41,11 @@ export function memberRowToApp(row, children = {}) {
     paymentBy: row.payment_by,
     payMonth: row.pay_month,
     remark: row.remark,
-    photo: row.photo_url,
     medicalSkipped: Boolean(row.medical_skipped),
-    medicalAnswers: Object.keys(medical).length ? medical : undefined,
     ackAccepted: Boolean(row.ack_accepted),
-    ackSignature: row.ack_signature,
     ackDate: row.ack_date,
     parentGuardianName: row.parent_guardian_name,
     parentGuardianDob: row.parent_guardian_dob,
-    parentGuardianSignature: row.parent_guardian_signature,
     familyGroupId: row.family_group_id,
     familyPrimaryMemberId: row.family_primary_member_id,
     lastSmsSent: row.last_sms_sent_json || undefined,
@@ -46,9 +53,47 @@ export function memberRowToApp(row, children = {}) {
     assignedGymCodeId: row.assigned_gym_code_id || null,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
+  };
+  if (slim) {
+    return {
+      ...base,
+      __listSlim: true,
+      paymentHistory: [],
+      messageHistory: [],
+      attachments: [],
+    };
+  }
+  return {
+    ...base,
+    photo: row.photo_url,
+    medicalAnswers: Object.keys(medical).length ? medical : undefined,
+    ackSignature: row.ack_signature,
+    parentGuardianSignature: row.parent_guardian_signature,
     paymentHistory: children.payments || [],
     messageHistory: children.messages || [],
     attachments: children.attachments || [],
+  };
+}
+
+/** Strip heavy nested fields from an app-shaped member for sqlite list parity. */
+export function slimAppMember(m) {
+  if (!m || typeof m !== 'object') return m;
+  const {
+    photo,
+    paymentHistory,
+    messageHistory,
+    attachments,
+    ackSignature,
+    parentGuardianSignature,
+    medicalAnswers,
+    ...rest
+  } = m;
+  return {
+    ...rest,
+    __listSlim: true,
+    paymentHistory: [],
+    messageHistory: [],
+    attachments: [],
   };
 }
 

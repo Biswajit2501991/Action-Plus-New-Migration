@@ -14,6 +14,7 @@ import {
   financeRowToApp,
   logRowToApp,
   memberRowToApp,
+  MEMBER_LIST_COLUMNS,
   messageRowToApp,
   paymentRowToApp,
   smsRowToApp,
@@ -203,11 +204,13 @@ export async function deleteMemberPayment(memberCode, paymentId, branchScope = n
   return { ok: true, deleted: true, paymentId: pid, member: refreshed };
 }
 
-async function readMembers(scope, branchScope = null) {
+async function readMembers(scope, branchScope = null, options = {}) {
   const sb = getSupabase();
   const gid = gymId();
+  const slim = options.view === 'list' || options.includeChildren === false;
+  const columns = slim ? MEMBER_LIST_COLUMNS : '*';
   const memberRows = await fetchAll((from, to) => {
-    let q = sb.from(T.members).select('*').eq('gym_id', gid);
+    let q = sb.from(T.members).select(columns).eq('gym_id', gid);
     // Phase 2 zero-leak: when caller passes a branchScope (non-owner staff with a gym_code_id),
     // we filter at the SQL layer so that cross-branch (and NULL/legacy) rows never leave Supabase.
     if (branchScope && branchScope.gymCodeId) {
@@ -215,6 +218,9 @@ async function readMembers(scope, branchScope = null) {
     }
     return q.range(from, to);
   });
+  if (slim) {
+    return sandboxFilter(memberRows.map((row) => memberRowToApp(row, {}, { slim: true })), scope);
+  }
   const memberIds = memberRows.map((r) => r.id);
   const children = await loadMemberChildren(sb, gid, memberIds);
   const members = memberRows.map((row) => memberRowToApp(row, {
@@ -224,6 +230,68 @@ async function readMembers(scope, branchScope = null) {
     injuryNotes: children.injuryByMember.get(row.id) || [],
   }));
   return sandboxFilter(members, scope);
+}
+
+/**
+ * SQL-only staff payment-delete guard for bulk PUT.
+ * Only compares members that include paymentHistory in the payload (slim bulk sync omits it).
+ */
+async function assertStaffPaymentDeletesAllowed(incomingMembers, branchScope = null) {
+  const withPayments = (incomingMembers || []).filter((m) =>
+    Object.prototype.hasOwnProperty.call(m || {}, 'paymentHistory'));
+  if (!withPayments.length) return;
+
+  const sb = getSupabase();
+  const gid = gymId();
+  const codes = [...new Set(withPayments.map((m) => String(m?.memberId || '').trim()).filter(Boolean))];
+  if (!codes.length) return;
+
+  const memberRows = await fetchAll((from, to) => {
+    let q = sb.from(T.members).select('id, member_code').eq('gym_id', gid).in('member_code', codes);
+    if (branchScope?.gymCodeId) q = q.eq('assigned_gym_code_id', branchScope.gymCodeId);
+    return q.range(from, to);
+  });
+  const pkToCode = new Map((memberRows || []).map((r) => [r.id, String(r.member_code)]));
+  const memberPks = [...pkToCode.keys()];
+  if (!memberPks.length) return;
+
+  const dbIdsByCode = new Map();
+  for (const idChunk of chunk(memberPks, 100)) {
+    const { data, error } = await sb
+      .from(T.member_payment_history)
+      .select('member_id, external_payment_id')
+      .eq('gym_id', gid)
+      .in('member_id', idChunk);
+    if (error) throw new Error(`payment guard lookup: ${error.message}`);
+    for (const row of data || []) {
+      const code = pkToCode.get(row.member_id);
+      if (!code) continue;
+      const pid = String(row.external_payment_id || '').trim();
+      if (!pid) continue;
+      const set = dbIdsByCode.get(code) || new Set();
+      set.add(pid);
+      dbIdsByCode.set(code, set);
+    }
+  }
+
+  const removed = [];
+  for (const next of withPayments) {
+    const code = String(next?.memberId || '').trim();
+    if (!code) continue;
+    const dbIds = dbIdsByCode.get(code);
+    if (!dbIds?.size) continue;
+    const nextHist = Array.isArray(next.paymentHistory) ? next.paymentHistory : [];
+    const nextIds = new Set(nextHist.map((p) => String(p?.id || '').trim()).filter(Boolean));
+    for (const pid of dbIds) {
+      if (!nextIds.has(pid)) removed.push({ memberCode: code, paymentId: pid });
+    }
+  }
+  if (removed.length) {
+    const err = new Error('payment-delete-forbidden');
+    err.status = 403;
+    err.detail = { removed: removed.slice(0, 5) };
+    throw err;
+  }
 }
 
 /**
@@ -471,13 +539,21 @@ async function writeMembers(members, scope) {
   const gid = gymId();
   const incoming = sandboxFilter(Array.isArray(members) ? members : [], scope);
 
-  const existing = await fetchAll((from, to) => sb.from(T.members).select('id, member_code').eq('gym_id', gid).range(from, to));
+  const existing = await fetchAll((from, to) => sb.from(T.members).select('id, member_code, photo_url').eq('gym_id', gid).range(from, to));
+  const photoByCode = new Map((existing || []).map((r) => [String(r.member_code), r.photo_url]));
 
   // Upsert-only: never delete members missing from a partial browser upload (prevents mass data loss).
 
   const memberRows = incoming
     .filter((m) => m?.memberId)
-    .map((m) => appMemberToRow(m, gid));
+    .map((m) => {
+      const row = appMemberToRow(m, gid);
+      if (!String(row.photo_url || '').trim()) {
+        const prevPhoto = photoByCode.get(String(row.member_code));
+        if (String(prevPhoto || '').trim()) row.photo_url = prevPhoto;
+      }
+      return row;
+    });
 
   let codeToId = new Map((existing || []).map((r) => [String(r.member_code), r.id]));
   const useBulkUpsert = await membersBulkUpsertReady();
@@ -515,33 +591,43 @@ async function writeMembers(members, scope) {
     const memberPk = codeToId.get(String(m.memberId));
     if (!memberPk) continue;
     const { payRows, msgRows, attRows, injuryRows } = buildMemberChildRows(m, gid, memberPk);
-    await syncMemberChildRows(sb, T.member_payment_history, {
-      gymId: gid,
-      memberId: memberPk,
-      externalIdColumn: 'external_payment_id',
-      rows: payRows,
-      onConflict: 'gym_id,member_id,external_payment_id',
-    });
-    await syncMemberChildRows(sb, T.member_message_history, {
-      gymId: gid,
-      memberId: memberPk,
-      externalIdColumn: 'external_event_id',
-      rows: msgRows,
-      onConflict: 'gym_id,member_id,external_event_id',
-    });
-    await syncMemberChildRows(sb, T.member_attachments, {
-      gymId: gid,
-      memberId: memberPk,
-      externalIdColumn: null,
-      rows: attRows,
-    });
-    await syncMemberChildRows(sb, T.member_injury_notes, {
-      gymId: gid,
-      memberId: memberPk,
-      externalIdColumn: 'external_note_id',
-      rows: injuryRows,
-      onConflict: 'gym_id,member_id,external_note_id',
-    });
+    if (Object.prototype.hasOwnProperty.call(m, 'paymentHistory')) {
+      await syncMemberChildRows(sb, T.member_payment_history, {
+        gymId: gid,
+        memberId: memberPk,
+        externalIdColumn: 'external_payment_id',
+        rows: payRows,
+        onConflict: 'gym_id,member_id,external_payment_id',
+      });
+    }
+    if (Object.prototype.hasOwnProperty.call(m, 'messageHistory')) {
+      await syncMemberChildRows(sb, T.member_message_history, {
+        gymId: gid,
+        memberId: memberPk,
+        externalIdColumn: 'external_event_id',
+        rows: msgRows,
+        onConflict: 'gym_id,member_id,external_event_id',
+      });
+    }
+    if (Object.prototype.hasOwnProperty.call(m, 'attachments')) {
+      await syncMemberChildRows(sb, T.member_attachments, {
+        gymId: gid,
+        memberId: memberPk,
+        externalIdColumn: null,
+        rows: attRows,
+      });
+    }
+    const hasInjuryLog = Object.prototype.hasOwnProperty.call(m, 'medicalAnswers')
+      && Array.isArray(m.medicalAnswers?.injuryNotesLog);
+    if (hasInjuryLog) {
+      await syncMemberChildRows(sb, T.member_injury_notes, {
+        gymId: gid,
+        memberId: memberPk,
+        externalIdColumn: 'external_note_id',
+        rows: injuryRows,
+        onConflict: 'gym_id,member_id,external_note_id',
+      });
+    }
   }
 
   notifyCollectionChange('members');
@@ -1214,10 +1300,10 @@ async function writeSmsEvents(events, scope) {
   notifyCollectionChange('smsEvents');
 }
 
-export async function readCollection(key, fallback = [], scope = null, branchScope = null) {
+export async function readCollection(key, fallback = [], scope = null, branchScope = null, options = {}) {
   switch (key) {
     case KEY_MEMBERS:
-      return readMembers(scope, branchScope);
+      return readMembers(scope, branchScope, options);
     case KEY_USERS:
       return readUsers(scope);
     case KEY_VISITORS:
@@ -1233,7 +1319,7 @@ export async function readCollection(key, fallback = [], scope = null, branchSco
   }
 }
 
-export { updateMemberFields };
+export { updateMemberFields, readMemberByCode, assertStaffPaymentDeletesAllowed };
 
 export async function writeCollection(key, value, scope = null) {
   switch (key) {
