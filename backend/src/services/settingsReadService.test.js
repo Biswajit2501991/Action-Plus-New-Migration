@@ -1,31 +1,33 @@
 import { describe, expect, it, vi, beforeEach } from 'vitest';
 import { runWithGymContext } from '../requestContext.js';
 
-vi.mock('../db/supabase/repository.js', () => ({
-  readSettingsValue: vi.fn(),
+const readJsonValue = vi.fn();
+
+vi.mock('../db/dataStore.js', () => ({
+  readJsonValue: (...args) => readJsonValue(...args),
 }));
 
 vi.mock('../db/supabase/client.js', () => ({
   gymId: vi.fn(() => 'gym-test-1'),
 }));
 
-import { readSettingsValue } from '../db/supabase/repository.js';
 import { readSettingsDeduped, resetSettingsReadDedupeForTests } from './settingsReadService.js';
 
 describe('readSettingsDeduped', () => {
   beforeEach(() => {
     resetSettingsReadDedupeForTests();
-    vi.mocked(readSettingsValue).mockReset();
+    readJsonValue.mockReset();
   });
 
   it('dedupes concurrent reads for the same scope', async () => {
     let resolve;
-    vi.mocked(readSettingsValue).mockImplementation(() => new Promise((r) => { resolve = r; }));
+    readJsonValue.mockImplementation(() => new Promise((r) => { resolve = r; }));
 
     await runWithGymContext({ gymId: 'gym-test-1' }, async () => {
       const a = readSettingsDeduped(null, { scope: 'core' });
       const b = readSettingsDeduped(null, { scope: 'core' });
-      expect(readSettingsValue).toHaveBeenCalledTimes(1);
+      expect(readJsonValue).toHaveBeenCalledTimes(1);
+      expect(readJsonValue).toHaveBeenCalledWith('apg.settings', {}, null, { scope: 'core' });
       resolve({ plans: ['Basic'] });
       const [ra, rb] = await Promise.all([a, b]);
       expect(ra).toEqual({ plans: ['Basic'] });
@@ -34,24 +36,24 @@ describe('readSettingsDeduped', () => {
   });
 
   it('runs separate reads for different scopes', async () => {
-    vi.mocked(readSettingsValue)
+    readJsonValue
       .mockResolvedValueOnce({ plans: [] })
       .mockResolvedValueOnce({ leaveRequests: [] });
 
     await runWithGymContext({ gymId: 'gym-test-1' }, async () => {
       await readSettingsDeduped(null, { scope: 'core' });
       await readSettingsDeduped(null, { scope: 'leave' });
-      expect(readSettingsValue).toHaveBeenCalledTimes(2);
+      expect(readJsonValue).toHaveBeenCalledTimes(2);
     });
   });
 
   it('allows a new read after the first completes', async () => {
-    vi.mocked(readSettingsValue).mockResolvedValue({ plans: ['A'] });
+    readJsonValue.mockResolvedValue({ plans: ['A'] });
 
     await runWithGymContext({ gymId: 'gym-test-1' }, async () => {
       await readSettingsDeduped(null, { scope: 'core' });
       await readSettingsDeduped(null, { scope: 'core' });
-      expect(readSettingsValue).toHaveBeenCalledTimes(2);
+      expect(readJsonValue).toHaveBeenCalledTimes(2);
     });
   });
 });

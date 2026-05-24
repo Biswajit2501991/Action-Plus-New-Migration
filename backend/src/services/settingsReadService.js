@@ -1,5 +1,5 @@
 import { gymId } from '../db/supabase/client.js';
-import { readSettingsValue } from '../db/supabase/repository.js';
+import { readJsonValue } from '../db/dataStore.js';
 import { normalizeSettingsScope } from '../db/supabase/settingsScope.js';
 
 /** @type {Map<string, Promise<object>>} */
@@ -12,9 +12,13 @@ function cacheKey(scope, options = {}) {
   return `${gid}:${sandboxId}:${settingsScope}`;
 }
 
+async function readSettingsFromStore(scope, settingsScope) {
+  return readJsonValue('apg.settings', {}, scope, { scope: settingsScope });
+}
+
 /**
  * Deduplicate concurrent settings reads for the same gym + scope.
- * Prevents request storms (hydrate + poll + tab switch) from stacking identical Supabase work.
+ * Uses dataStore.readJsonValue (dynamic import) to avoid circular ESM init issues.
  */
 export async function readSettingsDeduped(scope = null, options = {}) {
   const key = cacheKey(scope, options);
@@ -27,7 +31,7 @@ export async function readSettingsDeduped(scope = null, options = {}) {
     console.info('[settings-read] start', { key, scope: settingsScope });
   }
 
-  const run = readSettingsValue(scope, { scope: settingsScope })
+  const run = readSettingsFromStore(scope, settingsScope)
     .then((settings) => {
       if (process.env.APG_DEBUG_SETTINGS === '1') {
         console.info('[settings-read] ok', {
