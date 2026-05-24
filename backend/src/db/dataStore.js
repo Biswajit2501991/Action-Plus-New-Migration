@@ -459,6 +459,27 @@ export async function writeWhatsappTemplate(scope, payload) {
   return { key, body, updatedAt: nowIso };
 }
 
+/** Surgical PT client profile save (staff + owner). */
+export async function patchPtClientProfileValue(memberCode, profile, meta = {}) {
+  if (useSupabase()) return supabaseStore.patchPtClientProfile(memberCode, profile, meta);
+  const settings = (await readJsonValue('apg.settings', {}, null)) || {};
+  const prevAll = settings.ptClientProfiles && typeof settings.ptClientProfiles === 'object'
+    ? settings.ptClientProfiles
+    : {};
+  const code = String(memberCode || '').trim();
+  const prev = prevAll[code] && typeof prevAll[code] === 'object' ? prevAll[code] : {};
+  const nowIso = new Date().toISOString();
+  const merged = {
+    ...prev,
+    ...(profile && typeof profile === 'object' ? profile : {}),
+    updatedAt: nowIso,
+    updatedBy: String(meta.updatedBy || profile?.updatedBy || '').trim() || prev.updatedBy || '',
+  };
+  settings.ptClientProfiles = { ...prevAll, [code]: merged };
+  await writeJsonValue('apg.settings', settings, null);
+  return merged;
+}
+
 export async function pingDataStore() {
   if (useSupabase()) {
     const sb = getSupabase();

@@ -123,6 +123,9 @@ export const Access = {
   attendancePunch: () => true,
   /** Upsert attendance rows from Attendance page. */
   attendanceWrite: (a) => a.attendance.editAttendance !== false || a.attendance.markAllPresent !== false,
+  ptClientsRead: (a) => a.ptClients.viewPtClients !== false,
+  ptClientsWriteWorkout: (a) => a.ptClients.editPtWorkout !== false,
+  ptClientsWritePlan: (a) => a.ptClients.editPtPlan !== false,
 };
 
 export function invalidateStaffAccessCache(staffLoginId) {

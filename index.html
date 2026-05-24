@@ -2394,6 +2394,8 @@ Phone: +91-7047157510`;
       const out = { ...s };
       delete out.roleTemplates;
       delete out.staffAttendance;
+      // PT profiles sync via PATCH /api/pt-client-profiles/:memberId (staff + owner).
+      delete out.ptClientProfiles;
       return out;
     };
     /** Strip photos + nested child rows from bulk PUT; include child data only for pending members. */
@@ -2444,6 +2446,19 @@ Phone: +91-7047157510`;
       if (!remote.length) return prev;
       return remote;
     };
+    /** Merge PT profiles by member using updatedAt — avoids stale overwrites on pull. */
+    const mergePtClientProfiles = (prev, remote) => {
+      const out = { ...(prev && typeof prev === 'object' ? prev : {}) };
+      if (!remote || typeof remote !== 'object') return out;
+      for (const [memberId, remoteProfile] of Object.entries(remote)) {
+        if (!remoteProfile || typeof remoteProfile !== 'object') continue;
+        const localProfile = out[memberId] && typeof out[memberId] === 'object' ? out[memberId] : {};
+        const localTs = Date.parse(localProfile.updatedAt || '') || 0;
+        const remoteTs = Date.parse(remoteProfile.updatedAt || '') || 0;
+        out[memberId] = remoteTs >= localTs ? remoteProfile : localProfile;
+      }
+      return out;
+    };
     const mergeSettingsPull = (prev, remote, lookupGuardActive) => {
       if (!remote || typeof remote !== 'object') return prev;
       const merged = { ...prev, ...remote };
@@ -2459,7 +2474,7 @@ Phone: +91-7047157510`;
       }
       if (Array.isArray(remote.leaveRequests)) merged.leaveRequests = remote.leaveRequests;
       if (remote.ptClientProfiles && typeof remote.ptClientProfiles === 'object') {
-        merged.ptClientProfiles = { ...(prev?.ptClientProfiles || {}), ...remote.ptClientProfiles };
+        merged.ptClientProfiles = mergePtClientProfiles(prev?.ptClientProfiles, remote.ptClientProfiles);
       }
       return merged;
     };
@@ -4259,7 +4274,10 @@ Phone: +91-7047157510`;
         let alive = true;
         const pullSettings = () => {
           if (settingsLookupGuardUntilRef.current > Date.now()) return;
-          pullSettingsSlices(['core', 'leave'])
+          const slices = activeTabRef.current === 'PT Clients'
+            ? ['core', 'leave', 'pt']
+            : ['core', 'leave'];
+          pullSettingsSlices(slices)
             .then((remote) => {
               if (!alive || !remote || typeof remote !== 'object') return;
               const guardActive = settingsLookupGuardUntilRef.current > Date.now();
@@ -4339,6 +4357,8 @@ Phone: +91-7047157510`;
 
       // Active view state: 'Dashboard', 'Members', 'WhatsApp SMS', 'Finance', 'Staff', 'Settings', 'Logs', 'Support'
       const [activeTab, setActiveTab] = React.useState('Dashboard');
+      const activeTabRef = React.useRef(activeTab);
+      React.useEffect(() => { activeTabRef.current = activeTab; }, [activeTab]);
       React.useEffect(() => {
         if (dataSyncMode !== 'backend' || !backendHydrated) return;
         if (activeTab === 'Logs') pullLogsList().catch(() => {});
@@ -7573,6 +7593,8 @@ Please pay by: ${formattedLastDate}`;
                 displayTimeZone={displayTimeZone}
                 memberSyncPending={memberSyncPending}
                 theme={theme}
+                dataSyncMode={dataSyncMode}
+                backendHydrated={backendHydrated}
               />
             )}
             {activeTab === 'Settings' && (
@@ -13432,10 +13454,37 @@ function EditMemberModal({ member, onClose, onSave, onPhotoUploaded = null, plan
     }
 
     // ---- PT Clients Page ----
-function PTClientsPage({ members, users, settings, updateSetting, currentUser, access = {}, displayTimeZone = 'IST', memberSyncPending = {}, theme = 'light' }) {
+function PTClientsPage({ members, users, settings, updateSetting, currentUser, access = {}, displayTimeZone = 'IST', memberSyncPending = {}, theme = 'light', dataSyncMode = 'local', backendHydrated = false }) {
       const PT_TABS = ['PT Workout', 'Workout Plan', 'Diet Plan', 'Chat Trainer', 'Today Sessions', 'Weight Progress'];
       const [activeSubTab, setActiveSubTab] = React.useState('PT Workout');
       const ptProfiles = settings.ptClientProfiles || {};
+      const ptSaveTimersRef = React.useRef({});
+      React.useEffect(() => () => {
+        Object.values(ptSaveTimersRef.current).forEach((t) => clearTimeout(t));
+      }, []);
+      const schedulePtProfileSave = React.useCallback((memberId, profile, mode) => {
+        if (dataSyncMode !== 'backend' || !backendHydrated || !memberId || !profile) return;
+        const backendJsonFn = typeof window !== 'undefined' ? window.__APG_BACKEND_JSON__ : null;
+        if (typeof backendJsonFn !== 'function') return;
+        if (ptSaveTimersRef.current[memberId]) clearTimeout(ptSaveTimersRef.current[memberId]);
+        ptSaveTimersRef.current[memberId] = setTimeout(() => {
+          backendJsonFn(`/pt-client-profiles/${encodeURIComponent(memberId)}`, {
+            method: 'PATCH',
+            body: JSON.stringify({ profile, mode }),
+          }).then((resp) => {
+            const saved = resp && resp.profile ? resp.profile : null;
+            if (!saved) return;
+            updateSetting('ptClientProfiles', (prevAll) => {
+              const base = prevAll && typeof prevAll === 'object' ? prevAll : {};
+              const local = base[memberId] && typeof base[memberId] === 'object' ? base[memberId] : {};
+              const localTs = Date.parse(local.updatedAt || '') || 0;
+              const savedTs = Date.parse(saved.updatedAt || '') || 0;
+              if (savedTs < localTs) return base;
+              return { ...base, [memberId]: saved };
+            });
+          }).catch(() => {});
+        }, BACKEND_BULK_DEBOUNCE_MS);
+      }, [dataSyncMode, backendHydrated, updateSetting]);
       const focusOptions = Array.isArray(settings.exerciseTypes) && settings.exerciseTypes.length
         ? settings.exerciseTypes
         : buildDefaultSettings().exerciseTypes;
@@ -13507,10 +13556,19 @@ function PTClientsPage({ members, users, settings, updateSetting, currentUser, a
         if (mode === 'plan' && !canEditPtPlan) return;
         if (mode === 'workout' && !canEditPtWorkout) return;
         if (!memberId) return;
-        const prevAll = settings.ptClientProfiles || {};
-        const prevProfile = prevAll[memberId] || {};
-        const nextAll = { ...prevAll, [memberId]: { ...prevProfile, ...patch, updatedAt: new Date().toISOString(), updatedBy: currentUser?.name || currentUser?.id || '' } };
-        updateSetting('ptClientProfiles', nextAll);
+        let nextProfile = null;
+        updateSetting('ptClientProfiles', (prevAll) => {
+          const base = prevAll && typeof prevAll === 'object' ? prevAll : {};
+          const prevProfile = base[memberId] && typeof base[memberId] === 'object' ? base[memberId] : {};
+          nextProfile = {
+            ...prevProfile,
+            ...patch,
+            updatedAt: new Date().toISOString(),
+            updatedBy: currentUser?.name || currentUser?.id || '',
+          };
+          return { ...base, [memberId]: nextProfile };
+        });
+        if (nextProfile) schedulePtProfileSave(memberId, nextProfile, mode);
       };
       const setFocusForDate = (focus) => {
         if (!selectedMember) return;

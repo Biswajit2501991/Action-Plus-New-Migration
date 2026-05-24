@@ -34,6 +34,7 @@ import {
   deleteSettingsLookup,
   deleteMemberPayment,
   writeRoleTemplates,
+  patchPtClientProfileValue,
 } from './db/dataStore.js';
 import { addSseClient, sseClientCount } from './realtime/hub.js';
 import {
@@ -43,7 +44,7 @@ import {
 import { requireApiAuth } from './middleware/requireApiAuth.js';
 import { bindGymContext } from './middleware/bindGymContext.js';
 import { requireOwner, requireOwnerUnlessProcessControl } from './middleware/requireOwner.js';
-import { Access } from './auth/accessControl.js';
+import { Access, getStaffAccessForUser } from './auth/accessControl.js';
 import { requireAccess, requireLogsBulkAccess } from './middleware/permissions.js';
 import authRouter from './routes/auth.js';
 import gymCodesRouter from './routes/gymCodes.js';
@@ -997,6 +998,49 @@ app.post('/api/leave-requests/cleanup', requireOwner, async (req, res) => {
     return res.status(500).json({
       error: 'leave-request-cleanup-failed',
       message: String(error?.message || error),
+    });
+  }
+});
+
+// ----------------------------------------------------------------------------
+// PT Client Profiles — dedicated mutation surface for staff trainers.
+// Previously PT edits only reached Supabase via owner-only PUT /api/settings/bulk,
+// so non-owner staff changes stayed in local React state and never synced.
+// Writes one member profile at a time; data is gym-scoped and shared by all staff.
+// ----------------------------------------------------------------------------
+app.patch('/api/pt-client-profiles/:memberId', requireAccess(Access.ptClientsRead), async (req, res) => {
+  try {
+    const memberId = String(req.params.memberId || '').trim();
+    if (!memberId) return res.status(400).json({ error: 'member-id-required' });
+    const profile = req.body?.profile;
+    if (!profile || typeof profile !== 'object') {
+      return res.status(400).json({ error: 'profile-required' });
+    }
+    const mode = String(req.body?.mode || 'workout').trim().toLowerCase();
+    const callerIsOwner = authIsOwner(req.auth);
+    if (!callerIsOwner) {
+      const access = req.staffAccess || await getStaffAccessForUser(req.auth?.userId);
+      if (!access) {
+        return res.status(403).json({ error: 'forbidden', message: 'Account not found or blocked.' });
+      }
+      if (mode === 'plan' && !Access.ptClientsWritePlan(access)) {
+        return res.status(403).json({ error: 'forbidden', message: 'You do not have permission to edit PT plans.' });
+      }
+      if (mode !== 'plan' && !Access.ptClientsWriteWorkout(access)) {
+        return res.status(403).json({ error: 'forbidden', message: 'You do not have permission to edit PT workouts.' });
+      }
+    }
+    const saved = await patchPtClientProfileValue(memberId, profile, {
+      updatedBy: String(req.auth?.userId || '').trim(),
+    });
+    queueDatabaseBackup('pt-client-profile');
+    return res.json({ ok: true, memberId, profile: saved });
+  } catch (error) {
+    const msg = String(error?.message || error);
+    if (msg === 'member_not_found') return res.status(404).json({ error: 'member-not-found' });
+    return res.status(500).json({
+      error: 'pt-client-profile-save-failed',
+      message: msg,
     });
   }
 });

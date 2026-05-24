@@ -1190,6 +1190,7 @@ async function writeSettings(settings, scope) {
 }
 
 async function writePtProfiles(settings, gid) {
+  if (!Object.prototype.hasOwnProperty.call(settings || {}, 'ptClientProfiles')) return;
   const sb = getSupabase();
   const profiles = settings.ptClientProfiles && typeof settings.ptClientProfiles === 'object'
     ? settings.ptClientProfiles
@@ -1198,7 +1199,6 @@ async function writePtProfiles(settings, gid) {
   const members = await fetchAll((from, to) => sb.from(T.members).select('id, member_code').eq('gym_id', gid).range(from, to));
   const codeToId = new Map((members || []).map((m) => [String(m.member_code), m.id]));
 
-  await sb.from(T.pt_client_profiles).delete().eq('gym_id', gid);
   const rows = [];
   for (const [memberCode, profile] of Object.entries(profiles)) {
     const memberId = codeToId.get(memberCode);
@@ -1212,8 +1212,57 @@ async function writePtProfiles(settings, gid) {
     });
   }
   for (const part of chunk(rows, 80)) {
-    if (part.length) await sb.from(T.pt_client_profiles).insert(part);
+    if (part.length) {
+      const { error } = await sb.from(T.pt_client_profiles).upsert(part, { onConflict: 'gym_id,member_id' });
+      if (error) throw error;
+    }
   }
+}
+
+/** Surgical PT profile save — shared by staff PATCH and owner bulk sync paths. */
+export async function patchPtClientProfile(memberCode, incomingProfile, meta = {}) {
+  const code = String(memberCode || '').trim();
+  if (!code) throw new Error('member_code_required');
+  if (!incomingProfile || typeof incomingProfile !== 'object') throw new Error('profile_required');
+
+  const sb = getSupabase();
+  const gid = gymId();
+  const { data: memberRow, error: memberErr } = await sb
+    .from(T.members)
+    .select('id')
+    .eq('gym_id', gid)
+    .eq('member_code', code)
+    .maybeSingle();
+  if (memberErr) throw memberErr;
+  if (!memberRow?.id) throw new Error('member_not_found');
+
+  const { data: existingRow, error: existingErr } = await sb
+    .from(T.pt_client_profiles)
+    .select('plan_json')
+    .eq('gym_id', gid)
+    .eq('member_id', memberRow.id)
+    .maybeSingle();
+  if (existingErr) throw existingErr;
+
+  const prev = existingRow?.plan_json && typeof existingRow.plan_json === 'object' ? existingRow.plan_json : {};
+  const nowIso = new Date().toISOString();
+  const merged = {
+    ...prev,
+    ...incomingProfile,
+    updatedAt: nowIso,
+    updatedBy: String(meta.updatedBy || incomingProfile.updatedBy || '').trim() || prev.updatedBy || '',
+  };
+  const row = {
+    gym_id: gid,
+    member_id: memberRow.id,
+    trainer_staff_code: emptyText(merged.trainer || merged.trainerId),
+    plan_json: merged,
+    updated_at: nowIso,
+  };
+  const { error } = await sb.from(T.pt_client_profiles).upsert(row, { onConflict: 'gym_id,member_id' });
+  if (error) throw error;
+  notifyCollectionChange('settings');
+  return merged;
 }
 
 async function readVisitors(scope, branchScope = null) {
