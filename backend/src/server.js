@@ -42,6 +42,7 @@ import {
   startSupabaseRealtimeListener,
 } from './realtime/supabaseListener.js';
 import { requireApiAuth } from './middleware/requireApiAuth.js';
+import { backfillStaffBranchScope } from './middleware/backfillStaffBranchScope.js';
 import { bindGymContext } from './middleware/bindGymContext.js';
 import { requireOwner, requireOwnerUnlessProcessControl } from './middleware/requireOwner.js';
 import { Access, getStaffAccessForUser } from './auth/accessControl.js';
@@ -56,6 +57,7 @@ import {
   logMatchesBranchScope,
 } from './auth/branchFilter.js';
 import { getSupabase } from './db/supabase/client.js';
+import { resolvePtClientMemberId } from './utils/ptClientMemberId.js';
 
 const app = express();
 app.set('trust proxy', true);
@@ -413,6 +415,7 @@ app.get('/api/health', async (_req, res) => {
 app.use('/api/auth', authRouter);
 
 app.use('/api', requireApiAuth);
+app.use('/api', backfillStaffBranchScope);
 app.use('/api', bindGymContext);
 
 // Phase 2 gym-codes feature: list is authenticated-only, write is owner-only (inside the router).
@@ -1007,10 +1010,14 @@ app.post('/api/leave-requests/cleanup', requireOwner, async (req, res) => {
 // Previously PT edits only reached Supabase via owner-only PUT /api/settings/bulk,
 // so non-owner staff changes stayed in local React state and never synced.
 // Writes one member profile at a time; data is gym-scoped and shared by all staff.
-// ----------------------------------------------------------------------------
-app.patch('/api/pt-client-profiles/:memberId', requireAccess(Access.ptClientsRead), async (req, res) => {
+// Member codes may contain "/" — accept memberId in JSON body (preferred) or path suffix.
+async function handlePatchPtClientProfile(req, res) {
   try {
-    const memberId = String(req.params.memberId || '').trim();
+    const memberId = resolvePtClientMemberId({
+      bodyMemberId: req.body?.memberId,
+      pathParam: req.params?.memberId,
+      pathSuffix: req.params?.[0],
+    });
     if (!memberId) return res.status(400).json({ error: 'member-id-required' });
     const profile = req.body?.profile;
     if (!profile || typeof profile !== 'object') {
@@ -1043,6 +1050,13 @@ app.patch('/api/pt-client-profiles/:memberId', requireAccess(Access.ptClientsRea
       message: msg,
     });
   }
+}
+
+app.patch('/api/pt-client-profiles', requireAccess(Access.ptClientsRead), handlePatchPtClientProfile);
+app.patch(/^\/api\/pt-client-profiles\/(.+)$/, requireAccess(Access.ptClientsRead), (req, res) => {
+  const suffix = req.params[0];
+  req.params = { memberId: suffix };
+  return handlePatchPtClientProfile(req, res);
 });
 
 app.get('/api/attendance/records', requireAccess((a) => a.attendance?.viewAttendance !== false), async (req, res) => {

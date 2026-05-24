@@ -44,4 +44,17 @@ describe('Access checks', () => {
     });
     expect(isAccessAllowed(partial, Access.financeRead)).toBe(true);
   });
+
+  it('ptClientsWriteWorkout allows staff with editPtWorkout', () => {
+    const trainer = normalizeAccess({ ptClients: { viewPtClients: true, editPtWorkout: true, editPtPlan: false } });
+    expect(isAccessAllowed(trainer, Access.ptClientsRead)).toBe(true);
+    expect(isAccessAllowed(trainer, Access.ptClientsWriteWorkout)).toBe(true);
+    expect(isAccessAllowed(trainer, Access.ptClientsWritePlan)).toBe(false);
+  });
+
+  it('ptClientsWriteWorkout denies view-only PT staff', () => {
+    const viewOnly = normalizeAccess({ ptClients: { viewPtClients: true, editPtWorkout: false, editPtPlan: false } });
+    expect(isAccessAllowed(viewOnly, Access.ptClientsRead)).toBe(true);
+    expect(isAccessAllowed(viewOnly, Access.ptClientsWriteWorkout)).toBe(false);
+  });
 });

@@ -2446,7 +2446,7 @@ Phone: +91-7047157510`;
       if (!remote.length) return prev;
       return remote;
     };
-    /** Merge PT profiles by member using updatedAt — avoids stale overwrites on pull. */
+    /** Merge PT profiles: union focusByDate per date key; other fields by updatedAt. */
     const mergePtClientProfiles = (prev, remote) => {
       const out = { ...(prev && typeof prev === 'object' ? prev : {}) };
       if (!remote || typeof remote !== 'object') return out;
@@ -2455,7 +2455,15 @@ Phone: +91-7047157510`;
         const localProfile = out[memberId] && typeof out[memberId] === 'object' ? out[memberId] : {};
         const localTs = Date.parse(localProfile.updatedAt || '') || 0;
         const remoteTs = Date.parse(remoteProfile.updatedAt || '') || 0;
-        out[memberId] = remoteTs >= localTs ? remoteProfile : localProfile;
+        const focusByDate = { ...(localProfile.focusByDate || {}), ...(remoteProfile.focusByDate || {}) };
+        const winner = remoteTs >= localTs
+          ? { ...localProfile, ...remoteProfile }
+          : { ...remoteProfile, ...localProfile };
+        out[memberId] = {
+          ...winner,
+          focusByDate,
+          updatedAt: localTs >= remoteTs ? (localProfile.updatedAt || remoteProfile.updatedAt) : (remoteProfile.updatedAt || localProfile.updatedAt),
+        };
       }
       return out;
     };
@@ -2598,6 +2606,11 @@ Phone: +91-7047157510`;
       return new Date(req).getTime() > new Date(app).getTime();
     };
     const isOwnerStaffUser = (u) => String(u?.id || '').trim().toLowerCase() === 'owner';
+    const canBulkSyncMembers = (u) => {
+      if (isOwnerStaffUser(u)) return true;
+      const m = normalizeAccess(u?.access).members;
+      return m.editMembers || m.addMembers || m.deleteMembers;
+    };
     const prepareStaffUser = (rec) => {
       if (!rec) return rec;
       if (extractedPermissions?.sectionsWithRoleDefaults) {
@@ -3590,7 +3603,13 @@ Phone: +91-7047157510`;
           setVisitors((prev) => mergeRemoteVisitorsWithLocal(prev, remoteVisitors));
         }
         if (remoteSettings && typeof remoteSettings === 'object' && Object.keys(remoteSettings).length > 0) {
-          setSettings((prev) => mergeSettingsPull(prev, remoteSettings, false));
+          setSettings((prev) => {
+            // Drop stale browser-cached PT profiles on login hydrate — PT is loaded
+            // lazily from scope=pt and must not block remote calendar data.
+            const withoutStalePt = { ...(prev && typeof prev === 'object' ? prev : {}) };
+            delete withoutStalePt.ptClientProfiles;
+            return mergeSettingsPull(withoutStalePt, remoteSettings, false);
+          });
         }
         if (Array.isArray(remoteFinance) && remoteFinance.length > 0) setFinanceTransactions(remoteFinance);
         if (Array.isArray(remoteSmsEvents) && remoteSmsEvents.length > 0) setSmsEvents(remoteSmsEvents);
@@ -3757,6 +3776,7 @@ Phone: +91-7047157510`;
       const REALTIME_POLL_SAFETY_MS = 120000;
       const REALTIME_PULL_DEBOUNCE_MS = 4000;
       const realtimePullTimersRef = React.useRef({});
+      const activeTabRef = React.useRef('Dashboard');
       const scheduleDebouncedPull = React.useCallback((key, fn) => {
         const timers = realtimePullTimersRef.current;
         if (timers[key]) clearTimeout(timers[key]);
@@ -3960,10 +3980,19 @@ Phone: +91-7047157510`;
         try {
           HEAVY_STORAGE_KEYS.forEach((k) => localStorage.removeItem(k));
           setStorageInfo(prev => ({ ...prev, usageBytes: getStorageUsageBytes() }));
+          // React state may already have loaded stale ptClientProfiles from localStorage
+          // before this effect ran — clear so server pulls are authoritative.
+          setSettings((prev) => {
+            if (!prev?.ptClientProfiles) return prev;
+            const next = { ...prev };
+            delete next.ptClientProfiles;
+            return next;
+          });
         } catch {}
       }, [dataSyncMode]);
       React.useEffect(() => {
         if (dataSyncMode !== 'backend') return;
+        if (!isOwnerStaffUser(user)) return;
         let alive = true;
         const pullStorage = () => {
           backendJson('/storage')
@@ -3990,7 +4019,7 @@ Phone: +91-7047157510`;
           alive = false;
           clearInterval(timer);
         };
-      }, [dataSyncMode]);
+      }, [dataSyncMode, user?.id]);
       React.useEffect(() => {
         let alive = true;
         const refreshQueueCount = () => {
@@ -4065,6 +4094,7 @@ Phone: +91-7047157510`;
         }
         // Never push an empty member list to the server (would wipe Supabase after partial hydrate).
         if (!Array.isArray(members) || members.length === 0) return;
+        if (!canBulkSyncMembers(user)) return;
         const timer = setTimeout(() => {
           backendJson('/members/bulk', {
             method: 'PUT',
@@ -4072,7 +4102,7 @@ Phone: +91-7047157510`;
           }).catch(() => queueSyncSnapshot('members', members).then(() => setOfflineQueueCount((c) => c + 1)).catch(() => {}));
         }, BACKEND_BULK_DEBOUNCE_MS);
         return () => clearTimeout(timer);
-      }, [members, dataSyncMode, syncRuntimeReady, backendHydrated, memberSyncPending]);
+      }, [members, dataSyncMode, syncRuntimeReady, backendHydrated, memberSyncPending, user?.id]);
       React.useEffect(() => {
         if (!syncRuntimeReady) return;
         if (dataSyncMode === 'backend' && !backendHydrated) return;
@@ -4274,6 +4304,9 @@ Phone: +91-7047157510`;
         let alive = true;
         const pullSettings = () => {
           if (settingsLookupGuardUntilRef.current > Date.now()) return;
+          // Egress: scope=pt can be large (plan_json + diet attachments). Only pull
+          // it during realtime/poll while PT Clients tab is open; tab-switch still
+          // lazy-loads pt via the activeTab effect below.
           const slices = activeTabRef.current === 'PT Clients'
             ? ['core', 'leave', 'pt']
             : ['core', 'leave'];
@@ -4357,7 +4390,6 @@ Phone: +91-7047157510`;
 
       // Active view state: 'Dashboard', 'Members', 'WhatsApp SMS', 'Finance', 'Staff', 'Settings', 'Logs', 'Support'
       const [activeTab, setActiveTab] = React.useState('Dashboard');
-      const activeTabRef = React.useRef(activeTab);
       React.useEffect(() => { activeTabRef.current = activeTab; }, [activeTab]);
       React.useEffect(() => {
         if (dataSyncMode !== 'backend' || !backendHydrated) return;
@@ -5082,9 +5114,7 @@ Phone: +91-7047157510`;
               return finishLogin(rec, data?.token || '');
             }
             if (res.status === 403) {
-              setToast('This staff account is blocked. Contact owner.');
-              setTimeout(() => setToast(''), 2500);
-              return false;
+              return 'This account is blocked. Ask another owner to unblock it in Staff Management.';
             }
             if (res.status === 429) {
               let msg = 'Too many login attempts. Wait a few minutes and try again.';
@@ -5093,15 +5123,22 @@ Phone: +91-7047157510`;
                 if (data?.message) msg = data.message;
                 if (data?.retryAfterSec) msg += ` (~${Math.ceil(Number(data.retryAfterSec) / 60)} min)`;
               } catch {}
-              setToast(msg);
-              setTimeout(() => setToast(''), 5000);
-              return false;
+              return msg;
             }
-          } catch {}
+            if (res.status === 401) {
+              return 'Wrong username or password. If you recently migrated to Supabase, the default password may have changed — reset it from the server.';
+            }
+            if (res.status === 503) {
+              return 'Login server is not ready (Supabase auth unavailable). Try again shortly.';
+            }
+            return `Login failed (server error ${res.status}). Check your connection and try again.`;
+          } catch {
+            return 'Cannot reach the login server. Check your internet connection or try again in a moment.';
+          }
         }
         let rec = findInList(users);
         if (rec && rec.password === pw) return finishLogin(rec, '');
-        return false;
+        return 'Invalid username or password.';
       };
       const requestPasswordReset = async (loginId) => {
         const raw = String(loginId || '').trim();
@@ -7595,6 +7632,7 @@ Please pay by: ${formattedLastDate}`;
                 theme={theme}
                 dataSyncMode={dataSyncMode}
                 backendHydrated={backendHydrated}
+                setToast={setToast}
               />
             )}
             {activeTab === 'Settings' && (
@@ -8528,9 +8566,9 @@ Please pay by: ${formattedLastDate}`;
       const [info, setInfo] = React.useState('');
       const handleSubmit = async (e) => {
         if (e && e.preventDefault) e.preventDefault();
-        const ok = await Promise.resolve(onSubmit(id.trim(), pw));
+        const result = await Promise.resolve(onSubmit(id.trim(), pw));
         setInfo('');
-        setErr(ok ? '' : 'Invalid credential');
+        setErr(result === true ? '' : (typeof result === 'string' ? result : 'Invalid username or password.'));
       };
       return (
         <div
@@ -13454,7 +13492,7 @@ function EditMemberModal({ member, onClose, onSave, onPhotoUploaded = null, plan
     }
 
     // ---- PT Clients Page ----
-function PTClientsPage({ members, users, settings, updateSetting, currentUser, access = {}, displayTimeZone = 'IST', memberSyncPending = {}, theme = 'light', dataSyncMode = 'local', backendHydrated = false }) {
+function PTClientsPage({ members, users, settings, updateSetting, currentUser, access = {}, displayTimeZone = 'IST', memberSyncPending = {}, theme = 'light', dataSyncMode = 'local', backendHydrated = false, setToast = () => {} }) {
       const PT_TABS = ['PT Workout', 'Workout Plan', 'Diet Plan', 'Chat Trainer', 'Today Sessions', 'Weight Progress'];
       const [activeSubTab, setActiveSubTab] = React.useState('PT Workout');
       const ptProfiles = settings.ptClientProfiles || {};
@@ -13462,29 +13500,48 @@ function PTClientsPage({ members, users, settings, updateSetting, currentUser, a
       React.useEffect(() => () => {
         Object.values(ptSaveTimersRef.current).forEach((t) => clearTimeout(t));
       }, []);
-      const schedulePtProfileSave = React.useCallback((memberId, profile, mode) => {
+      const schedulePtProfileSave = React.useCallback((memberId, profile, mode, saveOpts = {}) => {
         if (dataSyncMode !== 'backend' || !backendHydrated || !memberId || !profile) return;
         const backendJsonFn = typeof window !== 'undefined' ? window.__APG_BACKEND_JSON__ : null;
         if (typeof backendJsonFn !== 'function') return;
         if (ptSaveTimersRef.current[memberId]) clearTimeout(ptSaveTimersRef.current[memberId]);
-        ptSaveTimersRef.current[memberId] = setTimeout(() => {
-          backendJsonFn(`/pt-client-profiles/${encodeURIComponent(memberId)}`, {
+        const delay = saveOpts.immediate ? 0 : BACKEND_BULK_DEBOUNCE_MS;
+        const runSave = () => {
+          backendJsonFn('/pt-client-profiles', {
             method: 'PATCH',
-            body: JSON.stringify({ profile, mode }),
+            body: JSON.stringify({ memberId, profile, mode }),
           }).then((resp) => {
             const saved = resp && resp.profile ? resp.profile : null;
             if (!saved) return;
             updateSetting('ptClientProfiles', (prevAll) => {
               const base = prevAll && typeof prevAll === 'object' ? prevAll : {};
               const local = base[memberId] && typeof base[memberId] === 'object' ? base[memberId] : {};
+              const mergedFocus = { ...(local.focusByDate || {}), ...(saved.focusByDate || {}) };
               const localTs = Date.parse(local.updatedAt || '') || 0;
               const savedTs = Date.parse(saved.updatedAt || '') || 0;
-              if (savedTs < localTs) return base;
-              return { ...base, [memberId]: saved };
+              const winner = savedTs >= localTs ? { ...local, ...saved } : { ...saved, ...local };
+              return {
+                ...base,
+                [memberId]: { ...winner, focusByDate: mergedFocus, updatedAt: saved.updatedAt || local.updatedAt },
+              };
             });
-          }).catch(() => {});
-        }, BACKEND_BULK_DEBOUNCE_MS);
-      }, [dataSyncMode, backendHydrated, updateSetting]);
+          }).catch((err) => {
+            const msg = String(err?.message || '');
+            if (msg.includes('edit PT plans') || msg.includes('edit PT workouts')) {
+              setToast(msg.replace(/^backend-403:?/i, '').trim() || 'You do not have permission to edit PT clients.');
+            } else if (err?.status === 403) {
+              setToast('Save blocked (403). Ask owner to refresh your PT permissions, then log out and back in.');
+            } else if (err?.status === 404) {
+              setToast('PT client member not found on server.');
+            } else {
+              setToast('Could not save PT client changes. Try again or contact owner.');
+            }
+            setTimeout(() => setToast(''), 4000);
+          });
+        };
+        if (delay <= 0) runSave();
+        else ptSaveTimersRef.current[memberId] = setTimeout(runSave, delay);
+      }, [dataSyncMode, backendHydrated, updateSetting, setToast]);
       const focusOptions = Array.isArray(settings.exerciseTypes) && settings.exerciseTypes.length
         ? settings.exerciseTypes
         : buildDefaultSettings().exerciseTypes;
@@ -13552,7 +13609,7 @@ function PTClientsPage({ members, users, settings, updateSetting, currentUser, a
       React.useEffect(() => {
         if (focusPage > focusPages) setFocusPage(focusPages);
       }, [focusPage, focusPages]);
-      const persistProfile = (memberId, patch, mode = 'workout') => {
+      const persistProfile = (memberId, patch, mode = 'workout', saveOpts = {}) => {
         if (mode === 'plan' && !canEditPtPlan) return;
         if (mode === 'workout' && !canEditPtWorkout) return;
         if (!memberId) return;
@@ -13568,7 +13625,7 @@ function PTClientsPage({ members, users, settings, updateSetting, currentUser, a
           };
           return { ...base, [memberId]: nextProfile };
         });
-        if (nextProfile) schedulePtProfileSave(memberId, nextProfile, mode);
+        if (nextProfile) schedulePtProfileSave(memberId, nextProfile, mode, saveOpts);
       };
       const setFocusForDate = (focus) => {
         if (!selectedMember) return;
@@ -13579,7 +13636,7 @@ function PTClientsPage({ members, users, settings, updateSetting, currentUser, a
         persistProfile(selectedMember.memberId, {
           focusByDate: nextMap,
           focusArea: nextMap[key] || profile.focusArea || '',
-        });
+        }, 'workout', { immediate: true });
       };
       const monthEntries = Array.from({ length: daysInMonth }, (_, i) => {
         const day = i + 1;

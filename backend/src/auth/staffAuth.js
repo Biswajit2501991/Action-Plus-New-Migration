@@ -64,12 +64,14 @@ async function loadStaffAppUser(row) {
   const staffPk = row.id;
   const [secRes, accRes] = await Promise.all([
     sb.from(T.staff_user_sections).select('section_name').eq('staff_user_id', staffPk),
-    sb.from(T.staff_user_access).select('access_json').eq('staff_user_id', staffPk).maybeSingle(),
+    // Prefer newest row; duplicate access rows (concurrent bulk sync) break maybeSingle().
+    sb.from(T.staff_user_access).select('access_json').eq('staff_user_id', staffPk).order('id', { ascending: false }).limit(1),
   ]);
   if (secRes.error) throw secRes.error;
   if (accRes.error) throw accRes.error;
-  const sections = (secRes.data || []).map((r) => r.section_name);
-  const access = accRes.data?.access_json || {};
+  const sectionNames = (secRes.data || []).map((r) => r.section_name);
+  const sections = [...new Set(sectionNames)];
+  const access = accRes.data?.[0]?.access_json || {};
   const loginId = String(row.staff_login_id || '').trim().toLowerCase();
   if (loginId === 'owner') {
     return staffRowToApp(row, [...ALL_SECTIONS], normalizeAccess({ ...DEFAULT_ACCESS, ...(access || {}) }));

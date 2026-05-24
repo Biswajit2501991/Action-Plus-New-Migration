@@ -658,11 +658,16 @@ async function readUsers(scope) {
     list.push(row.section_name);
     sectionsByStaff.set(row.staff_user_id, list);
   }
-  const accessByStaff = new Map((accRes.data || []).map((r) => [r.staff_user_id, r.access_json || {}]));
+  const accessByStaff = new Map();
+  for (const row of (accRes.data || []).sort((a, b) => Number(b.id) - Number(a.id))) {
+    if (!accessByStaff.has(row.staff_user_id)) {
+      accessByStaff.set(row.staff_user_id, row.access_json || {});
+    }
+  }
 
   return staffRows.map((row) => staffRowToApp(
     row,
-    sectionsByStaff.get(row.id) || [],
+    [...new Set(sectionsByStaff.get(row.id) || [])],
     accessByStaff.get(row.id) || {},
   ));
 }
@@ -722,16 +727,20 @@ async function writeUsers(users, scope) {
     const isOwnerLogin = String(u.id || '').trim().toLowerCase() === 'owner';
     const sections = isOwnerLogin ? [...ALL_SECTIONS] : (Array.isArray(u.sections) ? u.sections : []);
     if (sections.length) {
-      const { error } = await sb.from(T.staff_user_sections).insert(
+      const { error } = await sb.from(T.staff_user_sections).upsert(
         sections.map((name) => ({ staff_user_id: staffPk, section_name: String(name) })),
+        { onConflict: 'staff_user_id,section_name', ignoreDuplicates: true },
       );
       if (error) throw error;
     }
 
-    const { error: accErr } = await sb.from(T.staff_user_access).insert({
-      staff_user_id: staffPk,
-      access_json: u.access && typeof u.access === 'object' ? u.access : {},
-    });
+    const { error: accErr } = await sb.from(T.staff_user_access).upsert(
+      {
+        staff_user_id: staffPk,
+        access_json: u.access && typeof u.access === 'object' ? u.access : {},
+      },
+      { onConflict: 'staff_user_id' },
+    );
     if (accErr) throw accErr;
     invalidateStaffAccessCache(u.id);
   }
@@ -1227,28 +1236,35 @@ export async function patchPtClientProfile(memberCode, incomingProfile, meta = {
 
   const sb = getSupabase();
   const gid = gymId();
-  const { data: memberRow, error: memberErr } = await sb
+  // Legacy imports may have duplicate member_codes; pick the newest row (maybeSingle throws on >1).
+  const { data: memberRows, error: memberErr } = await sb
     .from(T.members)
     .select('id')
     .eq('gym_id', gid)
     .eq('member_code', code)
-    .maybeSingle();
+    .order('updated_at', { ascending: false })
+    .limit(1);
   if (memberErr) throw memberErr;
+  const memberRow = Array.isArray(memberRows) && memberRows.length ? memberRows[0] : null;
   if (!memberRow?.id) throw new Error('member_not_found');
 
-  const { data: existingRow, error: existingErr } = await sb
+  const { data: existingRows, error: existingErr } = await sb
     .from(T.pt_client_profiles)
     .select('plan_json')
     .eq('gym_id', gid)
     .eq('member_id', memberRow.id)
-    .maybeSingle();
+    .order('updated_at', { ascending: false })
+    .limit(1);
   if (existingErr) throw existingErr;
+  const existingRow = Array.isArray(existingRows) && existingRows.length ? existingRows[0] : null;
 
   const prev = existingRow?.plan_json && typeof existingRow.plan_json === 'object' ? existingRow.plan_json : {};
   const nowIso = new Date().toISOString();
+  const mergedFocus = { ...(prev.focusByDate || {}), ...(incomingProfile.focusByDate || {}) };
   const merged = {
     ...prev,
     ...incomingProfile,
+    focusByDate: mergedFocus,
     updatedAt: nowIso,
     updatedBy: String(meta.updatedBy || incomingProfile.updatedBy || '').trim() || prev.updatedBy || '',
   };
@@ -1259,8 +1275,21 @@ export async function patchPtClientProfile(memberCode, incomingProfile, meta = {
     plan_json: merged,
     updated_at: nowIso,
   };
-  const { error } = await sb.from(T.pt_client_profiles).upsert(row, { onConflict: 'gym_id,member_id' });
-  if (error) throw error;
+  const { data: updatedRows, error: updErr } = await sb
+    .from(T.pt_client_profiles)
+    .update({
+      trainer_staff_code: row.trainer_staff_code,
+      plan_json: row.plan_json,
+      updated_at: row.updated_at,
+    })
+    .eq('gym_id', gid)
+    .eq('member_id', memberRow.id)
+    .select('id');
+  if (updErr) throw updErr;
+  if (!updatedRows?.length) {
+    const { error: insErr } = await sb.from(T.pt_client_profiles).insert(row);
+    if (insErr) throw insErr;
+  }
   notifyCollectionChange('settings');
   return merged;
 }
