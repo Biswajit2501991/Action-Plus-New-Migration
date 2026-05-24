@@ -2715,6 +2715,20 @@ Phone: +91-7047157510`;
       }
     };
     const APG_SETTINGS_FETCH_TIMEOUT_MS = 20000;
+    const apgSettingsSliceInFlight = new Map();
+    const fetchSettingsScope = async (phase, scope) => {
+      const normalized = String(scope || 'core').trim().toLowerCase();
+      const path = `/settings?scope=${encodeURIComponent(normalized)}`;
+      const label = `GET ${path}`;
+      if (apgSettingsSliceInFlight.has(normalized)) return apgSettingsSliceInFlight.get(normalized);
+      const run = apgTimedBackendJsonWithTimeout(phase, label, path)
+        .catch(() => ({}))
+        .finally(() => {
+          apgSettingsSliceInFlight.delete(normalized);
+        });
+      apgSettingsSliceInFlight.set(normalized, run);
+      return run;
+    };
     const apgTimedBackendJsonWithTimeout = async (phase, label, path, timeoutMs = APG_SETTINGS_FETCH_TIMEOUT_MS) => {
       const controller = new AbortController();
       const timer = setTimeout(() => controller.abort(), timeoutMs);
@@ -3690,14 +3704,14 @@ Phone: +91-7047157510`;
       const hydrateSettingsFromBackend = React.useCallback(async () => {
         try {
           const [core, leave] = await Promise.all([
-            apgTimedBackendJsonWithTimeout('hydrate-bg', 'GET /settings?scope=core', '/settings?scope=core').catch(() => ({})),
-            apgTimedBackendJsonWithTimeout('hydrate-bg', 'GET /settings?scope=leave', '/settings?scope=leave').catch(() => ({})),
+            fetchSettingsScope('hydrate-bg', 'core'),
+            fetchSettingsScope('hydrate-bg', 'leave'),
           ]);
           const remoteSettings = {
             ...(core && typeof core === 'object' ? core : {}),
             ...(leave && typeof leave === 'object' ? leave : {}),
           };
-          if (!Object.keys(remoteSettings).length) return;
+          if (Object.keys(remoteSettings).length === 0) return;
           settingsSkipNextBulkRef.current = true;
           settingsLookupGuardUntilRef.current = Date.now() + 15000;
           const tMerge = performance.now();
@@ -4015,9 +4029,7 @@ Phone: +91-7047157510`;
       }, [members]);
       const pullSettingsSlices = React.useCallback(async (slices = ['core']) => {
         const parts = await Promise.all(
-          (Array.isArray(slices) ? slices : ['core']).map((scope) =>
-            backendJson(`/settings?scope=${encodeURIComponent(scope)}`).catch(() => ({})),
-          ),
+          (Array.isArray(slices) ? slices : ['core']).map((scope) => fetchSettingsScope('settings', scope)),
         );
         return parts.reduce((acc, part) => ({ ...acc, ...(part && typeof part === 'object' ? part : {}) }), {});
       }, []);
@@ -4502,7 +4514,7 @@ Phone: +91-7047157510`;
       // owner's bell badge updates in real time. Previously no settings-pull
       // listener existed and the owner had to refresh to see new leaves.
       React.useEffect(() => {
-        if (dataSyncMode !== 'backend') return;
+        if (dataSyncMode !== 'backend' || !backendHydrated || !user?.id) return;
         let alive = true;
         const pullSettings = () => {
           if (settingsLookupGuardUntilRef.current > Date.now()) return;
@@ -4532,15 +4544,26 @@ Phone: +91-7047157510`;
           }
         };
         window.addEventListener('apg-realtime', onRealtime);
-        pullSettings();
-        const pollMs = realtimeConnected ? 0 : REALTIME_POLL_FAST_MS;
-        const timer = pollMs > 0 ? setInterval(pullSettings, pollMs) : null;
+        let timer = null;
+        let deferTimer = null;
+        const startPolling = () => {
+          pullSettings();
+          const pollMs = realtimeConnected ? 0 : REALTIME_POLL_FAST_MS;
+          if (pollMs > 0) timer = setInterval(pullSettings, pollMs);
+        };
+        if (skipPostHydratePoll()) {
+          const waitMs = Math.max(0, 8000 - (Date.now() - hydrateCompletedAtRef.current));
+          deferTimer = setTimeout(startPolling, waitMs);
+        } else {
+          startPolling();
+        }
         return () => {
           alive = false;
+          if (deferTimer) clearTimeout(deferTimer);
           if (timer) clearInterval(timer);
           window.removeEventListener('apg-realtime', onRealtime);
         };
-      }, [dataSyncMode, realtimeConnected, scheduleDebouncedPull, pullStaffAttendance, pullSettingsSlices]);
+      }, [dataSyncMode, realtimeConnected, backendHydrated, user?.id, scheduleDebouncedPull, pullStaffAttendance, pullSettingsSlices]);
 
       // Persist users to localStorage whenever they change. This ensures that newly added
       // staff or updated roles survive page reloads.
@@ -4617,7 +4640,10 @@ Phone: +91-7047157510`;
         }
         if (activeTab === 'Finance' && financeTransactions.length === 0) {
           backendJson('/finance').then((rows) => {
-            if (Array.isArray(rows) && rows.length > 0) setFinanceTransactions(rows);
+            if (Array.isArray(rows) && rows.length > 0) {
+              financeSkipNextBulkRef.current = true;
+              setFinanceTransactions(rows);
+            }
           }).catch(() => {});
         }
         if (activeTab === 'WhatsApp SMS' && smsEvents.length === 0) {

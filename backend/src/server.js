@@ -738,21 +738,16 @@ app.post('/api/users/cleanup', requireOwner, async (req, res) => {
 app.get('/api/settings', requireAccess(Access.settingsRead), async (req, res) => {
   const settingsScope = String(req.query?.scope || 'full').trim().toLowerCase();
   const scope = readSandboxScope(req);
-  const { readSettingsValue } = await import('./db/dataStore.js');
-  const timeoutMs = 25000;
+  const { readSettingsDeduped } = await import('./services/settingsReadService.js');
   try {
-    const settings = await Promise.race([
-      readSettingsValue(scope, { scope: settingsScope }),
-      new Promise((_, reject) => {
-        setTimeout(() => reject(new Error('settings-read-timeout')), timeoutMs);
-      }),
-    ]);
+    const settings = await readSettingsDeduped(scope, { scope: settingsScope });
     return res.json(settings || {});
   } catch (error) {
-    if (String(error?.message || error).includes('settings-read-timeout')) {
-      return res.status(504).json({ error: 'settings-read-timeout', message: 'Settings read timed out' });
-    }
-    return res.status(500).json({ error: 'settings-read-failed', message: String(error?.message || error) });
+    return res.status(500).json({
+      error: 'settings-read-failed',
+      message: String(error?.message || error),
+      scope: settingsScope,
+    });
   }
 });
 

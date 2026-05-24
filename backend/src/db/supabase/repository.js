@@ -36,6 +36,7 @@ import {
   preserveNonEmptyLookups,
   shouldSkipLookupCategorySync,
 } from './settingsLookupLogic.js';
+import { settingsScopeFlags } from './settingsScope.js';
 import {
   dedupeRoleTemplates,
   mergeSettingsPreservingRoleTemplates,
@@ -800,16 +801,24 @@ async function syncRoleTemplatesToDb(sb, gid, roleTemplates) {
   return roles;
 }
 
+async function fetchAppConfigRow(sb, gid) {
+  const { data, error } = await sb
+    .from(T.settings_app_config)
+    .select('*')
+    .eq('gym_id', gid)
+    .order('updated_at', { ascending: false })
+    .limit(1);
+  if (error) throw new Error(`settings_app_config: ${error.message}`);
+  return data?.[0] ?? null;
+}
+
 async function readSettings(scope, options = {}) {
   if (scope) {
     return readSettingsSandbox(scope.sandboxId);
   }
   const sb = getSupabase();
   const gid = gymId();
-  const settingsScope = String(options.scope || 'full').trim().toLowerCase();
-  const wantCore = settingsScope === 'full' || settingsScope === 'core';
-  const wantLeave = settingsScope === 'full' || settingsScope === 'leave';
-  const wantPt = settingsScope === 'full' || settingsScope === 'pt';
+  const { scope: settingsScope, wantCore, wantLeave, wantPt } = settingsScopeFlags(options.scope);
 
   if (settingsScope === 'leave') {
     const leaveRows = await fetchAll((from, to) =>
@@ -828,7 +837,7 @@ async function readSettings(scope, options = {}) {
     fetches.push(
       fetchAll((from, to) => sb.from(T.settings_lookup_values).select('*').eq('gym_id', gid).order('sort_order').range(from, to)),
       fetchAll((from, to) => sb.from(T.settings_templates).select('*').eq('gym_id', gid).range(from, to)),
-      sb.from(T.settings_app_config).select('*').eq('gym_id', gid).maybeSingle(),
+      fetchAppConfigRow(sb, gid),
       fetchAll((from, to) => sb.from(T.settings_staff_directory).select('*').eq('gym_id', gid).range(from, to)),
       fetchAll((from, to) => sb.from(T.staff_role_templates).select('*').eq('gym_id', gid).order('sort_order').range(from, to)),
     );
@@ -844,7 +853,7 @@ async function readSettings(scope, options = {}) {
   let idx = 0;
   const lookups = wantCore ? results[idx++] : [];
   const templates = wantCore ? results[idx++] : [];
-  const configRow = wantCore ? results[idx++] : { data: null };
+  const configRow = wantCore ? results[idx++] : null;
   const staffDir = wantCore ? results[idx++] : [];
   const roles = wantCore ? results[idx++] : [];
   const leaveRows = wantLeave && settingsScope === 'full' ? results[idx++] : [];
@@ -853,7 +862,7 @@ async function readSettings(scope, options = {}) {
   const settings = buildSettingsObject({
     lookups,
     templates,
-    configRow: configRow?.data ?? null,
+    configRow,
     staffDir,
     roles,
     leaveRows,
