@@ -3576,47 +3576,62 @@ Phone: +91-7047157510`;
           }));
         } catch {}
       }, [dataSyncMode]);
-      const hydrateFromBackend = React.useCallback(async () => {
-        const [remoteUsers, remoteMembers, remoteVisitors, remoteSettings, remoteFinance, remoteSmsEvents, remoteGymCodes] = await Promise.all([
-          backendJson('/users').catch(() => []),
-          backendJson('/members').catch(() => []),
+      const hydrateDeferredCollections = React.useCallback(async () => {
+        const [remoteVisitors, remoteFinance, remoteSmsEvents] = await Promise.all([
           backendJson('/visitors').catch(() => []),
-          Promise.all([
-            backendJson('/settings?scope=core').catch(() => ({})),
-            backendJson('/settings?scope=leave').catch(() => ({})),
-          ]).then(([core, leave]) => ({ ...(core || {}), ...(leave || {}) })),
           backendJson('/finance').catch(() => []),
           backendJson('/sms-events').catch(() => []),
-          backendJson('/gym-codes').catch(() => []),
         ]);
-        if (Array.isArray(remoteGymCodes)) setGymCodes(remoteGymCodes);
-        await clearQueuedSnapshots().catch(() => {});
-        setOfflineQueueCount(0);
-        if (Array.isArray(remoteUsers) && remoteUsers.length > 0) {
-          const normalizedRemoteUsers = remoteUsers.map((u) => prepareStaffUser(u));
-          setUsers((prev) => mergeRemoteUsersWithLocal(prev, normalizedRemoteUsers));
-        }
-        if (Array.isArray(remoteMembers) && remoteMembers.length > 0) {
-          setMembers((prev) => mergeRemoteMembersWithLocal(prev, remoteMembers));
-        }
         if (Array.isArray(remoteVisitors) && remoteVisitors.length > 0) {
           setVisitors((prev) => mergeRemoteVisitorsWithLocal(prev, remoteVisitors));
-        }
-        if (remoteSettings && typeof remoteSettings === 'object' && Object.keys(remoteSettings).length > 0) {
-          setSettings((prev) => {
-            // Drop stale browser-cached PT profiles on login hydrate — PT is loaded
-            // lazily from scope=pt and must not block remote calendar data.
-            const withoutStalePt = { ...(prev && typeof prev === 'object' ? prev : {}) };
-            delete withoutStalePt.ptClientProfiles;
-            return mergeSettingsPull(withoutStalePt, remoteSettings, false);
-          });
         }
         if (Array.isArray(remoteFinance) && remoteFinance.length > 0) setFinanceTransactions(remoteFinance);
         if (Array.isArray(remoteSmsEvents) && remoteSmsEvents.length > 0) setSmsEvents(remoteSmsEvents);
         await pullStaffAttendance().catch(() => {});
-        setUser((prev) => (prev?.id ? prepareStaffUser(prev) : prev));
-        setBackendHydrated(true);
       }, [pullStaffAttendance]);
+      const hydrateFromBackend = React.useCallback(async () => {
+        if (backendHydrateInFlightRef.current) return backendHydrateInFlightRef.current;
+        const run = (async () => {
+          try {
+            const [remoteUsers, remoteMembers, remoteSettings, remoteGymCodes] = await Promise.all([
+              backendJson('/users').catch(() => []),
+              backendJson('/members').catch(() => []),
+              Promise.all([
+                backendJson('/settings?scope=core').catch(() => ({})),
+                backendJson('/settings?scope=leave').catch(() => ({})),
+              ]).then(([core, leave]) => ({ ...(core || {}), ...(leave || {}) })),
+              backendJson('/gym-codes').catch(() => []),
+            ]);
+            if (Array.isArray(remoteGymCodes)) setGymCodes(remoteGymCodes);
+            await clearQueuedSnapshots().catch(() => {});
+            setOfflineQueueCount(0);
+            if (Array.isArray(remoteUsers) && remoteUsers.length > 0) {
+              const normalizedRemoteUsers = remoteUsers.map((u) => prepareStaffUser(u));
+              setUsers((prev) => mergeRemoteUsersWithLocal(prev, normalizedRemoteUsers));
+            }
+            if (Array.isArray(remoteMembers) && remoteMembers.length > 0) {
+              setMembers((prev) => mergeRemoteMembersWithLocal(prev, remoteMembers));
+            }
+            if (remoteSettings && typeof remoteSettings === 'object' && Object.keys(remoteSettings).length > 0) {
+              setSettings((prev) => {
+                // Drop stale browser-cached PT profiles on login hydrate — PT is loaded
+                // lazily from scope=pt and must not block remote calendar data.
+                const withoutStalePt = { ...(prev && typeof prev === 'object' ? prev : {}) };
+                delete withoutStalePt.ptClientProfiles;
+                return mergeSettingsPull(withoutStalePt, remoteSettings, false);
+              });
+            }
+            setUser((prev) => (prev?.id ? prepareStaffUser(prev) : prev));
+            hydrateCompletedAtRef.current = Date.now();
+            setBackendHydrated(true);
+            hydrateDeferredCollections().catch(() => {});
+          } finally {
+            backendHydrateInFlightRef.current = null;
+          }
+        })();
+        backendHydrateInFlightRef.current = run;
+        return run;
+      }, [hydrateDeferredCollections]);
       // Probe backend reachability (no auth). Full data loads after login.
       React.useEffect(() => {
         let alive = true;
@@ -3841,6 +3856,10 @@ Phone: +91-7047157510`;
         });
       }, []);
       const membersSyncCursorRef = React.useRef(null);
+      const backendHydrateInFlightRef = React.useRef(null);
+      const hydrateCompletedAtRef = React.useRef(0);
+      const skipPostHydratePoll = () => hydrateCompletedAtRef.current > 0
+        && (Date.now() - hydrateCompletedAtRef.current) < 5000;
       React.useEffect(() => {
         if (!Array.isArray(members) || members.length === 0) return;
         let max = 0;
@@ -4224,18 +4243,29 @@ Phone: +91-7047157510`;
           if (ev?.detail?.collection === 'members' && alive) scheduleDebouncedPull('members', pullMembers);
         };
         window.addEventListener('apg-realtime', onRealtime);
-        pullMembers();
-        const pollMs = realtimeConnected ? REALTIME_POLL_SAFETY_MS : REALTIME_POLL_FAST_MS;
-        const timer = pollMs > 0 ? setInterval(pullMembers, pollMs) : null;
+        let timer = null;
+        let deferTimer = null;
+        const startPolling = () => {
+          pullMembers();
+          const pollMs = realtimeConnected ? REALTIME_POLL_SAFETY_MS : REALTIME_POLL_FAST_MS;
+          if (pollMs > 0) timer = setInterval(pullMembers, pollMs);
+        };
+        if (skipPostHydratePoll()) {
+          const waitMs = Math.max(0, 5000 - (Date.now() - hydrateCompletedAtRef.current));
+          deferTimer = setTimeout(startPolling, waitMs);
+        } else {
+          startPolling();
+        }
         return () => {
           alive = false;
+          if (deferTimer) clearTimeout(deferTimer);
           if (timer) clearInterval(timer);
           window.removeEventListener('apg-realtime', onRealtime);
         };
       }, [dataSyncMode, realtimeConnected, backendHydrated, pruneMemberAwaitingBackendSync, memberSyncPending, scheduleDebouncedPull]);
       // Pull visitor updates from backend so multi-device changes appear without refresh.
       React.useEffect(() => {
-        if (dataSyncMode !== 'backend') return;
+        if (dataSyncMode !== 'backend' || !backendHydrated || !user?.id) return;
         let alive = true;
         const pullVisitors = () => {
           backendJson('/visitors')
@@ -4254,18 +4284,29 @@ Phone: +91-7047157510`;
           if (ev?.detail?.collection === 'visitors' && alive) scheduleDebouncedPull('visitors', pullVisitors);
         };
         window.addEventListener('apg-realtime', onRealtime);
-        pullVisitors();
-        const pollMs = realtimeConnected ? REALTIME_POLL_SAFETY_MS : REALTIME_POLL_FAST_MS;
-        const timer = pollMs > 0 ? setInterval(pullVisitors, pollMs) : null;
+        let timer = null;
+        let deferTimer = null;
+        const startPolling = () => {
+          pullVisitors();
+          const pollMs = realtimeConnected ? REALTIME_POLL_SAFETY_MS : REALTIME_POLL_FAST_MS;
+          if (pollMs > 0) timer = setInterval(pullVisitors, pollMs);
+        };
+        if (skipPostHydratePoll()) {
+          const waitMs = Math.max(0, 5000 - (Date.now() - hydrateCompletedAtRef.current));
+          deferTimer = setTimeout(startPolling, waitMs);
+        } else {
+          startPolling();
+        }
         return () => {
           alive = false;
+          if (deferTimer) clearTimeout(deferTimer);
           if (timer) clearInterval(timer);
           window.removeEventListener('apg-realtime', onRealtime);
         };
-      }, [dataSyncMode, realtimeConnected, scheduleDebouncedPull]);
+      }, [dataSyncMode, realtimeConnected, backendHydrated, user?.id, scheduleDebouncedPull]);
       // Pull staff/user updates from backend so multi-device changes appear without refresh.
       React.useEffect(() => {
-        if (dataSyncMode !== 'backend') return;
+        if (dataSyncMode !== 'backend' || !backendHydrated || !user?.id) return;
         let alive = true;
         const pullUsers = () => {
           backendJson('/users')
@@ -4285,15 +4326,26 @@ Phone: +91-7047157510`;
           if (ev?.detail?.collection === 'users' && alive) scheduleDebouncedPull('users', pullUsers);
         };
         window.addEventListener('apg-realtime', onRealtime);
-        pullUsers();
-        const pollMs = realtimeConnected ? REALTIME_POLL_SAFETY_MS : REALTIME_POLL_FAST_MS;
-        const timer = pollMs > 0 ? setInterval(pullUsers, pollMs) : null;
+        let timer = null;
+        let deferTimer = null;
+        const startPolling = () => {
+          pullUsers();
+          const pollMs = realtimeConnected ? REALTIME_POLL_SAFETY_MS : REALTIME_POLL_FAST_MS;
+          if (pollMs > 0) timer = setInterval(pullUsers, pollMs);
+        };
+        if (skipPostHydratePoll()) {
+          const waitMs = Math.max(0, 5000 - (Date.now() - hydrateCompletedAtRef.current));
+          deferTimer = setTimeout(startPolling, waitMs);
+        } else {
+          startPolling();
+        }
         return () => {
           alive = false;
+          if (deferTimer) clearTimeout(deferTimer);
           if (timer) clearInterval(timer);
           window.removeEventListener('apg-realtime', onRealtime);
         };
-      }, [dataSyncMode, realtimeConnected, scheduleDebouncedPull]);
+      }, [dataSyncMode, realtimeConnected, backendHydrated, user?.id, scheduleDebouncedPull]);
 
       // Phase 4 leave-request notification fix: pull settings on SSE
       // 'settings' broadcast so that when staff POSTs /api/leave-requests, the
@@ -4361,7 +4413,7 @@ Phone: +91-7047157510`;
         return () => clearTimeout(timer);
       }, [users, dataSyncMode, syncRuntimeReady, backendHydrated, user?.id]);
       React.useEffect(() => {
-        if (financeSeeded || financeTransactions.length > 0 || members.length === 0) return;
+        if (dataSyncMode === 'backend' || financeSeeded || financeTransactions.length > 0 || members.length === 0) return;
         const seeded = members
           .filter(m => m.billingDate && Number(m.amount || 0) > 0)
           .slice(0, 250)
@@ -4408,7 +4460,17 @@ Phone: +91-7047157510`;
             }
           }).catch(() => {});
         }
-      }, [activeTab, dataSyncMode, backendHydrated, pullLogsList, pullSettingsSlices]);
+        if (activeTab === 'Finance' && financeTransactions.length === 0) {
+          backendJson('/finance').then((rows) => {
+            if (Array.isArray(rows) && rows.length > 0) setFinanceTransactions(rows);
+          }).catch(() => {});
+        }
+        if (activeTab === 'WhatsApp SMS' && smsEvents.length === 0) {
+          backendJson('/sms-events').then((rows) => {
+            if (Array.isArray(rows) && rows.length > 0) setSmsEvents(rows);
+          }).catch(() => {});
+        }
+      }, [activeTab, dataSyncMode, backendHydrated, pullLogsList, pullSettingsSlices, financeTransactions.length, smsEvents.length]);
       // Dashboard view mode: summary or list
       const [dashMode, setDashMode] = React.useState('summary');
       const [dashFilter, setDashFilter] = React.useState('Active');
@@ -5309,7 +5371,6 @@ Phone: +91-7047157510`;
               setActiveTab('Dashboard');
               setDashMode('summary');
               setAuthSessionReady(true);
-              hydrateFromBackend().catch(() => setBackendHydrated(false));
               return;
             }
             // Token present but /auth/me failed (network blip or revoked JWT).
