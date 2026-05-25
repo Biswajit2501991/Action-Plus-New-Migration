@@ -14,6 +14,13 @@ import { membersTableName } from './db/tables.js';
 import { membersBulkUpsertReady } from './db/supabase/membersWrite.js';
 import { visitorsHaveGymCodeColumn } from './db/supabase/visitorsSchema.js';
 import {
+  findOverlappingPendingLeave,
+  insertLeaveRequest,
+  updateLeaveRequestByExternalId,
+  deleteLeaveRequestsForUserIds,
+} from './db/supabase/leaveRequestsWrite.js';
+import { T } from './db/tables.js';
+import {
   dataBackendLabel,
   pingDataStore,
   purgeSandboxData,
@@ -57,7 +64,7 @@ import {
   loadBranchScope,
   logMatchesBranchScope,
 } from './auth/branchFilter.js';
-import { getSupabase } from './db/supabase/client.js';
+import { getSupabase, gymId } from './db/supabase/client.js';
 import { resolvePtClientMemberId } from './utils/ptClientMemberId.js';
 
 const app = express();
@@ -932,6 +939,28 @@ function sanitizeLeaveRequestInput(body, callerIsOwner, callerUserId) {
   return { userId, type, startDate, endDate, days, reason };
 }
 
+function leaveDaysFromDateRange(startDate, endDate) {
+  const start = new Date(startDate);
+  const end = new Date(endDate);
+  if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime())) return 1;
+  return Math.max(1, Math.floor((end - start) / (24 * 60 * 60 * 1000)) + 1);
+}
+
+async function assertStaffLoginExistsForLeave(staffLoginId) {
+  if (!useSupabase()) return true;
+  const key = String(staffLoginId || '').trim();
+  if (!key) return false;
+  const sb = getSupabase();
+  const { data, error } = await sb
+    .from(T.staff_users)
+    .select('id')
+    .eq('gym_id', gymId())
+    .ilike('staff_login_id', key)
+    .maybeSingle();
+  if (error) throw error;
+  return Boolean(data?.id);
+}
+
 app.post('/api/leave-requests', async (req, res) => {
   try {
     const callerIsOwner = leaveRequestIsOwnerCaller(req);
@@ -939,6 +968,35 @@ app.post('/api/leave-requests', async (req, res) => {
     if (!callerUserId) return res.status(401).json({ error: 'auth-required' });
     const parsed = sanitizeLeaveRequestInput(req.body, callerIsOwner, callerUserId);
     if (parsed.error) return res.status(400).json({ error: parsed.error });
+
+    if (useSupabase()) {
+      const staffOk = await assertStaffLoginExistsForLeave(parsed.userId);
+      if (!staffOk) {
+        return res.status(400).json({ error: 'invalid-userId', message: 'Staff user not found for this gym.' });
+      }
+      const overlap = await findOverlappingPendingLeave(parsed.userId, parsed.startDate, parsed.endDate);
+      if (overlap) {
+        return res.status(409).json({
+          error: 'leave-overlap',
+          message: 'You already applied leave for these dates.',
+        });
+      }
+      const request = {
+        id: randomUUID(),
+        userId: parsed.userId,
+        type: parsed.type,
+        startDate: parsed.startDate,
+        endDate: parsed.endDate,
+        days: parsed.days,
+        reason: parsed.reason,
+        status: 'Pending',
+        createdAt: new Date().toISOString(),
+        createdBy: callerUserId,
+      };
+      await insertLeaveRequest(request);
+      queueDatabaseBackup('leave-request-create');
+      return res.json({ ok: true, request });
+    }
 
     const current = (await readScopedSettings(req)) || {};
     const existing = Array.isArray(current.leaveRequests) ? current.leaveRequests : [];
@@ -959,10 +1017,12 @@ app.post('/api/leave-requests', async (req, res) => {
     queueDatabaseBackup('leave-request-create');
     return res.json({ ok: true, request });
   } catch (error) {
-    return res.status(500).json({
-      error: 'leave-request-create-failed',
-      message: String(error?.message || error),
-    });
+    const message = String(error?.message || error);
+    let errorCode = 'leave-request-create-failed';
+    if (/no unique or exclusion constraint/i.test(message)) {
+      errorCode = 'leave-sync-constraint-missing';
+    }
+    return res.status(500).json({ error: errorCode, message });
   }
 });
 
@@ -973,6 +1033,16 @@ app.patch('/api/leave-requests/:id', requireOwner, async (req, res) => {
     const STATUSES = new Set(['Pending', 'Approved', 'Rejected']);
     const status = STATUSES.has(req.body?.status) ? req.body.status : null;
     if (!status) return res.status(400).json({ error: 'invalid-status' });
+    const actionBy = String(req.auth?.userId || 'owner');
+    const actionAt = new Date().toISOString();
+
+    if (useSupabase()) {
+      const row = await updateLeaveRequestByExternalId(id, { status, actionBy });
+      if (!row) return res.status(404).json({ error: 'leave-request-not-found' });
+      const request = { ...row, actionAt, actionBy, days: leaveDaysFromDateRange(row.startDate, row.endDate) };
+      queueDatabaseBackup('leave-request-update');
+      return res.json({ ok: true, request });
+    }
 
     const current = (await readScopedSettings(req)) || {};
     const existing = Array.isArray(current.leaveRequests) ? current.leaveRequests : [];
@@ -982,8 +1052,8 @@ app.patch('/api/leave-requests/:id', requireOwner, async (req, res) => {
       updated = {
         ...r,
         status,
-        actionAt: new Date().toISOString(),
-        actionBy: String(req.auth?.userId || 'owner'),
+        actionAt,
+        actionBy,
       };
       return updated;
     });
@@ -1008,6 +1078,12 @@ app.post('/api/leave-requests/cleanup', requireOwner, async (req, res) => {
   try {
     const userIds = Array.isArray(req.body?.userIds) ? req.body.userIds.map((x) => String(x || '').trim()).filter(Boolean) : [];
     if (!userIds.length) return res.json({ ok: true, removed: 0, remaining: null });
+
+    if (useSupabase()) {
+      const { removed, remaining } = await deleteLeaveRequestsForUserIds(userIds);
+      return res.json({ ok: true, removed, remaining });
+    }
+
     const current = (await readScopedSettings(req)) || {};
     const existing = Array.isArray(current.leaveRequests) ? current.leaveRequests : [];
     const removeSet = new Set(userIds);

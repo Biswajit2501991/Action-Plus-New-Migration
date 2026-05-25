@@ -14867,7 +14867,12 @@ function PTClientsPage({ members, users, settings, updateSetting, currentUser, a
               });
               request = resp && resp.request ? resp.request : null;
             } catch (err) {
-              setFormError('Could not submit leave request. Please retry.');
+              const overlapMsg = (err?.status === 409 || err?.apiError === 'leave-overlap')
+                ? 'You already applied leave for these dates.'
+                : '';
+              setFormError(overlapMsg || (String(err?.message || '').trim() && !String(err.message).startsWith('backend-')
+                ? `Could not submit leave: ${err.message}`
+                : 'Could not submit leave request. Please try again.'));
               return;
             }
           }

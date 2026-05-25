@@ -1,5 +1,6 @@
 import * as permissions from '../features/access/permissions.js';
 import { reminderSentForCurrentBilling, toCalendarDateKey } from '../features/members/reminderBillingCycle.js';
+import { leaveSubmitErrorMessage } from '../features/leave/leaveSubmitError.js';
 
 function emitTelemetry(level, code, message, meta = {}) {
   const payload = {
@@ -68,6 +69,7 @@ async function register() {
   window.__APG_MODULES.sectionsWithRoleDefaults = permissions.sectionsWithRoleDefaults;
   window.__APG_MODULES.reminderSentForCurrentBilling = reminderSentForCurrentBilling;
   window.__APG_MODULES.toCalendarDateKey = toCalendarDateKey;
+  window.__APG_MODULES.leaveSubmitErrorMessage = leaveSubmitErrorMessage;
   window.__APG_MODULES.LeaveTrackerPageModule = await loadLeaveTrackerModuleWithRetry(3);
   emitTelemetry('info', 'ready', 'Module registration completed');
 }

@@ -1,4 +1,5 @@
 import React from 'react';
+import { leaveSubmitErrorMessage } from '../features/leave/leaveSubmitError.js';
 
 function iso(val) {
   const d = val instanceof Date ? val : new Date(val);
@@ -78,7 +79,7 @@ export default function LeaveTrackerPageModule({ users, settings, updateSetting,
         });
         req = resp && resp.request ? resp.request : null;
       } catch (err) {
-        setFormError('Could not submit leave request. Please retry.');
+        setFormError(leaveSubmitErrorMessage(err));
         return;
       }
     }
