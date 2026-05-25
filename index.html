@@ -2774,13 +2774,16 @@ Phone: +91-7047157510`;
       }
       if (!res.ok) {
         let detail = `backend-${res.status}`;
+        let apiError = '';
         try {
           const body = await res.json();
+          if (body?.error) apiError = String(body.error);
           if (body?.message) detail = String(body.message);
-          else if (body?.error) detail = String(body.error);
+          else if (apiError) detail = apiError;
         } catch {}
         const err = new Error(detail);
         err.status = res.status;
+        if (apiError) err.apiError = apiError;
         throw err;
       }
       const data = await res.json();
@@ -18970,12 +18973,15 @@ function PTClientsPage({ members, users, settings, updateSetting, currentUser, a
               });
             } catch (saveErr) {
               const msg = String(saveErr?.message || '');
+              const errCode = String(saveErr?.apiError || '');
               if (saveErr?.status === 403 || msg.includes('owner-required')) {
                 showStaffError('Only the owner account can add staff. Sign in as owner and try again.');
-              } else if (msg.includes('duplicate') || msg.includes('unique')) {
-                showStaffError(`Username "${id}" is already in use. Choose a different username.`);
-              } else if (msg.includes('gym_code') || msg.includes('gym-code')) {
-                showStaffError('Server requires a gym code on staff. Contact support or run gym code migration in Supabase.');
+              } else if (errCode === 'staff-sync-constraint-missing' || /no unique or exclusion constraint/i.test(msg)) {
+                showStaffError('Staff permissions could not be saved. Restart the backend server to load the latest fix, or run supabase_staff_access_unique.sql in Supabase SQL Editor.');
+              } else if (errCode === 'staff-login-duplicate' || (/duplicate key/i.test(msg) && /staff_login/i.test(msg))) {
+                showStaffError(`Username "${id}" is already in use at this gym. Choose a different username.`);
+              } else if (msg.includes('gym_code') || msg.includes('gym-code') || msg.includes('gym_code_id')) {
+                showStaffError('Assign a valid gym branch (gym code) to this staff member, or run the gym codes migration in Supabase.');
               } else if (msg) {
                 showStaffError(`Could not save staff: ${msg}`);
               } else {

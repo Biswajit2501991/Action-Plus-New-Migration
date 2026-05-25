@@ -28,6 +28,7 @@ import { syncGymRowsByExternalId, syncMemberChildRows } from './collectionSync.j
 import { bulkUpsertMemberRows, membersBulkUpsertReady } from './membersWrite.js';
 import { chunk, emptyText, fetchAll, paymentBillingDate, toDate, toTs } from './utils.js';
 import { stripVisitorGymCodeColumn, visitorsHaveGymCodeColumn } from './visitorsSchema.js';
+import { syncStaffUserAccess, syncStaffUserSections } from './staffUserSync.js';
 import {
   paymentHistoryCanonicalDedupeKey,
   paymentRowMatchesId,
@@ -723,27 +724,10 @@ async function writeUsers(users, scope) {
       staffPk = data.id;
     }
 
-    await sb.from(T.staff_user_sections).delete().eq('staff_user_id', staffPk);
-    await sb.from(T.staff_user_access).delete().eq('staff_user_id', staffPk);
-
     const isOwnerLogin = String(u.id || '').trim().toLowerCase() === 'owner';
     const sections = isOwnerLogin ? [...ALL_SECTIONS] : (Array.isArray(u.sections) ? u.sections : []);
-    if (sections.length) {
-      const { error } = await sb.from(T.staff_user_sections).upsert(
-        sections.map((name) => ({ staff_user_id: staffPk, section_name: String(name) })),
-        { onConflict: 'staff_user_id,section_name', ignoreDuplicates: true },
-      );
-      if (error) throw error;
-    }
-
-    const { error: accErr } = await sb.from(T.staff_user_access).upsert(
-      {
-        staff_user_id: staffPk,
-        access_json: u.access && typeof u.access === 'object' ? u.access : {},
-      },
-      { onConflict: 'staff_user_id' },
-    );
-    if (accErr) throw accErr;
+    await syncStaffUserSections(sb, staffPk, sections);
+    await syncStaffUserAccess(sb, staffPk, u.access);
     invalidateStaffAccessCache(u.id);
   }
   notifyCollectionChange('users');

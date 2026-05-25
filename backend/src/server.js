@@ -666,9 +666,18 @@ app.put('/api/users/bulk', requireOwner, async (req, res) => {
     queueDatabaseBackup('users-bulk');
     return res.json({ ok: true });
   } catch (error) {
+    const message = String(error?.message || error);
+    let errorCode = 'users-bulk-failed';
+    if (/no unique or exclusion constraint/i.test(message)) {
+      errorCode = 'staff-sync-constraint-missing';
+    } else if (/staff_user_access sync failed|staff_user_sections sync failed/i.test(message)) {
+      errorCode = 'staff-sync-constraint-missing';
+    } else if (/staff_users_gym_id_staff_login_id_key|staff_login_id.*duplicate|duplicate.*staff_login/i.test(message)) {
+      errorCode = 'staff-login-duplicate';
+    }
     return res.status(500).json({
-      error: 'users-bulk-failed',
-      message: String(error?.message || error),
+      error: errorCode,
+      message,
     });
   }
 });

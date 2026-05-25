@@ -1,5 +1,8 @@
--- Prevent duplicate staff access/section rows (concurrent PUT /api/users/bulk race).
--- Run once in Supabase SQL Editor.
+-- REQUIRED for production staff save (PUT /api/users/bulk).
+-- Without these UNIQUE indexes, upsert on staff_user_access / staff_user_sections fails with:
+--   "there is no unique or exclusion constraint matching the ON CONFLICT specification"
+-- The app uses delete+insert when possible; these indexes still prevent duplicate rows under concurrent saves.
+-- Run once in Supabase SQL Editor (safe to re-run).
 
 -- Keep newest access row per staff user.
 delete from public.staff_user_access a
