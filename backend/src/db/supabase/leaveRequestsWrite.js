@@ -74,21 +74,43 @@ export async function updateLeaveRequestByExternalId(externalId, patch) {
   if (!id) throw new Error('leave-id-required');
   const sb = getSupabase();
   const gid = gymId();
+  const nextStatus = patch?.status != null ? String(patch.status) : null;
   const update = {};
-  if (patch?.status != null) update.status = String(patch.status);
+  if (nextStatus) update.status = nextStatus;
   if (patch?.actionBy != null) update.approved_by = String(patch.actionBy);
 
-  const { data, error } = await sb
+  let query = sb
     .from(T.leave_requests)
     .update(update)
     .eq('gym_id', gid)
-    .eq('external_request_id', id)
-    .select('*')
-    .maybeSingle();
+    .eq('external_request_id', id);
+
+  // Only transition Pending → Approved/Rejected (safe for double-click / multi-tab).
+  if (nextStatus === 'Approved' || nextStatus === 'Rejected') {
+    query = query.eq('status', 'Pending');
+  }
+
+  const { data, error } = await query.select('*').maybeSingle();
   if (error) throw error;
-  if (!data) return null;
-  notifyCollectionChange('settings');
-  return leaveRowToApp(data);
+
+  if (data) {
+    notifyCollectionChange('settings');
+    return leaveRowToApp(data);
+  }
+
+  // Idempotent: already processed with same status.
+  const { data: existing, error: readErr } = await sb
+    .from(T.leave_requests)
+    .select('*')
+    .eq('gym_id', gid)
+    .eq('external_request_id', id)
+    .maybeSingle();
+  if (readErr) throw readErr;
+  if (!existing) return null;
+  if (nextStatus && String(existing.status) === nextStatus) {
+    return leaveRowToApp(existing);
+  }
+  return null;
 }
 
 export async function deleteLeaveRequestsForUserIds(userIds = []) {

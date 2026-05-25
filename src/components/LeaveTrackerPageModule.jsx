@@ -1,5 +1,11 @@
 import React from 'react';
 import { leaveSubmitErrorMessage } from '../features/leave/leaveSubmitError.js';
+import {
+  mergeLeaveRequestIntoList,
+  normalizeLeaveRequestFromApi,
+  patchLeaveRequestStatus,
+  mergeApprovedLeaveIntoAttendance,
+} from '../features/leave/leaveApprovalSync.js';
 
 function iso(val) {
   const d = val instanceof Date ? val : new Date(val);
@@ -108,24 +114,26 @@ export default function LeaveTrackerPageModule({ users, settings, updateSetting,
   };
 
   const updateStatus = async (id, status) => {
-    if (!canApprove) return;
+    if (!canApprove || typeof updateSetting !== 'function') return;
+    const target = (leaveRequests || []).find((r) => r && r.id === id);
+    if (!target || target.status !== 'Pending') return;
+    const actor = currentUser?.name || currentUser?.id || '';
     const backendJsonFn = typeof window !== 'undefined' ? window.__APG_BACKEND_JSON__ : null;
+    let canonical = null;
     if (typeof backendJsonFn === 'function') {
       try {
-        await backendJsonFn(`/leave-requests/${encodeURIComponent(id)}`, {
-          method: 'PATCH',
-          body: JSON.stringify({ status }),
-        });
+        canonical = await patchLeaveRequestStatus(backendJsonFn, id, status);
       } catch {
-        // Fall through to local-only update so the owner still sees a change.
+        return;
       }
+    } else {
+      canonical = normalizeLeaveRequestFromApi({ ...target, status }, { actionBy: actor });
     }
-    updateSetting(
-      'leaveRequests',
-      (prev) => (Array.isArray(prev) ? prev : leaveRequests || []).map((r) => (r.id === id
-        ? { ...r, status, actionAt: new Date().toISOString(), actionBy: currentUser?.name || currentUser?.id || '' }
-        : r)),
-    );
+    const merged = normalizeLeaveRequestFromApi(canonical, { actionBy: actor });
+    updateSetting('leaveRequests', (prev) => mergeLeaveRequestIntoList(prev, merged));
+    if (status === 'Approved') {
+      updateSetting('staffAttendance', (prev) => mergeApprovedLeaveIntoAttendance(prev, merged, actor));
+    }
   };
 
   const balanceFor = (userId) => {

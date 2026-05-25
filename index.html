@@ -987,6 +987,7 @@
   <div id="root"></div>
   <script>
     window.__APG_MODULES = window.__APG_MODULES || {};
+    window.__APG_MODULES__ = window.__APG_MODULES;
     window.__APG_MODULES_READY = new Promise((resolve) => {
       window.__APG_RESOLVE_MODULES = resolve;
       window.setTimeout(resolve, 3000);
@@ -4789,6 +4790,11 @@ Phone: +91-7047157510`;
           .sort((a, b) => String(b.createdAt || '').localeCompare(String(a.createdAt || '')))
           .slice(0, 20);
       }, [settings?.leaveRequests, user]);
+      const [leaveApprovingId, setLeaveApprovingId] = React.useState('');
+      const leaveRequestsRef = React.useRef([]);
+      React.useEffect(() => {
+        leaveRequestsRef.current = Array.isArray(settings?.leaveRequests) ? settings.leaveRequests : [];
+      }, [settings?.leaveRequests]);
       // Tentative join = local calendar today; not gated on callBackRequired; hide after mark-called today or Converted.
       const callbackNotifications = React.useMemo(() => {
         const canSeeVisitors = normalizeAccess(user?.access).members?.viewVisitors !== false;
@@ -6952,20 +6958,71 @@ Please pay by: ${formattedLastDate}`;
           return { ...prev, [key]: nextValue };
         });
       };
-      const approveLeaveRequestFromNotification = (requestId) => {
-        if (!(user && user.id === 'owner')) return;
-        const reqs = Array.isArray(settings?.leaveRequests) ? settings.leaveRequests : [];
-        const target = reqs.find(r => r.id === requestId);
-        if (!target || target.status !== 'Pending') return;
-        const next = reqs.map(r => (
-          r.id === requestId
-            ? { ...r, status: 'Approved', actionAt: new Date().toISOString(), actionBy: user?.name || user?.id || 'owner' }
-            : r
-        ));
-        updateSettingValue('leaveRequests', next);
-        setNotificationOpen(false);
-        setToast('Leave request approved.');
-        setTimeout(() => setToast(''), 1800);
+      const approveLeaveRequestFromNotification = async (requestId) => {
+        if (!isOwnerForResetFlow) return;
+        const id = String(requestId || '').trim();
+        if (!id || leaveApprovingId) return;
+        const list = leaveRequestsRef.current || [];
+        const target = list.find((r) => r && String(r.id) === id);
+        if (!target) {
+          setToast('Leave request not found. Open Leave Tracker and refresh.');
+          setTimeout(() => setToast(''), 2800);
+          return;
+        }
+        if (String(target.status || '') !== 'Pending') {
+          setToast('Leave request was already processed.');
+          setTimeout(() => setToast(''), 2200);
+          return;
+        }
+        const backendJsonFn = typeof window !== 'undefined' ? window.__APG_BACKEND_JSON__ : null;
+        if (dataSyncMode !== 'backend' || typeof backendJsonFn !== 'function') {
+          setToast('Server connection required to approve leave.');
+          setTimeout(() => setToast(''), 2800);
+          return;
+        }
+        setLeaveApprovingId(id);
+        const actor = user?.name || user?.id || 'owner';
+        try {
+          const resp = await backendJsonFn(`/leave-requests/${encodeURIComponent(id)}`, {
+            method: 'PATCH',
+            body: JSON.stringify({ status: 'Approved' }),
+          });
+          const row = resp && resp.request ? resp.request : null;
+          if (!row) throw new Error('leave-patch-empty');
+          const merged = {
+            ...target,
+            ...row,
+            status: 'Approved',
+            actionAt: new Date().toISOString(),
+            actionBy: actor,
+          };
+          updateSettingValue('leaveRequests', (prev) => {
+            const base = Array.isArray(prev) ? prev : [];
+            const idx = base.findIndex((r) => r && String(r.id) === id);
+            if (idx < 0) return [merged, ...base];
+            const next = base.slice();
+            next[idx] = { ...base[idx], ...merged };
+            return next;
+          });
+          const mergeAtt = window.__APG_MODULES?.mergeApprovedLeaveIntoAttendance;
+          if (typeof mergeAtt === 'function') {
+            updateSettingValue('staffAttendance', (prev) => mergeAtt(prev, merged, actor));
+          }
+          try {
+            logEvent('leave.status.updated', 'leave', id, target, merged, actor, 'notification');
+          } catch {}
+          setNotificationOpen(false);
+          setToast('Leave request approved.');
+          setTimeout(() => setToast(''), 1800);
+        } catch (err) {
+          const detail = String(err?.message || '').trim();
+          setToast(detail && !detail.startsWith('backend-')
+            ? `Could not approve leave: ${detail}`
+            : 'Could not approve leave on server. Please try again.');
+          setTimeout(() => setToast(''), 2800);
+        } finally {
+          setLeaveApprovingId('');
+        }
       };
       const exportData = () => {
         try {
@@ -7325,28 +7382,43 @@ Please pay by: ${formattedLastDate}`;
                         ) : (
                           <div className="max-h-64 overflow-auto space-y-1">
                             {leaveNotifications.map(n => (
-                              <button
-                                key={n.id}
-                                onClick={() => {
-                                  setNotificationOpen(false);
-                                  setLeaveTrackerFocus({ requestId: n.id, userId: n.userId || '' });
-                                  setActiveTab('Leave Tracker');
-                                }}
-                                className="w-full rounded-lg border border-slate-200 bg-slate-50 px-2 py-2 text-left hover:bg-slate-100"
-                              >
-                                <div className="text-xs font-semibold text-slate-800">{n.type} leave request</div>
-                                <div className="text-[11px] text-slate-600 mb-1">{n.userId} • {fmt(n.startDate)} - {fmt(n.endDate)}</div>
-                                <button
-                                  onClick={(e) => {
-                                    e.stopPropagation();
-                                    e.preventDefault();
-                                    approveLeaveRequestFromNotification(n.id);
-                                  }}
-                                  className="rounded-full border border-emerald-300 bg-emerald-50 px-2.5 py-1 text-[11px] font-semibold text-emerald-700 hover:bg-emerald-100"
-                                >
-                                  Approve
-                                </button>
-                              </button>
+                              window.__APG_MODULES?.LeaveApprovalNotificationCard
+                                ? React.createElement(window.__APG_MODULES.LeaveApprovalNotificationCard, {
+                                    key: n.id,
+                                    request: n,
+                                    fmt,
+                                    busy: leaveApprovingId === n.id,
+                                    onOpen: () => {
+                                      setNotificationOpen(false);
+                                      setLeaveTrackerFocus({ requestId: n.id, userId: n.userId || '' });
+                                      setActiveTab('Leave Tracker');
+                                    },
+                                    onApprove: approveLeaveRequestFromNotification,
+                                  })
+                                : (
+                                  <button
+                                    key={n.id}
+                                    onClick={() => {
+                                      setNotificationOpen(false);
+                                      setLeaveTrackerFocus({ requestId: n.id, userId: n.userId || '' });
+                                      setActiveTab('Leave Tracker');
+                                    }}
+                                    className="w-full rounded-lg border border-slate-200 bg-slate-50 px-2 py-2 text-left hover:bg-slate-100"
+                                  >
+                                    <div className="text-xs font-semibold text-slate-800">{n.type} leave request</div>
+                                    <div className="text-[11px] text-slate-600 mb-1">{n.userId} • {fmt(n.startDate)} - {fmt(n.endDate)}</div>
+                                    <button
+                                      onClick={(e) => {
+                                        e.stopPropagation();
+                                        e.preventDefault();
+                                        void approveLeaveRequestFromNotification(n.id);
+                                      }}
+                                      className="rounded-full border border-emerald-300 bg-emerald-50 px-2.5 py-1 text-[11px] font-semibold text-emerald-700 hover:bg-emerald-100"
+                                    >
+                                      Approve
+                                    </button>
+                                  </button>
+                                )
                             ))}
                           </div>
                         )}
@@ -7604,28 +7676,43 @@ Please pay by: ${formattedLastDate}`;
                             ) : (
                               <div className="max-h-72 overflow-auto space-y-1">
                                 {leaveNotifications.map(n => (
-                                  <button
-                                    key={n.id}
-                                    onClick={() => {
-                                      setNotificationOpen(false);
-                                      setLeaveTrackerFocus({ requestId: n.id, userId: n.userId || '' });
-                                      setActiveTab('Leave Tracker');
-                                    }}
-                                    className="w-full rounded-lg border border-slate-200 bg-slate-50 px-2 py-2 text-left hover:bg-slate-100"
-                                  >
-                                    <div className="text-xs font-semibold text-slate-800">{n.type} leave request</div>
-                                    <div className="text-[11px] text-slate-600 mb-1">{n.userId} • {fmt(n.startDate)} - {fmt(n.endDate)}</div>
-                                    <button
-                                      onClick={(e) => {
-                                        e.stopPropagation();
-                                        e.preventDefault();
-                                        approveLeaveRequestFromNotification(n.id);
-                                      }}
-                                      className="rounded-full border border-emerald-300 bg-emerald-50 px-2.5 py-1 text-[11px] font-semibold text-emerald-700 hover:bg-emerald-100"
-                                    >
-                                      Approve
-                                    </button>
-                                  </button>
+                                  window.__APG_MODULES?.LeaveApprovalNotificationCard
+                                    ? React.createElement(window.__APG_MODULES.LeaveApprovalNotificationCard, {
+                                        key: n.id,
+                                        request: n,
+                                        fmt,
+                                        busy: leaveApprovingId === n.id,
+                                        onOpen: () => {
+                                          setNotificationOpen(false);
+                                          setLeaveTrackerFocus({ requestId: n.id, userId: n.userId || '' });
+                                          setActiveTab('Leave Tracker');
+                                        },
+                                        onApprove: approveLeaveRequestFromNotification,
+                                      })
+                                    : (
+                                      <button
+                                        key={n.id}
+                                        onClick={() => {
+                                          setNotificationOpen(false);
+                                          setLeaveTrackerFocus({ requestId: n.id, userId: n.userId || '' });
+                                          setActiveTab('Leave Tracker');
+                                        }}
+                                        className="w-full rounded-lg border border-slate-200 bg-slate-50 px-2 py-2 text-left hover:bg-slate-100"
+                                      >
+                                        <div className="text-xs font-semibold text-slate-800">{n.type} leave request</div>
+                                        <div className="text-[11px] text-slate-600 mb-1">{n.userId} • {fmt(n.startDate)} - {fmt(n.endDate)}</div>
+                                        <button
+                                          onClick={(e) => {
+                                            e.stopPropagation();
+                                            e.preventDefault();
+                                            void approveLeaveRequestFromNotification(n.id);
+                                          }}
+                                          className="rounded-full border border-emerald-300 bg-emerald-50 px-2.5 py-1 text-[11px] font-semibold text-emerald-700 hover:bg-emerald-100"
+                                        >
+                                          Approve
+                                        </button>
+                                      </button>
+                                    )
                                 ))}
                               </div>
                             )}
@@ -14903,18 +14990,47 @@ function PTClientsPage({ members, users, settings, updateSetting, currentUser, a
           setFormSuccess('Leave request submitted.');
           setTimeout(() => setFormSuccess(''), 2000);
         };
-        const updateStatus = (id, status) => {
+        const updateStatus = async (id, status) => {
           if (!canApprove || typeof updateSetting !== 'function') return;
+          const patchLeave = window.__APG_MODULES?.patchLeaveRequestStatus;
+          const mergeList = window.__APG_MODULES?.mergeLeaveRequestIntoList;
+          const normalizeReq = window.__APG_MODULES?.normalizeLeaveRequestFromApi;
+          const mergeAttendance = window.__APG_MODULES?.mergeApprovedLeaveIntoAttendance;
           const target = leaveRequests.find((r) => r.id === id);
-          const updated = leaveRequests.map(r => r.id === id ? { ...r, status, actionAt: new Date().toISOString(), actionBy: currentUser?.name || currentUser?.id || '' } : r);
-          updateSetting('leaveRequests', updated);
-          if (typeof logEvent === 'function' && target) {
-            logEvent('leave.status.updated', 'leave', id, target, { ...target, status }, currentUser?.name || currentUser?.id || '');
+          if (!target || target.status !== 'Pending') return;
+          const actor = currentUser?.name || currentUser?.id || '';
+          const backendJsonFn = typeof window !== 'undefined' ? window.__APG_BACKEND_JSON__ : null;
+          let canonical = null;
+          if (typeof backendJsonFn === 'function' && typeof patchLeave === 'function') {
+            try {
+              canonical = await patchLeave(backendJsonFn, id, status);
+            } catch {
+              return;
+            }
+          } else if (typeof normalizeReq === 'function') {
+            canonical = normalizeReq({ ...target, status }, { actionBy: actor });
+          } else {
+            canonical = { ...target, status, actionAt: new Date().toISOString(), actionBy: actor };
           }
-          if (status === 'Approved' && target) {
-            const syncedDays = syncApprovedLeaveToAttendance({ ...target, status });
-            if (typeof logEvent === 'function') {
-              logEvent('attendance.leave_synced', 'attendance', target.userId, null, { leaveRequestId: id, syncedDays, startDate: target.startDate, endDate: target.endDate }, currentUser?.name || currentUser?.id || '');
+          const merged = typeof normalizeReq === 'function'
+            ? normalizeReq(canonical, { actionBy: actor })
+            : canonical;
+          updateSetting('leaveRequests', (prev) => (
+            typeof mergeList === 'function'
+              ? mergeList(prev, merged)
+              : (Array.isArray(prev) ? prev : leaveRequests).map((r) => (r.id === id ? merged : r))
+          ));
+          if (typeof logEvent === 'function' && target) {
+            logEvent('leave.status.updated', 'leave', id, target, merged, actor);
+          }
+          if (status === 'Approved') {
+            if (typeof mergeAttendance === 'function') {
+              updateSetting('staffAttendance', (prev) => mergeAttendance(prev, merged, actor));
+            } else {
+              const syncedDays = syncApprovedLeaveToAttendance(merged);
+              if (typeof logEvent === 'function') {
+                logEvent('attendance.leave_synced', 'attendance', target.userId, null, { leaveRequestId: id, syncedDays, startDate: target.startDate, endDate: target.endDate }, actor);
+              }
             }
           }
         };

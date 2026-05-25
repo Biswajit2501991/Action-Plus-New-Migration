@@ -1,6 +1,15 @@
 import * as permissions from '../features/access/permissions.js';
 import { reminderSentForCurrentBilling, toCalendarDateKey } from '../features/members/reminderBillingCycle.js';
 import { leaveSubmitErrorMessage } from '../features/leave/leaveSubmitError.js';
+import { createLeaveApprovalHandlers } from '../features/leave/leaveApprovalHandlers.js';
+import {
+  patchLeaveRequestStatus,
+  mergeLeaveRequestIntoList,
+  normalizeLeaveRequestFromApi,
+  mergeApprovedLeaveIntoAttendance,
+} from '../features/leave/leaveApprovalSync.js';
+import LeaveApprovalNotificationCard from '../components/leave/LeaveApprovalNotificationCard.js';
+import LeaveApprovalStatusBadge from '../components/leave/LeaveApprovalStatusBadge.js';
 
 function emitTelemetry(level, code, message, meta = {}) {
   const payload = {
@@ -58,18 +67,29 @@ async function loadLeaveTrackerModuleWithRetry(maxAttempts = 3) {
   throw lastErr || new Error('leave-tracker-load-failed');
 }
 
+// Sync registration first so notification approve works before Leave Tracker JSX loads.
+window.__APG_MODULES = window.__APG_MODULES || {};
+window.__APG_MODULES.permissions = permissions;
+window.__APG_MODULES.ALL_SECTIONS = permissions.ALL_SECTIONS;
+window.__APG_MODULES.DASHBOARD_CHILD_PERMISSIONS = permissions.DASHBOARD_CHILD_PERMISSIONS;
+window.__APG_MODULES.DEFAULT_ACCESS = permissions.DEFAULT_ACCESS;
+window.__APG_MODULES.normalizeAccess = permissions.normalizeAccess;
+window.__APG_MODULES.sectionsWithRoleDefaults = permissions.sectionsWithRoleDefaults;
+window.__APG_MODULES.reminderSentForCurrentBilling = reminderSentForCurrentBilling;
+window.__APG_MODULES.toCalendarDateKey = toCalendarDateKey;
+window.__APG_MODULES.leaveSubmitErrorMessage = leaveSubmitErrorMessage;
+window.__APG_MODULES.createLeaveApprovalHandlers = createLeaveApprovalHandlers;
+window.__APG_MODULES.patchLeaveRequestStatus = patchLeaveRequestStatus;
+window.__APG_MODULES.mergeLeaveRequestIntoList = mergeLeaveRequestIntoList;
+window.__APG_MODULES.normalizeLeaveRequestFromApi = normalizeLeaveRequestFromApi;
+window.__APG_MODULES.mergeApprovedLeaveIntoAttendance = mergeApprovedLeaveIntoAttendance;
+window.__APG_MODULES.LeaveApprovalNotificationCard = LeaveApprovalNotificationCard;
+window.__APG_MODULES.LeaveApprovalStatusBadge = LeaveApprovalStatusBadge;
+// Legacy alias used in parts of index.html (typo: trailing underscores).
+window.__APG_MODULES__ = window.__APG_MODULES;
+
 async function register() {
   emitTelemetry('info', 'init', 'Module registration started');
-  window.__APG_MODULES = window.__APG_MODULES || {};
-  window.__APG_MODULES.permissions = permissions;
-  window.__APG_MODULES.ALL_SECTIONS = permissions.ALL_SECTIONS;
-  window.__APG_MODULES.DASHBOARD_CHILD_PERMISSIONS = permissions.DASHBOARD_CHILD_PERMISSIONS;
-  window.__APG_MODULES.DEFAULT_ACCESS = permissions.DEFAULT_ACCESS;
-  window.__APG_MODULES.normalizeAccess = permissions.normalizeAccess;
-  window.__APG_MODULES.sectionsWithRoleDefaults = permissions.sectionsWithRoleDefaults;
-  window.__APG_MODULES.reminderSentForCurrentBilling = reminderSentForCurrentBilling;
-  window.__APG_MODULES.toCalendarDateKey = toCalendarDateKey;
-  window.__APG_MODULES.leaveSubmitErrorMessage = leaveSubmitErrorMessage;
   window.__APG_MODULES.LeaveTrackerPageModule = await loadLeaveTrackerModuleWithRetry(3);
   emitTelemetry('info', 'ready', 'Module registration completed');
 }

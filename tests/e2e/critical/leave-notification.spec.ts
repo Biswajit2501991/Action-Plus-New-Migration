@@ -3,6 +3,7 @@ import {
   apiHealthOk,
   createLeaveRequest,
   getSettings,
+  updateLeaveRequestStatus,
   cleanupLeaveRequestsForUsers,
   setStaffPassword,
   upsertStaff,
@@ -83,6 +84,32 @@ test.describe('@critical Leave request notification flow', () => {
     const cleanup = await cleanupLeaveRequestsForUsers(ownerToken, [staff.id as string]);
     expect(cleanup.ok).toBe(true);
     expect(cleanup.removed).toBeGreaterThanOrEqual(1);
+  });
+
+  test('API: owner approve persists in settings (notification sync)', async ({ ownerToken }) => {
+    const staff = buildStaffUser({ sections: ['Dashboard', 'Leave Tracker'] });
+    const password = 'E2eLeaveApprove1!';
+    await upsertStaff(ownerToken, staff);
+    await setStaffPassword(ownerToken, staff.id as string, password);
+    const staffSession = await login(staff.id as string, password);
+
+    const created = await createLeaveRequest(staffSession.token, {
+      type: 'Casual',
+      startDate: '2026-08-01',
+      endDate: '2026-08-02',
+      reason: 'E2E approve persistence',
+    });
+    expect(created.request.status).toBe('Pending');
+
+    const approved = await updateLeaveRequestStatus(ownerToken, created.request.id, 'Approved');
+    expect(approved.ok).toBe(true);
+    expect(approved.request.status).toBe('Approved');
+
+    const settings = (await getSettings(ownerToken)) as { leaveRequests?: Array<{ id?: string; status?: string }> };
+    const row = (settings.leaveRequests || []).find((r) => r.id === created.request.id);
+    expect(row?.status).toBe('Approved');
+
+    await cleanupLeaveRequestsForUsers(ownerToken, [staff.id as string]);
   });
 
   test('API: staff cannot submit on behalf of another user', async ({ ownerToken }) => {
