@@ -1115,6 +1115,16 @@
       return `${y}-${m}-${d}`;
     };
     const localTodayCalendarKey = () => localCalendarDateKey(new Date());
+    /** Staff "Reminder Sent" only for current billing date; new billing date re-enables Reminder. */
+    const reminderSentForCurrentBilling = (member) => {
+      const sentRaw = member?.reminderSentAt;
+      if (!sentRaw) return false;
+      const billingKey = localCalendarDateKey(member?.billingDate || '');
+      if (!billingKey) return true;
+      const sentKey = localCalendarDateKey(sentRaw);
+      if (!sentKey) return true;
+      return sentKey >= billingKey;
+    };
     /** Add calendar days to a YYYY-MM-DD key (timezone-safe for date-only fields). */
     const addDaysToDateKey = (dateKey, days) => {
       const key = localCalendarDateKey(dateKey);
@@ -1440,7 +1450,7 @@
           return { key: 'welcome', label: 'Welcome SMS', disabled: false };
         }
         if (!paymentOverdue && billingKey && billingKey <= todayKey) {
-          const reminderSent = Boolean(member.reminderSentAt);
+          const reminderSent = reminderSentForCurrentBilling(member);
           return {
             key: 'reminder',
             label: reminderSent ? 'Reminder Sent' : 'Reminder',
