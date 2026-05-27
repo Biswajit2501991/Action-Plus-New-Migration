@@ -31,6 +31,13 @@ import {
   clearAddMemberDraft,
 } from '../features/forms/addMemberDraft.js';
 import {
+  scrollEditorToTop,
+  bindModalEscapeKey,
+  bindFocusTrap,
+  EDITOR_MODAL_Z_INDEX,
+  PHOTO_PICKER_MODAL_Z_INDEX,
+} from '../features/modal/editorModalShell.js';
+import {
   EDIT_MEMBER_DIRTY_KEYS,
   isMemberFormDirty,
   memberFormChangedMap,
@@ -138,6 +145,11 @@ window.__APG_MODULES.addMemberDraftKeyForUser = addMemberDraftKeyForUser;
 window.__APG_MODULES.loadAddMemberDraft = loadAddMemberDraft;
 window.__APG_MODULES.saveAddMemberDraft = saveAddMemberDraft;
 window.__APG_MODULES.clearAddMemberDraft = clearAddMemberDraft;
+window.__APG_MODULES.scrollEditorToTop = scrollEditorToTop;
+window.__APG_MODULES.bindModalEscapeKey = bindModalEscapeKey;
+window.__APG_MODULES.bindFocusTrap = bindFocusTrap;
+window.__APG_MODULES.EDITOR_MODAL_Z_INDEX = EDITOR_MODAL_Z_INDEX;
+window.__APG_MODULES.PHOTO_PICKER_MODAL_Z_INDEX = PHOTO_PICKER_MODAL_Z_INDEX;
 window.__APG_MODULES.EDIT_MEMBER_DIRTY_KEYS = EDIT_MEMBER_DIRTY_KEYS;
 window.__APG_MODULES.isMemberFormDirty = isMemberFormDirty;
 window.__APG_MODULES.memberFormChangedMap = memberFormChangedMap;

@@ -23,7 +23,7 @@ export class StaffManagementPage extends BasePage {
   }
 
   get modal() {
-    return this.page.locator('.apg-modal-backdrop');
+    return this.page.getByTestId('staff-editor-modal');
   }
 
   async open() {

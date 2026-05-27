@@ -10960,8 +10960,16 @@ function MobileMemberDetailView({ m, onBack, onEdit, onWelcome, onWhatsAppCall, 
         await onPickFile(file);
       };
       if (!open) return null;
+      const photoPickerZ = window.__APG_MODULES?.PHOTO_PICKER_MODAL_Z_INDEX ?? 80;
       return (
-        <div className="fixed inset-0 z-[60] flex items-center justify-center apg-modal-backdrop p-4" onClick={onClose}>
+        <ModalPortal>
+        <div
+          className="fixed inset-0 flex items-center justify-center apg-modal-backdrop p-4"
+          style={{ zIndex: photoPickerZ }}
+          role="dialog"
+          aria-modal="true"
+          onClick={onClose}
+        >
           <div className="w-full max-w-sm rounded-3xl bg-white shadow-xl p-5 space-y-3" onClick={(e) => e.stopPropagation()}>
             <div className="flex items-center justify-between">
               <h4 className="text-base font-semibold text-slate-900">{title}</h4>
@@ -10986,6 +10994,7 @@ function MobileMemberDetailView({ m, onBack, onEdit, onWelcome, onWhatsAppCall, 
             <input ref={uploadInputRef} type="file" accept="image/*" className="hidden" onChange={onFileChange} />
           </div>
         </div>
+        </ModalPortal>
       );
     }
 
@@ -11075,6 +11084,94 @@ function MobileMemberDetailView({ m, onBack, onEdit, onWelcome, onWhatsAppCall, 
         return children;
       }
       return ReactDOM.createPortal(children, document.body);
+    }
+    /**
+     * Reusable centered editor modal: body portal, blurred backdrop, scroll-to-top,
+     * scroll lock (caller should use useAppScrollLock), Escape, focus trap.
+     */
+    function CenteredEditorModal({
+      open,
+      onClose,
+      title,
+      titleId = 'apg-editor-modal-title',
+      children,
+      footer = null,
+      panelClassName = 'apg-force-light w-full max-w-lg rounded-3xl bg-white text-slate-900 border border-slate-200 shadow-xl ring-1 ring-slate-200 max-h-[min(92dvh,900px)] overflow-hidden flex flex-col my-auto',
+      zIndex = (window.__APG_MODULES?.EDITOR_MODAL_Z_INDEX ?? 70),
+      testId = 'apg-centered-editor-modal',
+      closeDisabled = false,
+    }) {
+      const panelRef = React.useRef(null);
+      React.useEffect(() => {
+        if (!open) return undefined;
+        const scrollTop = window.__APG_MODULES?.scrollEditorToTop;
+        if (typeof scrollTop === 'function') scrollTop();
+        else {
+          try { window.scrollTo({ top: 0, behavior: 'smooth' }); } catch { window.scrollTo(0, 0); }
+          const main = document.querySelector('.apg-body > main.apg-main-scroll');
+          if (main) {
+            try { main.scrollTo({ top: 0, behavior: 'smooth' }); } catch { main.scrollTop = 0; }
+          }
+        }
+        return undefined;
+      }, [open]);
+      React.useEffect(() => {
+        if (!open || closeDisabled) return undefined;
+        const bindEsc = window.__APG_MODULES?.bindModalEscapeKey;
+        const bindTrap = window.__APG_MODULES?.bindFocusTrap;
+        const unbindEsc = typeof bindEsc === 'function' ? bindEsc(onClose) : () => {};
+        let unbindTrap = () => {};
+        const frame = requestAnimationFrame(() => {
+          if (panelRef.current && typeof bindTrap === 'function') {
+            unbindTrap = bindTrap(panelRef.current);
+          }
+        });
+        return () => {
+          cancelAnimationFrame(frame);
+          unbindEsc();
+          unbindTrap();
+        };
+      }, [open, onClose, closeDisabled]);
+      if (!open) return null;
+      return (
+        <ModalPortal>
+          <div
+            className="fixed inset-0 flex items-center justify-center apg-modal-backdrop p-2 sm:p-4 overflow-y-auto"
+            style={{ zIndex }}
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby={titleId}
+            data-testid={testId}
+            onClick={(e) => {
+              if (e.target !== e.currentTarget || closeDisabled) return;
+              onClose();
+            }}
+          >
+            <div
+              ref={panelRef}
+              className={panelClassName}
+              onClick={(e) => e.stopPropagation()}
+            >
+              <div className="flex justify-between items-center px-4 sm:px-6 py-4 shrink-0">
+                <h3 id={titleId} className="text-lg font-semibold text-slate-900">{title}</h3>
+                <button
+                  type="button"
+                  onClick={onClose}
+                  disabled={closeDisabled}
+                  className="rounded-xl p-2 text-slate-700 hover:bg-slate-200 disabled:opacity-50"
+                  aria-label="Close"
+                >
+                  <span aria-hidden="true">✕</span>
+                </button>
+              </div>
+              <div className="flex-1 min-h-0 overflow-auto">
+                {children}
+              </div>
+              {footer}
+            </div>
+          </div>
+        </ModalPortal>
+      );
     }
     function SyncStatusDot({ mode, label }) {
       const [open, setOpen] = React.useState(false);
@@ -18949,6 +19046,7 @@ function PTClientsPage({ members, users, settings, updateSetting, currentUser, a
       }, [settings]);
       const [selectedRole, setSelectedRole] = React.useState('');
       const [roleModalOpen, setRoleModalOpen] = React.useState(false);
+      useAppScrollLock(modalOpen || roleModalOpen || photoPickerOpen);
       const [editingRoleId, setEditingRoleId] = React.useState('');
       const [roleError, setRoleError] = React.useState('');
       const [roleForm, setRoleForm] = React.useState({
@@ -19908,14 +20006,24 @@ function PTClientsPage({ members, users, settings, updateSetting, currentUser, a
             </div>
           </div>
 
-          {modalOpen && (
-            <div className="fixed inset-0 z-50 flex items-center justify-center apg-modal-backdrop p-4">
-              <div className="w-full max-w-lg rounded-3xl bg-white text-slate-900 border border-slate-200 shadow-xl ring-1 ring-slate-200 max-h-[92vh] overflow-hidden">
-                <div className="flex justify-between items-center px-6 py-4">
-                  <h3 className="text-lg font-semibold text-slate-900">{editingId ? 'Edit Staff' : 'Add Staff'}</h3>
-                  <button onClick={closeStaffModal} className="rounded-xl p-2 text-slate-700 hover:bg-slate-200"><span>✕</span></button>
+          <CenteredEditorModal
+            open={modalOpen}
+            onClose={closeStaffModal}
+            closeDisabled={saving}
+            title={editingId ? 'Edit Staff' : 'Add Staff'}
+            titleId="staff-editor-modal-title"
+            testId="staff-editor-modal"
+            panelClassName="apg-force-light w-full max-w-lg rounded-3xl bg-white text-slate-900 border border-slate-200 shadow-xl ring-1 ring-slate-200 max-h-[min(92dvh,900px)] overflow-hidden flex flex-col my-auto"
+            footer={(
+              <div className="sticky bottom-0 z-20 border-t border-slate-200 bg-white/95 backdrop-blur supports-[backdrop-filter]:bg-white/85">
+                <div className="flex flex-col-reverse sm:flex-row justify-end gap-3 px-4 sm:px-6 py-4 pb-[max(1rem,env(safe-area-inset-bottom))]">
+                  <button type="button" onClick={closeStaffModal} disabled={saving} className="rounded-xl px-4 py-2 border border-slate-300 bg-white text-sm font-medium text-slate-700 w-full sm:w-auto min-h-[44px] disabled:opacity-50">Cancel</button>
+                  <button type="button" onClick={save} disabled={saving} className="rounded-full px-4 py-2 text-sm font-medium bg-blue-600 hover:bg-blue-700 text-white w-full sm:w-auto min-h-[44px] disabled:opacity-50">{saving ? 'Saving…' : (editingId ? 'Update' : 'Save')}</button>
                 </div>
-                <div className="px-6 pb-28 sm:pb-24 space-y-3 overflow-auto max-h-[calc(92vh-140px)]">
+              </div>
+            )}
+          >
+                <div className="px-4 sm:px-6 pb-4 pt-1 space-y-3">
                   {error && <div ref={staffErrorRef} className="rounded-xl bg-rose-50 border border-rose-200 text-rose-700 px-3 py-2 text-sm">{error}</div>}
                   <div className="flex items-center gap-3">
                     <Avatar name={form.name || form.id || 'Staff'} photo={form.photo} className="h-12 w-12" />
@@ -20404,23 +20512,22 @@ function PTClientsPage({ members, users, settings, updateSetting, currentUser, a
                     </div>
                   </div>
                 </div>
-                <div className="sticky bottom-0 z-20 border-t border-slate-200 bg-white/95 backdrop-blur supports-[backdrop-filter]:bg-white/85">
-                  <div className="flex flex-col-reverse sm:flex-row justify-end gap-3 px-4 sm:px-6 py-4 pb-[max(1rem,env(safe-area-inset-bottom))]">
-                    <button type="button" onClick={closeStaffModal} disabled={saving} className="rounded-xl px-4 py-2 border border-slate-300 bg-white text-sm font-medium text-slate-700 w-full sm:w-auto min-h-[44px] disabled:opacity-50">Cancel</button>
-                    <button type="button" onClick={save} disabled={saving} className="rounded-full px-4 py-2 text-sm font-medium bg-blue-600 hover:bg-blue-700 text-white w-full sm:w-auto min-h-[44px] disabled:opacity-50">{saving ? 'Saving…' : (editingId ? 'Update' : 'Save')}</button>
-                  </div>
-                </div>
+          </CenteredEditorModal>
+          <CenteredEditorModal
+            open={roleModalOpen}
+            onClose={() => setRoleModalOpen(false)}
+            title={editingRoleId ? 'Edit Role Template' : 'Add New Role'}
+            titleId="staff-role-modal-title"
+            testId="staff-role-editor-modal"
+            panelClassName="apg-force-light w-full max-w-lg rounded-3xl bg-white text-slate-900 border border-slate-200 shadow-xl ring-1 ring-slate-200 max-h-[min(92dvh,900px)] overflow-hidden flex flex-col my-auto"
+            footer={(
+              <div className="flex flex-col-reverse sm:flex-row justify-end gap-3 px-4 sm:px-6 py-4 border-t border-slate-200">
+                <button onClick={() => setRoleModalOpen(false)} className="rounded-xl px-4 py-2 border border-slate-300 bg-white text-sm font-medium text-slate-700 w-full sm:w-auto">Cancel</button>
+                <button onClick={saveRoleTemplate} className="rounded-full px-4 py-2 text-sm font-medium bg-blue-600 hover:bg-blue-700 text-white w-full sm:w-auto">{editingRoleId ? 'Update Role' : 'Save Role'}</button>
               </div>
-            </div>
-          )}
-          {roleModalOpen && (
-            <div className="fixed inset-0 z-50 flex items-center justify-center apg-modal-backdrop p-4">
-              <div className="w-full max-w-lg rounded-3xl bg-white text-slate-900 border border-slate-200 shadow-xl ring-1 ring-slate-200 max-h-[92vh] overflow-hidden">
-                <div className="flex justify-between items-center px-6 py-4">
-                  <h3 className="text-lg font-semibold text-slate-900">{editingRoleId ? 'Edit Role Template' : 'Add New Role'}</h3>
-                  <button onClick={() => setRoleModalOpen(false)} className="rounded-xl p-2 text-slate-700 hover:bg-slate-200"><span>✕</span></button>
-                </div>
-                <div className="px-6 pb-4 space-y-3 overflow-auto">
+            )}
+          >
+                <div className="px-4 sm:px-6 pb-4 space-y-3">
                   {roleError && <div className="rounded-xl bg-rose-50 border border-rose-200 text-rose-700 px-3 py-2 text-sm">{roleError}</div>}
                   <div>
                     <label className="text-sm font-medium text-slate-700">Role Name</label>
@@ -20447,13 +20554,7 @@ function PTClientsPage({ members, users, settings, updateSetting, currentUser, a
                     </div>
                   </div>
                 </div>
-                <div className="flex flex-col-reverse sm:flex-row justify-end gap-3 px-4 sm:px-6 py-4">
-                  <button onClick={() => setRoleModalOpen(false)} className="rounded-xl px-4 py-2 border border-slate-300 bg-white text-sm font-medium text-slate-700 w-full sm:w-auto">Cancel</button>
-                  <button onClick={saveRoleTemplate} className="rounded-full px-4 py-2 text-sm font-medium bg-blue-600 hover:bg-blue-700 text-white w-full sm:w-auto">{editingRoleId ? 'Update Role' : 'Save Role'}</button>
-                </div>
-              </div>
-            </div>
-          )}
+          </CenteredEditorModal>
         </div>
       );
     }
