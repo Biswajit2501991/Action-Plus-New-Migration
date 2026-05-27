@@ -35,6 +35,14 @@ export function leaveRowToApp(row) {
   };
 }
 
+/** Inclusive calendar-day count for YYYY-MM-DD (or parseable) bounds. */
+export function leaveDaysFromDateRange(startDate, endDate) {
+  const start = new Date(startDate);
+  const end = new Date(endDate);
+  if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime()) || end < start) return 1;
+  return Math.floor((end - start) / (24 * 60 * 60 * 1000)) + 1;
+}
+
 /** YYYY-MM-DD inclusive overlap. */
 export function leaveDateRangesOverlap(startA, endA, startB, endB) {
   const a0 = String(startA || '').trim();

@@ -57,4 +57,13 @@ describe('Access checks', () => {
     expect(isAccessAllowed(viewOnly, Access.ptClientsRead)).toBe(true);
     expect(isAccessAllowed(viewOnly, Access.ptClientsWriteWorkout)).toBe(false);
   });
+
+  it('templatesRead/Write require viewTemplates for staff', () => {
+    const denied = normalizeAccess({ whatsapp: { viewTemplates: false, viewReminder: true } });
+    expect(isAccessAllowed(denied, Access.templatesRead)).toBe(false);
+    expect(isAccessAllowed(denied, Access.templatesWrite)).toBe(false);
+    const allowed = normalizeAccess({ whatsapp: { viewTemplates: true } });
+    expect(isAccessAllowed(allowed, Access.templatesRead)).toBe(true);
+    expect(isAccessAllowed(allowed, Access.templatesWrite)).toBe(true);
+  });
 });

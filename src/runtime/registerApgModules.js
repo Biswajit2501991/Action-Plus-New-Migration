@@ -26,6 +26,13 @@ import {
   memberEditBaselineKey,
   normalizeBranchId,
 } from '../features/members/formDirtyState.js';
+import {
+  authIsOwnerUser as authIsOwnerUserWhatsapp,
+  staffMayEditWhatsappTemplates,
+  effectiveTemplateBranchIdForUser,
+  resolveMemberTemplateFromCache,
+} from '../features/whatsapp/branchTemplateAccess.js';
+import { WHATSAPP_TEMPLATE_KEYS } from '../features/whatsapp/templateKeys.js';
 
 function emitTelemetry(level, code, message, meta = {}) {
   const payload = {
@@ -113,6 +120,11 @@ window.__APG_MODULES.isMemberFormDirty = isMemberFormDirty;
 window.__APG_MODULES.memberFormChangedMap = memberFormChangedMap;
 window.__APG_MODULES.memberEditBaselineKey = memberEditBaselineKey;
 window.__APG_MODULES.normalizeBranchId = normalizeBranchId;
+window.__APG_MODULES.WHATSAPP_TEMPLATE_KEYS = WHATSAPP_TEMPLATE_KEYS;
+window.__APG_MODULES.authIsOwnerUserWhatsapp = authIsOwnerUserWhatsapp;
+window.__APG_MODULES.staffMayEditWhatsappTemplates = staffMayEditWhatsappTemplates;
+window.__APG_MODULES.effectiveTemplateBranchIdForUser = effectiveTemplateBranchIdForUser;
+window.__APG_MODULES.resolveMemberTemplateFromCache = resolveMemberTemplateFromCache;
 // Legacy alias used in parts of index.html (typo: trailing underscores).
 window.__APG_MODULES__ = window.__APG_MODULES;
 

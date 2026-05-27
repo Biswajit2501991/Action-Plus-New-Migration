@@ -351,24 +351,28 @@ export async function cleanupStaffUsers(
 
 export type WhatsappTemplatesResponse = {
   ok: boolean;
+  gymCodeId?: string;
   templates: Record<string, string>;
   updatedAt: string | null;
 };
 
 export async function getWhatsappTemplates(
   token: string,
+  gymCodeId: string,
 ): Promise<WhatsappTemplatesResponse> {
-  return apiJson<WhatsappTemplatesResponse>('/api/whatsapp-templates', token);
+  const q = encodeURIComponent(gymCodeId);
+  return apiJson<WhatsappTemplatesResponse>(`/api/whatsapp-templates?gymCodeId=${q}`, token);
 }
 
 export async function patchWhatsappTemplate(
   token: string,
   key: string,
   body: string,
-): Promise<{ ok: boolean; template: { key: string; body: string; updatedAt: string } }> {
+  gymCodeId: string,
+): Promise<{ ok: boolean; template: { key: string; body: string; updatedAt: string }; gymCodeId?: string }> {
   return apiJson(`/api/whatsapp-templates/${encodeURIComponent(key)}`, token, {
     method: 'PATCH',
-    body: JSON.stringify({ body }),
+    body: JSON.stringify({ body, gymCodeId }),
   });
 }
 

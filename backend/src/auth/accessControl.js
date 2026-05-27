@@ -117,7 +117,11 @@ export const Access = {
   logsClear: (a) => a.logs.clearLogs,
   smsRead: (a) => Object.values(a.whatsapp).some(Boolean),
   smsWrite: (a) => Object.values(a.whatsapp).some(Boolean),
-  /** Shared config (plans, templates, attendance) — any logged-in staff. */
+  /** Branch-scoped WhatsApp template bodies (read). */
+  templatesRead: (a) => a.__owner || a.whatsapp?.viewTemplates !== false,
+  /** Branch-scoped WhatsApp template bodies (PATCH). Staff: own branch when viewTemplates. */
+  templatesWrite: (a) => a.__owner || a.whatsapp?.viewTemplates !== false,
+  /** Shared config (plans, lookups, attendance) — any logged-in staff. */
   settingsRead: () => true,
   /** Record own login/logout punch (any authenticated staff). */
   attendancePunch: () => true,

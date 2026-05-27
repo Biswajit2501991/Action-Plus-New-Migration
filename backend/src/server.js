@@ -887,41 +887,69 @@ app.delete('/api/settings/lookups', requireOwner, async (req, res) => {
 });
 
 // ----------------------------------------------------------------------------
-// WhatsApp templates — surgical, owner-only single-key editing surface that
-// avoids shipping the whole settings blob on every keystroke. Reads remain
-// open to anyone with settings-read (so staff can preview the active body
-// without owner privileges); writes are strictly owner-gated and audit-logged.
+// Branch-scoped WhatsApp templates — GET/PATCH per gym_code_id (multi-tenant).
 // ----------------------------------------------------------------------------
-app.get('/api/whatsapp-templates', requireAccess(Access.settingsRead), async (req, res) => {
+app.get('/api/whatsapp-templates', requireAccess(Access.templatesRead), async (req, res) => {
   try {
-    const { templates, updatedAt } = await readWhatsappTemplates(readSandboxScope(req));
-    return res.json({ ok: true, templates: templates || {}, updatedAt: updatedAt || null });
+    const {
+      resolveEffectiveTemplateBranchId,
+      getBranchWhatsappTemplates,
+    } = await import('./services/branchWhatsappTemplates.js');
+    const gymCodeId = await resolveEffectiveTemplateBranchId(
+      req.auth,
+      req.query?.gymCodeId || req.query?.gym_code_id,
+    );
+    const result = await getBranchWhatsappTemplates(gymCodeId);
+    return res.json({
+      ok: true,
+      gymCodeId: result.gymCodeId,
+      templates: result.templates || {},
+      updatedAt: result.updatedAt || null,
+    });
   } catch (error) {
-    return res.status(500).json({ error: 'whatsapp_templates_read_failed', message: String(error?.message || error) });
+    const status = error?.status || 500;
+    return res.status(status).json({
+      error: error?.message || 'whatsapp_templates_read_failed',
+      message: String(error?.message || error),
+    });
   }
 });
 
-app.patch('/api/whatsapp-templates/:key', requireOwner, async (req, res) => {
+app.patch('/api/whatsapp-templates/:key', requireAccess(Access.templatesWrite), async (req, res) => {
   try {
-    const key = String(req.params?.key || '').trim();
-    if (!/^[a-z][a-zA-Z0-9_-]{0,63}$/.test(key)) {
-      return res.status(400).json({ error: 'invalid_key', message: 'template key must match /^[a-z][a-zA-Z0-9_-]{0,63}$/' });
-    }
+    const {
+      resolveEffectiveTemplateBranchId,
+      assertWhatsappTemplateWriteAllowed,
+      assertValidTemplateKey,
+    } = await import('./services/branchWhatsappTemplates.js');
+    const key = assertValidTemplateKey(req.params?.key);
     const body = String(req.body?.body == null ? '' : req.body.body);
     if (body.length > 8000) {
       return res.status(413).json({ error: 'body_too_long', message: 'template body exceeds 8000 chars' });
     }
-    const saved = await writeWhatsappTemplate(readSandboxScope(req), { key, body });
+    const gymCodeId = await resolveEffectiveTemplateBranchId(
+      req.auth,
+      req.body?.gymCodeId || req.body?.gym_code_id,
+    );
+    if (!authIsOwner(req.auth)) {
+      const access = req.staffAccess || await getStaffAccessForUser(req.auth?.userId);
+      assertWhatsappTemplateWriteAllowed(req.auth, access);
+    }
+    const saved = await writeWhatsappTemplate(readSandboxScope(req), { key, body, gymCodeId });
     await appendAuditLog(req, {
       action: 'whatsapp.template.updated',
       entityType: 'whatsapp_template',
-      entityId: key,
-      after: { key, length: body.length, updatedAt: saved.updatedAt },
+      entityId: `${gymCodeId}:${key}`,
+      after: { key, gymCodeId, length: body.length, updatedAt: saved.updatedAt },
     });
     queueDatabaseBackup('whatsapp-template');
-    return res.json({ ok: true, template: saved });
+    return res.json({ ok: true, template: saved, gymCodeId });
   } catch (error) {
-    return res.status(500).json({ error: 'whatsapp_template_save_failed', message: String(error?.message || error) });
+    const status = error?.status || 500;
+    return res.status(status).json({
+      error: error?.message || 'whatsapp_template_save_failed',
+      message: String(error?.message || error),
+    });
   }
 });
 

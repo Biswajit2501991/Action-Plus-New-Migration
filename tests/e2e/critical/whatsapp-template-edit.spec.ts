@@ -1,7 +1,7 @@
 import { test, expect } from '../fixtures/auth.fixture';
 import {
   apiHealthOk,
-  getSettings,
+  listGymCodes,
   getWhatsappTemplates,
   patchWhatsappTemplate,
 } from '../utils/api-client';
@@ -10,10 +10,8 @@ import {
  * Phase 4 WhatsApp template DB-backed editor.
  *
  * Contract under test:
- *   - GET /api/whatsapp-templates returns the active gym's templates.
- *   - PATCH /api/whatsapp-templates/:key persists exactly one row.
- *   - The new body is visible via both the focused GET and the legacy
- *     /api/settings.smsTemplates path (so existing consumers still see it).
+ *   - GET /api/whatsapp-templates?gymCodeId= returns branch-scoped templates.
+ *   - PATCH /api/whatsapp-templates/:key persists exactly one row per branch.
  *   - The original body is restored at the end so the gym DB is unchanged.
  *
  * RBAC is exercised separately in the staff-bulk-delete spec; the PATCH
@@ -34,14 +32,19 @@ test.describe('@critical WhatsApp template editor', () => {
     test.skip(!ok && process.env.E2E_REQUIRE_BACKEND !== '0', 'Backend+Supabase required');
   });
 
-  test('owner: PATCH a template and read the new body via both routes', async ({ ownerToken }) => {
-    const initial = await getWhatsappTemplates(ownerToken);
+  test('owner: PATCH a branch template and read it back for the same branch', async ({ ownerToken }) => {
+    const codes = await listGymCodes(ownerToken);
+    if (!codes.length) {
+      test.skip(true, 'No gym codes — run supabase_gym_codes.sql');
+    }
+    const branchId = codes[0].id;
+    const initial = await getWhatsappTemplates(ownerToken, branchId);
     expect(initial.ok).toBe(true);
+    expect(initial.gymCodeId).toBe(branchId);
     const existedBefore = Boolean(initial.templates[TARGET_KEY]);
     const originalBody = existedBefore ? String(initial.templates[TARGET_KEY]) : SEEDED_FALLBACK;
     if (!existedBefore) {
-      // Seed our probe key so we always have a baseline to verify against.
-      await patchWhatsappTemplate(ownerToken, TARGET_KEY, originalBody);
+      await patchWhatsappTemplate(ownerToken, TARGET_KEY, originalBody, branchId);
     }
 
     const stamp = new Date().toISOString();
@@ -49,22 +52,16 @@ test.describe('@critical WhatsApp template editor', () => {
     const nextBody = `${originalBody}${probeMarker}`;
 
     try {
-      const saved = await patchWhatsappTemplate(ownerToken, TARGET_KEY, nextBody);
+      const saved = await patchWhatsappTemplate(ownerToken, TARGET_KEY, nextBody, branchId);
       expect(saved.ok).toBe(true);
       expect(saved.template.key).toBe(TARGET_KEY);
       expect(saved.template.body).toBe(nextBody);
 
-      const refetched = await getWhatsappTemplates(ownerToken);
+      const refetched = await getWhatsappTemplates(ownerToken, branchId);
       expect(refetched.templates[TARGET_KEY]).toBe(nextBody);
-
-      const settings = (await getSettings(ownerToken)) as {
-        smsTemplates?: Record<string, string>;
-      };
-      expect(settings.smsTemplates?.[TARGET_KEY]).toBe(nextBody);
     } finally {
-      // Restore the original body so the gym DB is unchanged at exit.
-      await patchWhatsappTemplate(ownerToken, TARGET_KEY, originalBody).catch(() => {});
-      const restored = await getWhatsappTemplates(ownerToken).catch(() => null);
+      await patchWhatsappTemplate(ownerToken, TARGET_KEY, originalBody, branchId).catch(() => {});
+      const restored = await getWhatsappTemplates(ownerToken, branchId).catch(() => null);
       if (restored) {
         expect(restored.templates[TARGET_KEY]).toBe(originalBody);
       }
@@ -79,7 +76,7 @@ test.describe('@critical WhatsApp template editor', () => {
         'Content-Type': 'application/json',
         Authorization: `Bearer ${ownerToken}`,
       },
-      body: JSON.stringify({ body: 'noop' }),
+      body: JSON.stringify({ body: 'noop', gymCodeId: '00000000-0000-0000-0000-000000000000' }),
     });
     expect(res.status).toBe(400);
   });

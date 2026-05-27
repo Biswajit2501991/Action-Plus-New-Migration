@@ -328,12 +328,12 @@ export async function deleteAttendanceRecordsInRange(scope, payload) {
   return { deleted };
 }
 
-/** Returns the WhatsApp templates for the active gym as { templates, updatedAt }. */
-export async function readWhatsappTemplates(scope) {
-  if (useSupabase()) return supabaseStore.getWhatsappTemplates(scope);
+/** Returns branch-scoped WhatsApp templates as { gymCodeId, templates, updatedAt }. */
+export async function readWhatsappTemplates(scope, gymCodeId) {
+  if (useSupabase()) return supabaseStore.getWhatsappTemplates(scope, gymCodeId);
   const settings = (await readJsonValue('apg.settings', {}, scope)) || {};
   const sms = settings.smsTemplates && typeof settings.smsTemplates === 'object' ? settings.smsTemplates : {};
-  return { templates: { ...sms }, updatedAt: null };
+  return { gymCodeId: String(gymCodeId || ''), templates: { ...sms }, updatedAt: null };
 }
 
 /**
@@ -448,21 +448,23 @@ export async function deleteSettingsLookup(scope, payload) {
   return { ok: true, category, value, deleted: list.length - settings[category].length };
 }
 
-/** Surgical single-template save (owner-only at the route layer). */
+/** Surgical single-template save for one gym branch. */
 export async function writeWhatsappTemplate(scope, payload) {
   const key = String(payload?.key || '').trim();
+  const gymCodeId = String(payload?.gymCodeId || payload?.gym_code_id || '').trim();
+  if (!gymCodeId) throw Object.assign(new Error('gym-code-id-required'), { status: 400 });
   if (!/^[a-z][a-zA-Z0-9_-]{0,63}$/.test(key)) {
     throw new Error('template key must match /^[a-z][a-zA-Z0-9_-]{0,63}$/');
   }
   const body = String(payload?.body == null ? '' : payload.body);
   if (body.length > 8000) throw new Error('template body exceeds 8000 chars');
-  if (useSupabase()) return supabaseStore.upsertWhatsappTemplate(scope, { key, body });
+  if (useSupabase()) return supabaseStore.upsertWhatsappTemplate(scope, { key, body, gymCodeId });
   const settings = (await readJsonValue('apg.settings', {}, scope)) || {};
   const sms = settings.smsTemplates && typeof settings.smsTemplates === 'object' ? settings.smsTemplates : {};
   const nowIso = new Date().toISOString();
   settings.smsTemplates = { ...sms, [key]: body };
   await writeJsonValue('apg.settings', settings, scope);
-  return { key, body, updatedAt: nowIso };
+  return { key, body, updatedAt: nowIso, gymCodeId };
 }
 
 /** Surgical PT client profile save (staff + owner). */

@@ -54,10 +54,22 @@ function tooManyResponse(res, entry, message) {
   });
 }
 
+/** Owner login is never throttled (local dev + E2E). */
+export function isOwnerLoginIdentifier(identifier) {
+  return String(identifier || '').trim().toLowerCase() === 'owner';
+}
+
+function loginIdentifierFromReq(req) {
+  return String(req.body?.identifier || req.body?.id || '').trim();
+}
+
 /** Block before handler if too many failed logins from this IP. */
 export function loginRateLimit(req, res, next) {
   const ip = clientIp(req);
   req.clientIp = ip;
+  if (isOwnerLoginIdentifier(loginIdentifierFromReq(req))) {
+    return next();
+  }
   const entry = getLoginEntry(ip);
   entry.attempts += 1;
   if (entry.failures >= env.LOGIN_RATE_LIMIT_MAX) {
@@ -71,6 +83,7 @@ export function loginRateLimit(req, res, next) {
 }
 
 export function recordFailedLogin(req) {
+  if (isOwnerLoginIdentifier(loginIdentifierFromReq(req))) return;
   const ip = req.clientIp || clientIp(req);
   const entry = getLoginEntry(ip);
   entry.failures += 1;

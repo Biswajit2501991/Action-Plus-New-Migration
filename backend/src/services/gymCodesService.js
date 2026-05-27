@@ -48,13 +48,20 @@ export async function createGymCode({ code, name }) {
     }
     throw new Error(msg);
   }
-  return {
+  const created = {
     id: data.id,
     code: data.code,
     name: data.name,
     branchName: data.name,
     createdAt: data.created_at,
   };
+  try {
+    const { seedBranchWhatsappTemplatesFromHq } = await import('./branchWhatsappTemplates.js');
+    await seedBranchWhatsappTemplatesFromHq(created.id);
+  } catch {
+    /* migration may not be applied yet */
+  }
+  return created;
 }
 
 export async function deleteGymCode(id) {
@@ -90,12 +97,12 @@ export async function resolveGymCodeId(codeOrId) {
   const sb = getSupabase();
   const gid = gymId();
   const byId = await sb.from(T.gym_codes).select('id').eq('gym_id', gid).eq('id', raw).maybeSingle();
-  if (byId.data?.id) return byId.data.id;
+  if (byId.data?.id) return String(byId.data.id);
   const { data } = await sb
     .from(T.gym_codes)
     .select('id')
     .eq('gym_id', gid)
     .eq('code', normalizeCode(raw))
     .maybeSingle();
-  return data?.id || null;
+  return data?.id ? String(data.id) : null;
 }

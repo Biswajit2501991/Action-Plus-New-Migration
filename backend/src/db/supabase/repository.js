@@ -934,9 +934,8 @@ function buildSettingsObject({ lookups, templates, configRow, staffDir, roles, l
     settings[key] = [...new Set(values)];
   }
 
-  for (const t of templates || []) {
-    if (t.channel === 'whatsapp') settings.smsTemplates[t.template_key] = t.body;
-  }
+  // WhatsApp bodies are branch-scoped — loaded via GET /api/whatsapp-templates?gymCodeId=
+  // (settings.smsTemplates left empty to avoid cross-branch leakage on hydrate).
 
   applySettingsConfigJson(settings, configRow);
   for (const [key] of LOOKUP_CATEGORIES) {
@@ -1129,18 +1128,7 @@ async function writeSettings(settings, scope) {
 
   await syncLookupValues(sb, gid, s);
 
-  await sb.from(T.settings_templates).delete().eq('gym_id', gid);
-  const sms = s.smsTemplates && typeof s.smsTemplates === 'object' ? s.smsTemplates : {};
-  const templateRows = Object.entries(sms).map(([template_key, body]) => ({
-    gym_id: gid,
-    template_key,
-    channel: 'whatsapp',
-    body: String(body || ''),
-    updated_at: new Date().toISOString(),
-  }));
-  for (const part of chunk(templateRows, 80)) {
-    if (part.length) await sb.from(T.settings_templates).insert(part);
-  }
+  // Branch-scoped WhatsApp templates are not rewritten via settings bulk (PATCH per branch/key).
 
   await sb.from(T.settings_staff_directory).delete().eq('gym_id', gid);
   const staffDir = Array.isArray(s.staff) ? s.staff : [];
@@ -1834,70 +1822,19 @@ export async function insertAuditLogRow(_scope, entry) {
   }
 }
 
-/** Returns the gym's WhatsApp templates as { [key]: body }. */
-export async function getWhatsappTemplates(_scope) {
-  const sb = getSupabase();
-  const gid = gymId();
-  const { data, error } = await sb
-    .from(T.settings_templates)
-    .select('template_key, body, updated_at')
-    .eq('gym_id', gid)
-    .eq('channel', 'whatsapp');
-  if (error) throw error;
-  const templates = {};
-  let latestUpdated = null;
-  for (const row of data || []) {
-    const key = String(row.template_key || '').trim();
-    if (!key) continue;
-    templates[key] = String(row.body || '');
-    if (!latestUpdated || (row.updated_at && row.updated_at > latestUpdated)) {
-      latestUpdated = row.updated_at;
-    }
-  }
-  return { templates, updatedAt: latestUpdated };
+/** @deprecated Use getBranchWhatsappTemplates via dataStore.readWhatsappTemplates(scope, gymCodeId) */
+export async function getWhatsappTemplates(_scope, gymCodeId) {
+  const { getBranchWhatsappTemplates } = await import('../../services/branchWhatsappTemplates.js');
+  const result = await getBranchWhatsappTemplates(gymCodeId);
+  return { templates: result.templates, updatedAt: result.updatedAt };
 }
 
-/**
- * Surgical single-template upsert. Mutates exactly one row in
- * settings_templates (gym_id, template_key, channel='whatsapp'), keeping
- * every other template intact. Owner-gated by the caller.
- */
-export async function upsertWhatsappTemplate(_scope, { key, body }) {
-  const sb = getSupabase();
-  const gid = gymId();
-  const safeKey = String(key || '').trim();
-  if (!/^[a-z][a-zA-Z0-9_-]{0,63}$/.test(safeKey)) {
-    throw new Error('template key must match /^[a-z][a-zA-Z0-9_-]{0,63}$/');
-  }
-  const safeBody = String(body == null ? '' : body);
-  if (safeBody.length > 8000) {
-    throw new Error('template body exceeds 8000 chars');
-  }
-  const nowIso = new Date().toISOString();
-  // Try upsert on the natural key (gym_id, template_key) first; fall back to
-  // delete-then-insert if the unique index isn't there yet.
-  const upsertRow = {
-    gym_id: gid,
-    template_key: safeKey,
-    channel: 'whatsapp',
-    body: safeBody,
-    updated_at: nowIso,
-  };
-  const { error: upsertErr } = await sb
-    .from(T.settings_templates)
-    .upsert(upsertRow, { onConflict: 'gym_id,template_key' });
-  if (upsertErr) {
-    await sb
-      .from(T.settings_templates)
-      .delete()
-      .eq('gym_id', gid)
-      .eq('template_key', safeKey)
-      .eq('channel', 'whatsapp');
-    const { error: insErr } = await sb.from(T.settings_templates).insert(upsertRow);
-    if (insErr) throw new Error(`settings_templates upsert failed: ${insErr.message}`);
-  }
+/** Branch-scoped surgical template upsert. */
+export async function upsertWhatsappTemplate(_scope, { key, body, gymCodeId }) {
+  const { upsertBranchWhatsappTemplate } = await import('../../services/branchWhatsappTemplates.js');
+  const saved = await upsertBranchWhatsappTemplate(gymCodeId, { key, body });
   notifyCollectionChange('settings');
-  return { key: safeKey, body: safeBody, updatedAt: nowIso };
+  return saved;
 }
 
 /**

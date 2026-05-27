@@ -3630,6 +3630,81 @@ Phone: +91-7047157510`;
         const hq = gymCodes.find((c) => String(c.code || '').toUpperCase() === 'HQ');
         return hq?.id || null;
       }, [gymCodes]);
+      const [whatsappTemplatesByBranch, setWhatsappTemplatesByBranch] = React.useState({});
+      const [templatesBranchId, setTemplatesBranchId] = React.useState('');
+      const [templatesBranchLoading, setTemplatesBranchLoading] = React.useState(false);
+      const branchTemplateWarnShownRef = React.useRef(false);
+      const authIsOwnerForTemplates = React.useCallback((u) => {
+        const fn = window.__APG_MODULES?.authIsOwnerUser || window.__APG_MODULES?.authIsOwnerUserWhatsapp;
+        if (typeof fn === 'function') return fn(u);
+        return String(u?.id || '').toLowerCase() === 'owner';
+      }, []);
+      React.useEffect(() => {
+        if (!user?.id) return;
+        if (!authIsOwnerForTemplates(user)) {
+          setTemplatesBranchId(String(user.gymCodeId || '').trim());
+        } else if (hqGymCodeId && !templatesBranchId) {
+          setTemplatesBranchId(hqGymCodeId);
+        }
+      }, [user?.id, user?.gymCodeId, hqGymCodeId, authIsOwnerForTemplates]);
+      const fetchBranchWhatsappTemplates = React.useCallback(async (branchId) => {
+        const id = String(branchId || '').trim();
+        if (!id || dataSyncMode !== 'backend') return;
+        setTemplatesBranchLoading(true);
+        try {
+          const res = await backendJson(`/whatsapp-templates?gymCodeId=${encodeURIComponent(id)}`);
+          if (res?.templates) {
+            setWhatsappTemplatesByBranch((prev) => ({
+              ...prev,
+              [id]: { ...SMS_TEMPLATE_DEFAULTS, ...res.templates },
+            }));
+          }
+        } catch {
+          /* keep defaults in memory */
+        } finally {
+          setTemplatesBranchLoading(false);
+        }
+      }, [dataSyncMode]);
+      React.useEffect(() => {
+        if (!user?.id) return;
+        const branchId = authIsOwnerForTemplates(user)
+          ? String(templatesBranchId || hqGymCodeId || '').trim()
+          : String(user.gymCodeId || '').trim();
+        if (branchId) fetchBranchWhatsappTemplates(branchId);
+      }, [user?.id, templatesBranchId, hqGymCodeId, fetchBranchWhatsappTemplates, authIsOwnerForTemplates]);
+      const effectiveTemplatesBranchId = React.useMemo(() => {
+        const fn = window.__APG_MODULES?.effectiveTemplateBranchIdForUser;
+        if (typeof fn === 'function') {
+          return fn(user, templatesBranchId || hqGymCodeId);
+        }
+        return authIsOwnerForTemplates(user)
+          ? String(templatesBranchId || hqGymCodeId || '').trim()
+          : String(user?.gymCodeId || '').trim();
+      }, [user, templatesBranchId, hqGymCodeId, authIsOwnerForTemplates]);
+      const resolveWhatsappTemplateBody = React.useCallback((templateKey, member) => {
+        const resolveFn = window.__APG_MODULES?.resolveMemberTemplateFromCache;
+        const key = String(templateKey || '').trim();
+        if (typeof resolveFn === 'function') {
+          const hit = resolveFn(whatsappTemplatesByBranch, hqGymCodeId, member || {}, key);
+          if (hit?.body) {
+            if (hit.usedHqFallback && member && !String(member.assignedGymCodeId || '').trim()) {
+              if (!branchTemplateWarnShownRef.current) {
+                branchTemplateWarnShownRef.current = true;
+                setToast('Member has no gym branch — using HQ message template.');
+                setTimeout(() => setToast(''), 3200);
+              }
+            }
+            return hit.body;
+          }
+        }
+        const branchMap = whatsappTemplatesByBranch[effectiveTemplatesBranchId] || {};
+        return branchMap[key] || SMS_TEMPLATE_DEFAULTS[key] || SMS_TEMPLATE_DEFAULTS.reminder || '';
+      }, [whatsappTemplatesByBranch, hqGymCodeId, effectiveTemplatesBranchId]);
+      const canEditBranchWhatsappTemplates = React.useMemo(() => {
+        const fn = window.__APG_MODULES?.staffMayEditWhatsappTemplates;
+        if (typeof fn === 'function') return fn(user);
+        return authIsOwnerForTemplates(user);
+      }, [user, authIsOwnerForTemplates]);
       const gymCodeLabel = React.useCallback((id) => {
         if (!id) return '—';
         const c = gymCodeById.get(String(id));
@@ -5143,7 +5218,6 @@ Phone: +91-7047157510`;
       };
       const triggerStatusSms = (member, fromStatus, toStatus) => {
         if (!member || fromStatus === toStatus) return;
-        const templates = { ...SMS_TEMPLATE_DEFAULTS, ...(settings.smsTemplates || {}) };
         const key = toStatus === 'Hold'
           ? 'hold'
           : toStatus === 'Deactivated'
@@ -5151,8 +5225,9 @@ Phone: +91-7047157510`;
             : toStatus === 'Active'
               ? 'welcome'
               : '';
-        if (!key || !templates[key]) return;
-        const message = renderSmsTemplate(templates[key], member);
+        const templateBody = resolveWhatsappTemplateBody(key, member);
+        if (!key || !templateBody) return;
+        const message = renderSmsTemplate(templateBody, member);
         const waUrl = buildWhatsAppUrl(member, message);
         const event = {
           id: crypto.randomUUID(),
@@ -5930,10 +6005,7 @@ Please pay by: ${formattedLastDate}`;
         };
         const resolvedKey = templateKey || keyByStatus[member.status] || 'reminder';
         const composeAt = new Date();
-        const smsTemplates = {
-          ...SMS_TEMPLATE_DEFAULTS,
-          ...(settings.smsTemplates || {}),
-        };
+        let message = resolveWhatsappTemplateBody(resolvedKey, member) || SMS_TEMPLATE_DEFAULTS.reminder || '';
         const billing = asUTC(member.billingDate);
         const paymentBy = retentionPaymentDeadline(member);
         const totalAmountWithFine = Number(member.amount || 0) + 100;
@@ -5960,7 +6032,6 @@ Please pay by: ${formattedLastDate}`;
             ? { '[SystemDetails]': formatSuccessSmsSystemTimestamp(composeAt, displayTimeZone) }
             : {}),
         };
-        let message = smsTemplates[resolvedKey] || smsTemplates.reminder || '';
         Object.keys(replacements).forEach((k) => {
           message = message.split(k).join(replacements[k]);
         });
@@ -8272,6 +8343,17 @@ Please pay by: ${formattedLastDate}`;
                 displayTimeZone={displayTimeZone}
                 memberSyncPending={memberSyncPending}
                 markMemberAwaitingBackendSync={markMemberAwaitingBackendSync}
+                gymCodes={gymCodes}
+                gymCodeLabel={gymCodeLabel}
+                hqGymCodeId={hqGymCodeId}
+                templatesBranchId={templatesBranchId}
+                onTemplatesBranchIdChange={setTemplatesBranchId}
+                whatsappTemplatesByBranch={whatsappTemplatesByBranch}
+                setWhatsappTemplatesByBranch={setWhatsappTemplatesByBranch}
+                templatesBranchLoading={templatesBranchLoading}
+                fetchBranchWhatsappTemplates={fetchBranchWhatsappTemplates}
+                resolveWhatsappTemplateBody={resolveWhatsappTemplateBody}
+                canEditBranchTemplates={canEditBranchWhatsappTemplates}
               />
             )}
             {activeTab === 'Finance' && (
@@ -16659,7 +16741,30 @@ function PTClientsPage({ members, users, settings, updateSetting, currentUser, a
     }
 
     // ---- WhatsApp SMS Page ----
-    function WhatsAppSmsPage({ members, setMembers, settings, updateSetting, smsEvents, logEvent, currentUser, access, displayTimeZone = 'IST', memberSyncPending = {}, markMemberAwaitingBackendSync = null }) {
+    function WhatsAppSmsPage({
+      members,
+      setMembers,
+      settings,
+      updateSetting,
+      smsEvents,
+      logEvent,
+      currentUser,
+      access,
+      displayTimeZone = 'IST',
+      memberSyncPending = {},
+      markMemberAwaitingBackendSync = null,
+      gymCodes = [],
+      gymCodeLabel = () => '—',
+      hqGymCodeId = null,
+      templatesBranchId = '',
+      onTemplatesBranchIdChange = null,
+      whatsappTemplatesByBranch = {},
+      setWhatsappTemplatesByBranch = null,
+      templatesBranchLoading = false,
+      fetchBranchWhatsappTemplates = null,
+      resolveWhatsappTemplateBody = null,
+      canEditBranchTemplates = false,
+    }) {
       const [ruleTab, setRuleTab] = React.useState('all');
       const [activeType, setActiveType] = React.useState('reminder');
       const [search, setSearch] = React.useState('');
@@ -16675,31 +16780,35 @@ function PTClientsPage({ members, users, settings, updateSetting, currentUser, a
       const messageCenterRef = React.useRef(null);
       const [preview, setPreview] = React.useState({ open: false, member: null, templateKey: '' });
       const VARIABLE_KEYS = ['[CustomerName]','[PLAN]','[CurrentPlan]','[Amount]','[BillingDate]','[PaymentBy]','[GymStartdate]','[NextPaymentDate]','[PaymentMethod]','[SystemDetails]'];
-      React.useEffect(() => {
-        if (settings.smsTemplatePresetVersion === '2026-04-27') return;
-        updateSetting('smsTemplates', { ...SMS_TEMPLATE_DEFAULTS });
-        updateSetting('smsTemplatePresetVersion', '2026-04-27');
-      }, [settings.smsTemplatePresetVersion]);
-      React.useEffect(() => {
-        const existing = settings.smsTemplates || {};
-        const normalized = {};
-        let changed = false;
-        Object.keys(existing).forEach((k) => {
-          const raw = String(existing[k] || '');
-          const next = raw
-            .replaceAll('[NextBillingDate]', '[NextPaymentDate]')
-            .replaceAll('*[LastDate]*', '*[PaymentBy]*')
-            .replaceAll('[LastDate]', '[PaymentBy]');
-          normalized[k] = next;
-          if (next !== raw) changed = true;
-        });
-        if (changed) {
-          updateSetting('smsTemplates', { ...existing, ...normalized });
+      const authIsOwnerUserLocal = () => {
+        const fn = window.__APG_MODULES?.authIsOwnerUser || window.__APG_MODULES?.authIsOwnerUserWhatsapp;
+        if (typeof fn === 'function') return fn(currentUser);
+        return currentUser?.id === 'owner';
+      };
+      const effectiveBranchId = React.useMemo(() => {
+        const fn = window.__APG_MODULES?.effectiveTemplateBranchIdForUser;
+        if (typeof fn === 'function') {
+          return fn(currentUser, templatesBranchId || hqGymCodeId);
         }
-      }, [settings.smsTemplates]);
-      const templates = settings.smsTemplatePresetVersion === '2026-04-27'
-        ? { ...SMS_TEMPLATE_DEFAULTS, ...(settings.smsTemplates || {}) }
-        : { ...SMS_TEMPLATE_DEFAULTS };
+        return authIsOwnerUserLocal()
+          ? String(templatesBranchId || hqGymCodeId || '').trim()
+          : String(currentUser?.gymCodeId || '').trim();
+      }, [currentUser, templatesBranchId, hqGymCodeId]);
+      const templates = React.useMemo(() => ({
+        ...SMS_TEMPLATE_DEFAULTS,
+        ...(whatsappTemplatesByBranch[effectiveBranchId] || {}),
+      }), [whatsappTemplatesByBranch, effectiveBranchId]);
+      const resolveTemplateForMember = (templateKey, member) => {
+        if (typeof resolveWhatsappTemplateBody === 'function') {
+          return resolveWhatsappTemplateBody(templateKey, member);
+        }
+        const fn = window.__APG_MODULES?.resolveMemberTemplateFromCache;
+        if (typeof fn === 'function') {
+          const hit = fn(whatsappTemplatesByBranch, hqGymCodeId, member || {}, templateKey);
+          if (hit?.body) return hit.body;
+        }
+        return templates[templateKey] || templates.reminder || '';
+      };
       const templateCards = [
         { key: 'reminder', title: 'Billing Reminder SMS', subtitle: 'SMS / WHATSAPP', tone: 'bg-amber-50 border-amber-200' },
         { key: 'monthReminder', title: 'Month-Based Reminder', subtitle: 'SMS / WHATSAPP', tone: 'bg-blue-50 border-blue-200' },
@@ -16914,7 +17023,7 @@ function PTClientsPage({ members, users, settings, updateSetting, currentUser, a
           return;
         }
         const composeAt = new Date();
-        let message = prebuiltMessage || renderSms(templates[templateKey] || '', member, templateKey, composeAt);
+        let message = prebuiltMessage || renderSms(resolveTemplateForMember(templateKey, member) || '', member, templateKey, composeAt);
         if (templateKey === 'success') {
           message = finalizeSuccessWhatsAppMessage(message, displayTimeZone, composeAt);
         }
@@ -16979,6 +17088,36 @@ function PTClientsPage({ members, users, settings, updateSetting, currentUser, a
           )}
           {activeType === 'templates' && (
             <div className="space-y-4">
+              {authIsOwnerUserLocal() && (
+                <div className="flex flex-wrap items-end gap-3 rounded-2xl border border-slate-200 bg-white p-4">
+                  <div className="min-w-[220px] flex-1">
+                    <label className="text-xs font-medium text-slate-600">Gym Branch (Gym Code)</label>
+                    <select
+                      value={effectiveBranchId || ''}
+                      onChange={(e) => {
+                        const next = e.target.value;
+                        if (typeof onTemplatesBranchIdChange === 'function') onTemplatesBranchIdChange(next);
+                        if (typeof fetchBranchWhatsappTemplates === 'function') fetchBranchWhatsappTemplates(next);
+                      }}
+                      className="mt-1 w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm"
+                      data-testid="whatsapp-templates-branch-select"
+                    >
+                      <option value="">Select branch…</option>
+                      {(gymCodes || []).map((c) => (
+                        <option key={c.id} value={c.id}>{c.code} / {c.name || c.branchName}</option>
+                      ))}
+                    </select>
+                  </div>
+                  <p className="text-xs text-slate-500">
+                    {templatesBranchLoading ? 'Loading templates…' : `Editing templates for ${gymCodeLabel(effectiveBranchId)}`}
+                  </p>
+                </div>
+              )}
+              {!authIsOwnerUserLocal() && effectiveBranchId && (
+                <p className="text-xs text-slate-600 rounded-xl border border-slate-200 bg-slate-50 px-3 py-2">
+                  Branch: <span className="font-semibold">{gymCodeLabel(effectiveBranchId)}</span> (your assigned branch only)
+                </p>
+              )}
               {hasMessagingTabs && (
                 <div className="flex items-center justify-end">
                   <button
@@ -17003,7 +17142,18 @@ function PTClientsPage({ members, users, settings, updateSetting, currentUser, a
                       {templates[card.key] || '-'}
                     </div>
                     <div className="mt-3 grid grid-cols-2 gap-2">
-                      <button onClick={() => editTemplate(card.key)} className="w-full rounded-full bg-blue-600 text-white py-2 text-sm font-medium">EDIT</button>
+                      <button
+                        onClick={() => editTemplate(card.key)}
+                        disabled={!canEditBranchTemplates}
+                        className={cx(
+                          'w-full rounded-full py-2 text-sm font-medium',
+                          canEditBranchTemplates
+                            ? 'bg-blue-600 text-white'
+                            : 'bg-slate-200 text-slate-500 cursor-not-allowed',
+                        )}
+                      >
+                        EDIT
+                      </button>
                       <button
                         onClick={() => {
                           const sample = members.find(m => m.status === 'Active') || members[0];
@@ -17418,24 +17568,38 @@ function PTClientsPage({ members, users, settings, updateSetting, currentUser, a
                       const key = String(templateEditor.key || '').trim();
                       const value = String(templateEditor.value == null ? '' : templateEditor.value);
                       if (!key) { setTemplateSaveError('Missing template key.'); return; }
+                      const branchId = String(effectiveBranchId || '').trim();
+                      if (!branchId) {
+                        setTemplateSaveError('Select a gym branch before saving templates.');
+                        return;
+                      }
                       const backend = typeof window !== 'undefined' ? window.__APG_BACKEND_JSON__ : null;
                       const previous = templates[key];
                       try {
                         setTemplateSaving(true);
-                        updateSetting('smsTemplates', { ...templates, [key]: value });
+                        if (typeof setWhatsappTemplatesByBranch === 'function' && branchId) {
+                          setWhatsappTemplatesByBranch((prev) => ({
+                            ...prev,
+                            [branchId]: { ...(prev[branchId] || {}), ...SMS_TEMPLATE_DEFAULTS, [key]: value },
+                          }));
+                        }
                         if (backend) {
                           await backend(`/whatsapp-templates/${encodeURIComponent(key)}`, {
                             method: 'PATCH',
-                            body: JSON.stringify({ body: value }),
+                            body: JSON.stringify({ body: value, gymCodeId: branchId }),
                           });
                           if (typeof logEvent === 'function') {
-                            try { logEvent('whatsapp.template.updated', 'whatsapp_template', key, { length: (previous || '').length }, { length: value.length }); } catch {}
+                            try { logEvent('whatsapp.template.updated', 'whatsapp_template', `${branchId}:${key}`, { length: (previous || '').length }, { length: value.length }); } catch {}
                           }
                         }
                         setTemplateEditor({ open: false, key: '', value: '' });
                       } catch (err) {
-                        // Roll back the optimistic update on failure.
-                        updateSetting('smsTemplates', { ...templates, [key]: previous == null ? '' : previous });
+                        if (typeof setWhatsappTemplatesByBranch === 'function' && branchId) {
+                          setWhatsappTemplatesByBranch((prev) => ({
+                            ...prev,
+                            [branchId]: { ...(prev[branchId] || {}), ...SMS_TEMPLATE_DEFAULTS, [key]: previous == null ? '' : previous },
+                          }));
+                        }
                         setTemplateSaveError(`Save failed: ${err?.message || err}`);
                       } finally {
                         setTemplateSaving(false);
