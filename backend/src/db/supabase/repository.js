@@ -715,11 +715,37 @@ async function readUsers(scope) {
     }
   }
 
-  return staffRows.map((row) => staffRowToApp(
-    row,
-    [...new Set(sectionsByStaff.get(row.id) || [])],
-    accessByStaff.get(row.id) || {},
-  ));
+  const branchesByStaff = new Map();
+  try {
+    const assignRes = await sb
+      .from(T.staff_branch_assignments)
+      .select('staff_user_id, gym_code_id, is_primary')
+      .eq('gym_id', gid)
+      .in('staff_user_id', staffIds);
+    if (!assignRes.error) {
+      for (const row of assignRes.data || []) {
+        const pk = row.staff_user_id;
+        const list = branchesByStaff.get(pk) || [];
+        list.push(String(row.gym_code_id || '').trim());
+        branchesByStaff.set(pk, list);
+      }
+    }
+  } catch {
+    /* assignments table optional until migration */
+  }
+
+  return staffRows.map((row) => {
+    const fromAssignments = branchesByStaff.get(row.id);
+    const assigned = fromAssignments?.length
+      ? [...new Set(fromAssignments.filter(Boolean))]
+      : (row.gym_code_id ? [String(row.gym_code_id)] : []);
+    return staffRowToApp(
+      row,
+      [...new Set(sectionsByStaff.get(row.id) || [])],
+      accessByStaff.get(row.id) || {},
+      assigned,
+    );
+  });
 }
 
 async function resolveDefaultStaffGymCodeId(sb, gid) {
@@ -755,6 +781,8 @@ async function writeUsers(users, scope) {
       row.staff_role = 'master_owner';
     } else if (u.staffRole) {
       row.staff_role = String(u.staffRole).trim();
+    } else if (!row.staff_role) {
+      row.staff_role = 'staff';
     }
 
     const found = (existing || []).find((r) => String(r.staff_login_id) === String(u.id));
@@ -781,9 +809,9 @@ async function writeUsers(users, scope) {
     const sections = isOwnerLogin ? [...ALL_SECTIONS] : (Array.isArray(u.sections) ? u.sections : []);
     await syncStaffUserSections(sb, staffPk, sections);
     await syncStaffUserAccess(sb, staffPk, u.access);
-    const branchIds = Array.isArray(u.assignedBranchIds)
-      ? u.assignedBranchIds
-      : (row.gym_code_id ? [row.gym_code_id] : []);
+    const branchIds = Array.isArray(u.assignedBranchIds) && u.assignedBranchIds.length
+      ? u.assignedBranchIds.map((id) => String(id || '').trim()).filter(Boolean)
+      : (row.gym_code_id ? [String(row.gym_code_id)] : []);
     try {
       const { syncStaffBranchAssignments } = await import('../../auth/tenant/branchAssignments.js');
       const { branchOwnerFeatureEnabled } = await import('../../auth/tenant/scopedAuth.js');

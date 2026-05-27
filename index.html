@@ -18966,7 +18966,7 @@ function PTClientsPage({ members, users, settings, updateSetting, currentUser, a
     function UserManagementPage({ users, setUsers, settings, setSettings, currentUser, dataSyncMode = 'local', backendJson = null, logEvent, onApprovePasswordReset, gymCodes = [], hqGymCodeId = null, gymCodeLabel = () => '—' }) {
       const [modalOpen, setModalOpen] = React.useState(false);
       const [photoPickerOpen, setPhotoPickerOpen] = React.useState(false);
-      const [form, setForm] = React.useState({ id: '', password: '', name: '', email: '', sections: [], access: { ...DEFAULT_ACCESS }, blocked: false, blockedReason: '', blockedAt: '', updatedBy: '', photo: null, testProfile: false, sandboxId: '', gymCodeId: '' });
+      const [form, setForm] = React.useState({ id: '', password: '', name: '', email: '', sections: [], access: { ...DEFAULT_ACCESS }, blocked: false, blockedReason: '', blockedAt: '', updatedBy: '', photo: null, testProfile: false, sandboxId: '', gymCodeId: '', staffRole: 'staff', assignedBranchIds: [] });
       const [error, setError] = React.useState('');
       const [saving, setSaving] = React.useState(false);
       const staffErrorRef = React.useRef(null);
@@ -18989,6 +18989,43 @@ function PTClientsPage({ members, users, settings, updateSetting, currentUser, a
       const isBranchAdmin = typeof window.__APG_MODULES?.authIsBranchAdminUser === 'function'
         ? window.__APG_MODULES.authIsBranchAdminUser(currentUser)
         : isOwner;
+      const assignableGymCodesForStaff = React.useMemo(() => {
+        const list = Array.isArray(gymCodes) ? gymCodes : [];
+        if (isOwner) return list;
+        const allowedFn = window.__APG_MODULES?.allowedBranchIdsForUser;
+        if (typeof allowedFn !== 'function' || !currentUser) return list;
+        const allowed = allowedFn(currentUser);
+        if (allowed === null) return list;
+        const allowedSet = new Set(allowed);
+        return list.filter((c) => allowedSet.has(String(c.id)));
+      }, [gymCodes, currentUser, isOwner]);
+      const branchOwnerFormMode = isOwner && editingId !== 'owner' && String(form.staffRole || 'staff') === 'branch_owner';
+      const staffAccessRoleLabel = (u) => {
+        const r = String(u?.staffRole || 'staff').toLowerCase();
+        if (u?.id === 'owner' || r === 'master_owner') return 'Master';
+        if (r === 'branch_owner') return 'Branch Owner';
+        return 'Staff';
+      };
+      const staffBranchesSummary = (u) => {
+        const ids = Array.isArray(u?.assignedBranchIds) && u.assignedBranchIds.length
+          ? u.assignedBranchIds
+          : (u?.gymCodeId ? [String(u.gymCodeId)] : []);
+        if (!ids.length) return '—';
+        return ids.map((id) => gymCodeLabel(id)).join(', ');
+      };
+      const toggleAssignedBranch = (branchId) => {
+        const id = String(branchId || '').trim();
+        if (!id) return;
+        setForm((prev) => {
+          const current = Array.isArray(prev.assignedBranchIds) ? [...prev.assignedBranchIds] : [];
+          const has = current.includes(id);
+          const nextIds = has ? current.filter((x) => x !== id) : [...current, id];
+          let nextGym = prev.gymCodeId;
+          if (!nextIds.length) nextGym = '';
+          else if (!nextIds.includes(String(prev.gymCodeId || ''))) nextGym = nextIds[0];
+          return { ...prev, assignedBranchIds: nextIds, gymCodeId: nextGym };
+        });
+      };
       // Phase 4 owner-only bulk delete. selectedStaffIds is a Set for O(1)
       // toggle/contains checks. We persist no state across reloads — the
       // selection is purely an in-memory tactical convenience.
@@ -19105,7 +19142,13 @@ function PTClientsPage({ members, users, settings, updateSetting, currentUser, a
       });
 
       const openAdd = () => {
-        setForm({ id: '', password: '', name: '', email: '', sections: [], access: { ...DEFAULT_ACCESS }, blocked: false, blockedReason: '', blockedAt: '', updatedBy: '', photo: null, testProfile: false, sandboxId: '', gymCodeId: hqGymCodeId || '' });
+        const defaultBranch = hqGymCodeId || '';
+        setForm({
+          id: '', password: '', name: '', email: '', sections: [], access: { ...DEFAULT_ACCESS },
+          blocked: false, blockedReason: '', blockedAt: '', updatedBy: '', photo: null, testProfile: false,
+          sandboxId: '', gymCodeId: defaultBranch, staffRole: 'staff',
+          assignedBranchIds: defaultBranch ? [defaultBranch] : [],
+        });
         setError('');
         setEditingId(null);
         setSelectedRole('');
@@ -19124,6 +19167,15 @@ function PTClientsPage({ members, users, settings, updateSetting, currentUser, a
       };
 
       const openEdit = (u) => {
+        if (!isOwner && String(u?.staffRole || '').toLowerCase() === 'branch_owner') {
+          setError('Only the Master Owner can edit Branch Owner accounts.');
+          return;
+        }
+        const roleRaw = String(u.staffRole || 'staff').toLowerCase();
+        const staffRole = roleRaw === 'branch_owner' ? 'branch_owner' : 'staff';
+        const assigned = Array.isArray(u.assignedBranchIds) && u.assignedBranchIds.length
+          ? [...u.assignedBranchIds]
+          : (u.gymCodeId ? [String(u.gymCodeId)] : []);
         setForm({
           id: u.id,
           password: '',
@@ -19139,6 +19191,8 @@ function PTClientsPage({ members, users, settings, updateSetting, currentUser, a
           testProfile: Boolean(u.testProfile),
           sandboxId: u.sandboxId || '',
           gymCodeId: u.gymCodeId || hqGymCodeId || '',
+          staffRole,
+          assignedBranchIds: assigned,
         });
         setError('');
         setEditingId(u.id);
@@ -19676,7 +19730,28 @@ function PTClientsPage({ members, users, settings, updateSetting, currentUser, a
           showStaffError('Please select at least one section.');
           return;
         }
-        if (id !== 'owner' && !form.gymCodeId) {
+        const resolvedStaffRole = id === 'owner'
+          ? 'master_owner'
+          : (isOwner ? (form.staffRole === 'branch_owner' ? 'branch_owner' : 'staff') : 'staff');
+        let assignedBranchIds = [];
+        let gymCodeId = form.gymCodeId || beforeUser?.gymCodeId || null;
+        if (id !== 'owner' && resolvedStaffRole === 'branch_owner') {
+          assignedBranchIds = [...new Set(
+            (Array.isArray(form.assignedBranchIds) ? form.assignedBranchIds : [])
+              .map((x) => String(x || '').trim())
+              .filter(Boolean),
+          )];
+          if (!assignedBranchIds.length) {
+            showStaffError('Branch Owner must be assigned to at least one gym branch.');
+            return;
+          }
+          if (!gymCodeId || !assignedBranchIds.includes(String(gymCodeId))) {
+            gymCodeId = assignedBranchIds[0];
+          }
+        } else if (id !== 'owner') {
+          assignedBranchIds = gymCodeId ? [String(gymCodeId)] : [];
+        }
+        if (id !== 'owner' && !gymCodeId) {
           showStaffError('Please assign this staff member to a gym branch (gym code).');
           return;
         }
@@ -19694,7 +19769,9 @@ function PTClientsPage({ members, users, settings, updateSetting, currentUser, a
           photo: form.photo || null,
           testProfile: Boolean(form.testProfile),
           sandboxId: form.testProfile ? (form.sandboxId || beforeUser?.sandboxId || crypto.randomUUID()) : '',
-          gymCodeId: form.gymCodeId || beforeUser?.gymCodeId || null,
+          gymCodeId,
+          staffRole: resolvedStaffRole,
+          assignedBranchIds,
           updatedAt: new Date().toISOString(),
           ...(dataSyncMode !== 'backend' && needsPassword ? { password: passwordInput || beforeUser?.password || '' } : {}),
         };
@@ -19703,7 +19780,7 @@ function PTClientsPage({ members, users, settings, updateSetting, currentUser, a
           : [...users, updatedUser];
         setSaving(true);
         try {
-          if (dataSyncMode === 'backend' && isOwnerStaffUser(currentUser)) {
+          if (dataSyncMode === 'backend' && isBranchAdmin) {
             try {
               await backendJson('/users/bulk', {
                 method: 'PUT',
@@ -19766,7 +19843,7 @@ function PTClientsPage({ members, users, settings, updateSetting, currentUser, a
           });
           closeStaffModal();
           setEditingId(null);
-          if (dataSyncMode === 'backend' && isOwnerStaffUser(currentUser)) {
+          if (dataSyncMode === 'backend' && isBranchAdmin) {
             // Background reconcile: do not block modal close on a /users round-trip
             // that grows with staff count (E2E timed out at 30s; users see stale row briefly otherwise).
             backendJson('/users')
@@ -19786,7 +19863,7 @@ function PTClientsPage({ members, users, settings, updateSetting, currentUser, a
         <div className="p-3 md:p-8 space-y-6">
           <div className="flex justify-between items-center">
             <h1 className="text-xl md:text-2xl font-semibold text-slate-900 mb-4">Staff Management</h1>
-            {isOwner && (
+            {isBranchAdmin && (
               <button onClick={openAdd} className="rounded-full px-4 py-2 text-sm font-medium bg-blue-600 hover:bg-blue-700 text-white">Add Staff</button>
             )}
           </div>
@@ -19892,6 +19969,8 @@ function PTClientsPage({ members, users, settings, updateSetting, currentUser, a
                   <th className="px-3 py-2 text-left">Password</th>
                   <th className="px-3 py-2 text-left">Status</th>
                   <th className="px-3 py-2 text-left">Profile Type</th>
+                  <th className="px-3 py-2 text-left">Access Role</th>
+                  <th className="px-3 py-2 text-left">Branches</th>
                   <th className="px-3 py-2 text-left">Sections</th>
                   <th className="px-3 py-2 text-left">Actions</th>
                 </tr>
@@ -19946,6 +20025,14 @@ function PTClientsPage({ members, users, settings, updateSetting, currentUser, a
                       <span className={cx('text-xs font-medium px-2 py-1 rounded-full border', u.testProfile ? 'bg-violet-50 text-violet-700 border-violet-200' : 'bg-slate-100 text-slate-700 border-slate-200')}>
                         {u.testProfile ? 'Test' : 'Production'}
                       </span>
+                    </td>
+                    <td className="px-3 py-2 whitespace-nowrap text-slate-900">
+                      <span className="text-xs font-medium px-2 py-1 rounded-full border bg-slate-100 text-slate-700 border-slate-200">
+                        {staffAccessRoleLabel(u)}
+                      </span>
+                    </td>
+                    <td className="px-3 py-2 whitespace-nowrap text-xs max-w-[10rem] truncate text-slate-700" title={staffBranchesSummary(u)}>
+                      {staffBranchesSummary(u)}
                     </td>
                     <td className="px-3 py-2 whitespace-nowrap text-xs max-w-xs truncate text-slate-900">{u.sections && u.sections.join(', ')}</td>
                     <td className="px-3 py-2 whitespace-nowrap text-slate-900">
@@ -20002,6 +20089,7 @@ function PTClientsPage({ members, users, settings, updateSetting, currentUser, a
                   </div>
                   <div className="text-xs text-slate-600 truncate">Email: {u.email || '-'}</div>
                   <div className="text-xs text-slate-600 truncate">Sections: {u.sections && u.sections.join(', ')}</div>
+                  <div className="text-xs text-slate-600">Role: {staffAccessRoleLabel(u)} · Branches: {staffBranchesSummary(u)}</div>
                   <div className="text-xs text-slate-600">Profile: {u.testProfile ? 'Test' : 'Production'}</div>
                   {isPasswordResetPending(u) && (
                     <div className="text-xs text-amber-700 font-medium">Password reset request pending owner approval</div>
@@ -20097,22 +20185,104 @@ function PTClientsPage({ members, users, settings, updateSetting, currentUser, a
                   </div>
                   <div><label className="text-sm font-medium text-slate-700">Name</label><input value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900" /></div>
                   <div><label className="text-sm font-medium text-slate-700">Email</label><input value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900" /></div>
-                  <div>
-                    <label className="text-sm font-medium text-slate-700">Gym Branch (Gym Code) <span className="text-rose-500">*</span></label>
-                    <select
-                      value={form.gymCodeId || ''}
-                      onChange={(e) => setForm({ ...form, gymCodeId: e.target.value })}
-                      className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900"
-                      data-testid="staff-gym-code-select"
-                      required
-                    >
-                      <option value="">Select a branch…</option>
-                      {(gymCodes || []).map((c) => (
-                        <option key={c.id} value={c.id}>{c.code} / {c.name || c.branchName}</option>
-                      ))}
-                    </select>
-                    <p className="mt-1 text-xs text-slate-500">Staff will only see members assigned to this branch.</p>
-                  </div>
+                  {isOwner && editingId !== 'owner' && (
+                    <div>
+                      <label className="text-sm font-medium text-slate-700">Access role</label>
+                      <select
+                        value={form.staffRole || 'staff'}
+                        onChange={(e) => {
+                          const nextRole = e.target.value;
+                          setForm((prev) => {
+                            const branch = prev.gymCodeId || hqGymCodeId || '';
+                            const assigned = Array.isArray(prev.assignedBranchIds) ? [...prev.assignedBranchIds] : [];
+                            if (nextRole === 'branch_owner') {
+                              const nextAssigned = assigned.length ? assigned : (branch ? [branch] : []);
+                              return {
+                                ...prev,
+                                staffRole: nextRole,
+                                assignedBranchIds: nextAssigned,
+                                gymCodeId: nextAssigned.includes(prev.gymCodeId) ? prev.gymCodeId : (nextAssigned[0] || ''),
+                              };
+                            }
+                            const single = branch || assigned[0] || '';
+                            return {
+                              ...prev,
+                              staffRole: 'staff',
+                              gymCodeId: single,
+                              assignedBranchIds: single ? [single] : [],
+                            };
+                          });
+                        }}
+                        className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900"
+                        data-testid="staff-access-role-select"
+                      >
+                        <option value="staff">Staff (single branch)</option>
+                        <option value="branch_owner">Branch Owner (multi-branch)</option>
+                      </select>
+                      <p className="mt-1 text-xs text-slate-500">Only the Master Owner can create Branch Owners.</p>
+                    </div>
+                  )}
+                  {branchOwnerFormMode ? (
+                    <div className="space-y-3">
+                      <div>
+                        <label className="text-sm font-medium text-slate-700">Assigned branches <span className="text-rose-500">*</span></label>
+                        <div className="mt-1 max-h-40 overflow-y-auto rounded-xl border border-slate-300 bg-white p-2 space-y-2" data-testid="staff-assigned-branches">
+                          {(gymCodes || []).map((c) => (
+                            <label key={c.id} className="flex items-center gap-2 text-sm text-slate-800">
+                              <input
+                                type="checkbox"
+                                checked={(form.assignedBranchIds || []).includes(String(c.id))}
+                                onChange={() => toggleAssignedBranch(c.id)}
+                              />
+                              <span>{c.code} / {c.name || c.branchName}</span>
+                            </label>
+                          ))}
+                        </div>
+                      </div>
+                      <div>
+                        <label className="text-sm font-medium text-slate-700">Primary branch (home) <span className="text-rose-500">*</span></label>
+                        <select
+                          value={form.gymCodeId || ''}
+                          onChange={(e) => setForm({ ...form, gymCodeId: e.target.value })}
+                          className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900"
+                          data-testid="staff-gym-code-select"
+                          required
+                        >
+                          <option value="">Select primary branch…</option>
+                          {(form.assignedBranchIds || []).map((branchId) => {
+                            const c = (gymCodes || []).find((g) => String(g.id) === String(branchId));
+                            if (!c) return null;
+                            return <option key={c.id} value={c.id}>{c.code} / {c.name || c.branchName}</option>;
+                          })}
+                        </select>
+                        <p className="mt-1 text-xs text-slate-500">Branch Owners can switch active branch after login; primary branch is the default home.</p>
+                      </div>
+                    </div>
+                  ) : editingId !== 'owner' && (
+                    <div>
+                      <label className="text-sm font-medium text-slate-700">Gym Branch (Gym Code) <span className="text-rose-500">*</span></label>
+                      <select
+                        value={form.gymCodeId || ''}
+                        onChange={(e) => {
+                          const next = e.target.value;
+                          setForm((prev) => ({
+                            ...prev,
+                            gymCodeId: next,
+                            assignedBranchIds: next ? [next] : [],
+                          }));
+                        }}
+                        className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900"
+                        data-testid="staff-gym-code-select"
+                        required
+                      >
+                        <option value="">Select a branch…</option>
+                        {assignableGymCodesForStaff.map((c) => (
+                          <option key={c.id} value={c.id}>{c.code} / {c.name || c.branchName}</option>
+                        ))}
+                      </select>
+                      <p className="mt-1 text-xs text-slate-500">Staff will only see members assigned to this branch.</p>
+                    </div>
+                  )}
                   <div className="rounded-xl border border-violet-200 bg-violet-50 p-3 space-y-2">
                     <label className="inline-flex items-center gap-2 text-sm font-medium text-violet-800">
                       <input

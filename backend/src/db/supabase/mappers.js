@@ -208,7 +208,7 @@ export function passwordResetStatusFromTimestamps(requestedAt, approvedAt) {
   return 'approved';
 }
 
-export function staffRowToApp(row, sections = [], access = {}) {
+export function staffRowToApp(row, sections = [], access = {}, assignedBranchIds = null) {
   const passwordResetRequestedAt = row.password_reset_requested_at || '';
   const passwordResetApprovedAt = row.password_reset_approved_at || '';
   return {
@@ -233,6 +233,9 @@ export function staffRowToApp(row, sections = [], access = {}) {
     lastLoginAt: row.last_login_at || '',
     gymCodeId: row.gym_code_id || null,
     staffRole: row.staff_role || 'staff',
+    assignedBranchIds: Array.isArray(assignedBranchIds) && assignedBranchIds.length
+      ? [...assignedBranchIds]
+      : (row.gym_code_id ? [String(row.gym_code_id)] : []),
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   };

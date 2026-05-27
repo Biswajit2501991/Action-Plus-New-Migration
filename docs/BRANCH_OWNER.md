@@ -49,10 +49,9 @@ Restart API after deploy.
 
 ## Promote a Branch Owner (Master)
 
-1. Staff Management → edit user
-2. Set `staffRole` to `branch_owner` in persisted user payload (UI field when added) or DB:
-   - `staff_users.staff_role = 'branch_owner'`
-   - Rows in `staff_branch_assignments` for each branch
-3. Grant sections/access (templates, members, staff, etc.)
+1. Staff Management → Add/Edit staff (Master Owner only)
+2. **Access role** → `Branch Owner (multi-branch)`
+3. Check **Assigned branches**, then pick **Primary branch (home)**
+4. Grant sections/access (templates, members, staff, etc.)
 
-Until UI exposes role picker, Master can set via Supabase or extended Staff form in a follow-up.
+`GET /api/users` returns `staffRole` and `assignedBranchIds` for the edit form.

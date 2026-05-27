@@ -25,6 +25,16 @@ describe('staff mapper carries gymCodeId in both directions', () => {
     expect(staffRowToApp(row, [], {}).gymCodeId).toBeNull();
   });
 
+  it('staffRowToApp uses assignedBranchIds when provided', () => {
+    const row = { staff_login_id: 'bo', full_name: 'BO', gym_code_id: 'gc-1', staff_role: 'branch_owner', created_at: '2024', updated_at: '2024' };
+    expect(staffRowToApp(row, [], {}, ['gc-1', 'gc-2']).assignedBranchIds).toEqual(['gc-1', 'gc-2']);
+  });
+
+  it('staffRowToApp falls back to gym_code_id for assignedBranchIds', () => {
+    const row = { staff_login_id: 's', full_name: 'S', gym_code_id: 'gc-9', created_at: '2024', updated_at: '2024' };
+    expect(staffRowToApp(row, [], {}).assignedBranchIds).toEqual(['gc-9']);
+  });
+
   it('appStaffToRow trims and persists gymCodeId', () => {
     const row = appStaffToRow({ id: 'deep', name: 'Deep', gymCodeId: '  gc-abc  ' }, 'gym-1');
     expect(row.gym_code_id).toBe('gc-abc');
