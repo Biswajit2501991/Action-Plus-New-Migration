@@ -54,11 +54,14 @@ export function requireApiAuth(req, res, next) {
     token,
     userId: claims.userId,
     roles: claims.roles || [],
+    staffRole: claims.staffRole ? String(claims.staffRole) : undefined,
     permissions: claims.permissions || [],
     gymId: claims.gymId ? String(claims.gymId) : undefined,
-    // Multi-tenant branch scope (Phase 2 gym-codes). Owner is treated as cross-branch
-    // downstream via authIsOwner() in branchFilter.js, even though they still carry a code.
     gymCodeId: claims.gymCodeId ? String(claims.gymCodeId) : undefined,
+    activeBranchId: claims.activeBranchId ? String(claims.activeBranchId) : (claims.gymCodeId ? String(claims.gymCodeId) : undefined),
+    allowedBranchIds: Array.isArray(claims.allowedBranchIds)
+      ? claims.allowedBranchIds.map((id) => String(id).trim()).filter(Boolean)
+      : undefined,
   };
   return next();
 }

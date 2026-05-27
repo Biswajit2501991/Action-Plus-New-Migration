@@ -442,7 +442,14 @@ export async function addSettingsLookup(scope, payload) {
   const value = String(payload?.value || '').trim();
   if (!SETTINGS_LOOKUP_KEYS.has(category)) throw new Error('invalid_lookup_category');
   if (!value) throw new Error('invalid_lookup_value');
-  if (useSupabase()) return supabaseStore.addSettingsLookupValue(scope, { category, value });
+  if (useSupabase()) {
+    return supabaseStore.addSettingsLookupValue(scope, {
+      category,
+      value,
+      createdByRole: payload?.createdByRole || null,
+      createdByStaffLoginId: payload?.createdByStaffLoginId || null,
+    });
+  }
   const settings = (await readJsonValue('apg.settings', {}, scope)) || {};
   const list = Array.isArray(settings[category]) ? settings[category] : [];
   if (!list.includes(value)) settings[category] = [...list, value];
@@ -464,7 +471,14 @@ export async function deleteSettingsLookup(scope, payload) {
   const value = String(payload?.value || '').trim();
   if (!SETTINGS_LOOKUP_KEYS.has(category)) throw new Error('invalid_lookup_category');
   if (!value) throw new Error('invalid_lookup_value');
-  if (useSupabase()) return supabaseStore.deleteSettingsLookupValue(scope, { category, value });
+  if (useSupabase()) {
+    return supabaseStore.deleteSettingsLookupValue(scope, {
+      category,
+      value,
+      requesterRole: payload?.requesterRole || null,
+      requesterStaffLoginId: payload?.requesterStaffLoginId || null,
+    });
+  }
   const settings = (await readJsonValue('apg.settings', {}, scope)) || {};
   const list = Array.isArray(settings[category]) ? settings[category] : [];
   settings[category] = list.filter((x) => x !== value);

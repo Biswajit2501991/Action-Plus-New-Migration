@@ -15,10 +15,18 @@ import {
   filterVisitorsForUser,
   memberInStaffBranch,
   authIsOwnerUser,
+  authIsMasterOwnerUser,
+  authIsBranchOwnerUser,
   staffHasBranch,
   scopeMembersForBulkSync,
   scopeVisitorsForBulkSync,
 } from '../features/branch/branchAccess.js';
+import {
+  authIsBranchAdminUser,
+  allowedBranchIdsForUser,
+  userCanAccessBranch,
+  canDeleteMemberForUser,
+} from '../features/tenant/branchOwnerAccess.js';
 import {
   resolveDefaultAssignedGymCodeId,
   enforceStaffBranchOnForm,
@@ -135,6 +143,12 @@ window.__APG_MODULES.filterMembersForUser = filterMembersForUser;
 window.__APG_MODULES.filterVisitorsForUser = filterVisitorsForUser;
 window.__APG_MODULES.memberInStaffBranch = memberInStaffBranch;
 window.__APG_MODULES.authIsOwnerUser = authIsOwnerUser;
+window.__APG_MODULES.authIsMasterOwnerUser = authIsMasterOwnerUser;
+window.__APG_MODULES.authIsBranchOwnerUser = authIsBranchOwnerUser;
+window.__APG_MODULES.authIsBranchAdminUser = authIsBranchAdminUser;
+window.__APG_MODULES.allowedBranchIdsForUser = allowedBranchIdsForUser;
+window.__APG_MODULES.userCanAccessBranch = userCanAccessBranch;
+window.__APG_MODULES.canDeleteMemberForUser = canDeleteMemberForUser;
 window.__APG_MODULES.staffHasBranch = staffHasBranch;
 window.__APG_MODULES.scopeMembersForBulkSync = scopeMembersForBulkSync;
 window.__APG_MODULES.scopeVisitorsForBulkSync = scopeVisitorsForBulkSync;

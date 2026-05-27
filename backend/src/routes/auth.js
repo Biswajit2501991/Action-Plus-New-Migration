@@ -1,14 +1,19 @@
 import { Router } from 'express';
 import { useSupabase } from '../db/dataStore.js';
 import {
+  buildStaffTokenContext,
   changeStaffPassword,
+  findStaffByIdentifier,
   getStaffAppUser,
   loginStaff,
   requireOwnerAuth,
   requestStaffPasswordReset,
   setStaffPassword,
+  signStaffToken,
   verifyStaffToken,
 } from '../auth/staffAuth.js';
+import { env } from '../config/env.js';
+import { authCanAccessBranch } from '../auth/tenant/scopedAuth.js';
 import { readBearerToken } from '../middleware/requireAuth.js';
 import {
   clearLoginFailures,
@@ -67,12 +72,20 @@ router.get('/me', async (req, res) => {
     const user = await getStaffAppUser(claims.userId);
     if (!user) return res.status(401).json({ error: 'invalid-token' });
     if (user.blocked) return res.status(403).json({ error: 'user-blocked' });
-    const gymCodeId = user.gymCodeId || claims.gymCodeId || null;
+    const gymCodeId = user.gymCodeId || claims.gymCodeId || claims.activeBranchId || null;
     return res.json({
       userId: user.id,
       gymId: claims.gymId || null,
       gymCodeId,
-      user: { ...user, gymCodeId },
+      activeBranchId: claims.activeBranchId || gymCodeId,
+      allowedBranchIds: claims.allowedBranchIds || (gymCodeId ? [gymCodeId] : []),
+      staffRole: user.staffRole || claims.staffRole || 'staff',
+      user: {
+        ...user,
+        gymCodeId,
+        activeBranchId: claims.activeBranchId || gymCodeId,
+        allowedBranchIds: claims.allowedBranchIds || (gymCodeId ? [gymCodeId] : []),
+      },
       roles: claims.roles || [],
       permissions: claims.permissions || [],
     });
@@ -96,6 +109,42 @@ router.post('/change-password', async (req, res) => {
     return res.json({ ok: true });
   } catch (error) {
     return res.status(500).json({ error: 'change-password-failed', message: String(error?.message || error) });
+  }
+});
+
+router.patch('/active-branch', async (req, res) => {
+  if (!useSupabase()) return res.status(503).json({ error: 'auth-requires-supabase' });
+  if (!env.BRANCH_OWNER_ENABLED) {
+    return res.status(404).json({ error: 'branch-owner-disabled' });
+  }
+  const claims = verifyStaffToken(tokenFromReq(req));
+  if (!claims?.userId) return res.status(401).json({ error: 'unauthorized' });
+  const branchId = String(req.body?.gymCodeId || req.body?.activeBranchId || '').trim();
+  if (!branchId) return res.status(400).json({ error: 'gym-code-id-required' });
+  try {
+    const row = await findStaffByIdentifier(claims.userId);
+    if (!row) return res.status(401).json({ error: 'invalid-token' });
+    const tokenCtx = await buildStaffTokenContext(row);
+    const probeAuth = {
+      userId: claims.userId,
+      staffRole: tokenCtx.staffRole,
+      allowedBranchIds: tokenCtx.allowedBranchIds,
+      gymCodeId: tokenCtx.activeBranchId,
+    };
+    if (!authCanAccessBranch(probeAuth, branchId)) {
+      return res.status(403).json({ error: 'branch-scope-forbidden' });
+    }
+    const nextCtx = { ...tokenCtx, activeBranchId: branchId };
+    const token = signStaffToken(claims.userId, row.gym_id, nextCtx);
+    return res.json({
+      ok: true,
+      token,
+      gymCodeId: branchId,
+      activeBranchId: branchId,
+      allowedBranchIds: tokenCtx.allowedBranchIds,
+    });
+  } catch (error) {
+    return res.status(500).json({ error: 'active-branch-failed', message: String(error?.message || error) });
   }
 });
 

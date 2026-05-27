@@ -26,6 +26,7 @@ export const T = {
   staff_user_sections: 'staff_user_sections',
   staff_user_access: 'staff_user_access',
   staff_role_templates: 'staff_role_templates',
+  staff_branch_assignments: 'staff_branch_assignments',
   settings_lookup_values: 'settings_lookup_values',
   settings_templates: 'settings_templates',
   settings_app_config: 'settings_app_config',

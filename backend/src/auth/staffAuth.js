@@ -5,24 +5,39 @@ import { getSupabase, gymId } from '../db/supabase/client.js';
 import { staffRowToApp } from '../db/supabase/mappers.js';
 import { ALL_SECTIONS, DEFAULT_ACCESS, normalizeAccess } from '../../../src/features/access/permissions.js';
 import { hashPassword, verifyPassword } from './passwords.js';
+import { resolveStaffBranchContext } from './tenant/branchAssignments.js';
+import { STAFF_ROLES } from './tenant/roles.js';
+import { branchOwnerFeatureEnabled } from './tenant/scopedAuth.js';
 
-function staffClaims(staffLoginId, gymIdValue, gymCodeIdValue) {
+function staffClaims(staffLoginId, gymIdValue, branchContext = {}) {
   const id = String(staffLoginId || '').trim().toLowerCase();
-  const role = id === 'owner' ? 'owner' : 'staff';
+  const staffRole = branchContext.staffRole || (id === 'owner' ? STAFF_ROLES.MASTER_OWNER : STAFF_ROLES.STAFF);
+  const isMaster = staffRole === STAFF_ROLES.MASTER_OWNER;
+  const isBranchOwner = branchOwnerFeatureEnabled() && staffRole === STAFF_ROLES.BRANCH_OWNER;
+  const roles = isMaster ? ['owner'] : (isBranchOwner ? ['branch_owner'] : ['staff']);
   const claims = {
     userId: String(staffLoginId),
-    roles: [role],
-    permissions: role === 'owner' ? ['*'] : [],
+    roles,
+    staffRole,
+    permissions: isMaster ? ['*'] : [],
   };
   if (gymIdValue) claims.gymId = String(gymIdValue);
-  // gymCodeId is the multi-tenant branch scope; owner has it too (defaults to HQ)
-  // but the API layer treats `owner` as cross-branch via apg_jwt_is_owner().
-  if (gymCodeIdValue) claims.gymCodeId = String(gymCodeIdValue);
+  const activeBranch = String(branchContext.activeBranchId || branchContext.primaryBranchId || '').trim();
+  if (activeBranch) {
+    claims.gymCodeId = activeBranch;
+    claims.activeBranchId = activeBranch;
+  }
+  if (isBranchOwner && Array.isArray(branchContext.allowedBranchIds) && branchContext.allowedBranchIds.length) {
+    claims.allowedBranchIds = branchContext.allowedBranchIds;
+  }
   return claims;
 }
 
-export function signStaffToken(staffLoginId, gymIdValue, gymCodeIdValue) {
-  return jwt.sign(staffClaims(staffLoginId, gymIdValue, gymCodeIdValue), env.JWT_SECRET, {
+export function signStaffToken(staffLoginId, gymIdValue, branchContext = {}) {
+  const ctx = typeof branchContext === 'string'
+    ? { activeBranchId: branchContext, staffRole: STAFF_ROLES.STAFF, allowedBranchIds: [] }
+    : branchContext;
+  return jwt.sign(staffClaims(staffLoginId, gymIdValue, ctx), env.JWT_SECRET, {
     expiresIn: env.JWT_EXPIRES_IN,
   });
 }
@@ -79,6 +94,16 @@ async function loadStaffAppUser(row) {
   return staffRowToApp(row, sections, access);
 }
 
+export async function buildStaffTokenContext(row) {
+  const branchContext = await resolveStaffBranchContext(row);
+  return {
+    staffRole: branchContext.staffRole,
+    allowedBranchIds: branchContext.allowedBranchIds,
+    activeBranchId: branchContext.primaryBranchId,
+    primaryBranchId: branchContext.primaryBranchId,
+  };
+}
+
 async function ensureOwnerSectionsPersisted(sb, staffPk) {
   const { data: existing } = await sb.from(T.staff_user_sections).select('section_name').eq('staff_user_id', staffPk);
   const have = new Set((existing || []).map((r) => r.section_name));
@@ -104,8 +129,21 @@ export async function loginStaff(identifier, password) {
   if (String(user.id || '').toLowerCase() === 'owner') {
     await ensureOwnerSectionsPersisted(sb, row.id).catch(() => {});
   }
-  const token = signStaffToken(user.id, row.gym_id, row.gym_code_id);
-  return { ok: true, token, user: { ...user, gymCodeId: row.gym_code_id || null, lastLoginAt: now } };
+  const tokenCtx = await buildStaffTokenContext(row);
+  const token = signStaffToken(user.id, row.gym_id, tokenCtx);
+  const gymCodeId = tokenCtx.activeBranchId || row.gym_code_id || null;
+  return {
+    ok: true,
+    token,
+    user: {
+      ...user,
+      staffRole: tokenCtx.staffRole,
+      gymCodeId,
+      allowedBranchIds: tokenCtx.allowedBranchIds,
+      activeBranchId: gymCodeId,
+      lastLoginAt: now,
+    },
+  };
 }
 
 export async function getStaffAppUser(staffLoginId) {

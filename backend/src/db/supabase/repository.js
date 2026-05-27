@@ -750,6 +750,12 @@ async function writeUsers(users, scope) {
     const row = appStaffToRow(u, gid);
     if (scope) row.sandbox_id = scope.sandboxId;
     if (!row.gym_code_id && defaultGymCodeId) row.gym_code_id = defaultGymCodeId;
+    const loginLower = String(u.id || '').trim().toLowerCase();
+    if (loginLower === 'owner') {
+      row.staff_role = 'master_owner';
+    } else if (u.staffRole) {
+      row.staff_role = String(u.staffRole).trim();
+    }
 
     const found = (existing || []).find((r) => String(r.staff_login_id) === String(u.id));
     if (found && !String(row.photo_url || '').trim() && String(found.photo_url || '').trim()) {
@@ -775,6 +781,23 @@ async function writeUsers(users, scope) {
     const sections = isOwnerLogin ? [...ALL_SECTIONS] : (Array.isArray(u.sections) ? u.sections : []);
     await syncStaffUserSections(sb, staffPk, sections);
     await syncStaffUserAccess(sb, staffPk, u.access);
+    const branchIds = Array.isArray(u.assignedBranchIds)
+      ? u.assignedBranchIds
+      : (row.gym_code_id ? [row.gym_code_id] : []);
+    try {
+      const { syncStaffBranchAssignments } = await import('../../auth/tenant/branchAssignments.js');
+      const { branchOwnerFeatureEnabled } = await import('../../auth/tenant/scopedAuth.js');
+      if (branchOwnerFeatureEnabled() && branchIds.length) {
+        await syncStaffBranchAssignments(
+          staffPk,
+          branchIds,
+          row.gym_code_id || branchIds[0],
+          u.updatedBy || null,
+        );
+      }
+    } catch {
+      /* assignments table may not exist until migration */
+    }
     invalidateStaffAccessCache(u.id);
   }
   notifyCollectionChange('users');
@@ -1082,7 +1105,7 @@ async function syncLookupValues(sb, gid, settings) {
  * Surgical single-value insert for settings lookup lists (plans, statuses, etc.).
  * Owner-gated at the route layer.
  */
-export async function addSettingsLookupValue(_scope, { category, value }) {
+export async function addSettingsLookupValue(_scope, { category, value, createdByRole = null, createdByStaffLoginId = null }) {
   const resolved = resolveLookupCategory(category);
   if (!resolved) throw new Error('invalid_lookup_category');
   const val = String(value || '').trim();
@@ -1113,13 +1136,16 @@ export async function addSettingsLookupValue(_scope, { category, value }) {
       .range(from, to),
   );
   const nextSort = rows.length ? Number(rows[0].sort_order || 0) + 1 : 0;
-  const { error } = await sb.from(T.settings_lookup_values).insert({
+  const insertRow = {
     gym_id: gid,
     category: resolved.category,
     value: val,
     sort_order: nextSort,
     is_active: true,
-  });
+  };
+  if (createdByRole) insertRow.created_by_role = String(createdByRole);
+  if (createdByStaffLoginId) insertRow.created_by_staff_login_id = String(createdByStaffLoginId);
+  const { error } = await sb.from(T.settings_lookup_values).insert(insertRow);
   if (error) throw error;
   notifyCollectionChange('settings');
   return { ok: true, category: resolved.key, value: val };
@@ -1128,7 +1154,7 @@ export async function addSettingsLookupValue(_scope, { category, value }) {
 /**
  * Surgical single-value delete for settings lookup lists.
  */
-export async function deleteSettingsLookupValue(_scope, { category, value }) {
+export async function deleteSettingsLookupValue(_scope, { category, value, requesterRole = null, requesterStaffLoginId = null }) {
   const resolved = resolveLookupCategory(category);
   if (!resolved) throw new Error('invalid_lookup_category');
   const val = String(value || '').trim();
@@ -1136,12 +1162,37 @@ export async function deleteSettingsLookupValue(_scope, { category, value }) {
 
   const sb = getSupabase();
   const gid = gymId();
-  const { data, error } = await sb
+  const { data: existing, error: findErr } = await sb
     .from(T.settings_lookup_values)
-    .delete()
+    .select('id, created_by_role, created_by_staff_login_id')
     .eq('gym_id', gid)
     .eq('category', resolved.category)
     .eq('value', val)
+    .maybeSingle();
+  if (findErr) throw findErr;
+  if (!existing?.id) {
+    return { ok: true, category: resolved.key, value: val, deleted: 0 };
+  }
+  const createdRole = String(existing.created_by_role || '').trim();
+  const isBranchOwnerRequest = requesterRole === 'branch_owner';
+  if (isBranchOwnerRequest) {
+    if (createdRole !== 'branch_owner') {
+      const err = new Error('lookup-delete-master-protected');
+      err.status = 403;
+      throw err;
+    }
+    const creator = String(existing.created_by_staff_login_id || '').trim().toLowerCase();
+    const requester = String(requesterStaffLoginId || '').trim().toLowerCase();
+    if (creator && requester && creator !== requester) {
+      const err = new Error('lookup-delete-not-owned');
+      err.status = 403;
+      throw err;
+    }
+  }
+  const { data, error } = await sb
+    .from(T.settings_lookup_values)
+    .delete()
+    .eq('id', existing.id)
     .select('id');
   if (error) throw error;
   notifyCollectionChange('settings');

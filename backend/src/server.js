@@ -58,7 +58,12 @@ import {
   assertStaffHasBranchForWrite,
 } from './auth/branchScope.js';
 import { bindGymContext } from './middleware/bindGymContext.js';
-import { requireOwner, requireOwnerUnlessProcessControl } from './middleware/requireOwner.js';
+import { requireMasterOwner, requireMasterOwnerUnlessProcessControl } from './middleware/requireMasterOwner.js';
+import { requireBranchAdmin } from './middleware/requireBranchAdmin.js';
+import { env } from './config/env.js';
+import { filterUsersForAuth, sanitizeUsersBulkForAuth } from './auth/tenant/userScope.js';
+import { LOOKUP_CREATED_BY } from './auth/tenant/roles.js';
+import { authIsBranchOwner, authIsMasterOwner } from './auth/tenant/scopedAuth.js';
 import { Access, getStaffAccessForUser } from './auth/accessControl.js';
 import { requireAccess, requireLogsBulkAccess } from './middleware/permissions.js';
 import authRouter from './routes/auth.js';
@@ -75,6 +80,26 @@ import { resolvePtClientMemberId } from './utils/ptClientMemberId.js';
 
 const app = express();
 app.set('trust proxy', true);
+
+function requireStaffManagementRead(req, res, next) {
+  if (env.BRANCH_OWNER_ENABLED) return requireBranchAdmin(req, res, next);
+  return requireMasterOwner(req, res, next);
+}
+
+function requireStaffManagementWrite(req, res, next) {
+  if (env.BRANCH_OWNER_ENABLED) return requireBranchAdmin(req, res, next);
+  return requireMasterOwner(req, res, next);
+}
+
+function requireSettingsLookupAdd(req, res, next) {
+  if (env.BRANCH_OWNER_ENABLED) return requireBranchAdmin(req, res, next);
+  return requireMasterOwner(req, res, next);
+}
+
+function requireSettingsLookupDelete(req, res, next) {
+  if (env.BRANCH_OWNER_ENABLED) return requireBranchAdmin(req, res, next);
+  return requireMasterOwner(req, res, next);
+}
 
 function stripUsersForApi(users) {
   if (!Array.isArray(users)) return [];
@@ -465,7 +490,7 @@ function allowProcessControl(req, res) {
   return null;
 }
 
-app.post('/api/process/stop', requireOwnerUnlessProcessControl, (req, res) => {
+app.post('/api/process/stop', requireMasterOwnerUnlessProcessControl, (req, res) => {
   const denied = allowProcessControl(req, res);
   if (denied) return;
   res.json({
@@ -477,7 +502,7 @@ app.post('/api/process/stop', requireOwnerUnlessProcessControl, (req, res) => {
   setTimeout(() => process.exit(0), 3000);
 });
 
-app.post('/api/process/restart', requireOwnerUnlessProcessControl, (req, res) => {
+app.post('/api/process/restart', requireMasterOwnerUnlessProcessControl, (req, res) => {
   const denied = allowProcessControl(req, res);
   if (denied) return;
   res.json({
@@ -489,7 +514,7 @@ app.post('/api/process/restart', requireOwnerUnlessProcessControl, (req, res) =>
   setTimeout(() => process.exit(0), 3000);
 });
 
-app.post('/api/process/start', requireOwnerUnlessProcessControl, (req, res) => {
+app.post('/api/process/start', requireMasterOwnerUnlessProcessControl, (req, res) => {
   const denied = allowProcessControl(req, res);
   if (denied) return;
   const script = String(env.APG_BACKEND_START_SCRIPT || '').trim();
@@ -625,7 +650,7 @@ app.patch('/api/members/:memberId', requireAccess(Access.membersWrite), async (r
  * Owner-only surgical payment delete. Persists to member_payment_history immediately
  * (no debounced full-members bulk). Returns 404 when the row is not found after DB sync.
  */
-app.delete('/api/members/:memberId/payments/:paymentId', requireOwner, async (req, res) => {
+app.delete('/api/members/:memberId/payments/:paymentId', requireMasterOwner, async (req, res) => {
   const memberCode = String(req.params.memberId || '').trim();
   const paymentId = decodeURIComponent(String(req.params.paymentId || '').trim());
   if (!memberCode || !paymentId) {
@@ -683,14 +708,16 @@ app.put('/api/visitors/bulk', requireAccess(Access.visitorsWrite), async (req, r
   res.json({ ok: true });
 });
 
-app.get('/api/users', requireOwner, async (_req, res) => {
+app.get('/api/users', requireStaffManagementRead, async (req, res) => {
   const users = await readJsonCollection('apg.users', [], null);
-  res.json(users);
+  res.json(filterUsersForAuth(users, req.auth));
 });
 
-app.put('/api/users/bulk', requireOwner, async (req, res) => {
+app.put('/api/users/bulk', requireStaffManagementWrite, async (req, res) => {
   try {
-    await writeJsonCollection('apg.users', stripUsersForApi(req.body?.users || []));
+    const raw = stripUsersForApi(req.body?.users || []);
+    const users = authIsMasterOwner(req.auth) ? raw : sanitizeUsersBulkForAuth(raw, req.auth);
+    await writeJsonCollection('apg.users', users);
     queueDatabaseBackup('users-bulk');
     return res.json({ ok: true });
   } catch (error) {
@@ -715,7 +742,7 @@ app.put('/api/users/bulk', requireOwner, async (req, res) => {
 // themselves. Returns the lists of deleted + skipped ids so the UI can
 // surface "n removed, k skipped because…" without re-reading the collection.
 const PROTECTED_STAFF_IDS = new Set(['Bis', 'Raja', 'owner']);
-app.post('/api/users/cleanup', requireOwner, async (req, res) => {
+app.post('/api/users/cleanup', requireStaffManagementWrite, async (req, res) => {
   try {
     const incoming = Array.isArray(req.body?.userIds) ? req.body.userIds : [];
     const targets = new Set(
@@ -739,11 +766,23 @@ app.post('/api/users/cleanup', requireOwner, async (req, res) => {
     const skipped = [];
     for (const id of targets) {
       const user = lookup.get(id);
-      const isOwnerRow = user ? String(user?.role || '').toLowerCase() === 'owner' : false;
+      const isOwnerRow = user
+        ? (String(user?.role || '').toLowerCase() === 'owner'
+          || String(user?.staffRole || '').toLowerCase() === 'master_owner')
+        : false;
       const isProtected = PROTECTED_STAFF_IDS.has(id) || isOwnerRow || (requesterId && id === requesterId);
       if (isProtected) {
         skipped.push({ id, reason: isOwnerRow ? 'owner_role' : (id === requesterId ? 'self' : 'seed_account') });
         continue;
+      }
+      if (!authIsMasterOwner(req.auth) && user) {
+        try {
+          const { assertBranchAdminManagesUser } = await import('./auth/tenant/userScope.js');
+          assertBranchAdminManagesUser(req.auth, user);
+        } catch (err) {
+          skipped.push({ id, reason: err?.message || 'cross_branch' });
+          continue;
+        }
       }
       toDelete.push(id);
     }
@@ -790,13 +829,13 @@ app.get('/api/settings', requireAccess(Access.settingsRead), async (req, res) =>
   }
 });
 
-app.put('/api/settings/bulk', requireOwner, async (req, res) => {
+app.put('/api/settings/bulk', requireMasterOwner, async (req, res) => {
   await writeScopedSettings(req, req.body?.settings || {});
   queueDatabaseBackup('settings-bulk');
   res.json({ ok: true });
 });
 
-app.put('/api/settings/role-templates', requireOwner, async (req, res) => {
+app.put('/api/settings/role-templates', requireMasterOwner, async (req, res) => {
   try {
     const roleTemplates = req.body?.roleTemplates;
     if (!Array.isArray(roleTemplates)) {
@@ -829,7 +868,7 @@ const SETTINGS_LOOKUP_KEYS = new Set([
   'exerciseTypes',
 ]);
 
-app.post('/api/settings/lookups', requireOwner, async (req, res) => {
+app.post('/api/settings/lookups', requireSettingsLookupAdd, async (req, res) => {
   try {
     const category = String(req.body?.category || '').trim();
     const value = String(req.body?.value || '').trim();
@@ -839,7 +878,15 @@ app.post('/api/settings/lookups', requireOwner, async (req, res) => {
     if (!value || value.length > 120) {
       return res.status(400).json({ error: 'invalid_value', message: 'Lookup value is required (max 120 chars)' });
     }
-    const saved = await addSettingsLookup(readSandboxScope(req), { category, value });
+    const createdByRole = authIsMasterOwner(req.auth)
+      ? LOOKUP_CREATED_BY.MASTER_OWNER
+      : (authIsBranchOwner(req.auth) ? LOOKUP_CREATED_BY.BRANCH_OWNER : null);
+    const saved = await addSettingsLookup(readSandboxScope(req), {
+      category,
+      value,
+      createdByRole,
+      createdByStaffLoginId: req.auth?.userId || null,
+    });
     await appendAuditLog(req, {
       action: 'settings.lookup.added',
       entityType: 'settings_lookup',
@@ -857,7 +904,7 @@ app.post('/api/settings/lookups', requireOwner, async (req, res) => {
   }
 });
 
-app.delete('/api/settings/lookups', requireOwner, async (req, res) => {
+app.delete('/api/settings/lookups', requireSettingsLookupDelete, async (req, res) => {
   try {
     const category = String(req.body?.category || '').trim();
     const value = String(req.body?.value || '').trim();
@@ -867,7 +914,15 @@ app.delete('/api/settings/lookups', requireOwner, async (req, res) => {
     if (!value) {
       return res.status(400).json({ error: 'invalid_value', message: 'Lookup value is required' });
     }
-    const result = await deleteSettingsLookup(readSandboxScope(req), { category, value });
+    const requesterRole = authIsMasterOwner(req.auth)
+      ? LOOKUP_CREATED_BY.MASTER_OWNER
+      : (authIsBranchOwner(req.auth) ? LOOKUP_CREATED_BY.BRANCH_OWNER : null);
+    const result = await deleteSettingsLookup(readSandboxScope(req), {
+      category,
+      value,
+      requesterRole,
+      requesterStaffLoginId: req.auth?.userId || null,
+    });
     await appendAuditLog(req, {
       action: 'settings.lookup.removed',
       entityType: 'settings_lookup',
@@ -1068,7 +1123,7 @@ app.post('/api/leave-requests', async (req, res) => {
   }
 });
 
-app.patch('/api/leave-requests/:id', requireOwner, async (req, res) => {
+app.patch('/api/leave-requests/:id', requireMasterOwner, async (req, res) => {
   try {
     const id = String(req.params.id || '').trim();
     if (!id) return res.status(400).json({ error: 'id-required' });
@@ -1116,7 +1171,7 @@ app.patch('/api/leave-requests/:id', requireOwner, async (req, res) => {
 // Owner-only cleanup for E2E teardown: removes all leave requests created by
 // the listed user IDs (typically e2e-staff-* test accounts). Returns the
 // remaining count so tests can assert success deterministically.
-app.post('/api/leave-requests/cleanup', requireOwner, async (req, res) => {
+app.post('/api/leave-requests/cleanup', requireMasterOwner, async (req, res) => {
   try {
     const userIds = Array.isArray(req.body?.userIds) ? req.body.userIds.map((x) => String(x || '').trim()).filter(Boolean) : [];
     if (!userIds.length) return res.json({ ok: true, removed: 0, remaining: null });
@@ -1263,7 +1318,7 @@ app.put('/api/attendance/records', requireAccess(Access.attendanceWrite), async 
 // Owner-only bulk delete of attendance rows whose attendance_date is inside
 // [startDate, endDate] (inclusive, YYYY-MM-DD). Returns the deleted count and
 // echoes the range so the UI can confirm.
-app.post('/api/attendance/cleanup', requireOwner, async (req, res) => {
+app.post('/api/attendance/cleanup', requireMasterOwner, async (req, res) => {
   try {
     const startDate = String(req.body?.startDate || '').slice(0, 10);
     const endDate = String(req.body?.endDate || '').slice(0, 10);
@@ -1323,7 +1378,7 @@ app.put('/api/logs/bulk', requireLogsBulkAccess, async (req, res) => {
 // written AFTER the cleanup so it survives. On Supabase the cleanup is a
 // single SQL DELETE — no collection round-trip — keeping it usable on busy
 // gyms with tens of thousands of audit rows.
-app.post('/api/logs/cleanup', requireOwner, async (req, res) => {
+app.post('/api/logs/cleanup', requireMasterOwner, async (req, res) => {
   try {
     const range = normalizeDateRange(req.body?.startDate, req.body?.endDate);
     if (!range) {
@@ -1405,7 +1460,7 @@ app.put('/api/sms-events/bulk', requireAccess(Access.smsWrite), async (req, res)
   res.json({ ok: true });
 });
 
-app.post('/api/test-users/purge', requireOwner, async (req, res) => {
+app.post('/api/test-users/purge', requireMasterOwner, async (req, res) => {
   const sandboxId = String(req.body?.sandboxId || '').trim();
   const userId = String(req.body?.userId || '').trim();
   if (!sandboxId) return res.status(400).json({ error: 'sandbox-id-required' });
@@ -1414,17 +1469,17 @@ app.post('/api/test-users/purge', requireOwner, async (req, res) => {
   return res.json({ ok: true, sandboxId, userId });
 });
 
-app.get('/api/storage', requireOwner, async (_req, res) => {
+app.get('/api/storage', requireMasterOwner, async (_req, res) => {
   const data = await computeStorageUsage();
   res.json(data);
 });
 
-app.get('/api/backups', requireOwner, async (_req, res) => {
+app.get('/api/backups', requireMasterOwner, async (_req, res) => {
   const backups = await listBackupNames();
   res.json({ backups });
 });
 
-app.delete('/api/backups/:fileName', requireOwner, async (req, res) => {
+app.delete('/api/backups/:fileName', requireMasterOwner, async (req, res) => {
   const raw = req.params?.fileName || '';
   const fileName = decodeURIComponent(raw);
   if (!fileName) return res.status(400).json({ error: 'file-required' });
@@ -1439,7 +1494,7 @@ app.delete('/api/backups/:fileName', requireOwner, async (req, res) => {
   }
 });
 
-app.post('/api/backups/prune-older', requireOwner, async (req, res) => {
+app.post('/api/backups/prune-older', requireMasterOwner, async (req, res) => {
   const days = Number(req.body?.days || 0);
   if (!Number.isFinite(days) || days <= 0) return res.status(400).json({ error: 'invalid-days' });
   await pruneBackups({ keepLatest: MAX_DB_BACKUPS, maxAgeDays: days, hardCapBytes: MAX_BACKUP_TOTAL_BYTES, compressOld: COMPRESS_OLD_BACKUPS });
@@ -1448,7 +1503,7 @@ app.post('/api/backups/prune-older', requireOwner, async (req, res) => {
   return res.json({ ok: true, backups, storage });
 });
 
-app.post('/api/backups/keep-latest', requireOwner, async (req, res) => {
+app.post('/api/backups/keep-latest', requireMasterOwner, async (req, res) => {
   const count = Number(req.body?.count || 0);
   if (!Number.isFinite(count) || count < 1) return res.status(400).json({ error: 'invalid-count' });
   await pruneBackups({ keepLatest: count, maxAgeDays: null, hardCapBytes: MAX_BACKUP_TOTAL_BYTES, compressOld: COMPRESS_OLD_BACKUPS });
@@ -1457,7 +1512,7 @@ app.post('/api/backups/keep-latest', requireOwner, async (req, res) => {
   return res.json({ ok: true, backups, storage });
 });
 
-app.post('/api/backups/restore', requireOwner, async (req, res) => {
+app.post('/api/backups/restore', requireMasterOwner, async (req, res) => {
   const fileName = req.body?.fileName || '';
   if (!fileName) return res.status(400).json({ error: 'file-required' });
   if (useSupabase()) {

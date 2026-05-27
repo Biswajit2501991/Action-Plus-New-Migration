@@ -1,4 +1,9 @@
-import { authIsOwner } from '../auth/branchFilter.js';
+import { authHasGlobalBranchRead } from '../auth/branchFilter.js';
+import {
+  authCanAccessBranch,
+  authIsBranchOwner,
+  branchOwnerFeatureEnabled,
+} from '../auth/tenant/scopedAuth.js';
 import { T } from '../db/tables.js';
 import { getSupabase, gymId } from '../db/supabase/client.js';
 import { resolveGymCodeId } from './gymCodesService.js';
@@ -74,7 +79,7 @@ async function resolveTemplateBranchUuid(codeOrId) {
 }
 
 export async function resolveEffectiveTemplateBranchId(auth, requestedGymCodeId) {
-  if (authIsOwner(auth)) {
+  if (authHasGlobalBranchRead(auth)) {
     const raw = String(requestedGymCodeId || '').trim();
     if (!raw) {
       const hq = await resolveHqGymCodeId();
@@ -87,7 +92,21 @@ export async function resolveEffectiveTemplateBranchId(auth, requestedGymCodeId)
     }
     return resolveTemplateBranchUuid(raw);
   }
-  const staffBranch = String(auth?.gymCodeId || '').trim();
+  if (branchOwnerFeatureEnabled() && Array.isArray(auth?.allowedBranchIds) && auth.allowedBranchIds.length > 1) {
+    const raw = String(requestedGymCodeId || auth.activeBranchId || auth.gymCodeId || '').trim();
+    if (!raw) {
+      const err = new Error('gym-code-id-required');
+      err.status = 400;
+      throw err;
+    }
+    if (!authCanAccessBranch(auth, raw)) {
+      const err = new Error('branch-scope-forbidden');
+      err.status = 403;
+      throw err;
+    }
+    return resolveTemplateBranchUuid(raw);
+  }
+  const staffBranch = String(auth?.activeBranchId || auth?.gymCodeId || '').trim();
   if (!staffBranch) {
     const err = new Error('branch-scope-missing');
     err.status = 403;
@@ -107,7 +126,7 @@ export function staffMayWriteWhatsappTemplates(access) {
  * @param {import('../auth/accessControl.js').NormalizedAccess | { __owner?: boolean }} access
  */
 export function assertWhatsappTemplateWriteAllowed(auth, access) {
-  if (authIsOwner(auth)) return;
+  if (authHasGlobalBranchRead(auth) || authIsBranchOwner(auth)) return;
   if (!staffMayWriteWhatsappTemplates(access)) {
     const err = new Error('whatsapp-template-write-forbidden');
     err.status = 403;

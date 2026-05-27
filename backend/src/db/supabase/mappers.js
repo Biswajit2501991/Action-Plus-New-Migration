@@ -232,6 +232,7 @@ export function staffRowToApp(row, sections = [], access = {}) {
     ),
     lastLoginAt: row.last_login_at || '',
     gymCodeId: row.gym_code_id || null,
+    staffRole: row.staff_role || 'staff',
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   };
@@ -260,6 +261,7 @@ export function appStaffToRow(u, gymId) {
     updated_at: updatedAt,
   };
   if (u.gymCodeId) row.gym_code_id = String(u.gymCodeId).trim();
+  if (u.staffRole) row.staff_role = String(u.staffRole).trim();
   return row;
 }
 

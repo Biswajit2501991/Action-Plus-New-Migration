@@ -38,4 +38,7 @@ export const env = {
     60 * 1000,
     Number(process.env.PASSWORD_RESET_RATE_LIMIT_WINDOW_MS || 15 * 60 * 1000),
   ),
+  /** When true, staff_role branch_owner + staff_branch_assignments are enforced. */
+  BRANCH_OWNER_ENABLED:
+    process.env.BRANCH_OWNER_ENABLED === 'true' || process.env.BRANCH_OWNER_ENABLED === '1',
 };

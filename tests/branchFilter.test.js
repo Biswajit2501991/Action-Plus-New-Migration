@@ -125,7 +125,7 @@ describe('assertBranchWriteAllowed', () => {
     } catch (err) {
       expect(err.status).toBe(403);
       expect(err.message).toBe('cross-branch-write-forbidden');
-      expect(err.detail.expectedGymCodeId).toBe(branchA);
+      expect(err.detail.allowedGymCodeIds).toEqual([branchA]);
       expect(err.detail.gotGymCodeId).toBe(branchB);
     }
   });

@@ -2750,7 +2750,10 @@ Phone: +91-7047157510`;
         return extractedPermissions.sectionsWithRoleDefaults(rec);
       }
       const access = normalizeAccess(rec.access);
-      if (isOwnerStaffUser(rec)) {
+      const isMaster = typeof window.__APG_MODULES?.authIsMasterOwnerUser === 'function'
+        ? window.__APG_MODULES.authIsMasterOwnerUser(rec)
+        : isOwnerStaffUser(rec);
+      if (isMaster) {
         return { ...rec, access, sections: [...ALL_SECTIONS] };
       }
       return { ...rec, access };
@@ -3635,10 +3638,21 @@ Phone: +91-7047157510`;
       const [templatesBranchLoading, setTemplatesBranchLoading] = React.useState(false);
       const branchTemplateWarnShownRef = React.useRef(false);
       const authIsOwnerForTemplates = React.useCallback((u) => {
-        const fn = window.__APG_MODULES?.authIsOwnerUser || window.__APG_MODULES?.authIsOwnerUserWhatsapp;
-        if (typeof fn === 'function') return fn(u);
+        const masterFn = window.__APG_MODULES?.authIsMasterOwnerUser || window.__APG_MODULES?.authIsOwnerUser;
+        if (typeof masterFn === 'function' && masterFn(u)) return true;
+        const branchFn = window.__APG_MODULES?.authIsBranchOwnerUser;
+        if (typeof branchFn === 'function' && branchFn(u)) return true;
         return String(u?.id || '').toLowerCase() === 'owner';
       }, []);
+      const assignableGymCodes = React.useMemo(() => {
+        const list = Array.isArray(gymCodes) ? gymCodes : [];
+        const allowedFn = window.__APG_MODULES?.allowedBranchIdsForUser;
+        if (typeof allowedFn !== 'function' || !user) return list;
+        const allowed = allowedFn(user);
+        if (allowed === null) return list;
+        const set = new Set(allowed);
+        return list.filter((c) => set.has(String(c.id)));
+      }, [gymCodes, user?.id, user?.staffRole, user?.allowedBranchIds]);
       React.useEffect(() => {
         if (!user?.id) return;
         if (!authIsOwnerForTemplates(user)) {
@@ -5478,7 +5492,14 @@ Phone: +91-7047157510`;
           const nowIso = new Date().toISOString();
           writeAuthSession(rec.id, token);
           const sessionUser = prepareStaffUser(rec);
-          setUser({ ...sessionUser, gymCodeId: rec.gymCodeId || sessionUser.gymCodeId || '', lastLoginAt: nowIso });
+          setUser({
+            ...sessionUser,
+            gymCodeId: rec.gymCodeId || rec.activeBranchId || sessionUser.gymCodeId || '',
+            activeBranchId: rec.activeBranchId || rec.gymCodeId || sessionUser.activeBranchId || '',
+            allowedBranchIds: Array.isArray(rec.allowedBranchIds) ? rec.allowedBranchIds : (rec.gymCodeId ? [rec.gymCodeId] : []),
+            staffRole: rec.staffRole || sessionUser.staffRole || 'staff',
+            lastLoginAt: nowIso,
+          });
           setUsers((prev) => prev.map((u) => (u.id === rec.id ? { ...prepareStaffUser(u.id === rec.id ? { ...u, ...sessionUser } : u), lastLoginAt: nowIso } : u)));
           markLoginAttendance(sessionUser, nowIso);
           pushAttendancePunch('login', sessionUser, nowIso);
@@ -6400,9 +6421,12 @@ Please pay by: ${formattedLastDate}`;
       // invoked after the user confirms deletion in the modal. It logs
       // the deletion and updates local state/storage accordingly.
       const deleteMember = (memberId) => {
-        if (!canDeleteMembers) return;
         const previousMembers = Array.isArray(members) ? members.map((m) => ({ ...m })) : [];
         const deletedRow = previousMembers.find((m) => m.memberId === memberId) || null;
+        const mayDeleteFn = window.__APG_MODULES?.canDeleteMemberForUser;
+        if (typeof mayDeleteFn === 'function') {
+          if (!mayDeleteFn(user, deletedRow, membersAccess)) return;
+        } else if (!canDeleteMembers) return;
         clearMemberAwaitingBackendSync(memberId);
         setMembers(prev => prev.filter(m => m.memberId !== memberId));
         // Remove any open details rows or pages referencing this member
@@ -7383,7 +7407,14 @@ Please pay by: ${formattedLastDate}`;
       const canViewVisitors = membersAccess?.viewVisitors !== false;
       const canAddMembers = membersAccess?.addMembers !== false;
       const canEditMembers = membersAccess?.editMembers !== false;
-      const canDeleteMembers = (user?.id === 'owner') && membersAccess?.deleteMembers !== false;
+      const canDeleteMembers = React.useMemo(() => {
+        if (membersAccess?.deleteMembers === false) return false;
+        const masterFn = window.__APG_MODULES?.authIsMasterOwnerUser;
+        if (typeof masterFn === 'function' && masterFn(user)) return true;
+        const branchFn = window.__APG_MODULES?.authIsBranchOwnerUser;
+        if (typeof branchFn === 'function' && branchFn(user)) return true;
+        return user?.id === 'owner' && membersAccess?.deleteMembers !== false;
+      }, [user, membersAccess]);
       const currentUserRole = String(user?.role || (user?.id === 'owner' ? 'owner' : '')).trim().toLowerCase();
       if (typeof window !== 'undefined') {
         window.__APG_SYNC_CONTEXT__ = user?.id
@@ -17268,7 +17299,7 @@ function PTClientsPage({ members, users, settings, updateSetting, currentUser, a
                       data-testid="whatsapp-templates-branch-select"
                     >
                       <option value="">Select branch…</option>
-                      {(gymCodes || []).map((c) => (
+                      {(assignableGymCodes || []).map((c) => (
                         <option key={c.id} value={c.id}>{c.code} / {c.name || c.branchName}</option>
                       ))}
                     </select>
@@ -18952,7 +18983,12 @@ function PTClientsPage({ members, users, settings, updateSetting, currentUser, a
       const [logsAccessOpen, setLogsAccessOpen] = React.useState(false);
       const [supportAccessOpen, setSupportAccessOpen] = React.useState(false);
       const [backendAccessOpen, setBackendAccessOpen] = React.useState(false);
-      const isOwner = currentUser && currentUser.id === 'owner';
+      const isOwner = typeof window.__APG_MODULES?.authIsMasterOwnerUser === 'function'
+        ? window.__APG_MODULES.authIsMasterOwnerUser(currentUser)
+        : (currentUser && currentUser.id === 'owner');
+      const isBranchAdmin = typeof window.__APG_MODULES?.authIsBranchAdminUser === 'function'
+        ? window.__APG_MODULES.authIsBranchAdminUser(currentUser)
+        : isOwner;
       // Phase 4 owner-only bulk delete. selectedStaffIds is a Set for O(1)
       // toggle/contains checks. We persist no state across reloads — the
       // selection is purely an in-memory tactical convenience.
@@ -18965,7 +19001,19 @@ function PTClientsPage({ members, users, settings, updateSetting, currentUser, a
         if (!u) return false;
         if (PROTECTED_STAFF_IDS_FE.has(String(u.id))) return false;
         if (String(u.role || '').toLowerCase() === 'owner') return false;
+        if (String(u.staffRole || '').toLowerCase() === 'master_owner') return false;
+        if (String(u.staffRole || '').toLowerCase() === 'branch_owner') return false;
         if (u.id === currentUser?.id) return false;
+        if (!isOwner) {
+          const allowedFn = window.__APG_MODULES?.allowedBranchIdsForUser;
+          if (typeof allowedFn === 'function') {
+            const allowed = allowedFn(currentUser);
+            if (allowed !== null) {
+              const branch = String(u.gymCodeId || '').trim();
+              if (!branch || !allowed.includes(branch)) return false;
+            }
+          }
+        }
         return true;
       };
       const selectableUsers = React.useMemo(() => (users || []).filter(isStaffSelectable), [users, currentUser]);
@@ -18988,7 +19036,7 @@ function PTClientsPage({ members, users, settings, updateSetting, currentUser, a
         });
       };
       const performBulkStaffDelete = async () => {
-        if (!isOwner) return;
+        if (!isBranchAdmin) return;
         const ids = Array.from(selectedStaffIds).filter((id) => id && !PROTECTED_STAFF_IDS_FE.has(id));
         if (!ids.length) return;
         const backend = typeof window !== 'undefined' ? window.__APG_BACKEND_JSON__ : null;
@@ -19901,7 +19949,7 @@ function PTClientsPage({ members, users, settings, updateSetting, currentUser, a
                     </td>
                     <td className="px-3 py-2 whitespace-nowrap text-xs max-w-xs truncate text-slate-900">{u.sections && u.sections.join(', ')}</td>
                     <td className="px-3 py-2 whitespace-nowrap text-slate-900">
-                      {isOwner ? (
+                      {isBranchAdmin ? (
                         <div className="flex items-center gap-3">
                           <button onClick={() => openEdit(u)} className="text-indigo-600 hover:underline text-xs font-medium">
                             {u.id === 'owner' ? 'Edit Profile' : 'Edit'}
@@ -19970,7 +20018,7 @@ function PTClientsPage({ members, users, settings, updateSetting, currentUser, a
                     </button>
                   )}
                   <div className="flex flex-wrap gap-2">
-                    {isOwner ? (
+                    {isBranchAdmin ? (
                       <>
                         <button onClick={() => openEdit(u)} className="rounded-lg border border-slate-300 bg-white px-3 py-2 min-h-[44px] text-xs font-medium text-slate-700 hover:bg-slate-100">
                           {u.id === 'owner' ? 'Edit Profile' : 'Edit'}

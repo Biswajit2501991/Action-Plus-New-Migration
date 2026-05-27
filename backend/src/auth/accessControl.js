@@ -148,6 +148,7 @@ export async function getStaffAccessForUser(staffLoginId) {
   const key = String(staffLoginId || '').trim().toLowerCase();
   if (!key) return null;
   if (key === 'owner') return { __owner: true };
+  // branch_owner uses granular access_json — never __owner wildcard
 
   const hit = accessCache.get(key);
   if (hit && Date.now() - hit.at < ACCESS_CACHE_MS) return hit.access;
