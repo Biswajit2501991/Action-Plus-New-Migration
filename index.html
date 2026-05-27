@@ -3126,6 +3126,55 @@ Phone: +91-7047157510`;
       finalRows.sort((a, b) => parseApgTimeMs(b.paidAt) - parseApgTimeMs(a.paidAt));
       return finalRows;
     };
+    /** Revenue rows for dashboard KPIs — payment history first, then billing-date fallback (slim list). */
+    const collectMemberRevenueEntries = (member, today = new Date()) => {
+      if (!member || typeof member !== 'object') return [];
+      const history = normalizeMemberPaymentHistory(member);
+      if (history.length > 0) {
+        return history
+          .map((h) => ({
+            receivedAt: h.paidAt || h.receivedAt || h.date || '',
+            amount: Number(h.amount ?? member.amount ?? 0),
+          }))
+          .filter((h) => h.receivedAt && Number(h.amount || 0) > 0);
+      }
+      const messageDerived = Array.isArray(member.messageHistory)
+        ? Array.from(
+            member.messageHistory
+              .filter((ev) => ev && ev.templateKey === 'success' && (ev.sentAt || ev.ts))
+              .reduce((acc, ev) => {
+                const key = localCalendarDateKey(ev.sentAt || ev.ts);
+                if (!key) return acc;
+                if (!acc.has(key)) {
+                  acc.set(key, {
+                    receivedAt: ev.sentAt || ev.ts,
+                    amount: Number(member.amount || 0),
+                  });
+                }
+                return acc;
+              }, new Map())
+              .values()
+          ).filter((h) => h.receivedAt && Number(h.amount || 0) > 0)
+        : [];
+      if (messageDerived.length > 0) return messageDerived;
+      if (member.paymentReceivedAt) {
+        return [{
+          receivedAt: member.paymentReceivedAt,
+          amount: Number(member.amount || 0),
+        }];
+      }
+      if (member.billingDate && Number(member.amount || 0) > 0) {
+        const due = retentionPaymentDeadline(member);
+        const pending = member.status === 'Active' && due && due < today;
+        if (!pending) {
+          return [{
+            receivedAt: iso(member.billingDate),
+            amount: Number(member.amount || 0),
+          }];
+        }
+      }
+      return [];
+    };
     /**
      * Backend GET can briefly lag behind a local PUT. Replacing React state with that payload
      * was wiping lastSmsSent / messageHistory and the next autosave persisted the loss.
@@ -9679,44 +9728,8 @@ function Sidebar({ user, active, onSelect, theme, setTheme, layoutMode = 'classi
       const today = new Date();
       const todayKey = localTodayCalendarKey();
       const collectedRevenueEntries = React.useMemo(() => {
-        return (members || []).flatMap((m) => {
-          const history = Array.isArray(m.paymentHistory) ? m.paymentHistory : [];
-          if (history.length > 0) {
-            return history
-              .map((h) => ({
-                receivedAt: h.receivedAt || h.date || '',
-                amount: Number(h.amount ?? m.amount ?? 0),
-              }))
-              .filter((h) => h.receivedAt && Number(h.amount || 0) > 0);
-          }
-          const messageDerived = Array.isArray(m.messageHistory)
-            ? Array.from(
-                m.messageHistory
-                  .filter((ev) => ev && ev.templateKey === 'success' && (ev.sentAt || ev.ts))
-                  .reduce((acc, ev) => {
-                    const key = localCalendarDateKey(ev.sentAt || ev.ts);
-                    if (!key) return acc;
-                    if (!acc.has(key)) {
-                      acc.set(key, {
-                        receivedAt: ev.sentAt || ev.ts,
-                        amount: Number(m.amount || 0),
-                      });
-                    }
-                    return acc;
-                  }, new Map())
-                  .values()
-              ).filter((h) => h.receivedAt && Number(h.amount || 0) > 0)
-            : [];
-          if (messageDerived.length > 0) return messageDerived;
-          if (m.paymentReceivedAt) {
-            return [{
-              receivedAt: m.paymentReceivedAt,
-              amount: Number(m.amount || 0),
-            }];
-          }
-          return [];
-        });
-      }, [members]);
+        return (members || []).flatMap((m) => collectMemberRevenueEntries(m, today));
+      }, [members, today]);
       const monthlyRevenue = collectedRevenueEntries
         .filter((r) => {
           const rd = asUTC(r.receivedAt);

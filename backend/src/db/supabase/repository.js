@@ -114,6 +114,32 @@ async function loadMemberChildren(sb, gid, memberIds) {
   return { paymentsByMember, messagesByMember, attachmentsByMember, injuryByMember };
 }
 
+/** Recent payment rows for list/dashboard pulls (avoids full child sync). */
+async function loadMemberPaymentsForList(sb, gid, memberIds, monthsBack = 14) {
+  const paymentsByMember = new Map();
+  if (!memberIds.length) return paymentsByMember;
+  const since = new Date();
+  since.setUTCMonth(since.getUTCMonth() - monthsBack);
+  since.setUTCDate(1);
+  since.setUTCHours(0, 0, 0, 0);
+  const sinceIso = since.toISOString();
+  for (const idChunk of chunk(memberIds, 100)) {
+    const { data, error } = await sb
+      .from(T.member_payment_history)
+      .select('member_id, paid_at, amount, external_payment_id, method, billing_month, billing_date, source, recorded_by, note')
+      .eq('gym_id', gid)
+      .in('member_id', idChunk)
+      .gte('paid_at', sinceIso);
+    if (error) throw error;
+    for (const row of data || []) {
+      const list = paymentsByMember.get(row.member_id) || [];
+      list.push(paymentRowToApp(row));
+      paymentsByMember.set(row.member_id, list);
+    }
+  }
+  return paymentsByMember;
+}
+
 async function readMemberByCode(memberCode, branchScope = null) {
   if (branchScope && !branchScope.isOwner && branchScope.staffNoBranch) {
     return null;
@@ -230,7 +256,11 @@ async function readMembers(scope, branchScope = null, options = {}) {
     return q.range(from, to);
   });
   if (slim) {
-    return sandboxFilter(memberRows.map((row) => memberRowToApp(row, {}, { slim: true })), scope);
+    const memberIds = memberRows.map((r) => r.id);
+    const paymentsByMember = await loadMemberPaymentsForList(sb, gid, memberIds);
+    return sandboxFilter(memberRows.map((row) => memberRowToApp(row, {
+      payments: paymentsByMember.get(row.id) || [],
+    }, { slim: true })), scope);
   }
   const memberIds = memberRows.map((r) => r.id);
   const children = await loadMemberChildren(sb, gid, memberIds);

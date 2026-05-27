@@ -59,6 +59,23 @@ describe('member mapper carries assignedGymCodeId in both directions', () => {
     expect(memberRowToApp(row).assignedGymCodeId).toBe('gc-xyz');
   });
 
+  it('memberRowToApp slim list includes payment history when provided', () => {
+    const row = {
+      id: 'm-1',
+      member_code: 'APG-1',
+      full_name: 'Test',
+      amount: 1200,
+      created_at: '2024',
+      updated_at: '2024',
+    };
+    const app = memberRowToApp(row, {
+      payments: [{ id: 'p1', paidAt: '2026-05-10T00:00:00.000Z', amount: 1200 }],
+    }, { slim: true });
+    expect(app.__listSlim).toBe(true);
+    expect(app.paymentHistory).toHaveLength(1);
+    expect(app.paymentHistory[0].amount).toBe(1200);
+  });
+
   it('appMemberToRow persists assignedGymCodeId trimmed', () => {
     const row = appMemberToRow({ memberId: 'APG-1', name: 'Test', assignedGymCodeId: '  gc-xyz  ' }, 'gym-1');
     expect(row.assigned_gym_code_id).toBe('gc-xyz');

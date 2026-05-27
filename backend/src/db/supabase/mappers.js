@@ -63,7 +63,7 @@ export function memberRowToApp(row, children = {}, options = {}) {
     return {
       ...base,
       __listSlim: true,
-      paymentHistory: [],
+      paymentHistory: children.payments || [],
       messageHistory: [],
       attachments: [],
     };
@@ -96,7 +96,7 @@ export function slimAppMember(m) {
   return {
     ...rest,
     __listSlim: true,
-    paymentHistory: [],
+    paymentHistory: Array.isArray(paymentHistory) ? paymentHistory : [],
     messageHistory: [],
     attachments: [],
   };
