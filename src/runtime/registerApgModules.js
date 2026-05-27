@@ -27,6 +27,11 @@ import {
   normalizeBranchId,
 } from '../features/members/formDirtyState.js';
 import {
+  nextBranchFormNumber,
+  branchCodeToken,
+  buildBranchMemberId,
+} from '../features/members/branchFormNumber.js';
+import {
   authIsOwnerUser as authIsOwnerUserWhatsapp,
   staffMayEditWhatsappTemplates,
   effectiveTemplateBranchIdForUser,
@@ -120,6 +125,9 @@ window.__APG_MODULES.isMemberFormDirty = isMemberFormDirty;
 window.__APG_MODULES.memberFormChangedMap = memberFormChangedMap;
 window.__APG_MODULES.memberEditBaselineKey = memberEditBaselineKey;
 window.__APG_MODULES.normalizeBranchId = normalizeBranchId;
+window.__APG_MODULES.nextBranchFormNumber = nextBranchFormNumber;
+window.__APG_MODULES.branchCodeToken = branchCodeToken;
+window.__APG_MODULES.buildBranchMemberId = buildBranchMemberId;
 window.__APG_MODULES.WHATSAPP_TEMPLATE_KEYS = WHATSAPP_TEMPLATE_KEYS;
 window.__APG_MODULES.authIsOwnerUserWhatsapp = authIsOwnerUserWhatsapp;
 window.__APG_MODULES.staffMayEditWhatsappTemplates = staffMayEditWhatsappTemplates;

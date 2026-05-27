@@ -336,7 +336,7 @@ async function updateMemberFields(memberCode, patch, branchScope = null) {
   // unhelpful when the legacy snapshot has accidental dupes from old imports.
   const { data: dupRows, error: selErr } = await sb
     .from(T.members)
-    .select('id, gym_id, member_code, assigned_gym_code_id, updated_at')
+    .select('id, gym_id, member_code, form_no, assigned_gym_code_id, updated_at')
     .eq('gym_id', gid)
     .eq('member_code', code)
     .order('updated_at', { ascending: false })
@@ -388,6 +388,42 @@ async function updateMemberFields(memberCode, patch, branchScope = null) {
   }
   dbPatch.updated_at = projection.updated_at;
   if (projection.updated_by) dbPatch.updated_by = projection.updated_by;
+
+  // Branch transfer conflict handling:
+  // if target branch already has the same form_no, preserve numeric form_no and
+  // make member_code unique using "-MOVED" suffix for traceability.
+  const targetBranch = Object.prototype.hasOwnProperty.call(patch, 'assignedGymCodeId')
+    ? String(patch.assignedGymCodeId || '').trim()
+    : String(existingRow.assigned_gym_code_id || '').trim();
+  const changingBranch = targetBranch && targetBranch !== String(existingRow.assigned_gym_code_id || '').trim();
+  const currentFormNo = Number(existingRow.form_no || 0);
+  if (changingBranch && Number.isFinite(currentFormNo) && currentFormNo > 0) {
+    const { data: conflictRows, error: conflictErr } = await sb
+      .from(T.members)
+      .select('id')
+      .eq('gym_id', gid)
+      .eq('assigned_gym_code_id', targetBranch)
+      .eq('form_no', currentFormNo)
+      .neq('id', existingRow.id)
+      .limit(1);
+    if (conflictErr) throw new Error(`member transfer conflict check: ${conflictErr.message}`);
+    if (Array.isArray(conflictRows) && conflictRows.length) {
+      const baseCode = String(existingRow.member_code || code).trim();
+      let nextCode = `${baseCode}-MOVED`;
+      for (let i = 2; i < 100; i += 1) {
+        const { data: hit, error: hitErr } = await sb
+          .from(T.members)
+          .select('id')
+          .eq('gym_id', gid)
+          .eq('member_code', nextCode)
+          .limit(1);
+        if (hitErr) throw new Error(`member transfer code check: ${hitErr.message}`);
+        if (!Array.isArray(hit) || hit.length === 0) break;
+        nextCode = `${baseCode}-MOVED${i}`;
+      }
+      dbPatch.member_code = nextCode;
+    }
+  }
 
   const { error: updErr } = await sb
     .from(T.members)

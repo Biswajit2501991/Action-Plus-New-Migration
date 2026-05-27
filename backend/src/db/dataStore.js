@@ -134,7 +134,31 @@ export async function updateMember(memberCode, patch, branchScope = null) {
       throw err;
     }
   }
-  const next = { ...rows[idx], ...patch, updatedAt: new Date().toISOString() };
+  const targetBranch = Object.prototype.hasOwnProperty.call(patch, 'assignedGymCodeId')
+    ? String(patch.assignedGymCodeId || '').trim()
+    : String(rows[idx]?.assignedGymCodeId || '').trim();
+  const sourceBranch = String(rows[idx]?.assignedGymCodeId || '').trim();
+  let nextMemberId = String(rows[idx]?.memberId || '').trim();
+  if (targetBranch && sourceBranch && targetBranch !== sourceBranch) {
+    const formNo = Number(rows[idx]?.formNo || 0);
+    if (Number.isFinite(formNo) && formNo > 0) {
+      const hasConflict = rows.some((m, i) =>
+        i !== idx
+        && String(m?.assignedGymCodeId || '').trim() === targetBranch
+        && Number(m?.formNo || 0) === formNo);
+      if (hasConflict) {
+        const baseCode = nextMemberId || String(memberCode || '').trim();
+        let candidate = `${baseCode}-MOVED`;
+        let n = 2;
+        while (rows.some((m, i) => i !== idx && String(m?.memberId || '').trim() === candidate)) {
+          candidate = `${baseCode}-MOVED${n}`;
+          n += 1;
+        }
+        nextMemberId = candidate;
+      }
+    }
+  }
+  const next = { ...rows[idx], ...patch, memberId: nextMemberId, updatedAt: new Date().toISOString() };
   rows[idx] = next;
   await kvStore.writeJsonCollection('apg.members', rows);
   return next;

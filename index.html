@@ -13383,24 +13383,24 @@ function EditMemberModal({ member, onClose, onSave, onPhotoUploaded = null, plan
         };
       }, [open]);
 
-      // Auto generate the next form number when the wizard opens. We look at all
-      // existing members' form numbers, interpret them as integers and pick the
-      // next number. This value will be assigned to form.formNo when the modal
-      // opens. If there are no members yet, start from 1.
+      // Auto generate the next form number from the selected branch sequence.
       React.useEffect(() => {
         if (!open) return;
         try {
-          const nums = (members || []).map(m => {
-            const fn = m.formNo;
-            return typeof fn === 'number' ? fn : Number(fn);
-          }).filter(n => Number.isFinite(n) && n > 0);
-          const max = nums.length ? Math.max(...nums) : 0;
-          const next = max + 1;
+          const fn = window.__APG_MODULES?.nextBranchFormNumber;
+          const branchId = String(form.assignedGymCodeId || '').trim();
+          const next = typeof fn === 'function'
+            ? fn(members || [], branchId)
+            : (members || [])
+              .filter((m) => String(m?.assignedGymCodeId || '').trim() === branchId)
+              .map((m) => Number(m?.formNo))
+              .filter((n) => Number.isFinite(n) && n > 0)
+              .reduce((acc, n) => Math.max(acc, n), 0) + 1;
           setForm(f => ({ ...f, formNo: String(next) }));
         } catch {
           setForm(f => ({ ...f, formNo: '1' }));
         }
-      }, [open, members]);
+      }, [open, members, form.assignedGymCodeId]);
       // Auto update billing and payment dates when joiningDate changes
       React.useEffect(() => {
         if (form.joiningDate) {
@@ -13424,6 +13424,7 @@ function EditMemberModal({ member, onClose, onSave, onPhotoUploaded = null, plan
       // to proceed to the next step. All fields are required per the new requirements.
       const req1 = {
         formNo: !form.formNo,
+        assignedGymCodeId: !String(form.assignedGymCodeId || '').trim(),
         name: !form.name.trim(),
         email: !form.email.trim() || !isValidEmail(form.email),
         dob: !form.dob || !asUTC(form.dob) || asUTC(form.dob) > asUTC(new Date()),
@@ -13561,6 +13562,7 @@ function EditMemberModal({ member, onClose, onSave, onPhotoUploaded = null, plan
       const missingSummary = React.useMemo(() => {
         const lines = [];
         if (req1.formNo) lines.push('Form Number');
+        if (req1.assignedGymCodeId) lines.push('Gym Branch (Gym Code)');
         if (req1.name) lines.push('Full Name');
         if (req1.email) lines.push('Valid Gmail');
         if (req1.dob) lines.push('Valid DOB');
@@ -13613,6 +13615,7 @@ function EditMemberModal({ member, onClose, onSave, onPhotoUploaded = null, plan
       const firstInvalidStepField = (stepNo) => {
         if (stepNo === 1) {
           if (req1.formNo) return 'add-member-formNo';
+          if (req1.assignedGymCodeId) return 'add-member-gym-code';
           if (req1.name) return 'add-member-name';
           if (req1.email) return 'add-member-email';
           if (req1.dob) return 'add-member-dob';
@@ -13726,7 +13729,14 @@ function EditMemberModal({ member, onClose, onSave, onPhotoUploaded = null, plan
         }
         // Generate member ID and payMonth label
         const yearSuffix = String(new Date().getFullYear()).slice(-2);
-        const memberId = `APG-${form.formNo}/${yearSuffix}`;
+        const branchTokenResolver = window.__APG_MODULES?.branchCodeToken;
+        const buildMemberId = window.__APG_MODULES?.buildBranchMemberId;
+        const branchToken = typeof branchTokenResolver === 'function'
+          ? branchTokenResolver(gymCodes, form.assignedGymCodeId)
+          : 'BR';
+        const memberId = typeof buildMemberId === 'function'
+          ? buildMemberId(form.formNo, yearSuffix, branchToken)
+          : `APG-${form.formNo}/${yearSuffix}-${branchToken}`;
         const duplicateMemberId = (members || []).some(m => String(m.memberId || '').trim() === memberId);
         if (duplicateMemberId) {
           goToStepAndFocus(1, 'add-member-formNo', 'Generated member ID already exists. Please change Form Number.', 5);
