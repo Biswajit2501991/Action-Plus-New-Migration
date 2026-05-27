@@ -75,8 +75,15 @@ describe('stampBranchOnRows', () => {
     expect(stampBranchOnRows(rows, auth)[0].assignedGymCodeId).toBe(branchA);
   });
 
-  it('does not mutate already-tagged rows', () => {
-    const auth = { userId: 'deep', gymCodeId: branchA };
+  it('staff overwrites wrong branch with JWT branch', () => {
+    const auth = { userId: 'deep', roles: ['staff'], gymCodeId: branchA };
+    const rows = [{ id: 'm1', assignedGymCodeId: branchB }];
+    const out = stampBranchOnRows(rows, auth);
+    expect(out[0].assignedGymCodeId).toBe(branchA);
+  });
+
+  it('owner keeps explicit branch on tagged rows', () => {
+    const auth = { userId: 'owner', gymCodeId: branchA, roles: ['owner'] };
     const rows = [{ id: 'm1', assignedGymCodeId: branchB }];
     const out = stampBranchOnRows(rows, auth);
     expect(out[0].assignedGymCodeId).toBe(branchB);

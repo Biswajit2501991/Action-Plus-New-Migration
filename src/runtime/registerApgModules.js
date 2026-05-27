@@ -20,6 +20,17 @@ import {
   scopeVisitorsForBulkSync,
 } from '../features/branch/branchAccess.js';
 import {
+  resolveDefaultAssignedGymCodeId,
+  enforceStaffBranchOnForm,
+  sanitizeAddMemberDraftForm,
+} from '../features/branch/branchDefaultResolver.js';
+import {
+  addMemberDraftKeyForUser,
+  loadAddMemberDraft,
+  saveAddMemberDraft,
+  clearAddMemberDraft,
+} from '../features/forms/addMemberDraft.js';
+import {
   EDIT_MEMBER_DIRTY_KEYS,
   isMemberFormDirty,
   memberFormChangedMap,
@@ -120,6 +131,13 @@ window.__APG_MODULES.authIsOwnerUser = authIsOwnerUser;
 window.__APG_MODULES.staffHasBranch = staffHasBranch;
 window.__APG_MODULES.scopeMembersForBulkSync = scopeMembersForBulkSync;
 window.__APG_MODULES.scopeVisitorsForBulkSync = scopeVisitorsForBulkSync;
+window.__APG_MODULES.resolveDefaultAssignedGymCodeId = resolveDefaultAssignedGymCodeId;
+window.__APG_MODULES.enforceStaffBranchOnForm = enforceStaffBranchOnForm;
+window.__APG_MODULES.sanitizeAddMemberDraftForm = sanitizeAddMemberDraftForm;
+window.__APG_MODULES.addMemberDraftKeyForUser = addMemberDraftKeyForUser;
+window.__APG_MODULES.loadAddMemberDraft = loadAddMemberDraft;
+window.__APG_MODULES.saveAddMemberDraft = saveAddMemberDraft;
+window.__APG_MODULES.clearAddMemberDraft = clearAddMemberDraft;
 window.__APG_MODULES.EDIT_MEMBER_DIRTY_KEYS = EDIT_MEMBER_DIRTY_KEYS;
 window.__APG_MODULES.isMemberFormDirty = isMemberFormDirty;
 window.__APG_MODULES.memberFormChangedMap = memberFormChangedMap;

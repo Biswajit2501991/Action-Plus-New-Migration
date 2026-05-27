@@ -6493,7 +6493,11 @@ Please pay by: ${formattedLastDate}`;
           setFamilyLinkPrompt(null);
           setAddOpen(false);
           setPrefillVisitor(null);
-          try { localStorage.removeItem(STORAGE_KEYS.addMemberDraft); } catch {}
+          try {
+            const clearDraft = window.__APG_MODULES?.clearAddMemberDraft;
+            if (typeof clearDraft === 'function') clearDraft(localStorage);
+            else localStorage.removeItem(STORAGE_KEYS.addMemberDraft);
+          } catch {}
           addMember(enriched, { groupId, primaryMemberId: primaryId });
           return;
         }
@@ -6928,7 +6932,11 @@ Please pay by: ${formattedLastDate}`;
       };
       const convertVisitorToMember = (visitor) => {
         if (!visitor) return;
-        try { localStorage.removeItem(STORAGE_KEYS.addMemberDraft); } catch {}
+        try {
+          const clearDraft = window.__APG_MODULES?.clearAddMemberDraft;
+          if (typeof clearDraft === 'function') clearDraft(localStorage);
+          else localStorage.removeItem(STORAGE_KEYS.addMemberDraft);
+        } catch {}
         setPrefillVisitor(visitor);
         setAddOpen(true);
         setActiveTab('Members');
@@ -6942,7 +6950,11 @@ Please pay by: ${formattedLastDate}`;
           if (!raw) return;
           convertVisitorLaunchRef.current = true;
           sessionStorage.removeItem('apg.convertVisitor');
-          try { localStorage.removeItem(STORAGE_KEYS.addMemberDraft); } catch {}
+          try {
+            const clearDraft = window.__APG_MODULES?.clearAddMemberDraft;
+            if (typeof clearDraft === 'function') clearDraft(localStorage);
+            else localStorage.removeItem(STORAGE_KEYS.addMemberDraft);
+          } catch {}
           const payload = JSON.parse(raw);
           if (!payload?.id) return;
           const match = (visitors || []).find((v) => v.id === payload.id);
@@ -7448,7 +7460,11 @@ Please pay by: ${formattedLastDate}`;
           if (resetSelection.smsEvents) localStorage.removeItem(STORAGE_KEYS.smsEvents);
           if (resetSelection.filters) {
             localStorage.removeItem(STORAGE_KEYS.filters);
-            localStorage.removeItem(STORAGE_KEYS.addMemberDraft);
+            try {
+              const clearDraft = window.__APG_MODULES?.clearAddMemberDraft;
+              if (typeof clearDraft === 'function') clearDraft(localStorage);
+              else localStorage.removeItem(STORAGE_KEYS.addMemberDraft);
+            } catch {}
             localStorage.removeItem('apg.filterPresets');
           }
           if (resetSelection.settingsTemplates) localStorage.removeItem(STORAGE_KEYS.settings);
@@ -13257,10 +13273,39 @@ function EditMemberModal({ member, onClose, onSave, onPhotoUploaded = null, plan
     function AddMemberWizard({ open, onClose, onSave, onFamilyMobileDuplicate = null, settings, staffName, currentUser = null, members, canEditFormNo, smartDefaults = {}, prefillData = null, gymCodes = [], hqGymCodeId = null, gymCodeLabel = () => '—' }) {
       const isOwnerWizard = String(currentUser?.id || '').toLowerCase() === 'owner'
         || (Array.isArray(currentUser?.roles) && currentUser.roles.includes('owner'));
-      // Per policy: Owner = dropdown defaults to HQ; Staff = pre-filled and locked to their own gymCodeId.
-      const defaultAssignedGymCodeId = isOwnerWizard
-        ? (hqGymCodeId || (gymCodes?.[0]?.id) || '')
-        : (currentUser?.gymCodeId || hqGymCodeId || '');
+      const branchOpts = { hqGymCodeId, gymCodes };
+      const resolveDefaultBranch = window.__APG_MODULES?.resolveDefaultAssignedGymCodeId
+        || ((user, opts) => {
+          const owner = String(user?.id || '').toLowerCase() === 'owner'
+            || (Array.isArray(user?.roles) && user.roles.includes('owner'));
+          if (owner) return String(opts?.hqGymCodeId || opts?.gymCodes?.[0]?.id || '').trim();
+          return String(user?.gymCodeId || '').trim();
+        });
+      const enforceBranch = window.__APG_MODULES?.enforceStaffBranchOnForm
+        || ((branchId, user, opts) => {
+          const owner = String(user?.id || '').toLowerCase() === 'owner'
+            || (Array.isArray(user?.roles) && user.roles.includes('owner'));
+          if (!owner) return String(user?.gymCodeId || branchId || '').trim();
+          const trimmed = String(branchId || '').trim();
+          return trimmed || resolveDefaultBranch(user, opts);
+        });
+      const sanitizeDraftForm = window.__APG_MODULES?.sanitizeAddMemberDraftForm
+        || ((form, user, opts) => {
+          const next = enforceBranch(form?.assignedGymCodeId, user, opts);
+          if (String(form?.assignedGymCodeId || '').trim() === next) return form;
+          return { ...form, assignedGymCodeId: next };
+        });
+      const draftKeyForUser = window.__APG_MODULES?.addMemberDraftKeyForUser
+        || ((user) => {
+          if (!user) return STORAGE_KEYS.addMemberDraft;
+          const owner = String(user?.id || '').toLowerCase() === 'owner'
+            || (Array.isArray(user?.roles) && user.roles.includes('owner'));
+          if (owner) return `${STORAGE_KEYS.addMemberDraft}::owner`;
+          const id = String(user.id || 'staff').trim().toLowerCase() || 'staff';
+          return `${STORAGE_KEYS.addMemberDraft}::${id}`;
+        });
+      // Per policy: Owner = dropdown defaults to HQ; Staff = their branch only (never HQ fallback).
+      const defaultAssignedGymCodeId = resolveDefaultBranch(currentUser, branchOpts);
       const defaultJoiningDate = smartDefaults.joiningDate || iso(new Date());
       const defaultBillingDate = smartDefaults.billingDate || iso(new Date());
       const planOptions = React.useMemo(() => {
@@ -13315,29 +13360,35 @@ function EditMemberModal({ member, onClose, onSave, onPhotoUploaded = null, plan
         parentGuardianSignature: '',
       });
       const [warn, setWarn] = React.useState('');
-      const DRAFT_KEY = STORAGE_KEYS.addMemberDraft;
+      const DRAFT_KEY = draftKeyForUser(currentUser);
       // Update staff when prop changes
       React.useEffect(() => { setForm(f => ({ ...f, staff: staffName || '' })); }, [staffName]);
-      // Keep wizard's gym-code in sync if codes load after open (defensive — staff is always locked).
+      // Pin branch: staff always JWT branch; owner fills when empty.
       React.useEffect(() => {
         if (!open) return;
         setForm((f) => {
-          if (f.assignedGymCodeId) return f;
-          return { ...f, assignedGymCodeId: defaultAssignedGymCodeId };
+          const next = enforceBranch(f.assignedGymCodeId, currentUser, branchOpts);
+          if (next === f.assignedGymCodeId) return f;
+          return { ...f, assignedGymCodeId: next };
         });
-      }, [open, defaultAssignedGymCodeId]);
+      }, [open, defaultAssignedGymCodeId, currentUser?.gymCodeId, currentUser?.id]);
       React.useEffect(() => {
         if (!open) return;
         try {
-          const raw = localStorage.getItem(DRAFT_KEY);
-          if (!raw) return;
-          const parsed = JSON.parse(raw);
+          const loadDraft = window.__APG_MODULES?.loadAddMemberDraft;
+          const parsed = typeof loadDraft === 'function'
+            ? loadDraft(localStorage, currentUser)
+            : (() => {
+              const raw = localStorage.getItem(DRAFT_KEY) || (!isOwnerWizard ? localStorage.getItem(STORAGE_KEYS.addMemberDraft) : null);
+              return raw ? JSON.parse(raw) : null;
+            })();
           if (parsed && parsed.form && parsed.step) {
-            setForm(f => ({ ...f, ...parsed.form, staff: staffName || parsed.form.staff || '' }));
+            const restored = sanitizeDraftForm(parsed.form, currentUser, branchOpts);
+            setForm(f => ({ ...f, ...restored, staff: staffName || restored.staff || '' }));
             setStep(Math.max(1, Math.min(5, Number(parsed.step) || 1)));
           }
         } catch {}
-      }, [open, staffName]);
+      }, [open, staffName, DRAFT_KEY]);
       React.useEffect(() => {
         if (!open) return;
         setForm((prev) => {
@@ -13349,9 +13400,12 @@ function EditMemberModal({ member, onClose, onSave, onPhotoUploaded = null, plan
       React.useEffect(() => {
         if (!open) return;
         try {
-          localStorage.setItem(DRAFT_KEY, JSON.stringify({ step, form }));
+          const saveDraft = window.__APG_MODULES?.saveAddMemberDraft;
+          const payload = { step, form: sanitizeDraftForm(form, currentUser, branchOpts) };
+          if (typeof saveDraft === 'function') saveDraft(localStorage, currentUser, payload);
+          else localStorage.setItem(DRAFT_KEY, JSON.stringify(payload));
         } catch {}
-      }, [open, step, form]);
+      }, [open, step, form, DRAFT_KEY]);
       React.useEffect(() => {
         if (!open) {
           setHideFooterOnMobile(false);
@@ -13762,7 +13816,11 @@ function EditMemberModal({ member, onClose, onSave, onPhotoUploaded = null, plan
           return;
         }
         onSave(newMember);
-        try { localStorage.removeItem(DRAFT_KEY); } catch {}
+        try {
+          const clearDraft = window.__APG_MODULES?.clearAddMemberDraft;
+          if (typeof clearDraft === 'function') clearDraft(localStorage, currentUser);
+          else localStorage.removeItem(DRAFT_KEY);
+        } catch {}
         onClose();
         setStep(1);
         setResumeStepAfterFix(null);

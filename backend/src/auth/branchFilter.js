@@ -41,9 +41,13 @@ export function stampBranchOnRows(rows, auth, defaultCode = null) {
   const isOwner = authIsOwner(auth);
   return rows.map((r) => {
     if (!r || typeof r !== 'object') return r;
+    // Staff always stamp JWT branch (client drafts may carry owner/HQ).
+    if (!isOwner && fromAuth) {
+      return { ...r, assignedGymCodeId: fromAuth };
+    }
     if (r.assignedGymCodeId) return r;
-    // Owner with no selection falls back to HQ; staff is stamped from JWT.
-    const code = isOwner ? (defaultCode || fromAuth) : fromAuth;
+    // Owner with no selection falls back to HQ.
+    const code = defaultCode || fromAuth;
     if (!code) return r;
     return { ...r, assignedGymCodeId: code };
   });
