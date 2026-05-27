@@ -14,6 +14,15 @@
   <!-- React and ReactDOM UMD bundles served from local files -->
   <script src="./vendor/react.development.js"></script>
   <script src="./vendor/react-dom.development.js"></script>
+  <script type="importmap">
+    {
+      "imports": {
+        "react": "./vendor/react-esm-shim.js",
+        "react-dom": "./vendor/react-dom-esm-shim.js",
+        "react-dom/client": "./vendor/react-dom-client-esm-shim.js"
+      }
+    }
+  </script>
   <!-- Babel Standalone served locally for in-browser JSX compilation -->
   <script src="./vendor/babel.min.js"></script>
   <!-- Include our app‑specific stylesheet (currently minimal; most styling uses Tailwind classes) -->
@@ -988,21 +997,48 @@
   <div id="root"></div>
   <script>
     (function () {
+      var bootErrorTimer = null;
+      function appLooksMounted() {
+        var root = document.getElementById('root');
+        if (!root || !root.childElementCount) return false;
+        var text = String(root.innerText || '');
+        if (text.indexOf('USER LOGIN') >= 0 || text.indexOf('LOGIN') >= 0) return true;
+        if (root.querySelector('button, input, aside, nav, main')) return true;
+        return Boolean(text.trim());
+      }
       function showBootError(msg) {
         var root = document.getElementById('root');
-        if (!root) return;
-        if (root.childElementCount > 0 && root.innerText && root.innerText.trim()) return;
-        root.innerHTML = '<div style="max-width:42rem;margin:2rem auto;padding:1.25rem 1.5rem;border:1px solid #fecaca;background:#fff1f2;color:#9f1239;border-radius:12px;font:14px/1.5 system-ui,sans-serif">'
+        if (!root || appLooksMounted()) return;
+        root.innerHTML = '<div data-boot-error="1" style="max-width:42rem;margin:2rem auto;padding:1.25rem 1.5rem;border:1px solid #fecaca;background:#fff1f2;color:#9f1239;border-radius:12px;font:14px/1.5 system-ui,sans-serif">'
           + '<strong>App failed to start</strong><p style="margin:0.75rem 0 0">' + String(msg || 'Unknown error') + '</p>'
           + '<p style="margin:0.75rem 0 0;color:#64748b">Open DevTools → Console for details. Try a hard refresh (Cmd+Shift+R). Use <code>npm run dev:web</code> for API + env.</p></div>';
       }
+      function cancelBootError() {
+        if (bootErrorTimer) {
+          clearTimeout(bootErrorTimer);
+          bootErrorTimer = null;
+        }
+      }
+      function queueBootError(msg) {
+        cancelBootError();
+        bootErrorTimer = setTimeout(function () {
+          bootErrorTimer = null;
+          if (!appLooksMounted()) showBootError(msg);
+        }, 1500);
+      }
       window.addEventListener('error', function (e) {
-        showBootError(e && (e.message || e.error));
+        queueBootError(e && (e.message || e.error));
       });
       window.addEventListener('unhandledrejection', function (e) {
         var reason = e && e.reason;
-        showBootError(reason && (reason.message || reason));
+        queueBootError(reason && (reason.message || reason));
       });
+      var bootRoot = document.getElementById('root');
+      if (bootRoot && typeof MutationObserver !== 'undefined') {
+        new MutationObserver(function () {
+          if (appLooksMounted()) cancelBootError();
+        }).observe(bootRoot, { childList: true, subtree: true });
+      }
     })();
   </script>
   <script>
@@ -17004,6 +17040,22 @@ function PTClientsPage({ members, users, settings, updateSetting, currentUser, a
         if (typeof fn === 'function') return fn(currentUser);
         return currentUser?.id === 'owner';
       };
+      const authMayPickTemplateBranch = () => {
+        const masterFn = window.__APG_MODULES?.authIsMasterOwnerUser || window.__APG_MODULES?.authIsOwnerUser;
+        if (typeof masterFn === 'function' && masterFn(currentUser)) return true;
+        const branchFn = window.__APG_MODULES?.authIsBranchOwnerUser;
+        if (typeof branchFn === 'function' && branchFn(currentUser)) return true;
+        return authIsOwnerUserLocal();
+      };
+      const assignableGymCodes = React.useMemo(() => {
+        const list = Array.isArray(gymCodes) ? gymCodes : [];
+        const allowedFn = window.__APG_MODULES?.allowedBranchIdsForUser;
+        if (typeof allowedFn !== 'function' || !currentUser) return list;
+        const allowed = allowedFn(currentUser);
+        if (allowed === null) return list;
+        const allowedSet = new Set(allowed);
+        return list.filter((c) => allowedSet.has(String(c.id)));
+      }, [gymCodes, currentUser?.id, currentUser?.staffRole, currentUser?.allowedBranchIds]);
       const effectiveBranchId = React.useMemo(() => {
         const fn = window.__APG_MODULES?.effectiveTemplateBranchIdForUser;
         if (typeof fn === 'function') {
@@ -17307,7 +17359,7 @@ function PTClientsPage({ members, users, settings, updateSetting, currentUser, a
           )}
           {activeType === 'templates' && (
             <div className="space-y-4">
-              {authIsOwnerUserLocal() && (
+              {authMayPickTemplateBranch() && (
                 <div className="flex flex-wrap items-end gap-3 rounded-2xl border border-slate-200 bg-white p-4">
                   <div className="min-w-[220px] flex-1">
                     <label className="text-xs font-medium text-slate-600">Gym Branch (Gym Code)</label>
@@ -17332,7 +17384,7 @@ function PTClientsPage({ members, users, settings, updateSetting, currentUser, a
                   </p>
                 </div>
               )}
-              {!authIsOwnerUserLocal() && effectiveBranchId && (
+              {!authMayPickTemplateBranch() && effectiveBranchId && (
                 <p className="text-xs text-slate-600 rounded-xl border border-slate-200 bg-slate-50 px-3 py-2">
                   Branch: <span className="font-semibold">{gymCodeLabel(effectiveBranchId)}</span> (your assigned branch only)
                 </p>
