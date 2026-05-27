@@ -2373,6 +2373,8 @@ Phone: +91-7047157510`;
     // A 15m client TTL was logging staff out while the JWT was still valid.
     const AUTH_SESSION_TTL_MS = 12 * 60 * 60 * 1000;
     const AUTH_SESSION_IDLE_MS = 8 * 60 * 60 * 1000;
+    const AUTH_ME_TIMEOUT_MS = 12000;
+    const AUTH_BOOTSTRAP_MAX_MS = 15000;
     const HEAVY_STORAGE_KEYS = [
       STORAGE_KEYS.members,
       STORAGE_KEYS.users,
@@ -2410,9 +2412,21 @@ Phone: +91-7047157510`;
       return out;
     };
     /** Strip photos + nested child rows from bulk PUT; include child data only for pending members. */
-    const membersForBulkSync = (list, syncPending = {}) => {
+    const membersForBulkSync = (list, syncPending = {}, currentUser = null) => {
       const pending = syncPending && typeof syncPending === 'object' ? syncPending : {};
-      return (Array.isArray(list) ? list : []).map((m) => {
+      let scoped = Array.isArray(list) ? list : [];
+      if (currentUser) {
+        const scopeFn = window.__APG_MODULES?.scopeMembersForBulkSync
+          || window.__APG_MODULES?.filterMembersForUser;
+        if (typeof scopeFn === 'function') scoped = scopeFn(currentUser, scoped);
+        else if (!isOwnerStaffUser(currentUser)) {
+          const staffCode = String(currentUser.gymCodeId || '').trim();
+          scoped = staffCode
+            ? scoped.filter((m) => String(m?.assignedGymCodeId || '').trim() === staffCode)
+            : [];
+        }
+      }
+      return scoped.map((m) => {
         if (!m || typeof m !== 'object') return m;
         const id = String(m.memberId || '').trim();
         const isPending = Boolean(id && pending[id]);
@@ -2658,9 +2672,13 @@ Phone: +91-7047157510`;
       const parsed = readAuthSession();
       if (!parsed?.token || isAuthSessionExpired(parsed)) return null;
       const t0 = typeof performance !== 'undefined' ? performance.now() : 0;
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), AUTH_ME_TIMEOUT_MS);
       try {
         const me = await fetch(`${getBackendApiBaseUrl()}/auth/me`, {
           headers: { Authorization: `Bearer ${parsed.token}`, 'Content-Type': 'application/json' },
+          cache: 'no-store',
+          signal: controller.signal,
         });
         if (!me.ok) {
           apgLoadTimingRecord('auth', 'GET /auth/me', performance.now() - t0, { status: me.status, ok: false });
@@ -2676,8 +2694,13 @@ Phone: +91-7047157510`;
         });
         return data;
       } catch (err) {
-        apgLoadTimingRecord('auth', 'GET /auth/me', performance.now() - t0, { ok: false, err: String(err?.message || err) });
+        apgLoadTimingRecord('auth', 'GET /auth/me', performance.now() - t0, {
+          ok: false,
+          err: controller.signal.aborted ? 'client-timeout' : String(err?.message || err),
+        });
         return null;
+      } finally {
+        clearTimeout(timer);
       }
     };
     const usersForApi = (list) => (Array.isArray(list) ? list : []).map((u) => {
@@ -2697,7 +2720,25 @@ Phone: +91-7047157510`;
       if (!app) return true;
       return new Date(req).getTime() > new Date(app).getTime();
     };
-    const isOwnerStaffUser = (u) => String(u?.id || '').trim().toLowerCase() === 'owner';
+    const isOwnerStaffUser = (u) => {
+      if (window.__APG_MODULES?.authIsOwnerUser) return window.__APG_MODULES.authIsOwnerUser(u);
+      return String(u?.id || '').trim().toLowerCase() === 'owner';
+    };
+    const visitorsForBulkSync = (list, currentUser = null) => {
+      let scoped = Array.isArray(list) ? list : [];
+      if (currentUser) {
+        const scopeFn = window.__APG_MODULES?.scopeVisitorsForBulkSync
+          || window.__APG_MODULES?.filterVisitorsForUser;
+        if (typeof scopeFn === 'function') scoped = scopeFn(currentUser, scoped);
+        else if (!isOwnerStaffUser(currentUser)) {
+          const staffCode = String(currentUser.gymCodeId || '').trim();
+          scoped = staffCode
+            ? scoped.filter((v) => String(v?.assignedGymCodeId || '').trim() === staffCode)
+            : [];
+        }
+      }
+      return scoped;
+    };
     const canBulkSyncMembers = (u) => {
       if (isOwnerStaffUser(u)) return true;
       const m = normalizeAccess(u?.access).members;
@@ -3462,7 +3503,6 @@ Phone: +91-7047157510`;
     // ---- App Component ----
     function GymApp() {
       const [user, setUser] = React.useState(null);
-      const [authSessionReady, setAuthSessionReady] = React.useState(false);
       const sessionTouchRef = React.useRef(0);
       const [dataSyncMode, setDataSyncMode] = React.useState('checking');
       const [lastHeartbeatAt, setLastHeartbeatAt] = React.useState('');
@@ -3802,17 +3842,32 @@ Phone: +91-7047157510`;
         let alive = true;
         (async () => {
           const tHealth = performance.now();
+          const controller = new AbortController();
+          const timer = setTimeout(() => controller.abort(), 8000);
           try {
-            await fetch(`${getBackendApiBaseUrl()}/health`, { cache: 'no-store' });
-            apgLoadTimingRecord('boot', 'GET /health', performance.now() - tHealth, { ok: true });
+            const res = await fetch(`${getBackendApiBaseUrl()}/health`, {
+              cache: 'no-store',
+              signal: controller.signal,
+            });
             if (!alive) return;
-            setDataSyncMode('backend');
+            if (res.ok) {
+              apgLoadTimingRecord('boot', 'GET /health', performance.now() - tHealth, { ok: true });
+              setDataSyncMode('backend');
+            } else {
+              apgLoadTimingRecord('boot', 'GET /health', performance.now() - tHealth, { ok: false, status: res.status });
+              setDataSyncMode('local');
+              setBackendHydrated(false);
+            }
           } catch (err) {
-            apgLoadTimingRecord('boot', 'GET /health', performance.now() - tHealth, { ok: false, err: String(err?.message || err) });
+            apgLoadTimingRecord('boot', 'GET /health', performance.now() - tHealth, {
+              ok: false,
+              err: controller.signal.aborted ? 'client-timeout' : String(err?.message || err),
+            });
             if (!alive) return;
             setDataSyncMode('local');
             setBackendHydrated(false);
           } finally {
+            clearTimeout(timer);
             if (alive) setSyncRuntimeReady(true);
           }
         })();
@@ -4235,7 +4290,7 @@ Phone: +91-7047157510`;
             for (const row of rows) {
               if (!alive || !row?.entity) continue;
               if (row.entity === 'members') {
-                await backendJson('/members/bulk', { method: 'PUT', body: JSON.stringify({ members: membersForBulkSync(row.payload || []) }) });
+                await backendJson('/members/bulk', { method: 'PUT', body: JSON.stringify({ members: membersForBulkSync(row.payload || [], {}, user) }) });
                 await deleteQueuedSnapshot('members');
                 setOfflineQueueCount((c) => Math.max(0, c - 1));
               } else if (row.entity === 'users') {
@@ -4243,7 +4298,7 @@ Phone: +91-7047157510`;
                 await deleteQueuedSnapshot('users');
                 setOfflineQueueCount((c) => Math.max(0, c - 1));
               } else if (row.entity === 'visitors') {
-                await backendJson('/visitors/bulk', { method: 'PUT', body: JSON.stringify({ visitors: row.payload || [] }) });
+                await backendJson('/visitors/bulk', { method: 'PUT', body: JSON.stringify({ visitors: visitorsForBulkSync(row.payload || [], user) }) });
                 await deleteQueuedSnapshot('visitors');
                 setOfflineQueueCount((c) => Math.max(0, c - 1));
               } else if (row.entity === 'settings') {
@@ -4284,14 +4339,15 @@ Phone: +91-7047157510`;
         // Never push an empty member list to the server (would wipe Supabase after partial hydrate).
         if (!Array.isArray(members) || members.length === 0) return;
         if (!canBulkSyncMembers(user)) return;
+        if (skipBulkPushAfterHydrate()) return;
         const timer = setTimeout(() => {
           backendJson('/members/bulk', {
             method: 'PUT',
-            body: JSON.stringify({ members: membersForBulkSync(members, memberSyncPending) }),
+            body: JSON.stringify({ members: membersForBulkSync(members, memberSyncPending, user) }),
           }).catch(() => queueSyncSnapshot('members', members).then(() => setOfflineQueueCount((c) => c + 1)).catch(() => {}));
         }, BACKEND_BULK_DEBOUNCE_MS);
         return () => clearTimeout(timer);
-      }, [members, dataSyncMode, syncRuntimeReady, backendHydrated, memberSyncPending, user?.id]);
+      }, [members, dataSyncMode, syncRuntimeReady, backendHydrated, memberSyncPending, user?.id, user?.gymCodeId]);
       React.useEffect(() => {
         if (!syncRuntimeReady) return;
         if (dataSyncMode === 'backend' && !backendHydrated) return;
@@ -4303,11 +4359,11 @@ Phone: +91-7047157510`;
         const timer = setTimeout(() => {
           backendJson('/visitors/bulk', {
             method: 'PUT',
-            body: JSON.stringify({ visitors }),
+            body: JSON.stringify({ visitors: visitorsForBulkSync(visitors, user) }),
           }).catch(() => queueSyncSnapshot('visitors', visitors).then(() => setOfflineQueueCount((c) => c + 1)).catch(() => {}));
         }, BACKEND_BULK_DEBOUNCE_MS);
         return () => clearTimeout(timer);
-      }, [visitors, dataSyncMode, syncRuntimeReady, backendHydrated]);
+      }, [visitors, dataSyncMode, syncRuntimeReady, backendHydrated, user?.id, user?.gymCodeId]);
       React.useEffect(() => {
         if (!syncRuntimeReady) return;
         if (dataSyncMode === 'backend' && !backendHydrated) return;
@@ -4799,8 +4855,11 @@ Phone: +91-7047157510`;
       const callbackNotifications = React.useMemo(() => {
         const canSeeVisitors = normalizeAccess(user?.access).members?.viewVisitors !== false;
         if (!canSeeVisitors) return [];
+        const scopedVisitors = typeof window.__APG_MODULES?.filterVisitorsForUser === 'function'
+          ? window.__APG_MODULES.filterVisitorsForUser(user, visitors)
+          : (visitors || []);
         const todayKey = localTodayCalendarKey();
-        return (visitors || [])
+        return scopedVisitors
           .filter((v) => {
             if (v.status === 'Converted') return false;
             const tentativeKey = localCalendarDateKey(v.tentativeJoiningDate);
@@ -5344,7 +5403,7 @@ Phone: +91-7047157510`;
           const nowIso = new Date().toISOString();
           writeAuthSession(rec.id, token);
           const sessionUser = prepareStaffUser(rec);
-          setUser({ ...sessionUser, lastLoginAt: nowIso });
+          setUser({ ...sessionUser, gymCodeId: rec.gymCodeId || sessionUser.gymCodeId || '', lastLoginAt: nowIso });
           setUsers((prev) => prev.map((u) => (u.id === rec.id ? { ...prepareStaffUser(u.id === rec.id ? { ...u, ...sessionUser } : u), lastLoginAt: nowIso } : u)));
           markLoginAttendance(sessionUser, nowIso);
           pushAttendancePunch('login', sessionUser, nowIso);
@@ -5356,12 +5415,16 @@ Phone: +91-7047157510`;
           }
           return true;
         };
-        if (dataSyncMode === 'backend') {
+        const loginViaBackend = async () => {
+          const controller = new AbortController();
+          const timer = setTimeout(() => controller.abort(), 20000);
           try {
             const res = await fetch(`${getBackendApiBaseUrl()}/auth/login`, {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify({ identifier: raw, password: pw }),
+              cache: 'no-store',
+              signal: controller.signal,
             });
             if (res.ok) {
               const data = await res.json();
@@ -5373,6 +5436,7 @@ Phone: +91-7047157510`;
                   return [...prev, rec];
                 });
               }
+              if (dataSyncMode === 'checking') setDataSyncMode('backend');
               return finishLogin(rec, data?.token || '');
             }
             if (res.status === 403) {
@@ -5388,19 +5452,32 @@ Phone: +91-7047157510`;
               return msg;
             }
             if (res.status === 401) {
-              return 'Wrong username or password. If you recently migrated to Supabase, the default password may have changed — reset it from the server.';
+              return 'Wrong username or password.';
             }
             if (res.status === 503) {
-              return 'Login server is not ready (Supabase auth unavailable). Try again shortly.';
+              return 'Login server is not ready. Check that the backend is running and try again.';
             }
             return `Login failed (server error ${res.status}). Check your connection and try again.`;
-          } catch {
-            return 'Cannot reach the login server. Check your internet connection or try again in a moment.';
+          } catch (err) {
+            if (controller.signal.aborted) {
+              return 'Login timed out. Check that the server is running and try again.';
+            }
+            return 'Cannot reach the login server. Check your connection or wait a moment and try again.';
+          } finally {
+            clearTimeout(timer);
           }
+        };
+        if (dataSyncMode === 'backend' || dataSyncMode === 'checking') {
+          const backendResult = await loginViaBackend();
+          if (backendResult === true) return true;
+          if (typeof backendResult === 'string') return backendResult;
         }
-        let rec = findInList(users);
-        if (rec && rec.password === pw) return finishLogin(rec, '');
-        return 'Invalid username or password.';
+        if (dataSyncMode === 'local') {
+          let rec = findInList(users);
+          if (rec && rec.password === pw) return finishLogin(rec, '');
+          return 'Server is offline. Start the backend (npm run prod:stack) or check your connection.';
+        }
+        return 'Still connecting to server. Wait a few seconds and try again.';
       };
       const requestPasswordReset = async (loginId) => {
         const raw = String(loginId || '').trim();
@@ -5534,14 +5611,60 @@ Phone: +91-7047157510`;
           return { ...prevObj, staffAttendance: nextRecords };
         });
       }, [users, settings.staffAttendance]);
-      const authRestoreStartedRef = React.useRef(false);
-      React.useEffect(() => {
-        if (user?.id) {
-          setAuthSessionReady(true);
+      const authRestoreGenerationRef = React.useRef(0);
+      const restoreSessionFromStorage = React.useCallback(async (parsed, syncMode, generation) => {
+        const stillCurrent = () => authRestoreGenerationRef.current === generation;
+        if (!stillCurrent()) return;
+        if (!parsed?.userId || isAuthSessionExpired(parsed)) {
+          if (stillCurrent()) clearAuthSession();
           return;
         }
-        if (authRestoreStartedRef.current) return;
-        authRestoreStartedRef.current = true;
+        const tAuth = performance.now();
+        const useBackendAuth = parsed.token && (syncMode === 'backend' || syncMode === 'checking');
+        if (useBackendAuth) {
+          const data = await revalidateAuthSessionFromServer();
+          if (!stillCurrent()) return;
+          apgLoadTimingRecord('auth', 'auth restore (total)', performance.now() - tAuth);
+          const rec = data?.user ? prepareStaffUser(data.user) : null;
+          if (rec && !rec.blocked) {
+            const nowIso = new Date().toISOString();
+            writeAuthSession(rec.id, parsed.token);
+            setUser({ ...rec, gymCodeId: rec.gymCodeId || '', lastLoginAt: nowIso });
+            setUsers((prev) => {
+              const exists = prev.some((u) => authUserIdsMatch(u.id, rec.id));
+              if (exists) return prev.map((u) => (authUserIdsMatch(u.id, rec.id) ? { ...prepareStaffUser({ ...u, ...rec }), lastLoginAt: nowIso } : u));
+              return [...prev, { ...rec, lastLoginAt: nowIso }];
+            });
+            markLoginAttendance(rec, nowIso);
+            pushAttendancePunch('login', rec, nowIso);
+            setActiveTab('Dashboard');
+            setDashMode('summary');
+            apgLoadTimingMark('authSessionReady (login UI shown)');
+            return;
+          }
+          if (stillCurrent()) clearAuthSession();
+          return;
+        }
+        const rec = (users || []).find((u) => authUserIdsMatch(u?.id, parsed.userId));
+        if (!rec || rec.blocked) {
+          if (stillCurrent()) clearAuthSession();
+          return;
+        }
+        const nowIso = new Date().toISOString();
+        const sessionUser = prepareStaffUser(rec);
+        setUser({ ...sessionUser, gymCodeId: sessionUser.gymCodeId || rec.gymCodeId || '', lastLoginAt: nowIso });
+        setUsers((prev) => prev.map((u) => (authUserIdsMatch(u.id, rec.id) ? { ...prepareStaffUser({ ...u, ...sessionUser }), gymCodeId: sessionUser.gymCodeId || rec.gymCodeId || u.gymCodeId || '', lastLoginAt: nowIso } : u)));
+        markLoginAttendance(sessionUser, nowIso);
+        pushAttendancePunch('login', sessionUser, nowIso);
+        setActiveTab('Dashboard');
+        setDashMode('summary');
+        writeAuthSession(rec.id, parsed.token || '');
+      }, [clearAuthSession, writeAuthSession, users]);
+      React.useEffect(() => {
+        if (user?.id) return undefined;
+        if (dataSyncMode === 'checking') return undefined;
+        const generation = authRestoreGenerationRef.current + 1;
+        authRestoreGenerationRef.current = generation;
         let parsed = null;
         try {
           parsed = JSON.parse(localStorage.getItem(AUTH_SESSION_KEY) || 'null');
@@ -5550,61 +5673,27 @@ Phone: +91-7047157510`;
         }
         if (!parsed || !parsed.userId || isAuthSessionExpired(parsed)) {
           clearAuthSession();
-          setAuthSessionReady(true);
-          return;
+          return undefined;
         }
+        let cancelled = false;
+        const bootstrapTimer = setTimeout(() => {
+          if (cancelled || authRestoreGenerationRef.current !== generation) return;
+          clearAuthSession();
+        }, AUTH_BOOTSTRAP_MAX_MS);
         (async () => {
-          const tAuth = performance.now();
-          if (parsed.token && dataSyncMode === 'backend') {
-            const data = await revalidateAuthSessionFromServer();
-            apgLoadTimingRecord('auth', 'auth restore (total)', performance.now() - tAuth);
-            const rec = data?.user ? prepareStaffUser(data.user) : null;
-            if (rec && !rec.blocked) {
-              const nowIso = new Date().toISOString();
-              writeAuthSession(rec.id, parsed.token);
-              setUser({ ...rec, lastLoginAt: nowIso });
-              setUsers((prev) => {
-                const exists = prev.some((u) => authUserIdsMatch(u.id, rec.id));
-                if (exists) return prev.map((u) => (authUserIdsMatch(u.id, rec.id) ? { ...prepareStaffUser({ ...u, ...rec }), lastLoginAt: nowIso } : u));
-                return [...prev, { ...rec, lastLoginAt: nowIso }];
-              });
-              markLoginAttendance(rec, nowIso);
-              pushAttendancePunch('login', rec, nowIso);
-              setActiveTab('Dashboard');
-              setDashMode('summary');
-              setAuthSessionReady(true);
-              apgLoadTimingMark('authSessionReady (login UI shown)');
-              return;
+          try {
+            await restoreSessionFromStorage(parsed, dataSyncMode, generation);
+          } finally {
+            if (!cancelled && authRestoreGenerationRef.current === generation) {
+              clearTimeout(bootstrapTimer);
             }
-            // Token present but /auth/me failed (network blip or revoked JWT).
-            // Do NOT fall back to a stale local users cache — that was logging
-            // legitimate staff out when apg.users had not hydrated yet.
-            if (!isAuthSessionExpired(parsed)) {
-              setAuthSessionReady(true);
-              return;
-            }
-            clearAuthSession();
-            setAuthSessionReady(true);
-            return;
           }
-          const rec = (users || []).find((u) => authUserIdsMatch(u?.id, parsed.userId));
-          if (!rec || rec.blocked) {
-            clearAuthSession();
-            setAuthSessionReady(true);
-            return;
-          }
-          const nowIso = new Date().toISOString();
-          const sessionUser = prepareStaffUser(rec);
-          setUser({ ...sessionUser, lastLoginAt: nowIso });
-          setUsers((prev) => prev.map((u) => (authUserIdsMatch(u.id, rec.id) ? { ...prepareStaffUser({ ...u, ...sessionUser }), lastLoginAt: nowIso } : u)));
-          markLoginAttendance(sessionUser, nowIso);
-          pushAttendancePunch('login', sessionUser, nowIso);
-          setActiveTab('Dashboard');
-          setDashMode('summary');
-          writeAuthSession(rec.id, parsed.token || '');
-          setAuthSessionReady(true);
         })();
-      }, [user?.id, dataSyncMode, clearAuthSession, writeAuthSession, hydrateFromBackend]);
+        return () => {
+          cancelled = true;
+          clearTimeout(bootstrapTimer);
+        };
+      }, [user?.id, dataSyncMode, clearAuthSession, restoreSessionFromStorage]);
       React.useEffect(() => {
         if (!user?.id) return;
         const extendSession = () => {
@@ -5618,9 +5707,28 @@ Phone: +91-7047157510`;
           writeAuthSession(user.id, readAuthToken());
           setSessionMinutesLeft(readSessionMinutesLeft());
         };
-        const onVisibility = () => {
-          if (typeof document !== 'undefined' && document.visibilityState === 'visible') {
-            extendSession();
+        const onVisibility = async () => {
+          if (typeof document !== 'undefined' && document.visibilityState !== 'visible') return;
+          extendSession();
+          let parsed = null;
+          try { parsed = JSON.parse(localStorage.getItem(AUTH_SESSION_KEY) || 'null'); } catch { parsed = null; }
+          if (isAuthSessionExpired(parsed)) {
+            clearAuthSession();
+            setUser(null);
+            return;
+          }
+          if (dataSyncMode === 'backend' && parsed?.token) {
+            const data = await revalidateAuthSessionFromServer();
+            if (data?.user && !data.user.blocked) {
+              const rec = prepareStaffUser(data.user);
+              writeAuthSession(rec.id, parsed.token);
+              setUser((prev) => (prev?.id === rec.id
+                ? { ...prev, ...rec, gymCodeId: rec.gymCodeId || prev.gymCodeId || '' }
+                : prev || { ...rec, gymCodeId: rec.gymCodeId || '', lastLoginAt: new Date().toISOString() }));
+            }
+            if (!backendHydrated) {
+              hydrateFromBackend().catch(() => setBackendHydrated(false));
+            }
           }
         };
         extendSession();
@@ -5660,7 +5768,7 @@ Phone: +91-7047157510`;
           document.removeEventListener('visibilitychange', onVisibility);
           clearInterval(timer);
         };
-      }, [user?.id, clearAuthSession, writeAuthSession, readSessionMinutesLeft]);
+      }, [user?.id, dataSyncMode, backendHydrated, clearAuthSession, writeAuthSession, readSessionMinutesLeft, hydrateFromBackend]);
       React.useEffect(() => {
         if (!user?.id) {
           setSessionMinutesLeft(null);
@@ -6173,14 +6281,18 @@ Please pay by: ${formattedLastDate}`;
       };
       // Phase 2 defense-in-depth: even if stale data sneaks in, refuse to open Edit on out-of-branch member.
       const tryOpenEditMember = (m) => {
-        const userGymCodeId = String(user?.gymCodeId || '').trim();
-        const memberGymCodeId = String(m?.assignedGymCodeId || '').trim();
-        const isOwner = String(user?.id || '').toLowerCase() === 'owner'
-          || (Array.isArray(user?.roles) && user.roles.includes('owner'));
-        if (!isOwner && userGymCodeId && memberGymCodeId && userGymCodeId !== memberGymCodeId) {
-          setToast('You can only edit members assigned to your branch.');
-          setTimeout(() => setToast(''), 2500);
-          return;
+        const inBranch = window.__APG_MODULES?.memberInStaffBranch;
+        if (typeof inBranch === 'function' && !inBranch(user, m)) {
+          const isOwner = window.__APG_MODULES?.authIsOwnerUser?.(user)
+            || String(user?.id || '').toLowerCase() === 'owner';
+          if (!isOwner) {
+            const msg = !String(user?.gymCodeId || '').trim()
+              ? 'Your account has no gym branch assigned. Contact the owner.'
+              : 'You can only edit members assigned to your branch.';
+            setToast(msg);
+            setTimeout(() => setToast(''), 2800);
+            return;
+          }
         }
         fetchMemberDetail(m?.memberId);
         setEditMember(m);
@@ -7080,6 +7192,45 @@ Please pay by: ${formattedLastDate}`;
         }
       };
 
+      // Drop stale cross-branch rows from local state after branch assignment / hydrate.
+      React.useEffect(() => {
+        if (!user?.id || isOwnerStaffUser(user)) return;
+        const filterFn = window.__APG_MODULES?.filterMembersForUser;
+        if (typeof filterFn !== 'function') return;
+        setMembers((prev) => {
+          const scoped = filterFn(user, prev);
+          if (!Array.isArray(prev) || scoped.length === prev.length) return prev;
+          return scoped;
+        });
+        const visitorFilter = window.__APG_MODULES?.filterVisitorsForUser;
+        if (typeof visitorFilter === 'function') {
+          setVisitors((prev) => {
+            const scoped = visitorFilter(user, prev);
+            if (!Array.isArray(prev) || scoped.length === prev.length) return prev;
+            return scoped;
+          });
+        }
+      }, [user?.id, user?.gymCodeId]);
+      const branchScopedMembers = React.useMemo(() => {
+        const filterFn = window.__APG_MODULES?.filterMembersForUser;
+        if (typeof filterFn === 'function') return filterFn(user, members);
+        if (!user || String(user.id || '').toLowerCase() === 'owner' || String(user.role || '').toLowerCase() === 'owner') {
+          return Array.isArray(members) ? members : [];
+        }
+        const staffCode = String(user.gymCodeId || '').trim();
+        if (!staffCode) return [];
+        return (Array.isArray(members) ? members : []).filter((m) => String(m?.assignedGymCodeId || '').trim() === staffCode);
+      }, [user, members]);
+      const branchScopedVisitors = React.useMemo(() => {
+        const filterFn = window.__APG_MODULES?.filterVisitorsForUser;
+        if (typeof filterFn === 'function') return filterFn(user, visitors);
+        if (!user || String(user.id || '').toLowerCase() === 'owner' || String(user.role || '').toLowerCase() === 'owner') {
+          return Array.isArray(visitors) ? visitors : [];
+        }
+        const staffCode = String(user.gymCodeId || '').trim();
+        if (!staffCode) return [];
+        return (Array.isArray(visitors) ? visitors : []).filter((v) => String(v?.assignedGymCodeId || '').trim() === staffCode);
+      }, [user, visitors]);
       // Derived lists and search
       const filteredMembers = React.useMemo(() => {
         if (dashMode === 'summary') return [];
@@ -7109,7 +7260,7 @@ Please pay by: ${formattedLastDate}`;
             ].join(' | ').toLowerCase();
             return tokens.every(t => haystack.includes(t));
           };
-          return members.filter(m => {
+          return branchScopedMembers.filter(m => {
             const match = (val) => includesAllTokens(val);
             switch (dashField) {
               case 'name': return match(m.name);
@@ -7123,8 +7274,8 @@ Please pay by: ${formattedLastDate}`;
             }
           });
         }
-        return members.filter(m => m.status === dashFilter);
-      }, [members, dashMode, dashFilter, dashSearch, dashField]);
+        return branchScopedMembers.filter(m => m.status === dashFilter);
+      }, [branchScopedMembers, dashMode, dashFilter, dashSearch, dashField]);
 
       // Theme toggle helper (light/dark only)
       const toggleTheme = () => {
@@ -7134,15 +7285,7 @@ Please pay by: ${formattedLastDate}`;
         setDisplayTimeZone((prev) => (prev === 'IST' ? 'AEST' : 'IST'));
       };
 
-      // If no user, show login screen (after session bootstrap check).
-      if (!user && !authSessionReady) {
-        return (
-          <div className="min-h-screen grid place-items-center bg-slate-100 text-slate-600">
-            Restoring session...
-          </div>
-        );
-      }
-      // If no user, show login screen
+      // Login screen; saved session restores in the background when valid.
       if (!user) {
         return (
           <LoginPage
@@ -7818,7 +7961,7 @@ Please pay by: ${formattedLastDate}`;
             {activeTab === 'Dashboard' && (
               dashMode === 'summary' ? (
                 <DashboardSummary
-                  members={members}
+                  members={branchScopedMembers}
                   access={normalizeAccess(user?.access)}
                   isOwner={user?.id === 'owner'}
                   currentUserRole={currentUserRole}
@@ -7847,7 +7990,7 @@ Please pay by: ${formattedLastDate}`;
                 <MembersList
                   title={`${dashFilter} Members`}
                   list={filteredMembers}
-                  allMembers={members}
+                  allMembers={branchScopedMembers}
                   memberSyncPending={memberSyncPending}
                   onUnlinkFamilyGroup={canEditMembers ? unlinkFamilyGroup : null}
                   onBack={() => setDashMode('summary')}
@@ -7892,7 +8035,7 @@ Please pay by: ${formattedLastDate}`;
                       <div className="p-8 text-center text-sm text-slate-500">Opening Visitors…</div>
                     ) : (
                     <VisitorsPage
-                      visitors={visitors}
+                      visitors={branchScopedVisitors}
                       onAddVisitor={() => { setVisitorEdit(null); setVisitorFormOpen(true); }}
                       onEditVisitor={(v) => { setVisitorEdit(v); setVisitorFormOpen(true); }}
                       onDeleteVisitor={deleteVisitor}
@@ -7912,7 +8055,7 @@ Please pay by: ${formattedLastDate}`;
                   )
                 ) : (
                   <DashboardView
-                    members={members}
+                    members={branchScopedMembers}
                     memberSyncPending={memberSyncPending}
                     onEdit={canEditMembers ? tryOpenEditMember : null}
                     onStatusChange={canEditMembers ? quickStatus : null}
@@ -7966,7 +8109,7 @@ Please pay by: ${formattedLastDate}`;
             )}
             {activeTab === 'PT Clients' && (
               <PTClientsPage
-                members={members}
+                members={branchScopedMembers}
                 users={users}
                 settings={settings}
                 updateSetting={updateSettingValue}
@@ -7984,7 +8127,7 @@ Please pay by: ${formattedLastDate}`;
               <SettingsPage
                 settings={settings}
                 updateSetting={updateSettingValue}
-                members={members}
+                members={branchScopedMembers}
                 users={users}
                 access={normalizeAccess(user?.access)}
                 storageInfo={storageInfo}
@@ -8118,7 +8261,7 @@ Please pay by: ${formattedLastDate}`;
             {/* Placeholders for future sections */}
             {activeTab === 'WhatsApp SMS' && (
               <WhatsAppSmsPage
-                members={members}
+                members={branchScopedMembers}
                 setMembers={setMembers}
                 settings={settings}
                 updateSetting={updateSettingValue}
@@ -8133,7 +8276,7 @@ Please pay by: ${formattedLastDate}`;
             )}
             {activeTab === 'Finance' && (
               <FinancePage
-                members={members}
+                members={branchScopedMembers}
                 settings={settings}
                 logs={logs}
                 financeTransactions={financeTransactions}
@@ -8517,7 +8660,7 @@ Please pay by: ${formattedLastDate}`;
               settings={settings}
               staffName={user.name}
               currentUser={user}
-              members={members}
+              members={branchScopedMembers}
               canEditFormNo={user && user.id === 'owner'}
               smartDefaults={lastMemberDefaults}
               prefillData={prefillVisitor}
@@ -12290,34 +12433,42 @@ function DashboardView({ members, memberSyncPending = {}, onEdit, onStatusChange
     }
 
     // ---- Edit Member Modal ----
+function buildEditMemberDraft(sourceMember) {
+        const member = sourceMember || {};
+        const mergedMedical = {
+          heartDisease: '',
+          cardiovascularCondition: '',
+          bloodPressure: '',
+          arthritis: '',
+          goutFamilyHistory: '',
+          otherCondition: '',
+          injuries: { knees: false, lowerBack: false, neckShoulders: false, hipsPelvis: false, flexibility: false, other: '' },
+          pregnant: 'No',
+          pregnantWeeks: '',
+          physicalActivity: '',
+          surgeryHistory: '',
+          smoking: '',
+          medication: '',
+          extraInfo: '',
+          injuryNotesLog: [],
+          ...(member.medicalAnswers || {}),
+        };
+        mergedMedical.injuryNotesLog = parseInjuryNotesLog(mergedMedical);
+        const normBranch = window.__APG_MODULES?.normalizeBranchId;
+        const branchId = typeof normBranch === 'function'
+          ? normBranch(member.assignedGymCodeId)
+          : String(member.assignedGymCodeId || '').trim();
+        return {
+          ...member,
+          assignedGymCodeId: branchId,
+          medicalAnswers: mergedMedical,
+        };
+      }
+
 function EditMemberModal({ member, onClose, onSave, onPhotoUploaded = null, planOptions, statusOptions, holdOptions, paymentOptions, canEditFormNo, settings, currentUser, gymCodes = [], gymCodeLabel = () => '—' }) {
       const isOwnerEdit = String(currentUser?.id || '').toLowerCase() === 'owner'
         || (Array.isArray(currentUser?.roles) && currentUser.roles.includes('owner'));
-      const [edit, setEdit] = React.useState(() => ({
-        ...member,
-        medicalAnswers: (() => {
-          const merged = {
-            heartDisease: '',
-            cardiovascularCondition: '',
-            bloodPressure: '',
-            arthritis: '',
-            goutFamilyHistory: '',
-            otherCondition: '',
-            injuries: { knees: false, lowerBack: false, neckShoulders: false, hipsPelvis: false, flexibility: false, other: '' },
-            pregnant: 'No',
-            pregnantWeeks: '',
-            physicalActivity: '',
-            surgeryHistory: '',
-            smoking: '',
-            medication: '',
-            extraInfo: '',
-            injuryNotesLog: [],
-            ...(member?.medicalAnswers || {}),
-          };
-          merged.injuryNotesLog = parseInjuryNotesLog(merged);
-          return merged;
-        })(),
-      }));
+      const [edit, setEdit] = React.useState(() => buildEditMemberDraft(member));
       const [photoPickerOpen, setPhotoPickerOpen] = React.useState(false);
       const markAllMedicalNo = React.useCallback(() => {
         setEdit((prev) => ({
@@ -12369,27 +12520,48 @@ function EditMemberModal({ member, onClose, onSave, onPhotoUploaded = null, plan
         });
       };
       const dirty = React.useMemo(() => {
-        // Compare editable fields to determine if anything changed. Include
-        // formNo, amount and paymentMethod in addition to existing fields.
-        const keysToCheck = ['formNo','memberId','name','email','mobile','plan','status','holdDuration','billingDate','amount','paymentMethod','photo','medicalAnswers'];
-        return keysToCheck.some(k => {
+        const fn = window.__APG_MODULES?.isMemberFormDirty;
+        if (typeof fn === 'function') return fn(edit, member);
+        const keysToCheck = ['formNo','memberId','name','email','mobile','plan','status','holdDuration','billingDate','amount','paymentMethod','assignedGymCodeId','photo','medicalAnswers'];
+        return keysToCheck.some((k) => {
           const a = edit[k] ?? '';
           const b = member[k] ?? '';
           if (k === 'medicalAnswers') return JSON.stringify(a || {}) !== JSON.stringify(b || {});
+          if (k === 'assignedGymCodeId') return String(a || '').trim() !== String(b || '').trim();
+          if (k === 'billingDate') return String(iso(a) ?? '') !== String(iso(b) ?? '');
           return String(a) !== String(b);
         });
       }, [edit, member]);
-      const changed = React.useMemo(() => ({
-        name: String(edit.name ?? '') !== String(member.name ?? ''),
-        mobile: String(edit.mobile ?? '') !== String(member.mobile ?? ''),
-        plan: String(edit.plan ?? '') !== String(member.plan ?? ''),
-        status: String(edit.status ?? '') !== String(member.status ?? ''),
-        billingDate: String(iso(edit.billingDate) ?? '') !== String(iso(member.billingDate) ?? ''),
-        amount: String(edit.amount ?? '') !== String(member.amount ?? ''),
-        email: String(edit.email ?? '') !== String(member.email ?? ''),
-        paymentMethod: String(edit.paymentMethod ?? '') !== String(member.paymentMethod ?? ''),
-        holdDuration: String(edit.holdDuration ?? '') !== String(member.holdDuration ?? ''),
-      }), [edit, member]);
+      const changed = React.useMemo(() => {
+        const mapFn = window.__APG_MODULES?.memberFormChangedMap;
+        if (typeof mapFn === 'function') {
+          const map = mapFn(edit, member);
+          return {
+            name: Boolean(map.name),
+            mobile: Boolean(map.mobile),
+            plan: Boolean(map.plan),
+            status: Boolean(map.status),
+            billingDate: Boolean(map.billingDate),
+            amount: Boolean(map.amount),
+            email: Boolean(map.email),
+            paymentMethod: Boolean(map.paymentMethod),
+            holdDuration: Boolean(map.holdDuration),
+            assignedGymCodeId: Boolean(map.assignedGymCodeId),
+          };
+        }
+        return {
+          name: String(edit.name ?? '') !== String(member.name ?? ''),
+          mobile: String(edit.mobile ?? '') !== String(member.mobile ?? ''),
+          plan: String(edit.plan ?? '') !== String(member.plan ?? ''),
+          status: String(edit.status ?? '') !== String(member.status ?? ''),
+          billingDate: String(iso(edit.billingDate) ?? '') !== String(iso(member.billingDate) ?? ''),
+          amount: String(edit.amount ?? '') !== String(member.amount ?? ''),
+          email: String(edit.email ?? '') !== String(member.email ?? ''),
+          paymentMethod: String(edit.paymentMethod ?? '') !== String(member.paymentMethod ?? ''),
+          holdDuration: String(edit.holdDuration ?? '') !== String(member.holdDuration ?? ''),
+          assignedGymCodeId: String(edit.assignedGymCodeId || '').trim() !== String(member.assignedGymCodeId || '').trim(),
+        };
+      }, [edit, member]);
       const blockingReq = {
         name: req.name && changed.name,
         mobile: req.mobile && changed.mobile,
@@ -12482,7 +12654,10 @@ function EditMemberModal({ member, onClose, onSave, onPhotoUploaded = null, plan
                   {isOwnerEdit ? (
                     <select
                       value={edit.assignedGymCodeId || ''}
-                      onChange={(e) => setEdit({ ...edit, assignedGymCodeId: e.target.value })}
+                      onChange={(e) => {
+                        const nextBranch = String(e.target.value || '').trim();
+                        setEdit((prev) => ({ ...prev, assignedGymCodeId: nextBranch }));
+                      }}
                       className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm"
                       data-testid="edit-member-gym-code-select"
                     >
@@ -15035,10 +15210,22 @@ function PTClientsPage({ members, users, settings, updateSetting, currentUser, a
           }
         };
         const balanceFor = (userId) => {
+          const calc = window.__APG_MODULES?.annualLeaveBalanceRemaining;
+          if (typeof calc === 'function') return calc(leaveRequests, userId);
           const year = new Date().getFullYear();
-          const used = leaveRequests
-            .filter(r => r.userId === userId && r.status === 'Approved' && new Date(r.startDate).getFullYear() === year)
-            .reduce((sum, r) => sum + Number(r.days || 0), 0);
+          const key = String(userId || '').trim().toLowerCase();
+          const used = (leaveRequests || [])
+            .filter((r) => String(r?.status || '') === 'Approved'
+              && String(r?.userId || '').trim().toLowerCase() === key
+              && new Date(r.startDate).getFullYear() === year)
+            .reduce((sum, r) => {
+              const n = Number(r.days);
+              if (Number.isFinite(n) && n > 0) return sum + n;
+              const start = new Date(r.startDate);
+              const end = new Date(r.endDate);
+              if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime()) || end < start) return sum + 1;
+              return sum + Math.max(1, Math.floor((end - start) / (86400000)) + 1);
+            }, 0);
           return Math.max(0, 24 - used);
         };
         const leaveHistoryRows = React.useMemo(() => {

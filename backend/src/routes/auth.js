@@ -67,10 +67,12 @@ router.get('/me', async (req, res) => {
     const user = await getStaffAppUser(claims.userId);
     if (!user) return res.status(401).json({ error: 'invalid-token' });
     if (user.blocked) return res.status(403).json({ error: 'user-blocked' });
+    const gymCodeId = user.gymCodeId || claims.gymCodeId || null;
     return res.json({
       userId: user.id,
       gymId: claims.gymId || null,
-      user,
+      gymCodeId,
+      user: { ...user, gymCodeId },
       roles: claims.roles || [],
       permissions: claims.permissions || [],
     });

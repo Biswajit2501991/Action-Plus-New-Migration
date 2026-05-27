@@ -10,6 +10,22 @@ import {
 } from '../features/leave/leaveApprovalSync.js';
 import LeaveApprovalNotificationCard from '../components/leave/LeaveApprovalNotificationCard.js';
 import LeaveApprovalStatusBadge from '../components/leave/LeaveApprovalStatusBadge.js';
+import {
+  filterMembersForUser,
+  filterVisitorsForUser,
+  memberInStaffBranch,
+  authIsOwnerUser,
+  staffHasBranch,
+  scopeMembersForBulkSync,
+  scopeVisitorsForBulkSync,
+} from '../features/branch/branchAccess.js';
+import {
+  EDIT_MEMBER_DIRTY_KEYS,
+  isMemberFormDirty,
+  memberFormChangedMap,
+  memberEditBaselineKey,
+  normalizeBranchId,
+} from '../features/members/formDirtyState.js';
 
 function emitTelemetry(level, code, message, meta = {}) {
   const payload = {
@@ -85,6 +101,18 @@ window.__APG_MODULES.normalizeLeaveRequestFromApi = normalizeLeaveRequestFromApi
 window.__APG_MODULES.mergeApprovedLeaveIntoAttendance = mergeApprovedLeaveIntoAttendance;
 window.__APG_MODULES.LeaveApprovalNotificationCard = LeaveApprovalNotificationCard;
 window.__APG_MODULES.LeaveApprovalStatusBadge = LeaveApprovalStatusBadge;
+window.__APG_MODULES.filterMembersForUser = filterMembersForUser;
+window.__APG_MODULES.filterVisitorsForUser = filterVisitorsForUser;
+window.__APG_MODULES.memberInStaffBranch = memberInStaffBranch;
+window.__APG_MODULES.authIsOwnerUser = authIsOwnerUser;
+window.__APG_MODULES.staffHasBranch = staffHasBranch;
+window.__APG_MODULES.scopeMembersForBulkSync = scopeMembersForBulkSync;
+window.__APG_MODULES.scopeVisitorsForBulkSync = scopeVisitorsForBulkSync;
+window.__APG_MODULES.EDIT_MEMBER_DIRTY_KEYS = EDIT_MEMBER_DIRTY_KEYS;
+window.__APG_MODULES.isMemberFormDirty = isMemberFormDirty;
+window.__APG_MODULES.memberFormChangedMap = memberFormChangedMap;
+window.__APG_MODULES.memberEditBaselineKey = memberEditBaselineKey;
+window.__APG_MODULES.normalizeBranchId = normalizeBranchId;
 // Legacy alias used in parts of index.html (typo: trailing underscores).
 window.__APG_MODULES__ = window.__APG_MODULES;
 

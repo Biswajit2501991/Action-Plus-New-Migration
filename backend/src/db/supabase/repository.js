@@ -115,12 +115,15 @@ async function loadMemberChildren(sb, gid, memberIds) {
 }
 
 async function readMemberByCode(memberCode, branchScope = null) {
+  if (branchScope && !branchScope.isOwner && branchScope.staffNoBranch) {
+    return null;
+  }
   const sb = getSupabase();
   const gid = gymId();
   const code = String(memberCode || '').trim();
   if (!code) return null;
   let q = sb.from(T.members).select('*').eq('gym_id', gid).eq('member_code', code);
-  if (branchScope && branchScope.gymCodeId) {
+  if (branchScope && !branchScope.isOwner && branchScope.gymCodeId) {
     q = q.eq('assigned_gym_code_id', branchScope.gymCodeId);
   }
   const { data: rows, error } = await q.order('updated_at', { ascending: false }).limit(1);
@@ -209,6 +212,9 @@ export async function deleteMemberPayment(memberCode, paymentId, branchScope = n
 }
 
 async function readMembers(scope, branchScope = null, options = {}) {
+  if (branchScope && !branchScope.isOwner && branchScope.staffNoBranch) {
+    return [];
+  }
   const sb = getSupabase();
   const gid = gymId();
   const slim = options.view === 'list' || options.includeChildren === false;
@@ -216,9 +222,8 @@ async function readMembers(scope, branchScope = null, options = {}) {
   const updatedSince = toTs(options.updatedSince);
   const memberRows = await fetchAll((from, to) => {
     let q = sb.from(T.members).select(columns).eq('gym_id', gid);
-    // Phase 2 zero-leak: when caller passes a branchScope (non-owner staff with a gym_code_id),
-    // we filter at the SQL layer so that cross-branch (and NULL/legacy) rows never leave Supabase.
-    if (branchScope && branchScope.gymCodeId) {
+    // Phase 2 zero-leak: staff with a gym_code_id only see rows tagged to that branch.
+    if (branchScope && !branchScope.isOwner && branchScope.gymCodeId) {
       q = q.eq('assigned_gym_code_id', branchScope.gymCodeId);
     }
     if (updatedSince) q = q.gte('updated_at', updatedSince);
@@ -339,6 +344,12 @@ async function updateMemberFields(memberCode, patch, branchScope = null) {
   if (selErr) throw new Error(`member lookup: ${selErr.message}`);
   const existingRow = Array.isArray(dupRows) && dupRows.length ? dupRows[0] : null;
   if (!existingRow) {
+    const err = new Error('member-not-found');
+    err.status = 404;
+    throw err;
+  }
+
+  if (branchScope && !branchScope.isOwner && branchScope.staffNoBranch) {
     const err = new Error('member-not-found');
     err.status = 404;
     throw err;
@@ -1287,9 +1298,16 @@ export async function patchPtClientProfile(memberCode, incomingProfile, meta = {
 }
 
 async function readVisitors(scope, branchScope = null) {
+  if (branchScope && !branchScope.isOwner && branchScope.staffNoBranch) {
+    return [];
+  }
   const sb = getSupabase();
   const gid = gymId();
-  const branchFilter = branchScope?.gymCodeId && await visitorsHaveGymCodeColumn(sb);
+  const visitorsGymCodeReady = await visitorsHaveGymCodeColumn(sb);
+  const branchFilter = branchScope && !branchScope.isOwner && branchScope.gymCodeId && visitorsGymCodeReady;
+  if (branchScope && !branchScope.isOwner && branchScope.gymCodeId && !visitorsGymCodeReady) {
+    return [];
+  }
   const rows = await fetchAll((from, to) => {
     let q = sb.from(T.visitors).select('*').eq('gym_id', gid);
     if (branchFilter) {

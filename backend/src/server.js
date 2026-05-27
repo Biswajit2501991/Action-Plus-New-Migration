@@ -18,6 +18,7 @@ import {
   insertLeaveRequest,
   updateLeaveRequestByExternalId,
   deleteLeaveRequestsForUserIds,
+  leaveDaysFromDateRange,
 } from './db/supabase/leaveRequestsWrite.js';
 import { T } from './db/tables.js';
 import {
@@ -50,7 +51,12 @@ import {
   startSupabaseRealtimeListener,
 } from './realtime/supabaseListener.js';
 import { requireApiAuth } from './middleware/requireApiAuth.js';
-import { backfillStaffBranchScope } from './middleware/backfillStaffBranchScope.js';
+import { syncStaffBranchScope } from './middleware/syncStaffBranchScope.js';
+import {
+  resolveReadBranchScope,
+  filterRowsForStaffWrite,
+  assertStaffHasBranchForWrite,
+} from './auth/branchScope.js';
 import { bindGymContext } from './middleware/bindGymContext.js';
 import { requireOwner, requireOwnerUnlessProcessControl } from './middleware/requireOwner.js';
 import { Access, getStaffAccessForUser } from './auth/accessControl.js';
@@ -313,10 +319,7 @@ async function readScopedCollection(req, key, fallback = []) {
  * legacy rows.
  */
 function buildBranchScope(req) {
-  if (!req.auth) return null;
-  if (authIsOwner(req.auth)) return { isOwner: true, gymCodeId: null };
-  if (!req.auth.gymCodeId) return null;
-  return { isOwner: false, gymCodeId: String(req.auth.gymCodeId) };
+  return resolveReadBranchScope(req.auth);
 }
 
 async function readBranchScopedCollection(req, key, fallback = []) {
@@ -424,7 +427,7 @@ app.get('/api/health', async (_req, res) => {
 app.use('/api/auth', authRouter);
 
 app.use('/api', requireApiAuth);
-app.use('/api', backfillStaffBranchScope);
+app.use('/api', syncStaffBranchScope);
 app.use('/api', bindGymContext);
 
 // Phase 2 gym-codes feature: list is authenticated-only, write is owner-only (inside the router).
@@ -553,7 +556,16 @@ app.get('/api/members/:memberId', requireAccess(Access.membersRead), async (req,
 });
 
 app.put('/api/members/bulk', requireAccess(Access.membersWrite), async (req, res) => {
-  const incoming = Array.isArray(req.body?.members) ? req.body.members : [];
+  const raw = Array.isArray(req.body?.members) ? req.body.members : [];
+  try {
+    assertStaffHasBranchForWrite(req.auth);
+  } catch (err) {
+    return res.status(err.status || 403).json({
+      error: err.message,
+      detail: err.detail || null,
+    });
+  }
+  const incoming = filterRowsForStaffWrite(raw, req.auth);
   try {
     assertBranchWriteAllowed(incoming, req.auth);
   } catch (err) {
@@ -647,7 +659,16 @@ app.get('/api/visitors', requireAccess(Access.visitorsRead), async (req, res) =>
 });
 
 app.put('/api/visitors/bulk', requireAccess(Access.visitorsWrite), async (req, res) => {
-  const incoming = Array.isArray(req.body?.visitors) ? req.body.visitors : [];
+  const raw = Array.isArray(req.body?.visitors) ? req.body.visitors : [];
+  try {
+    assertStaffHasBranchForWrite(req.auth);
+  } catch (err) {
+    return res.status(err.status || 403).json({
+      error: err.message,
+      detail: err.detail || null,
+    });
+  }
+  const incoming = filterRowsForStaffWrite(raw, req.auth);
   try {
     assertBranchWriteAllowed(incoming, req.auth);
   } catch (err) {
@@ -939,13 +960,6 @@ function sanitizeLeaveRequestInput(body, callerIsOwner, callerUserId) {
   return { userId, type, startDate, endDate, days, reason };
 }
 
-function leaveDaysFromDateRange(startDate, endDate) {
-  const start = new Date(startDate);
-  const end = new Date(endDate);
-  if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime())) return 1;
-  return Math.max(1, Math.floor((end - start) / (24 * 60 * 60 * 1000)) + 1);
-}
-
 async function assertStaffLoginExistsForLeave(staffLoginId) {
   if (!useSupabase()) return true;
   const key = String(staffLoginId || '').trim();
@@ -1132,6 +1146,10 @@ async function handlePatchPtClientProfile(req, res) {
         return res.status(403).json({ error: 'forbidden', message: 'You do not have permission to edit PT workouts.' });
       }
     }
+    const branchScope = buildBranchScope(req);
+    const { readMember } = await import('./db/dataStore.js');
+    const memberRow = await readMember(memberId, branchScope);
+    if (!memberRow) return res.status(404).json({ error: 'member-not-found' });
     const saved = await patchPtClientProfileValue(memberId, profile, {
       updatedBy: String(req.auth?.userId || '').trim(),
     });
@@ -1171,7 +1189,10 @@ app.get('/api/attendance/records', requireAccess((a) => a.attendance?.viewAttend
       });
     }
     const records = await readStaffAttendanceInRange(readSandboxScope(req), { startDate, endDate });
-    return res.json(records);
+    if (authIsOwner(req.auth)) return res.json(records);
+    if (!req.auth?.gymCodeId) return res.json([]);
+    const scope = await loadBranchScope(getSupabase(), req.auth);
+    return res.json(records.filter((r) => scope.staffLogins?.has(String(r?.userId || '').trim())));
   } catch (error) {
     return res.status(500).json({
       error: 'attendance_read_failed',
@@ -1256,7 +1277,8 @@ app.get('/api/logs', requireAccess(Access.logsRead), async (req, res) => {
     endDate,
   } : {};
   const logs = await readJsonCollection('apg.logs', [], scope, null, options);
-  if (authIsOwner(req.auth) || !req.auth?.gymCodeId) return res.json(logs);
+  if (authIsOwner(req.auth)) return res.json(logs);
+  if (!req.auth?.gymCodeId) return res.json([]);
   const branchScope = await loadBranchScope(getSupabase(), req.auth);
   res.json(logs.filter((l) => logMatchesBranchScope(l, branchScope)));
 });
@@ -1297,25 +1319,38 @@ app.post('/api/logs/cleanup', requireOwner, async (req, res) => {
 
 app.get('/api/finance', requireAccess(Access.financeRead), async (req, res) => {
   const finance = await readScopedCollection(req, 'apg.finance', []);
-  if (authIsOwner(req.auth) || !req.auth?.gymCodeId) return res.json(finance);
-  // Branch-scope: keep only transactions whose memberId is in the branch's member set.
+  if (authIsOwner(req.auth)) return res.json(finance);
+  if (!req.auth?.gymCodeId) return res.json([]);
   const scope = await loadBranchScope(getSupabase(), req.auth);
   res.json(finance.filter((t) => {
     const mid = String(t?.memberId || '').trim();
-    if (!mid) return true; // unattached expense / manual entry visible to all staff in branch
+    if (!mid) return false;
     return scope.memberCodes?.has(mid);
   }));
 });
 
 app.put('/api/finance/bulk', requireAccess(Access.financeWrite), async (req, res) => {
-  await writeScopedCollection(req, 'apg.finance', req.body?.finance || []);
+  let incoming = Array.isArray(req.body?.finance) ? req.body.finance : [];
+  if (!authIsOwner(req.auth)) {
+    if (!req.auth?.gymCodeId) {
+      incoming = [];
+    } else {
+      const scope = await loadBranchScope(getSupabase(), req.auth);
+      incoming = incoming.filter((t) => {
+        const mid = String(t?.memberId || '').trim();
+        return mid && scope.memberCodes?.has(mid);
+      });
+    }
+  }
+  await writeScopedCollection(req, 'apg.finance', incoming);
   queueDatabaseBackup('finance-bulk');
   res.json({ ok: true });
 });
 
 app.get('/api/sms-events', requireAccess(Access.smsRead), async (req, res) => {
   const events = await readScopedCollection(req, 'apg.sms.events', []);
-  if (authIsOwner(req.auth) || !req.auth?.gymCodeId) return res.json(events);
+  if (authIsOwner(req.auth)) return res.json(events);
+  if (!req.auth?.gymCodeId) return res.json([]);
   const scope = await loadBranchScope(getSupabase(), req.auth);
   res.json(events.filter((e) => {
     const mid = String(e?.memberId || '').trim();
@@ -1325,7 +1360,19 @@ app.get('/api/sms-events', requireAccess(Access.smsRead), async (req, res) => {
 });
 
 app.put('/api/sms-events/bulk', requireAccess(Access.smsWrite), async (req, res) => {
-  await writeScopedCollection(req, 'apg.sms.events', req.body?.smsEvents || []);
+  let incoming = Array.isArray(req.body?.smsEvents) ? req.body.smsEvents : [];
+  if (!authIsOwner(req.auth)) {
+    if (!req.auth?.gymCodeId) {
+      incoming = [];
+    } else {
+      const scope = await loadBranchScope(getSupabase(), req.auth);
+      incoming = incoming.filter((e) => {
+        const mid = String(e?.memberId || '').trim();
+        return mid && scope.memberCodes?.has(mid);
+      });
+    }
+  }
+  await writeScopedCollection(req, 'apg.sms.events', incoming);
   queueDatabaseBackup('sms-events-bulk');
   res.json({ ok: true });
 });

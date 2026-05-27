@@ -22,8 +22,12 @@ export async function readJsonCollection(key, fallback = [], scope = null, branc
   const allRows = await kvStore.readJsonCollection(key, fallback);
   const sandboxed = scope ? allRows.filter((row) => String(row?.sandboxId || '') === scope.sandboxId) : allRows;
   let filtered = sandboxed;
-  if (branchScope && branchScope.gymCodeId) {
+  if (branchScope && !branchScope.isOwner && branchScope.staffNoBranch) {
+    filtered = [];
+  } else if (branchScope && !branchScope.isOwner && branchScope.gymCodeId) {
     filtered = sandboxed.filter((row) => String(row?.assignedGymCodeId || '') === String(branchScope.gymCodeId));
+  } else if (branchScope && !branchScope.isOwner) {
+    filtered = [];
   }
   if (key === 'apg.members' && (options.view === 'list' || options.includeChildren === false)) {
     const { slimAppMember } = await import('./supabase/mappers.js');
@@ -47,7 +51,8 @@ export async function readMember(memberCode, branchScope = null) {
   const code = String(memberCode || '').trim();
   const found = rows.find((m) => String(m?.memberId || '').trim() === code);
   if (!found) return null;
-  if (branchScope && branchScope.gymCodeId && !branchScope.isOwner) {
+  if (branchScope && !branchScope.isOwner) {
+    if (branchScope.staffNoBranch) return null;
     if (String(found.assignedGymCodeId || '') !== String(branchScope.gymCodeId)) return null;
   }
   return found;
