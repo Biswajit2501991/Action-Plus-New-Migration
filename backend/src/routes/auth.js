@@ -48,6 +48,7 @@ router.post('/login', loginRateLimit, async (req, res) => {
     return res.json({ token: result.token, user: result.user });
   } catch (error) {
     recordFailedLogin(req);
+    console.error('[auth/login]', error?.message || error);
     return res.status(500).json({ error: 'login-failed', message: String(error?.message || error) });
   }
 });

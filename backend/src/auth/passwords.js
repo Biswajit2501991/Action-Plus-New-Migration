@@ -16,7 +16,13 @@ export async function hashPassword(plain) {
 export async function verifyPassword(plain, stored) {
   const hash = String(stored || '');
   if (!hash) return false;
-  if (isBcryptHash(hash)) return bcrypt.compare(String(plain || ''), hash);
+  if (isBcryptHash(hash)) {
+    try {
+      return await bcrypt.compare(String(plain || ''), hash);
+    } catch {
+      return false;
+    }
+  }
   return String(plain || '') === hash;
 }
 

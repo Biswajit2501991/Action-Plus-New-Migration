@@ -1,28 +1,35 @@
 import { T } from '../../db/tables.js';
 import { getSupabase, gymId } from '../../db/supabase/client.js';
-import { fetchAll } from '../../db/supabase/utils.js';
 import { normalizeStaffRole, STAFF_ROLES } from './roles.js';
+
+function homeBranchIdsForStaffRow(staffRow) {
+  const home = String(staffRow?.gym_code_id || '').trim();
+  return home ? [home] : [];
+}
 
 /**
  * @returns {Promise<string[]>} gym_codes.id UUIDs
  */
 export async function loadAllowedBranchIdsForStaffRow(staffRow) {
   if (!staffRow?.id) return [];
-  const sb = getSupabase();
-  const gid = gymId();
-  const rows = await fetchAll((from, to) =>
-    sb
+  const fallback = () => homeBranchIdsForStaffRow(staffRow);
+  try {
+    const sb = getSupabase();
+    const gid = gymId();
+    const { data, error } = await sb
       .from(T.staff_branch_assignments)
       .select('gym_code_id, is_primary')
       .eq('gym_id', gid)
       .eq('staff_user_id', staffRow.id)
-      .order('is_primary', { ascending: false })
-      .range(from, to),
-  );
-  const ids = (rows || []).map((r) => String(r.gym_code_id || '').trim()).filter(Boolean);
-  if (ids.length) return [...new Set(ids)];
-  const home = String(staffRow.gym_code_id || '').trim();
-  return home ? [home] : [];
+      .order('is_primary', { ascending: false });
+    if (error) return fallback();
+    const ids = (data || []).map((r) => String(r.gym_code_id || '').trim()).filter(Boolean);
+    if (ids.length) return [...new Set(ids)];
+    return fallback();
+  } catch {
+    // staff_branch_assignments may not exist until supabase_branch_owner_role.sql is applied
+    return fallback();
+  }
 }
 
 /**
@@ -30,12 +37,24 @@ export async function loadAllowedBranchIdsForStaffRow(staffRow) {
  */
 export async function resolveStaffBranchContext(staffRow) {
   const staffRole = normalizeStaffRole(staffRow?.staff_role, staffRow?.staff_login_id);
+  const homeFallback = () => {
+    const home = homeBranchIdsForStaffRow(staffRow);
+    return {
+      staffRole,
+      allowedBranchIds: home,
+      primaryBranchId: home[0] || null,
+    };
+  };
   if (staffRole === STAFF_ROLES.MASTER_OWNER) {
     return { staffRole, allowedBranchIds: [], primaryBranchId: staffRow?.gym_code_id || null };
   }
-  const allowedBranchIds = await loadAllowedBranchIdsForStaffRow(staffRow);
-  const primary = allowedBranchIds[0] || String(staffRow?.gym_code_id || '').trim() || null;
-  return { staffRole, allowedBranchIds, primaryBranchId: primary };
+  try {
+    const allowedBranchIds = await loadAllowedBranchIdsForStaffRow(staffRow);
+    const primary = allowedBranchIds[0] || String(staffRow?.gym_code_id || '').trim() || null;
+    return { staffRole, allowedBranchIds, primaryBranchId: primary };
+  } catch {
+    return homeFallback();
+  }
 }
 
 /**

@@ -6,7 +6,7 @@ import { staffRowToApp } from '../db/supabase/mappers.js';
 import { ALL_SECTIONS, DEFAULT_ACCESS, normalizeAccess } from '../../../src/features/access/permissions.js';
 import { hashPassword, verifyPassword } from './passwords.js';
 import { resolveStaffBranchContext } from './tenant/branchAssignments.js';
-import { STAFF_ROLES } from './tenant/roles.js';
+import { normalizeStaffRole, STAFF_ROLES } from './tenant/roles.js';
 import { branchOwnerFeatureEnabled } from './tenant/scopedAuth.js';
 
 function staffClaims(staffLoginId, gymIdValue, branchContext = {}) {
@@ -51,42 +51,66 @@ export function verifyStaffToken(rawToken) {
   }
 }
 
+function pickFirstStaffRow(rows) {
+  return Array.isArray(rows) && rows.length ? rows[0] : null;
+}
+
 export async function findStaffByIdentifier(identifier) {
   const key = String(identifier || '').trim().toLowerCase();
   if (!key) return null;
   const sb = getSupabase();
   const gid = gymId();
-  const { data: byId, error: e1 } = await sb
+  // maybeSingle() returns an error when duplicate logins exist; take newest row instead.
+  const { data: byIdRows, error: e1 } = await sb
     .from(T.staff_users)
     .select('*')
     .eq('gym_id', gid)
     .ilike('staff_login_id', key)
-    .maybeSingle();
+    .order('updated_at', { ascending: false })
+    .limit(1);
   if (e1) throw e1;
+  const byId = pickFirstStaffRow(byIdRows);
   if (byId) return byId;
-  const { data: byEmail, error: e2 } = await sb
+  const { data: byEmailRows, error: e2 } = await sb
     .from(T.staff_users)
     .select('*')
     .eq('gym_id', gid)
     .ilike('email', key)
-    .maybeSingle();
+    .order('updated_at', { ascending: false })
+    .limit(1);
   if (e2) throw e2;
-  return byEmail || null;
+  return pickFirstStaffRow(byEmailRows);
+}
+
+async function fetchStaffAccessJson(sb, staffPk) {
+  let res = await sb
+    .from(T.staff_user_access)
+    .select('access_json')
+    .eq('staff_user_id', staffPk)
+    .order('id', { ascending: false })
+    .limit(1);
+  if (res.error && /column.*\bid\b/i.test(String(res.error.message || res.error))) {
+    res = await sb
+      .from(T.staff_user_access)
+      .select('access_json')
+      .eq('staff_user_id', staffPk)
+      .limit(1);
+  }
+  if (res.error) throw res.error;
+  const raw = res.data?.[0]?.access_json;
+  return raw && typeof raw === 'object' ? raw : {};
 }
 
 async function loadStaffAppUser(row) {
   const sb = getSupabase();
   const staffPk = row.id;
-  const [secRes, accRes] = await Promise.all([
+  const [secRes, access] = await Promise.all([
     sb.from(T.staff_user_sections).select('section_name').eq('staff_user_id', staffPk),
-    // Prefer newest row; duplicate access rows (concurrent bulk sync) break maybeSingle().
-    sb.from(T.staff_user_access).select('access_json').eq('staff_user_id', staffPk).order('id', { ascending: false }).limit(1),
+    fetchStaffAccessJson(sb, staffPk),
   ]);
   if (secRes.error) throw secRes.error;
-  if (accRes.error) throw accRes.error;
   const sectionNames = (secRes.data || []).map((r) => r.section_name);
   const sections = [...new Set(sectionNames)];
-  const access = accRes.data?.[0]?.access_json || {};
   const loginId = String(row.staff_login_id || '').trim().toLowerCase();
   if (loginId === 'owner') {
     return staffRowToApp(row, [...ALL_SECTIONS], normalizeAccess({ ...DEFAULT_ACCESS, ...(access || {}) }));
@@ -95,13 +119,26 @@ async function loadStaffAppUser(row) {
 }
 
 export async function buildStaffTokenContext(row) {
-  const branchContext = await resolveStaffBranchContext(row);
-  return {
-    staffRole: branchContext.staffRole,
-    allowedBranchIds: branchContext.allowedBranchIds,
-    activeBranchId: branchContext.primaryBranchId,
-    primaryBranchId: branchContext.primaryBranchId,
-  };
+  try {
+    const branchContext = await resolveStaffBranchContext(row);
+    return {
+      staffRole: branchContext.staffRole,
+      allowedBranchIds: branchContext.allowedBranchIds,
+      activeBranchId: branchContext.primaryBranchId,
+      primaryBranchId: branchContext.primaryBranchId,
+    };
+  } catch (err) {
+    const staffRole = normalizeStaffRole(row?.staff_role, row?.staff_login_id);
+    const home = String(row?.gym_code_id || '').trim();
+    const allowedBranchIds = home ? [home] : [];
+    console.error('[auth] buildStaffTokenContext fallback:', err?.message || err);
+    return {
+      staffRole,
+      allowedBranchIds,
+      activeBranchId: home || null,
+      primaryBranchId: home || null,
+    };
+  }
 }
 
 async function ensureOwnerSectionsPersisted(sb, staffPk) {
@@ -123,7 +160,11 @@ export async function loginStaff(identifier, password) {
 
   const sb = getSupabase();
   const now = new Date().toISOString();
-  await sb.from(T.staff_users).update({ last_login_at: now, updated_at: now }).eq('id', row.id);
+  const { error: touchErr } = await sb
+    .from(T.staff_users)
+    .update({ last_login_at: now, updated_at: now })
+    .eq('id', row.id);
+  if (touchErr) throw touchErr;
 
   const user = await loadStaffAppUser({ ...row, last_login_at: now });
   if (String(user.id || '').toLowerCase() === 'owner') {
