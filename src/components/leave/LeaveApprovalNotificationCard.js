@@ -1,4 +1,4 @@
-import React from 'react';
+const React = window.React;
 
 /**
  * Owner notification row for a pending leave request.

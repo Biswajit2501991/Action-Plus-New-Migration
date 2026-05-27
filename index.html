@@ -4,6 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Action Plus Gym Manager</title>
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='6' fill='%231e293b'/%3E%3Ctext x='16' y='22' text-anchor='middle' font-size='16' fill='%23fbbf24'%3E%2B%3C/text%3E%3C/svg%3E" />
   <!-- Local vendor bundles for offline operation (no CDN dependencies). -->
   <script src="./vendor/tailwindcss-cdn.js"></script>
   <script>
@@ -986,6 +987,25 @@
   <!-- React mounts the application here -->
   <div id="root"></div>
   <script>
+    (function () {
+      function showBootError(msg) {
+        var root = document.getElementById('root');
+        if (!root) return;
+        if (root.childElementCount > 0 && root.innerText && root.innerText.trim()) return;
+        root.innerHTML = '<div style="max-width:42rem;margin:2rem auto;padding:1.25rem 1.5rem;border:1px solid #fecaca;background:#fff1f2;color:#9f1239;border-radius:12px;font:14px/1.5 system-ui,sans-serif">'
+          + '<strong>App failed to start</strong><p style="margin:0.75rem 0 0">' + String(msg || 'Unknown error') + '</p>'
+          + '<p style="margin:0.75rem 0 0;color:#64748b">Open DevTools → Console for details. Try a hard refresh (Cmd+Shift+R). Use <code>npm run dev:web</code> for API + env.</p></div>';
+      }
+      window.addEventListener('error', function (e) {
+        showBootError(e && (e.message || e.error));
+      });
+      window.addEventListener('unhandledrejection', function (e) {
+        var reason = e && e.reason;
+        showBootError(reason && (reason.message || reason));
+      });
+    })();
+  </script>
+  <script>
     window.__APG_MODULES = window.__APG_MODULES || {};
     window.__APG_MODULES__ = window.__APG_MODULES;
     window.__APG_MODULES_READY = new Promise((resolve) => {
@@ -993,7 +1013,7 @@
       window.setTimeout(resolve, 3000);
     });
   </script>
-  <script src="/app.env.js"></script>
+  <script src="./app.env.js"></script>
   <script type="module" src="./src/runtime/registerApgModules.js"></script>
   <!-- Application Code. Babel will compile this JSX on the fly. -->
   <script type="text/babel" data-presets="react">
@@ -3506,6 +3526,7 @@ Phone: +91-7047157510`;
     // ---- App Component ----
     function GymApp() {
       const [user, setUser] = React.useState(null);
+      const [toast, setToast] = React.useState('');
       const sessionTouchRef = React.useRef(0);
       const [dataSyncMode, setDataSyncMode] = React.useState('checking');
       const [lastHeartbeatAt, setLastHeartbeatAt] = React.useState('');
@@ -4888,7 +4909,6 @@ Phone: +91-7047157510`;
         if (activeTab !== 'Members' || membersView !== 'visitors') return;
         apgGoToV2Visitors(visitorNotificationFocusId);
       }, [activeTab, membersView, visitorNotificationFocusId]);
-      const [toast, setToast] = React.useState('');
       const [markingVisitorCalledId, setMarkingVisitorCalledId] = React.useState('');
       const [undoToast, setUndoToast] = React.useState(null);
       const undoToastTimerRef = React.useRef(null);
@@ -7392,6 +7412,17 @@ Please pay by: ${formattedLastDate}`;
         setDisplayTimeZone((prev) => (prev === 'IST' ? 'AEST' : 'IST'));
       };
 
+      const canDeleteMembers = React.useMemo(() => {
+        if (!user) return false;
+        const membersAccess = normalizeAccess(user?.access).members;
+        if (membersAccess?.deleteMembers === false) return false;
+        const masterFn = window.__APG_MODULES?.authIsMasterOwnerUser;
+        if (typeof masterFn === 'function' && masterFn(user)) return true;
+        const branchFn = window.__APG_MODULES?.authIsBranchOwnerUser;
+        if (typeof branchFn === 'function' && branchFn(user)) return true;
+        return user?.id === 'owner' && membersAccess?.deleteMembers !== false;
+      }, [user]);
+
       // Login screen; saved session restores in the background when valid.
       if (!user) {
         return (
@@ -7407,14 +7438,6 @@ Please pay by: ${formattedLastDate}`;
       const canViewVisitors = membersAccess?.viewVisitors !== false;
       const canAddMembers = membersAccess?.addMembers !== false;
       const canEditMembers = membersAccess?.editMembers !== false;
-      const canDeleteMembers = React.useMemo(() => {
-        if (membersAccess?.deleteMembers === false) return false;
-        const masterFn = window.__APG_MODULES?.authIsMasterOwnerUser;
-        if (typeof masterFn === 'function' && masterFn(user)) return true;
-        const branchFn = window.__APG_MODULES?.authIsBranchOwnerUser;
-        if (typeof branchFn === 'function' && branchFn(user)) return true;
-        return user?.id === 'owner' && membersAccess?.deleteMembers !== false;
-      }, [user, membersAccess]);
       const currentUserRole = String(user?.role || (user?.id === 'owner' ? 'owner' : '')).trim().toLowerCase();
       if (typeof window !== 'undefined') {
         window.__APG_SYNC_CONTEXT__ = user?.id

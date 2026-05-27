@@ -60,7 +60,6 @@ import {
 import { bindGymContext } from './middleware/bindGymContext.js';
 import { requireMasterOwner, requireMasterOwnerUnlessProcessControl } from './middleware/requireMasterOwner.js';
 import { requireBranchAdmin } from './middleware/requireBranchAdmin.js';
-import { env } from './config/env.js';
 import { filterUsersForAuth, sanitizeUsersBulkForAuth } from './auth/tenant/userScope.js';
 import { LOOKUP_CREATED_BY } from './auth/tenant/roles.js';
 import { authIsBranchOwner, authIsMasterOwner } from './auth/tenant/scopedAuth.js';

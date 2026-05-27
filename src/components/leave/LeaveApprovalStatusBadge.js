@@ -1,4 +1,4 @@
-import React from 'react';
+const React = window.React;
 
 const STYLES = {
   Approved: 'border-emerald-300 bg-emerald-50 text-emerald-700',
