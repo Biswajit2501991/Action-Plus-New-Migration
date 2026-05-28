@@ -10269,7 +10269,7 @@ function MembersList({ title, list, allMembers = [], onBack, onEdit, onStatusCha
       );
       React.useEffect(() => {
         setPage(1);
-      }, [prioritizedList]);
+      }, [title]);
       React.useEffect(() => {
         if (mobileDetailMemberId && onLoadMemberDetail) onLoadMemberDetail(mobileDetailMemberId);
       }, [mobileDetailMemberId, onLoadMemberDetail]);
@@ -11886,12 +11886,14 @@ function DashboardView({ members, memberSyncPending = {}, onEdit, onStatusChange
       );
       // Pagination state per status tab. Each status has its own current page.
       const [pages, setPages] = React.useState({ Active: 1, Hold: 1, Deactivated: 1, Cancelled: 1 });
-      // When members or filters change, reset pagination to page 1 for each status.
+      // Reset pagination only when filter/search intent changes.
+      // Do not reset on members data refresh (e.g. expanding a row triggers detail hydrate),
+      // otherwise tables jump back to page 1 unexpectedly.
       React.useEffect(() => {
         setPages({ Active: 1, Hold: 1, Deactivated: 1, Cancelled: 1 });
         setSelectedIds([]);
         setVisibleByStatus({ Active: 20, Hold: 20, Deactivated: 20, Cancelled: 20 });
-      }, [members, filters, appliedQuickSearch]);
+      }, [filters, appliedQuickSearch]);
       React.useEffect(() => {
         if (!focusStatus) return;
         const node = sectionRefs.current[focusStatus];
