@@ -15878,7 +15878,7 @@ function PTClientsPage({ members, users, settings, updateSetting, currentUser, a
       }, []);
       const persistLookupMutation = async (key, mutateLocal, { apiCall, buildNextSettings }) => {
         touchSettingsLookupGuard(10000);
-        if (dataSyncMode === 'backend' && backendJson && isOwnerForCodes) {
+        if (dataSyncMode === 'backend' && backendJson) {
           setLookupBusyKey(key);
           setLookupError('');
           try {
@@ -15902,7 +15902,14 @@ function PTClientsPage({ members, users, settings, updateSetting, currentUser, a
                 );
               }
             } else {
-              setLookupError(String(err?.message || err || 'Failed to save setting.'));
+              const raw = String(err?.message || err || 'Failed to save setting.');
+              if (raw.includes('lookup-delete-master-protected')) {
+                setLookupError('This value is owner-managed and read-only for staff.');
+              } else if (raw.includes('lookup-delete-not-owned')) {
+                setLookupError('You can delete only values created by your own staff account/branch.');
+              } else {
+                setLookupError(raw);
+              }
             }
           } finally {
             setLookupBusyKey('');
