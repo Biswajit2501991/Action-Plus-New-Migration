@@ -1923,6 +1923,7 @@
       { key: 'manageExpenseCategories', label: 'Expense Categories' },
       { key: 'manageHoldDurations', label: 'Hold Durations' },
       { key: 'manageGenders', label: 'Genders' },
+      { key: 'viewBackendDiskUsage', label: 'Disk Usage (Backend)' },
       { key: 'manageFineRule', label: 'Fine SMS Rule' },
     ];
     const WHATSAPP_CHILD_PERMISSIONS = [
@@ -1997,6 +1998,7 @@
         manageExpenseCategories: true,
         manageHoldDurations: true,
         manageGenders: true,
+        viewBackendDiskUsage: true,
         manageFineRule: true,
       },
       whatsapp: {
@@ -2073,6 +2075,7 @@
         manageExpenseCategories: access?.settings?.manageExpenseCategories !== false,
         manageHoldDurations: access?.settings?.manageHoldDurations !== false,
         manageGenders: access?.settings?.manageGenders !== false,
+        viewBackendDiskUsage: access?.settings?.viewBackendDiskUsage !== false,
         manageFineRule: access?.settings?.manageFineRule !== false,
       },
       whatsapp: {
@@ -3341,7 +3344,8 @@ Phone: +91-7047157510`;
           return;
         }
         if (localRow && !remoteRow) {
-          mergedRows.push(localRow);
+          // Backend is authoritative for staff rows. Keeping local-only rows causes
+          // deleted staff to resurrect after refresh/poll.
           return;
         }
         const localTs = visitorSortTimestamp(localRow);
@@ -9740,13 +9744,15 @@ function Sidebar({ user, active, onSelect, theme, setTheme, layoutMode = 'classi
       const [field, setField] = React.useState('all');
       const [showTrendHistory, setShowTrendHistory] = React.useState(false);
       const [expandedOverdueId, setExpandedOverdueId] = React.useState('');
+      const today = new Date();
       const todayKey = localTodayCalendarKey();
       const todayMonthKey = String(todayKey || '').slice(0, 7);
       const todayUtc = asUTC(todayKey);
       const collectedRevenueEntries = React.useMemo(() => {
-        // Only count actually collected payments in the KPI; avoid fallback estimates from billing date.
+        // Include billing-date fallback for members without explicit payment rows so
+        // "Total Revenue (Monthly)" stays aligned with member billing-based expectations.
         return (members || []).flatMap((m) =>
-          collectMemberRevenueEntries(m, { todayKey, includeBillingFallback: false }),
+          collectMemberRevenueEntries(m, { todayKey, includeBillingFallback: true }),
         );
       }, [members, todayKey]);
       const monthlyRevenue = collectedRevenueEntries
@@ -15943,6 +15949,7 @@ function PTClientsPage({ members, users, settings, updateSetting, currentUser, a
         );
       };
       const settingsAccess = normalizeAccess(access).settings;
+      const canViewBackendDiskUsage = settingsAccess?.viewBackendDiskUsage !== false;
       const fineImmediateRoleOptions = React.useMemo(() => {
         const fromUsers = (users || []).map((u) => String(u?.role || '').trim()).filter(Boolean);
         const fromTemplates = Array.isArray(settings?.roleTemplates) ? settings.roleTemplates.map((r) => String(r?.title || '').trim()).filter(Boolean) : [];
@@ -16091,6 +16098,7 @@ function PTClientsPage({ members, users, settings, updateSetting, currentUser, a
               </div>
             </div>
           )}
+          {canViewBackendDiskUsage && (
           <div className="rounded-3xl bg-white border border-slate-200 p-4 shadow-sm space-y-4">
             <button
               type="button"
@@ -16266,6 +16274,7 @@ function PTClientsPage({ members, users, settings, updateSetting, currentUser, a
             </div>
             )}
           </div>
+          )}
           {settingsAccess.manageFineRule && (
           <div className="rounded-3xl bg-white border border-slate-200 p-4 shadow-sm space-y-3">
             <button
@@ -19830,7 +19839,7 @@ function PTClientsPage({ members, users, settings, updateSetting, currentUser, a
               ? normalizeAccess({
                 dashboard: { viewDashboardCore: false, viewOverdueRetentionAlerts: false, viewRevenueMonthly: false, viewRevenueTrend: false, viewMembershipTrends: false },
                 finance: { viewRevenueAutoMembers: false, viewPendingPayments: false, viewExpenseCard: false, viewProfitCard: false, viewRevenueTrend4Months: false, viewPlanPopularity: false, viewTransactionsAutoMembers: false, manageExpenses: false },
-                settings: { managePlans: false, manageStatuses: false, managePaymentMethods: false, manageExpenseCategories: false, manageHoldDurations: false, manageGenders: false, manageFineRule: false },
+                settings: { managePlans: false, manageStatuses: false, managePaymentMethods: false, manageExpenseCategories: false, manageHoldDurations: false, manageGenders: false, viewBackendDiskUsage: false, manageFineRule: false },
                 whatsapp: { viewReminder: false, viewMonthReminder: false, viewSuccess: false, viewFine: false, viewDeactivate: false, viewHold: false, viewWelcome: false, viewTemplates: false },
                 leave: { viewCreateLeaveRequest: false, viewLeaveRequests: false, viewAnnualLeaveBalance: false, viewLeaveHistory: false },
                 members: { viewMembers: false, viewVisitors: false, addMembers: false, editMembers: false, deleteMembers: false },
@@ -19925,6 +19934,10 @@ function PTClientsPage({ members, users, settings, updateSetting, currentUser, a
         if (!isOwner || u.id === 'owner') return;
         const ok = window.confirm(`Delete staff "${u.id}"? This cannot be undone.`);
         if (!ok) return;
+        const previousUsers = Array.isArray(users) ? users : [];
+        const previousStaff = Array.isArray(settings?.staff) ? settings.staff : [];
+        const nextUsers = previousUsers.filter((x) => x.id !== u.id);
+        const nextStaff = previousStaff.filter((s) => s.id !== u.id);
         if (u.testProfile && u.sandboxId) {
           const purgeOk = window.confirm('This is a test profile. Delete all sandbox data created by this test profile as well?');
           if (purgeOk) {
@@ -19936,11 +19949,27 @@ function PTClientsPage({ members, users, settings, updateSetting, currentUser, a
             } catch {}
           }
         }
-        setUsers(prev => prev.filter(x => x.id !== u.id));
-        setSettings(prev => {
-          const staffList = prev.staff || [];
-          return { ...prev, staff: staffList.filter(s => s.id !== u.id) };
-        });
+        if (typeof backendJson === 'function') {
+          try {
+            const out = await backendJson('/users/cleanup', {
+              method: 'POST',
+              body: JSON.stringify({ userIds: [u.id] }),
+            });
+            const deleted = Array.isArray(out?.deleted) ? out.deleted.map((id) => String(id || '').trim()) : [];
+            if (!deleted.includes(String(u.id || '').trim())) {
+              const skippedReason = Array.isArray(out?.skipped)
+                ? (out.skipped.find((s) => String(s?.id || '').trim() === String(u.id || '').trim())?.reason || '')
+                : '';
+              throw new Error(skippedReason ? `staff-delete-not-confirmed:${skippedReason}` : 'staff-delete-not-confirmed');
+            }
+          } catch (deleteErr) {
+            showStaffError(`Could not delete staff "${u.id}". ${deleteErr?.message || 'Please try again.'}`);
+            return;
+          }
+        }
+        setUsers(nextUsers);
+        setSettings(prev => ({ ...prev, staff: nextStaff }));
+        await queueSyncSnapshot('users', usersForApi(nextUsers)).catch(() => {});
         logEvent && logEvent('staff.deleted', 'user', u.id, u, null);
       };
 

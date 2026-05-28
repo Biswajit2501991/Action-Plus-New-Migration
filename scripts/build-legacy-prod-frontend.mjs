@@ -48,6 +48,7 @@ async function buildLeaveTrackerModule() {
 }
 
 function buildProdHtml(html, inlineFullMatch) {
+  const buildTag = Date.now();
   const withoutBabelRuntime = html.replace(
     /[ \t]*<!-- Babel Standalone served locally for in-browser JSX compilation -->\s*[\r\n]+[ \t]*<script src="\.\/vendor\/babel\.min\.js"><\/script>\s*/i,
     '',
@@ -55,7 +56,7 @@ function buildProdHtml(html, inlineFullMatch) {
   return withoutBabelRuntime
     .replace(
       inlineFullMatch,
-      '<script src="./dist-legacy/app.bundle.js"></script>',
+      `<script src="./dist-legacy/app.bundle.js?v=${buildTag}"></script>`,
     );
 }
 

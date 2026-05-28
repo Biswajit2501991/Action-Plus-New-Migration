@@ -36,6 +36,7 @@ export const SETTINGS_CHILD_PERMISSIONS = [
   { key: 'manageExpenseCategories', label: 'Expense Categories' },
   { key: 'manageHoldDurations', label: 'Hold Durations' },
   { key: 'manageGenders', label: 'Genders' },
+  { key: 'viewBackendDiskUsage', label: 'Disk Usage (Backend)' },
   { key: 'manageFineRule', label: 'Fine SMS Rule' },
 ];
 
@@ -119,6 +120,7 @@ export const DEFAULT_ACCESS = {
     manageExpenseCategories: true,
     manageHoldDurations: true,
     manageGenders: true,
+    viewBackendDiskUsage: true,
     manageFineRule: true,
   },
   whatsapp: {
@@ -196,6 +198,7 @@ export function normalizeAccess(access) {
       manageExpenseCategories: access?.settings?.manageExpenseCategories !== false,
       manageHoldDurations: access?.settings?.manageHoldDurations !== false,
       manageGenders: access?.settings?.manageGenders !== false,
+      viewBackendDiskUsage: access?.settings?.viewBackendDiskUsage !== false,
       manageFineRule: access?.settings?.manageFineRule !== false,
     },
     whatsapp: {

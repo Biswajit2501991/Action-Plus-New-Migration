@@ -34,6 +34,7 @@ export function normalizeAccess(access) {
       manageExpenseCategories: access?.settings?.manageExpenseCategories !== false,
       manageHoldDurations: access?.settings?.manageHoldDurations !== false,
       manageGenders: access?.settings?.manageGenders !== false,
+      viewBackendDiskUsage: access?.settings?.viewBackendDiskUsage !== false,
       manageFineRule: access?.settings?.manageFineRule !== false,
     },
     whatsapp: {

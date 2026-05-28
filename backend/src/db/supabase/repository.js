@@ -1995,23 +1995,25 @@ export async function upsertWhatsappTemplate(_scope, { key, body, gymCodeId }) {
 export async function deleteStaffUsers(_scope, loginIds = []) {
   const sb = getSupabase();
   const gid = gymId();
-  const wanted = new Set(
-    (Array.isArray(loginIds) ? loginIds : [])
-      .map((x) => String(x || '').trim())
-      .filter(Boolean),
-  );
-  if (!wanted.size) return { deleted: [], skipped: [] };
+  const wantedRaw = (Array.isArray(loginIds) ? loginIds : [])
+    .map((x) => String(x || '').trim())
+    .filter(Boolean);
+  if (!wantedRaw.length) return { deleted: [], skipped: [] };
+  const wantedNorm = new Set(wantedRaw.map((id) => id.toLowerCase()));
 
-  // Resolve PKs for the requested login ids inside this gym only.
+  // Resolve PKs for this gym, then match case-insensitively so "reception"
+  // and "Reception" both map to the same staff_login_id row.
   const { data: rows, error: lookupErr } = await sb
     .from(T.staff_users)
     .select('id, staff_login_id')
-    .eq('gym_id', gid)
-    .in('staff_login_id', Array.from(wanted));
+    .eq('gym_id', gid);
   if (lookupErr) throw new Error(`staff lookup failed: ${lookupErr.message}`);
 
-  const present = (rows || []).filter((r) => r && r.id && r.staff_login_id);
-  if (!present.length) return { deleted: [], skipped: Array.from(wanted) };
+  const present = (rows || []).filter((r) => {
+    if (!r || !r.id || !r.staff_login_id) return false;
+    return wantedNorm.has(String(r.staff_login_id).trim().toLowerCase());
+  });
+  if (!present.length) return { deleted: [], skipped: wantedRaw };
 
   const pks = present.map((r) => r.id);
   const removedLogins = present.map((r) => String(r.staff_login_id));
@@ -2031,7 +2033,8 @@ export async function deleteStaffUsers(_scope, loginIds = []) {
   for (const id of removedLogins) invalidateStaffAccessCache(id);
   notifyCollectionChange('users');
 
-  const skipped = Array.from(wanted).filter((id) => !removedLogins.includes(id));
+  const removedNorm = new Set(removedLogins.map((id) => String(id).trim().toLowerCase()));
+  const skipped = wantedRaw.filter((id) => !removedNorm.has(String(id).trim().toLowerCase()));
   return { deleted: removedLogins, skipped };
 }
 
