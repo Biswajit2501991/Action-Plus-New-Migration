@@ -398,6 +398,20 @@ export async function deleteLogsInRange(scope, { startIso, endIso }) {
   return { deleted: all.length - kept.length, remaining: kept.length };
 }
 
+export async function deleteLogsByIds(scope, ids = []) {
+  const wanted = [...new Set((Array.isArray(ids) ? ids : []).map((x) => String(x || '').trim()).filter(Boolean))];
+  if (!wanted.length) return { deleted: 0, remaining: null };
+  if (useSupabase()) {
+    const { deleted } = await supabaseStore.deleteAuditLogsByIds(scope, wanted);
+    return { deleted, remaining: null };
+  }
+  const rows = await kvStore.readJsonCollection('apg.logs', []);
+  const wantSet = new Set(wanted);
+  const kept = (Array.isArray(rows) ? rows : []).filter((r) => !wantSet.has(String(r?.id || '').trim()));
+  await kvStore.writeJsonCollection('apg.logs', kept);
+  return { deleted: rows.length - kept.length, remaining: kept.length };
+}
+
 /**
  * Owner-only destructive delete of staff rows by staff_login_id. On Supabase
  * this hits the staff_users table directly (the upsert-only writeUsers path
@@ -448,6 +462,7 @@ export async function addSettingsLookup(scope, payload) {
       value,
       createdByRole: payload?.createdByRole || null,
       createdByStaffLoginId: payload?.createdByStaffLoginId || null,
+      createdByGymCodeId: payload?.createdByGymCodeId || null,
     });
   }
   const settings = (await readJsonValue('apg.settings', {}, scope)) || {};
@@ -477,6 +492,7 @@ export async function deleteSettingsLookup(scope, payload) {
       value,
       requesterRole: payload?.requesterRole || null,
       requesterStaffLoginId: payload?.requesterStaffLoginId || null,
+      requesterGymCodeId: payload?.requesterGymCodeId || null,
     });
   }
   const settings = (await readJsonValue('apg.settings', {}, scope)) || {};

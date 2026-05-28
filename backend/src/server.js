@@ -38,6 +38,7 @@ import {
   writeWhatsappTemplate,
   appendAuditLogEntry,
   deleteLogsInRange,
+  deleteLogsByIds,
   deleteStaffUsers,
   addSettingsLookup,
   deleteSettingsLookup,
@@ -817,7 +818,7 @@ app.get('/api/settings', requireAccess(Access.settingsRead), async (req, res) =>
   const scope = readSandboxScope(req);
   const { readSettingsDeduped } = await import('./services/settingsReadService.js');
   try {
-    const settings = await readSettingsDeduped(scope, { scope: settingsScope });
+    const settings = await readSettingsDeduped(scope, { scope: settingsScope, auth: req.auth || null });
     return res.json(settings || {});
   } catch (error) {
     return res.status(500).json({
@@ -885,6 +886,7 @@ app.post('/api/settings/lookups', requireSettingsLookupAdd, async (req, res) => 
       value,
       createdByRole,
       createdByStaffLoginId: req.auth?.userId || null,
+      createdByGymCodeId: req.auth?.gymCodeId || null,
     });
     await appendAuditLog(req, {
       action: 'settings.lookup.added',
@@ -921,6 +923,7 @@ app.delete('/api/settings/lookups', requireSettingsLookupDelete, async (req, res
       value,
       requesterRole,
       requesterStaffLoginId: req.auth?.userId || null,
+      requesterGymCodeId: req.auth?.gymCodeId || null,
     });
     await appendAuditLog(req, {
       action: 'settings.lookup.removed',
@@ -935,6 +938,9 @@ app.delete('/api/settings/lookups', requireSettingsLookupDelete, async (req, res
     const msg = String(error?.message || error);
     if (msg === 'invalid_lookup_category' || msg === 'invalid_lookup_value') {
       return res.status(400).json({ error: msg });
+    }
+    if (msg === 'lookup-delete-master-protected' || msg === 'lookup-delete-not-owned') {
+      return res.status(403).json({ error: msg });
     }
     return res.status(500).json({ error: 'settings_lookup_delete_failed', message: msg });
   }
@@ -1377,7 +1383,7 @@ app.put('/api/logs/bulk', requireLogsBulkAccess, async (req, res) => {
 // written AFTER the cleanup so it survives. On Supabase the cleanup is a
 // single SQL DELETE — no collection round-trip — keeping it usable on busy
 // gyms with tens of thousands of audit rows.
-app.post('/api/logs/cleanup', requireMasterOwner, async (req, res) => {
+app.post('/api/logs/cleanup', requireAccess(Access.logsClear), async (req, res) => {
   try {
     const range = normalizeDateRange(req.body?.startDate, req.body?.endDate);
     if (!range) {
@@ -1385,12 +1391,32 @@ app.post('/api/logs/cleanup', requireMasterOwner, async (req, res) => {
     }
     const startIso = new Date(range.startMs).toISOString();
     const endIso = new Date(range.endMs).toISOString();
-    const { deleted, remaining } = await deleteLogsInRange(readSandboxScope(req), { startIso, endIso });
+    let deleted = 0;
+    let remaining = null;
+    if (authIsOwner(req.auth)) {
+      ({ deleted, remaining } = await deleteLogsInRange(readSandboxScope(req), { startIso, endIso }));
+    } else {
+      if (!req.auth?.gymCodeId) {
+        return res.status(403).json({ error: 'branch-scope-missing', message: 'Staff branch scope is required.' });
+      }
+      const branchScope = await loadBranchScope(getSupabase(), req.auth);
+      const logs = await readJsonCollection('apg.logs', [], readSandboxScope(req), null, {
+        view: 'list',
+        startDate: range.startDate,
+        endDate: range.endDate,
+        limit: 5000,
+      });
+      const scopedIds = (Array.isArray(logs) ? logs : [])
+        .filter((l) => logMatchesBranchScope(l, branchScope))
+        .map((l) => String(l?.id || '').trim())
+        .filter(Boolean);
+      ({ deleted, remaining } = await deleteLogsByIds(readSandboxScope(req), scopedIds));
+    }
     await appendAuditLog(req, {
       action: 'logs.range.cleared',
       entityType: 'logs',
       entityId: `${range.startDate}__${range.endDate}`,
-      after: { startDate: range.startDate, endDate: range.endDate, deleted },
+      after: { startDate: range.startDate, endDate: range.endDate, deleted, scoped: !authIsOwner(req.auth) },
     });
     queueDatabaseBackup('logs-cleanup');
     return res.json({ ok: true, deleted, remaining: remaining == null ? null : remaining, startDate: range.startDate, endDate: range.endDate });

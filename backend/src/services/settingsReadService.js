@@ -9,7 +9,16 @@ function cacheKey(scope, options = {}) {
   const gid = gymId();
   const settingsScope = normalizeSettingsScope(options.scope);
   const sandboxId = scope?.sandboxId ? String(scope.sandboxId) : '';
-  return `${gid}:${sandboxId}:${settingsScope}`;
+  const auth = options.auth || null;
+  const role = String(auth?.staffRole || auth?.staff_role || auth?.role || '').trim().toLowerCase();
+  const login = String(auth?.userId || '').trim().toLowerCase();
+  const branch = String(auth?.gymCodeId || auth?.gym_code_id || '').trim();
+  const assigned = (Array.isArray(auth?.assignedBranchIds) ? auth.assignedBranchIds : [])
+    .map((x) => String(x || '').trim())
+    .filter(Boolean)
+    .sort()
+    .join(',');
+  return `${gid}:${sandboxId}:${settingsScope}:${login}:${role}:${branch}:${assigned}`;
 }
 
 async function readSettingsFromStore(scope, settingsScope) {

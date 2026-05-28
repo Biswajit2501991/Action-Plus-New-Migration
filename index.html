@@ -19963,7 +19963,9 @@ function PTClientsPage({ members, users, settings, updateSetting, currentUser, a
               throw new Error(skippedReason ? `staff-delete-not-confirmed:${skippedReason}` : 'staff-delete-not-confirmed');
             }
           } catch (deleteErr) {
-            showStaffError(`Could not delete staff "${u.id}". ${deleteErr?.message || 'Please try again.'}`);
+            const msg = `Could not delete staff "${u.id}". ${deleteErr?.message || 'Please try again.'}`;
+            showStaffError(msg);
+            window.alert(msg);
             return;
           }
         }
