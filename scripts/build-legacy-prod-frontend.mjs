@@ -1,0 +1,87 @@
+import fs from 'node:fs';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+import * as esbuild from 'esbuild';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+const rootDir = path.resolve(__dirname, '..');
+
+const indexPath = path.join(rootDir, 'index.html');
+const leaveTrackerPath = path.join(rootDir, 'src', 'components', 'LeaveTrackerPageModule.jsx');
+const outDir = path.join(rootDir, 'dist-legacy');
+const outModulesDir = path.join(outDir, 'modules');
+const outBundlePath = path.join(outDir, 'app.bundle.js');
+const outLeaveTrackerPath = path.join(outModulesDir, 'LeaveTrackerPageModule.js');
+const outHtmlPath = path.join(outDir, 'index.html');
+
+function extractInlineBabelScript(html) {
+  const re = /<script\s+type="text\/babel"[^>]*>([\s\S]*?)<\/script>/i;
+  const match = html.match(re);
+  if (!match) {
+    throw new Error('Could not locate inline <script type="text/babel"> block in index.html');
+  }
+  return { script: match[1], fullMatch: match[0] };
+}
+
+async function buildAppBundle(inlineScript) {
+  const transformed = await esbuild.transform(inlineScript, {
+    loader: 'jsx',
+    format: 'iife',
+    target: 'es2020',
+    minify: true,
+    legalComments: 'none',
+  });
+  return transformed.code;
+}
+
+async function buildLeaveTrackerModule() {
+  const source = fs.readFileSync(leaveTrackerPath, 'utf8');
+  const transformed = await esbuild.transform(source, {
+    loader: 'jsx',
+    format: 'esm',
+    target: 'es2020',
+    minify: true,
+    legalComments: 'none',
+  });
+  return transformed.code;
+}
+
+function buildProdHtml(html, inlineFullMatch) {
+  const withoutBabelRuntime = html.replace(
+    /[ \t]*<!-- Babel Standalone served locally for in-browser JSX compilation -->\s*[\r\n]+[ \t]*<script src="\.\/vendor\/babel\.min\.js"><\/script>\s*/i,
+    '',
+  );
+  return withoutBabelRuntime
+    .replace(
+      inlineFullMatch,
+      '<script src="./dist-legacy/app.bundle.js"></script>',
+    );
+}
+
+async function main() {
+  const html = fs.readFileSync(indexPath, 'utf8');
+  const { script: inlineScript, fullMatch } = extractInlineBabelScript(html);
+
+  fs.mkdirSync(outModulesDir, { recursive: true });
+
+  const [appBundle, leaveTrackerModule] = await Promise.all([
+    buildAppBundle(inlineScript),
+    buildLeaveTrackerModule(),
+  ]);
+
+  fs.writeFileSync(outBundlePath, appBundle);
+  fs.writeFileSync(outLeaveTrackerPath, leaveTrackerModule);
+
+  const prodHtml = buildProdHtml(html, fullMatch);
+  fs.writeFileSync(outHtmlPath, prodHtml);
+
+  console.log(`[build-legacy-prod] wrote ${path.relative(rootDir, outHtmlPath)}`);
+  console.log(`[build-legacy-prod] wrote ${path.relative(rootDir, outBundlePath)}`);
+  console.log(`[build-legacy-prod] wrote ${path.relative(rootDir, outLeaveTrackerPath)}`);
+}
+
+main().catch((error) => {
+  console.error('[build-legacy-prod] failed:', error.message);
+  process.exit(1);
+});

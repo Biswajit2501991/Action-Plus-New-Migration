@@ -13,6 +13,7 @@
     "dev:web": "node scripts/dev-frontend.mjs",
     "dev:tunnel": "node scripts/cloudflare-tunnel.mjs",
     "dev:all:tunnel": "node scripts/dev-all-with-tunnel.mjs",
+    "build:legacy:prod": "node scripts/build-legacy-prod-frontend.mjs",
     "prod:health": "zsh scripts/health-check-after-boot.sh",
     "local:health": "zsh scripts/health-check-after-boot.sh http://127.0.0.1:5501/index.html http://127.0.0.1:5501/index.html",
     "local:test": "npm test && npm run local:health",

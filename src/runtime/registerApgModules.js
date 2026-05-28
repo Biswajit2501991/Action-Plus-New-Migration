@@ -79,18 +79,6 @@ function emitTelemetry(level, code, message, meta = {}) {
   window.dispatchEvent(new CustomEvent('apg:module-loader', { detail: payload }));
 }
 
-async function precheckLeaveTrackerModule() {
-  const url = new URL('../components/LeaveTrackerPageModule.jsx', import.meta.url);
-  if (url.origin !== window.location.origin) throw new Error('precheck-cross-origin-blocked');
-  if (!window.React) throw new Error('precheck-react-missing');
-  if (!window.Babel) throw new Error('precheck-babel-missing');
-  const res = await fetch(url.href, { cache: 'no-store' });
-  if (!res.ok) throw new Error(`precheck-http-${res.status}`);
-  const text = await res.text();
-  if (!text.includes('export default')) throw new Error('precheck-invalid-module-shape');
-  return { url: url.href, source: text };
-}
-
 async function loadLeaveTrackerModuleFromSource(source) {
   const compiled = window.Babel.transform(source, {
     presets: [['env', { modules: 'commonjs' }], 'react'],
@@ -105,8 +93,38 @@ async function loadLeaveTrackerModuleFromSource(source) {
   return out.default || out;
 }
 
+async function loadLeaveTrackerModuleFromPrebuilt() {
+  const url = new URL('../../dist-legacy/modules/LeaveTrackerPageModule.js', import.meta.url);
+  if (url.origin !== window.location.origin) throw new Error('prebuilt-cross-origin-blocked');
+  const mod = await import(url.href);
+  return mod.default || mod;
+}
+
+async function fetchLeaveTrackerSource() {
+  const url = new URL('../components/LeaveTrackerPageModule.jsx', import.meta.url);
+  if (url.origin !== window.location.origin) throw new Error('source-cross-origin-blocked');
+  const res = await fetch(url.href, { cache: 'no-store' });
+  if (!res.ok) throw new Error(`source-http-${res.status}`);
+  const text = await res.text();
+  if (!text.includes('export default')) throw new Error('source-invalid-module-shape');
+  return text;
+}
+
 async function loadLeaveTrackerModuleWithRetry(maxAttempts = 3) {
-  const { source } = await precheckLeaveTrackerModule();
+  try {
+    const prebuilt = await loadLeaveTrackerModuleFromPrebuilt();
+    emitTelemetry('info', 'prebuilt-load', 'Loaded prebuilt Leave Tracker module');
+    return prebuilt;
+  } catch (err) {
+    emitTelemetry('warn', 'prebuilt-miss', 'Prebuilt Leave Tracker module unavailable, using fallback loader', {
+      error: String(err?.message || err),
+    });
+  }
+
+  if (!window.Babel) throw new Error('fallback-babel-missing');
+  if (!window.React) throw new Error('fallback-react-missing');
+
+  const source = await fetchLeaveTrackerSource();
   let lastErr = null;
   for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
     try {

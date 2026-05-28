@@ -1,6 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import http from 'node:http';
+import zlib from 'node:zlib';
 import { spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { loadEnvFromFile } from './load-env-file.mjs';
@@ -23,6 +24,11 @@ const V2_PREFIX = '/v2';
 const v2DistDir = path.resolve(rootDir, 'v2', 'dist');
 const v2DevOrigin = process.env.V2_DEV_URL || 'http://127.0.0.1:5173';
 const v2DevProxy = ['1', 'true', 'yes'].includes(String(process.env.V2_DEV_PROXY || '').toLowerCase());
+const legacyProdDir = path.resolve(rootDir, 'dist-legacy');
+const legacyProdIndex = path.join(legacyProdDir, 'index.html');
+const useLegacyProdBundle = ['1', 'true', 'yes'].includes(
+  String(process.env.APG_USE_PROD_BUNDLE ?? '1').toLowerCase(),
+);
 
 let supervisorChild = null;
 let supervisorChildOwned = false;
@@ -186,9 +192,76 @@ const mimeByExt = {
   '.webp': 'image/webp',
 };
 
+const compressibleExt = new Set([
+  '.html',
+  '.js',
+  '.mjs',
+  '.css',
+  '.json',
+  '.svg',
+  '.txt',
+]);
+
+function staticCacheControlForPath(reqPath, ext) {
+  if (reqPath === '/index.html' || reqPath === '/') {
+    return 'no-cache, must-revalidate';
+  }
+  if (reqPath === '/app.bundle.js' || reqPath.startsWith('/modules/')) {
+    return 'public, max-age=31536000, immutable';
+  }
+  if (reqPath.startsWith('/dist-legacy/')) {
+    return 'public, max-age=31536000, immutable';
+  }
+  if (reqPath.startsWith('/vendor/')) {
+    return 'public, max-age=31536000, immutable';
+  }
+  if (ext === '.html') {
+    return 'no-cache, must-revalidate';
+  }
+  return 'public, max-age=86400, stale-while-revalidate=604800';
+}
+
+function streamFile(req, res, filePath, reqPath) {
+  const ext = path.extname(filePath).toLowerCase();
+  const stat = fs.statSync(filePath);
+  const headers = {
+    'Content-Type': mimeByExt[ext] || 'application/octet-stream',
+    'Cache-Control': staticCacheControlForPath(reqPath, ext),
+    'Last-Modified': stat.mtime.toUTCString(),
+    ETag: `W/"${stat.size}-${Math.trunc(stat.mtimeMs)}"`,
+    Vary: 'Accept-Encoding',
+  };
+
+  const inm = req.headers['if-none-match'];
+  const ims = req.headers['if-modified-since'];
+  if ((typeof inm === 'string' && inm === headers.ETag) || (typeof ims === 'string' && ims === headers['Last-Modified'])) {
+    res.writeHead(304, headers);
+    res.end();
+    return;
+  }
+
+  let stream = fs.createReadStream(filePath);
+  const ae = String(req.headers['accept-encoding'] || '');
+  if (compressibleExt.has(ext) && ae.includes('br')) {
+    headers['Content-Encoding'] = 'br';
+    stream = stream.pipe(zlib.createBrotliCompress());
+  } else if (compressibleExt.has(ext) && ae.includes('gzip')) {
+    headers['Content-Encoding'] = 'gzip';
+    stream = stream.pipe(zlib.createGzip({ level: zlib.constants.Z_BEST_SPEED }));
+  }
+
+  res.writeHead(200, headers);
+  stream.pipe(res);
+}
+
 function safeResolveFile(urlPath) {
   const clean = decodeURIComponent(urlPath.split('?')[0]).replace(/^\/+/, '');
   const rel = clean === '' ? 'index.html' : clean;
+  if (useLegacyProdBundle && (rel === 'index.html' || rel === '')) {
+    if (fs.existsSync(legacyProdIndex)) {
+      return legacyProdIndex;
+    }
+  }
   const abs = path.resolve(rootDir, rel);
   if (!abs.startsWith(rootDir)) return null;
   return abs;
@@ -242,9 +315,7 @@ function serveV2Static(req, res) {
     res.end('v2 build not found — run: npm run build:v2');
     return;
   }
-  const ext = path.extname(filePath).toLowerCase();
-  res.writeHead(200, { 'Content-Type': mimeByExt[ext] || 'application/octet-stream' });
-  fs.createReadStream(filePath).pipe(res);
+  streamFile(req, res, filePath, u.pathname);
 }
 
 const server = http.createServer((req, res) => {
@@ -313,9 +384,7 @@ const server = http.createServer((req, res) => {
     return;
   }
 
-  const ext = path.extname(abs).toLowerCase();
-  res.writeHead(200, { 'Content-Type': mimeByExt[ext] || 'application/octet-stream' });
-  fs.createReadStream(abs).pipe(res);
+  streamFile(req, res, abs, reqPath);
 });
 
 server.on('error', (err) => {

@@ -1,0 +1,1055 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Action Plus Gym Manager</title>
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='6' fill='%231e293b'/%3E%3Ctext x='16' y='22' text-anchor='middle' font-size='16' fill='%23fbbf24'%3E%2B%3C/text%3E%3C/svg%3E" />
+  <!-- Local vendor bundles for offline operation (no CDN dependencies). -->
+  <script src="./vendor/tailwindcss-cdn.js"></script>
+  <script>
+    tailwind = window.tailwind || {};
+    tailwind.config = { darkMode: 'class' };
+  </script>
+  <!-- React and ReactDOM UMD bundles served from local files -->
+  <script src="./vendor/react.development.js"></script>
+  <script src="./vendor/react-dom.development.js"></script>
+  <script type="importmap">
+    {
+      "imports": {
+        "react": "./vendor/react-esm-shim.js",
+        "react-dom": "./vendor/react-dom-esm-shim.js",
+        "react-dom/client": "./vendor/react-dom-client-esm-shim.js"
+      }
+    }
+  </script>
+<!-- Include our app‑specific stylesheet (currently minimal; most styling uses Tailwind classes) -->
+  <link rel="stylesheet" href="styles.css" />
+  <style>
+    :root {
+      --apg-radius-card: 18px;
+      --apg-radius-btn: 12px;
+      --apg-shadow-card: 0 8px 28px rgba(15, 23, 42, 0.08);
+      --apg-shadow-soft: 0 2px 10px rgba(15, 23, 42, 0.06);
+      --apg-bg: #f1f5f9;
+      --apg-surface: #ffffff;
+      --apg-text: #0f172a;
+      --apg-muted: #64748b;
+      --apg-primary: #2563eb;
+      --apg-success: #16a34a;
+      --apg-warning: #d97706;
+      --apg-danger: #dc2626;
+    }
+    html.dark {
+      --apg-bg: #0b1220;
+      --apg-surface: #0f172a;
+      --apg-text: #e2e8f0;
+      --apg-muted: #94a3b8;
+      --apg-primary: #3b82f6;
+      --apg-success: #22c55e;
+      --apg-warning: #f59e0b;
+      --apg-danger: #f87171;
+    }
+    html {
+      font-size: 13px;
+    }
+    body {
+      background: var(--apg-bg);
+      color: var(--apg-text);
+    }
+    .apg-title {
+      font-size: 1.25rem;
+      line-height: 1.35;
+      font-weight: 700;
+      color: var(--apg-text);
+    }
+    .apg-body {
+      font-size: 0.95rem;
+      line-height: 1.45;
+      font-weight: 500;
+      color: var(--apg-text);
+    }
+    .apg-meta {
+      font-size: 0.75rem;
+      line-height: 1.35;
+      font-weight: 600;
+      color: var(--apg-muted);
+      letter-spacing: 0.02em;
+    }
+    .apg-card {
+      border-radius: var(--apg-radius-card);
+      box-shadow: var(--apg-shadow-card);
+    }
+    .apg-btn {
+      border-radius: var(--apg-radius-btn);
+      box-shadow: var(--apg-shadow-soft);
+    }
+    html.dark .bg-white { background-color: #0f172a !important; }
+    html.dark .bg-slate-50, html.dark .bg-slate-100 { background-color: #111b2e !important; }
+    html.dark .bg-blue-50, html.dark .bg-blue-100 { background-color: #12233a !important; }
+    html.dark .bg-emerald-50, html.dark .bg-emerald-100 { background-color: #10251f !important; }
+    html.dark .bg-amber-50, html.dark .bg-amber-100 { background-color: #2a2111 !important; }
+    html.dark .bg-rose-50, html.dark .bg-rose-100 { background-color: #2b1820 !important; }
+    html.dark .bg-pink-50, html.dark .bg-pink-100 { background-color: #281826 !important; }
+    html.dark .bg-indigo-50, html.dark .bg-indigo-100 { background-color: #1b2038 !important; }
+    html.dark .bg-violet-50, html.dark .bg-violet-100 { background-color: #221d3a !important; }
+    html.dark .text-slate-900, html.dark .text-slate-800, html.dark .text-slate-700 { color: #e2e8f0 !important; }
+    html.dark .text-slate-600, html.dark .text-slate-500, html.dark .text-slate-400 { color: #94a3b8 !important; }
+    html.dark .border-slate-200, html.dark .border-slate-300 { border-color: #243247 !important; }
+    html.dark .border-blue-100, html.dark .border-blue-200, html.dark .border-blue-300 { border-color: #274264 !important; }
+    html.dark .border-emerald-200, html.dark .border-emerald-300 { border-color: #245041 !important; }
+    html.dark .border-amber-200, html.dark .border-amber-300 { border-color: #5b4a25 !important; }
+    html.dark .border-rose-200, html.dark .border-rose-300 { border-color: #5e3140 !important; }
+    html.dark .border-pink-200, html.dark .border-pink-300 { border-color: #5f385f !important; }
+    html.dark .border-indigo-200, html.dark .border-indigo-300 { border-color: #3b4c7e !important; }
+    html.dark .text-blue-700, html.dark .text-blue-800 { color: #93c5fd !important; }
+    html.dark .text-emerald-700, html.dark .text-emerald-800 { color: #86efac !important; }
+    html.dark .text-amber-700, html.dark .text-amber-800 { color: #fcd34d !important; }
+    html.dark .text-rose-700, html.dark .text-rose-800 { color: #fda4af !important; }
+    html.dark .text-pink-700, html.dark .text-pink-800 { color: #f9a8d4 !important; }
+    html.dark .text-indigo-700, html.dark .text-indigo-800 { color: #a5b4fc !important; }
+    html.dark .text-violet-700, html.dark .text-violet-800 { color: #c4b5fd !important; }
+    html.dark [class*="hover:bg-white"]:hover,
+    html.dark [class*="hover:bg-slate-50"]:hover,
+    html.dark [class*="hover:bg-slate-100"]:hover,
+    html.dark [class*="hover:bg-blue-50"]:hover,
+    html.dark [class*="hover:bg-blue-100"]:hover {
+      background-color: #1a2d49 !important;
+      color: #e2e8f0 !important;
+    }
+    html.dark [class*="hover:bg-emerald-100"]:hover,
+    html.dark [class*="hover:bg-amber-100"]:hover,
+    html.dark [class*="hover:bg-rose-100"]:hover,
+    html.dark [class*="hover:bg-pink-100"]:hover,
+    html.dark [class*="hover:bg-indigo-100"]:hover {
+      filter: brightness(1.15);
+    }
+    html.dark input:not([type="checkbox"]):not([type="radio"]),
+    html.dark select,
+    html.dark textarea {
+      background-color: #0f172a !important;
+      color: #e2e8f0 !important;
+      border-color: #334155 !important;
+    }
+    html.dark input::placeholder,
+    html.dark textarea::placeholder {
+      color: #94a3b8 !important;
+    }
+    .apg-filter-panel select,
+    .apg-filter-panel select option {
+      background-color: #ffffff !important;
+      color: #0f172a !important;
+    }
+    .apg-force-light .bg-white { background-color: #ffffff !important; }
+    .apg-force-light .bg-slate-50, .apg-force-light .bg-slate-100 { background-color: #f8fafc !important; }
+    .apg-force-light .border-slate-200, .apg-force-light .border-slate-300 { border-color: #e2e8f0 !important; }
+    .apg-force-light .text-slate-900, .apg-force-light .text-slate-800, .apg-force-light .text-slate-700 { color: #0f172a !important; }
+    .apg-force-light .text-slate-600, .apg-force-light .text-slate-500, .apg-force-light .text-slate-400 { color: #475569 !important; }
+    /* Force light look even when components still carry dark:* utility classes. */
+    .apg-force-light [class*="dark:bg-slate-"] { background-color: #ffffff !important; }
+    .apg-force-light [class*="dark:text-slate-"] { color: #0f172a !important; }
+    .apg-force-light [class*="dark:border-slate-"] { border-color: #e2e8f0 !important; }
+    .apg-force-light [class*="dark:hover:bg-slate-"]:hover { background-color: #f8fafc !important; }
+    html.dark .apg-members-list-shell {
+      background: #0f172a !important;
+      border-color: #243247 !important;
+    }
+    html.dark .apg-members-list-head {
+      background: #13233b !important;
+      color: #93c5fd !important;
+      border-color: #1d3557 !important;
+    }
+    html.dark .apg-member-row-wrap {
+      background: #0f172a !important;
+      border-color: #223248 !important;
+    }
+    html.dark .apg-member-row-desktop:hover,
+    html.dark .apg-member-row-mobile:hover {
+      background: #16253d !important;
+    }
+    html.dark .apg-member-row-mobile {
+      background: #0f172a !important;
+      border-color: #223248 !important;
+      color: #e2e8f0 !important;
+    }
+    html.dark .apg-dark-row-hover:hover {
+      background: #16253d !important;
+    }
+    html.dark .apg-dark-btn-hover:hover {
+      background: #1a2d49 !important;
+      color: #e2e8f0 !important;
+      border-color: #2b4261 !important;
+    }
+    html.dark .apg-sidebar,
+    html.dark aside.apg-sidebar,
+    html.dark .apg-sidebar[class*="bg-"] {
+      background-color: #0f172a !important;
+      border-color: #334155 !important;
+      color: #e2e8f0 !important;
+    }
+    html.dark .apg-sidebar .apg-sidebar-brand,
+    html.dark .apg-sidebar nav,
+    html.dark .apg-sidebar [class*="bg-white"],
+    html.dark .apg-sidebar [class*="bg-[#fcfdff]"],
+    html.dark .apg-sidebar [class*="dark:bg-slate"] {
+      background-color: #0f172a !important;
+    }
+    html.dark .apg-sidebar nav button {
+      color: #e2e8f0 !important;
+    }
+    html.dark .apg-sidebar nav button[class*="text-blue"],
+    html.dark .apg-sidebar nav button[class*="from-blue"] {
+      color: #93c5fd !important;
+    }
+    html.dark .apg-sidebar .apg-nav-section,
+    html.dark .apg-sidebar nav > div > div:first-child {
+      color: #94a3b8 !important;
+    }
+    html.dark .apg-finance-table-head th,
+    html.dark .apg-finance-table-head th button {
+      background-color: #13233b !important;
+      color: #93c5fd !important;
+    }
+    html.dark .apg-finance-table-head th button:hover {
+      color: #bfdbfe !important;
+    }
+    html.dark .apg-nested-log-head th {
+      background-color: #1e293b !important;
+      color: #cbd5e1 !important;
+    }
+    html.dark .apg-mobile-topbar {
+      background-color: rgba(15, 23, 42, 0.95) !important;
+      border-color: #334155 !important;
+      color: #e2e8f0 !important;
+    }
+    @keyframes apgMobileDetailIn {
+      from { opacity: 0; transform: translateX(22px); }
+      to { opacity: 1; transform: translateX(0); }
+    }
+    .apg-mobile-detail-enter {
+      animation: apgMobileDetailIn 220ms ease-out;
+    }
+
+    /* ===================================================================== */
+    /* Phase 3 Dual-Layout Engine — Dark Luxury skin (WCAG 2.1 AA compliant) */
+    /*                                                                       */
+    /* Design tokens are defined as CSS variables so every contrast decision */
+    /* lives in one place. Every foreground / background pair below meets    */
+    /* AA 4.5:1 (normal text) or 3:1 (large text + UI) against the deepest   */
+    /* surface (--lux-bg = #0a0a0d). Ratios were verified before checkin.   */
+    /* ===================================================================== */
+    body[data-apg-layout="luxury"] {
+      /* Surfaces */
+      --lux-bg: #0a0a0d;
+      --lux-bg-2: #11131a;
+      --lux-surface-1: rgba(22,24,33,0.78);
+      --lux-surface-2: rgba(28,30,42,0.85);
+      --lux-surface-elev: rgba(34,36,48,0.92);
+      --lux-border: rgba(255,255,255,0.10);
+      --lux-border-strong: rgba(255,255,255,0.18);
+      --lux-border-gold: rgba(212,175,55,0.38);
+
+      /* Foreground (all opaque — no opacity tricks for text) */
+      --lux-text-primary: #F4F6F8;
+      --lux-text-secondary: #D1D5DB;
+      --lux-text-muted: #B7BCC6;
+      --lux-text-section: #C9CFDA;
+      --lux-placeholder: #9AA1AE;
+
+      /* Accents */
+      --lux-gold: #FCD36B;
+      --lux-gold-rich: #D4AF37;
+      --lux-on-gold: #0a0a0d;
+      --lux-emerald: #6EE7B7;
+      --lux-emerald-strong: #34D399;
+      --lux-amber: #FCD34D;
+      --lux-orange: #FDBA74;
+      --lux-rose: #FDA4AF;
+      --lux-pink: #F9A8D4;
+      --lux-blue: #93C5FD;
+      --lux-indigo: #A5B4FC;
+      --lux-violet: #C4B5FD;
+
+      background:
+        radial-gradient(circle at 12% 12%, rgba(212,175,55,0.07), transparent 45%),
+        radial-gradient(circle at 88% 88%, rgba(102,153,255,0.06), transparent 45%),
+        linear-gradient(180deg, var(--lux-bg) 0%, var(--lux-bg-2) 100%) !important;
+      color: var(--lux-text-primary) !important;
+    }
+    body[data-apg-layout="luxury"] #root,
+    body[data-apg-layout="luxury"] main {
+      background: transparent !important;
+    }
+
+    /* --------------------------------------------------------------------- */
+    /* Sidebar                                                              */
+    /* --------------------------------------------------------------------- */
+    body[data-apg-layout="luxury"] .apg-sidebar,
+    body[data-apg-layout="luxury"] aside.apg-sidebar {
+      background: linear-gradient(180deg, rgba(14,15,22,0.94), rgba(20,22,32,0.88)) !important;
+      backdrop-filter: blur(18px);
+      -webkit-backdrop-filter: blur(18px);
+      border-right: 1px solid var(--lux-border-gold) !important;
+      color: var(--lux-text-primary) !important;
+      box-shadow: 1px 0 24px rgba(0,0,0,0.45);
+    }
+    body[data-apg-layout="luxury"] .apg-sidebar .apg-sidebar-brand,
+    body[data-apg-layout="luxury"] .apg-sidebar nav,
+    body[data-apg-layout="luxury"] .apg-sidebar [class*="bg-white"],
+    body[data-apg-layout="luxury"] .apg-sidebar [class*="bg-[#fcfdff]"] {
+      background: transparent !important;
+      border-color: var(--lux-border-gold) !important;
+    }
+    body[data-apg-layout="luxury"] .apg-sidebar .apg-sidebar-brand .text-slate-900,
+    body[data-apg-layout="luxury"] .apg-sidebar .apg-sidebar-brand .text-slate-500,
+    body[data-apg-layout="luxury"] .apg-sidebar .apg-sidebar-brand .text-slate-300 {
+      color: var(--lux-text-primary) !important;
+    }
+    body[data-apg-layout="luxury"] .apg-sidebar nav button {
+      color: var(--lux-text-secondary) !important;
+      border-color: transparent !important;
+    }
+    body[data-apg-layout="luxury"] .apg-sidebar nav button:hover {
+      background: rgba(212,175,55,0.14) !important;
+      color: #FFE49E !important;
+    }
+    body[data-apg-layout="luxury"] .apg-sidebar nav button[class*="from-blue"],
+    body[data-apg-layout="luxury"] .apg-sidebar nav button[class*="bg-blue-50"][class*="text-blue-700"] {
+      background: linear-gradient(120deg, rgba(212,175,55,0.30), rgba(180,140,40,0.36)) !important;
+      color: var(--lux-gold) !important;
+      border: 1px solid var(--lux-border-gold) !important;
+      box-shadow: 0 6px 18px rgba(212,175,55,0.18);
+    }
+    body[data-apg-layout="luxury"] .apg-sidebar .apg-nav-section,
+    body[data-apg-layout="luxury"] .apg-sidebar nav > div > div:first-child {
+      color: var(--lux-text-section) !important;
+      opacity: 1 !important;
+      font-weight: 700 !important;
+      letter-spacing: 0.16em !important;
+    }
+    body[data-apg-layout="luxury"] .apg-layout-toggle {
+      background: rgba(212,175,55,0.10) !important;
+      border: 1px solid var(--lux-border-gold) !important;
+    }
+    body[data-apg-layout="luxury"] .apg-layout-toggle [class*="text-slate"] {
+      color: var(--lux-text-primary) !important;
+    }
+
+    /* --------------------------------------------------------------------- */
+    /* Cards / glass surfaces — broaden the set so amber / pink / rose       */
+    /* "tint-50" backgrounds no longer leak through into luxury mode.        */
+    /* --------------------------------------------------------------------- */
+    body[data-apg-layout="luxury"] .bg-white,
+    body[data-apg-layout="luxury"] [class*="bg-white"],
+    body[data-apg-layout="luxury"] [class*="bg-slate-50"],
+    body[data-apg-layout="luxury"] [class*="bg-slate-100"],
+    body[data-apg-layout="luxury"] [class*="bg-slate-900"],
+    body[data-apg-layout="luxury"] [class*="bg-slate-950"],
+    body[data-apg-layout="luxury"] [class*="bg-zinc-50"],
+    body[data-apg-layout="luxury"] [class*="bg-zinc-100"],
+    body[data-apg-layout="luxury"] [class*="bg-gray-50"],
+    body[data-apg-layout="luxury"] [class*="bg-gray-100"],
+    body[data-apg-layout="luxury"] [class*="bg-neutral-50"],
+    body[data-apg-layout="luxury"] [class*="bg-stone-50"],
+    body[data-apg-layout="luxury"] [class*="bg-[#fcfdff]"],
+    body[data-apg-layout="luxury"] [class*="bg-[#F8FAFC]"],
+    body[data-apg-layout="luxury"] [class*="bg-[#f8fafc]"] {
+      background: var(--lux-surface-1) !important;
+      backdrop-filter: blur(14px);
+      -webkit-backdrop-filter: blur(14px);
+      border-color: var(--lux-border) !important;
+      color: var(--lux-text-primary) !important;
+      box-shadow: 0 10px 28px rgba(0,0,0,0.32);
+    }
+    /* Finance page wrapper uses `bg-[#F8FAFC]` directly on the page-level <div>.
+       That outer slab should NOT become a glass card — it should disappear so
+       the body's charcoal gradient shows through. */
+    body[data-apg-layout="luxury"] main > [class*="bg-[#F8FAFC]"],
+    body[data-apg-layout="luxury"] main > [class*="bg-[#f8fafc]"],
+    body[data-apg-layout="luxury"] [class*="bg-[#F8FAFC]"][class*="space-y-"],
+    body[data-apg-layout="luxury"] [class*="bg-[#f8fafc]"][class*="space-y-"] {
+      background: transparent !important;
+      backdrop-filter: none !important;
+      box-shadow: none !important;
+    }
+    /* `apg-force-light` is the legacy theme=light enforcer (it slams solid
+       white into backgrounds with !important). The luxury skin needs to win
+       cleanly, so the selectors below add one extra attribute hop. */
+    body[data-apg-layout="luxury"] .apg-force-light {
+      background: transparent !important;
+    }
+    body[data-apg-layout="luxury"] .apg-force-light .bg-white,
+    body[data-apg-layout="luxury"] .apg-force-light [class*="bg-white"],
+    body[data-apg-layout="luxury"] .apg-force-light .bg-slate-50,
+    body[data-apg-layout="luxury"] .apg-force-light .bg-slate-100,
+    body[data-apg-layout="luxury"] .apg-force-light [class*="dark:bg-slate-"],
+    body[data-apg-layout="luxury"] .apg-force-light [class*="bg-[#F8FAFC]"],
+    body[data-apg-layout="luxury"] .apg-force-light [class*="bg-[#f8fafc]"] {
+      background-color: var(--lux-surface-1) !important;
+      color: var(--lux-text-primary) !important;
+      border-color: var(--lux-border) !important;
+    }
+    body[data-apg-layout="luxury"] .apg-force-light .text-slate-900,
+    body[data-apg-layout="luxury"] .apg-force-light .text-slate-800,
+    body[data-apg-layout="luxury"] .apg-force-light .text-slate-700,
+    body[data-apg-layout="luxury"] .apg-force-light [class*="dark:text-slate-"] {
+      color: var(--lux-text-primary) !important;
+    }
+    body[data-apg-layout="luxury"] .apg-force-light .text-slate-600,
+    body[data-apg-layout="luxury"] .apg-force-light .text-slate-500,
+    body[data-apg-layout="luxury"] .apg-force-light .text-slate-400 {
+      color: var(--lux-text-muted) !important;
+    }
+    body[data-apg-layout="luxury"] .apg-force-light .border-slate-200,
+    body[data-apg-layout="luxury"] .apg-force-light .border-slate-300,
+    body[data-apg-layout="luxury"] .apg-force-light [class*="dark:border-slate-"] {
+      border-color: var(--lux-border) !important;
+    }
+    /* Table-row hover regressions: every Tailwind `hover:bg-*-{50,100,white}`
+       and `dark:hover:bg-slate-*` pair gets repainted in luxury to a subtle
+       gold-tinted glass highlight instead of a solid white slab. */
+    body[data-apg-layout="luxury"] [class*="hover:bg-white"]:hover,
+    body[data-apg-layout="luxury"] [class*="hover:bg-slate-50"]:hover,
+    body[data-apg-layout="luxury"] [class*="hover:bg-slate-100"]:hover,
+    body[data-apg-layout="luxury"] [class*="hover:bg-zinc-50"]:hover,
+    body[data-apg-layout="luxury"] [class*="hover:bg-zinc-100"]:hover,
+    body[data-apg-layout="luxury"] [class*="hover:bg-gray-50"]:hover,
+    body[data-apg-layout="luxury"] [class*="hover:bg-gray-100"]:hover,
+    body[data-apg-layout="luxury"] [class*="hover:bg-blue-50"]:hover,
+    body[data-apg-layout="luxury"] [class*="hover:bg-blue-100"]:hover,
+    body[data-apg-layout="luxury"] [class*="hover:bg-indigo-50"]:hover,
+    body[data-apg-layout="luxury"] [class*="hover:bg-emerald-50"]:hover,
+    body[data-apg-layout="luxury"] [class*="hover:bg-emerald-100"]:hover,
+    body[data-apg-layout="luxury"] [class*="hover:bg-amber-50"]:hover,
+    body[data-apg-layout="luxury"] [class*="hover:bg-amber-100"]:hover,
+    body[data-apg-layout="luxury"] [class*="hover:bg-rose-50"]:hover,
+    body[data-apg-layout="luxury"] [class*="hover:bg-rose-100"]:hover,
+    body[data-apg-layout="luxury"] [class*="hover:bg-pink-50"]:hover,
+    body[data-apg-layout="luxury"] [class*="hover:bg-pink-100"]:hover,
+    body[data-apg-layout="luxury"] [class*="dark:hover:bg-slate-700"]:hover,
+    body[data-apg-layout="luxury"] [class*="dark:hover:bg-slate-800"]:hover,
+    body[data-apg-layout="luxury"] [class*="dark:hover:bg-slate-900"]:hover {
+      background-color: rgba(212,175,55,0.10) !important;
+      background-image: none !important;
+      color: var(--lux-text-primary) !important;
+    }
+    /* Tint-50 cards (emerald/amber/rose/pink/orange/blue/indigo/violet) get
+       repainted as dark glass but keep a coloured accent border so the
+       semantic intent (success / warning / risk) stays visible. */
+    body[data-apg-layout="luxury"] [class*="bg-emerald-50"],
+    body[data-apg-layout="luxury"] [class*="bg-emerald-100"] {
+      background: var(--lux-surface-1) !important;
+      border-color: rgba(110,231,183,0.32) !important;
+      color: var(--lux-emerald) !important;
+    }
+    body[data-apg-layout="luxury"] [class*="bg-amber-50"],
+    body[data-apg-layout="luxury"] [class*="bg-amber-100"],
+    body[data-apg-layout="luxury"] [class*="bg-yellow-50"],
+    body[data-apg-layout="luxury"] [class*="bg-yellow-100"] {
+      background: var(--lux-surface-1) !important;
+      border-color: rgba(252,211,77,0.32) !important;
+      color: var(--lux-amber) !important;
+    }
+    body[data-apg-layout="luxury"] [class*="bg-orange-50"],
+    body[data-apg-layout="luxury"] [class*="bg-orange-100"] {
+      background: var(--lux-surface-1) !important;
+      border-color: rgba(253,186,116,0.32) !important;
+      color: var(--lux-orange) !important;
+    }
+    body[data-apg-layout="luxury"] [class*="bg-rose-50"],
+    body[data-apg-layout="luxury"] [class*="bg-rose-100"] {
+      background: var(--lux-surface-1) !important;
+      border-color: rgba(253,164,175,0.32) !important;
+      color: var(--lux-rose) !important;
+    }
+    body[data-apg-layout="luxury"] [class*="bg-pink-50"],
+    body[data-apg-layout="luxury"] [class*="bg-pink-100"] {
+      background: var(--lux-surface-1) !important;
+      border-color: rgba(249,168,212,0.32) !important;
+      color: var(--lux-pink) !important;
+    }
+    body[data-apg-layout="luxury"] [class*="bg-blue-50"],
+    body[data-apg-layout="luxury"] [class*="bg-blue-100"] {
+      background: var(--lux-surface-1) !important;
+      border-color: rgba(147,197,253,0.32) !important;
+      color: var(--lux-blue) !important;
+    }
+    body[data-apg-layout="luxury"] [class*="bg-indigo-50"],
+    body[data-apg-layout="luxury"] [class*="bg-indigo-100"] {
+      background: var(--lux-surface-1) !important;
+      border-color: rgba(165,180,252,0.32) !important;
+      color: var(--lux-indigo) !important;
+    }
+    body[data-apg-layout="luxury"] [class*="bg-violet-50"],
+    body[data-apg-layout="luxury"] [class*="bg-violet-100"],
+    body[data-apg-layout="luxury"] [class*="bg-purple-50"],
+    body[data-apg-layout="luxury"] [class*="bg-purple-100"] {
+      background: var(--lux-surface-1) !important;
+      border-color: rgba(196,181,253,0.32) !important;
+      color: var(--lux-violet) !important;
+    }
+
+    /* --------------------------------------------------------------------- */
+    /* Foreground tint remap — 700/800 colour-tones get bright accents       */
+    /* --------------------------------------------------------------------- */
+    body[data-apg-layout="luxury"] .text-slate-900,
+    body[data-apg-layout="luxury"] .text-slate-800,
+    body[data-apg-layout="luxury"] .text-slate-700,
+    body[data-apg-layout="luxury"] .text-gray-900,
+    body[data-apg-layout="luxury"] .text-gray-800,
+    body[data-apg-layout="luxury"] .text-zinc-900,
+    body[data-apg-layout="luxury"] .text-zinc-800 {
+      color: var(--lux-text-primary) !important;
+    }
+    body[data-apg-layout="luxury"] .text-slate-600,
+    body[data-apg-layout="luxury"] .text-slate-500,
+    body[data-apg-layout="luxury"] .text-gray-600,
+    body[data-apg-layout="luxury"] .text-gray-500,
+    body[data-apg-layout="luxury"] .text-zinc-600,
+    body[data-apg-layout="luxury"] .text-zinc-500 {
+      color: var(--lux-text-muted) !important;
+    }
+    body[data-apg-layout="luxury"] .text-slate-400,
+    body[data-apg-layout="luxury"] .text-slate-300,
+    body[data-apg-layout="luxury"] .text-gray-400,
+    body[data-apg-layout="luxury"] .text-gray-300 {
+      color: var(--lux-text-secondary) !important;
+    }
+    body[data-apg-layout="luxury"] .text-emerald-900,
+    body[data-apg-layout="luxury"] .text-emerald-800,
+    body[data-apg-layout="luxury"] .text-emerald-700,
+    body[data-apg-layout="luxury"] .text-emerald-600 { color: var(--lux-emerald) !important; }
+    body[data-apg-layout="luxury"] .text-amber-900,
+    body[data-apg-layout="luxury"] .text-amber-800,
+    body[data-apg-layout="luxury"] .text-amber-700,
+    body[data-apg-layout="luxury"] .text-amber-600,
+    body[data-apg-layout="luxury"] .text-yellow-800,
+    body[data-apg-layout="luxury"] .text-yellow-700,
+    body[data-apg-layout="luxury"] .text-yellow-600 { color: var(--lux-amber) !important; }
+    body[data-apg-layout="luxury"] .text-orange-900,
+    body[data-apg-layout="luxury"] .text-orange-800,
+    body[data-apg-layout="luxury"] .text-orange-700,
+    body[data-apg-layout="luxury"] .text-orange-600 { color: var(--lux-orange) !important; }
+    body[data-apg-layout="luxury"] .text-rose-900,
+    body[data-apg-layout="luxury"] .text-rose-800,
+    body[data-apg-layout="luxury"] .text-rose-700,
+    body[data-apg-layout="luxury"] .text-rose-600 { color: var(--lux-rose) !important; }
+    body[data-apg-layout="luxury"] .text-pink-900,
+    body[data-apg-layout="luxury"] .text-pink-800,
+    body[data-apg-layout="luxury"] .text-pink-700,
+    body[data-apg-layout="luxury"] .text-pink-600 { color: var(--lux-pink) !important; }
+    body[data-apg-layout="luxury"] .text-blue-900,
+    body[data-apg-layout="luxury"] .text-blue-800,
+    body[data-apg-layout="luxury"] .text-blue-700,
+    body[data-apg-layout="luxury"] .text-blue-600 { color: var(--lux-blue) !important; }
+    body[data-apg-layout="luxury"] .text-indigo-900,
+    body[data-apg-layout="luxury"] .text-indigo-800,
+    body[data-apg-layout="luxury"] .text-indigo-700,
+    body[data-apg-layout="luxury"] .text-indigo-600 { color: var(--lux-indigo) !important; }
+    body[data-apg-layout="luxury"] .text-violet-900,
+    body[data-apg-layout="luxury"] .text-violet-800,
+    body[data-apg-layout="luxury"] .text-violet-700,
+    body[data-apg-layout="luxury"] .text-violet-600,
+    body[data-apg-layout="luxury"] .text-purple-900,
+    body[data-apg-layout="luxury"] .text-purple-800,
+    body[data-apg-layout="luxury"] .text-purple-700,
+    body[data-apg-layout="luxury"] .text-purple-600 { color: var(--lux-violet) !important; }
+    body[data-apg-layout="luxury"] .text-cyan-700,
+    body[data-apg-layout="luxury"] .text-sky-700,
+    body[data-apg-layout="luxury"] .text-teal-700 { color: var(--lux-blue) !important; }
+
+    /* Headings using bg-clip-text gradients — restore visibility. */
+    body[data-apg-layout="luxury"] h1.bg-clip-text,
+    body[data-apg-layout="luxury"] h2.bg-clip-text,
+    body[data-apg-layout="luxury"] h3.bg-clip-text,
+    body[data-apg-layout="luxury"] .bg-clip-text.text-transparent {
+      -webkit-background-clip: initial !important;
+      background-clip: initial !important;
+      background: none !important;
+      -webkit-text-fill-color: var(--lux-text-primary) !important;
+      color: var(--lux-text-primary) !important;
+    }
+    /* Generic page-title fallback in luxury */
+    body[data-apg-layout="luxury"] h1,
+    body[data-apg-layout="luxury"] h2,
+    body[data-apg-layout="luxury"] h3 {
+      color: var(--lux-text-primary) !important;
+    }
+
+    /* --------------------------------------------------------------------- */
+    /* Borders                                                              */
+    /* --------------------------------------------------------------------- */
+    body[data-apg-layout="luxury"] .border-slate-100,
+    body[data-apg-layout="luxury"] .border-slate-200,
+    body[data-apg-layout="luxury"] .border-slate-300,
+    body[data-apg-layout="luxury"] .border-gray-200,
+    body[data-apg-layout="luxury"] .border-zinc-200 {
+      border-color: var(--lux-border) !important;
+    }
+    body[data-apg-layout="luxury"] [class*="border-emerald-200"],
+    body[data-apg-layout="luxury"] [class*="border-emerald-300"] { border-color: rgba(110,231,183,0.32) !important; }
+    body[data-apg-layout="luxury"] [class*="border-amber-200"],
+    body[data-apg-layout="luxury"] [class*="border-amber-300"],
+    body[data-apg-layout="luxury"] [class*="border-yellow-200"] { border-color: rgba(252,211,77,0.32) !important; }
+    body[data-apg-layout="luxury"] [class*="border-orange-200"],
+    body[data-apg-layout="luxury"] [class*="border-orange-300"] { border-color: rgba(253,186,116,0.32) !important; }
+    body[data-apg-layout="luxury"] [class*="border-rose-200"],
+    body[data-apg-layout="luxury"] [class*="border-rose-300"] { border-color: rgba(253,164,175,0.32) !important; }
+    body[data-apg-layout="luxury"] [class*="border-pink-200"],
+    body[data-apg-layout="luxury"] [class*="border-pink-300"] { border-color: rgba(249,168,212,0.32) !important; }
+    body[data-apg-layout="luxury"] [class*="border-blue-200"],
+    body[data-apg-layout="luxury"] [class*="border-blue-300"] { border-color: rgba(147,197,253,0.32) !important; }
+    body[data-apg-layout="luxury"] [class*="border-indigo-200"],
+    body[data-apg-layout="luxury"] [class*="border-indigo-300"] { border-color: rgba(165,180,252,0.32) !important; }
+    body[data-apg-layout="luxury"] [class*="border-violet-200"],
+    body[data-apg-layout="luxury"] [class*="border-violet-300"],
+    body[data-apg-layout="luxury"] [class*="border-purple-200"] { border-color: rgba(196,181,253,0.32) !important; }
+
+    /* --------------------------------------------------------------------- */
+    /* Inputs / Placeholders                                                */
+    /* --------------------------------------------------------------------- */
+    body[data-apg-layout="luxury"] input,
+    body[data-apg-layout="luxury"] select,
+    body[data-apg-layout="luxury"] textarea {
+      background: rgba(11,13,20,0.78) !important;
+      color: var(--lux-text-primary) !important;
+      border: 1px solid var(--lux-border-gold) !important;
+    }
+    body[data-apg-layout="luxury"] input::placeholder,
+    body[data-apg-layout="luxury"] textarea::placeholder,
+    body[data-apg-layout="luxury"] [class*="placeholder:text-slate-"]::placeholder,
+    body[data-apg-layout="luxury"] [class*="placeholder:text-gray-"]::placeholder {
+      color: var(--lux-placeholder) !important;
+      opacity: 1 !important; /* Firefox lowers placeholder opacity by default */
+    }
+    body[data-apg-layout="luxury"] input:focus,
+    body[data-apg-layout="luxury"] select:focus,
+    body[data-apg-layout="luxury"] textarea:focus {
+      outline: none !important;
+      border-color: var(--lux-gold) !important;
+      box-shadow: 0 0 0 3px rgba(252,211,107,0.22) !important;
+    }
+
+    /* --------------------------------------------------------------------- */
+    /* Buttons                                                              */
+    /* --------------------------------------------------------------------- */
+    /* Primary gold gradient — text uses --lux-on-gold (dark) for AA contrast. */
+    body[data-apg-layout="luxury"] button[class*="bg-blue-600"],
+    body[data-apg-layout="luxury"] button[class*="bg-indigo-600"],
+    body[data-apg-layout="luxury"] button[class*="bg-emerald-600"],
+    body[data-apg-layout="luxury"] a[class*="bg-blue-600"],
+    body[data-apg-layout="luxury"] a[class*="bg-indigo-600"],
+    body[data-apg-layout="luxury"] a[class*="bg-emerald-600"] {
+      background: linear-gradient(120deg, var(--lux-gold-rich), #b8860b) !important;
+      color: var(--lux-on-gold) !important;
+      border: 1px solid rgba(212,175,55,0.65) !important;
+      box-shadow: 0 8px 22px rgba(212,175,55,0.22);
+    }
+    body[data-apg-layout="luxury"] button[class*="bg-blue-600"]:hover,
+    body[data-apg-layout="luxury"] button[class*="bg-indigo-600"]:hover,
+    body[data-apg-layout="luxury"] button[class*="bg-emerald-600"]:hover {
+      filter: brightness(1.08);
+    }
+    /* Text-on-primary buttons explicitly readable when Tailwind hard-codes white. */
+    body[data-apg-layout="luxury"] button[class*="bg-blue-600"] *,
+    body[data-apg-layout="luxury"] button[class*="bg-indigo-600"] *,
+    body[data-apg-layout="luxury"] button[class*="bg-emerald-600"] * {
+      color: var(--lux-on-gold) !important;
+    }
+
+    /* --------------------------------------------------------------------- */
+    /* Tables (Logs / SMS / Members lists)                                  */
+    /* --------------------------------------------------------------------- */
+    body[data-apg-layout="luxury"] table {
+      background: transparent !important;
+    }
+    body[data-apg-layout="luxury"] thead th,
+    body[data-apg-layout="luxury"] .apg-finance-table-head th,
+    body[data-apg-layout="luxury"] .apg-nested-log-head th {
+      background: rgba(212,175,55,0.12) !important;
+      color: var(--lux-text-primary) !important;
+      border-bottom: 1px solid var(--lux-border-gold) !important;
+    }
+    /* Sticky table headers inside scroll containers: opaque backing so rows
+       never bleed through while scrolling (luxury tint-* / surface-1 are
+       semi-transparent; classic mode uses solid bg-*-50). */
+    body[data-apg-layout="luxury"] .apg-sticky-table-scroll {
+      backdrop-filter: none !important;
+      -webkit-backdrop-filter: none !important;
+    }
+    body[data-apg-layout="luxury"] .apg-sticky-table-scroll thead.apg-sticky-table-head {
+      position: sticky;
+      top: 0;
+      z-index: 20;
+    }
+    body[data-apg-layout="luxury"] .apg-sticky-table-scroll thead.apg-sticky-table-head th {
+      position: sticky;
+      top: 0;
+      z-index: 21;
+      /* Fully opaque — semi-transparent luxury tints let tbody show through. */
+      background: rgb(34, 36, 48) !important;
+      background-color: rgb(34, 36, 48) !important;
+      box-shadow: 0 1px 0 var(--lux-border-gold);
+    }
+    body[data-apg-layout="luxury"] .apg-sticky-table-scroll tbody tr {
+      position: relative;
+      z-index: 0;
+    }
+    body[data-apg-layout="luxury"] thead th button {
+      color: var(--lux-text-primary) !important;
+    }
+    body[data-apg-layout="luxury"] tbody tr {
+      border-color: var(--lux-border) !important;
+    }
+    body[data-apg-layout="luxury"] tbody tr:hover {
+      background: rgba(212,175,55,0.06) !important;
+    }
+
+    /* --------------------------------------------------------------------- */
+    /* Belt-and-braces: keep dark-mode (`html.dark`) rules from fighting the */
+    /* luxury skin when both are active.                                    */
+    /* --------------------------------------------------------------------- */
+    body[data-apg-layout="luxury"] html.dark .apg-sidebar,
+    body[data-apg-layout="luxury"].dark .apg-sidebar {
+      background: linear-gradient(180deg, rgba(14,15,22,0.94), rgba(20,22,32,0.88)) !important;
+    }
+
+    /* --------------------------------------------------------------------- */
+    /* CSS-spring accordion. Mimics framer-motion's default `layout` ease    */
+    /* (cubic-bezier(.16,1,.3,1)) using the grid-template-rows trick: the    */
+    /* inner row animates from 0fr → 1fr so the wrapper springs to its       */
+    /* natural content height (no fixed max-height guessing). Premium feel,  */
+    /* zero extra JS deps. Drop in <motion.div> later if framer-motion ships.*/
+    /* --------------------------------------------------------------------- */
+    .apg-accordion {
+      display: grid;
+      grid-template-rows: 0fr;
+      opacity: 0;
+      transition:
+        grid-template-rows 320ms cubic-bezier(.16,1,.3,1),
+        opacity 220ms ease-in-out;
+    }
+    .apg-accordion[data-open="true"] {
+      grid-template-rows: 1fr;
+      opacity: 1;
+    }
+    .apg-accordion > .apg-accordion-inner {
+      overflow: hidden;
+      min-height: 0;
+    }
+    .apg-accordion-chevron {
+      transition: transform 240ms cubic-bezier(.16,1,.3,1);
+      display: inline-block;
+    }
+    .apg-accordion-chevron[data-open="true"] {
+      transform: rotate(180deg);
+    }
+    @media (prefers-reduced-motion: reduce) {
+      .apg-accordion,
+      .apg-accordion-chevron {
+        transition: none !important;
+      }
+    }
+
+    /* --------------------------------------------------------------------- */
+    /* Login Screen — Dark Luxury redesign (always-on, palette-locked).      */
+    /* The login page renders BEFORE layoutMode is restored, so the palette  */
+    /* is hardcoded here instead of inheriting body[data-apg-layout].       */
+    /* Reference: Action Plus Gym brand — matte charcoal card, gold accent. */
+    /* --------------------------------------------------------------------- */
+    .apg-login-shell {
+      background:
+        radial-gradient(circle at 18% 14%, rgba(212,175,55,0.10), transparent 48%),
+        radial-gradient(circle at 82% 88%, rgba(120,150,255,0.05), transparent 42%),
+        linear-gradient(180deg, #0a0a0d 0%, #11131a 60%, #0a0a0d 100%);
+      color: #F4F6F8;
+    }
+    .apg-login-card {
+      border-radius: 28px;
+      padding: 14px;
+      background: linear-gradient(180deg, rgba(40,42,56,0.55), rgba(20,22,32,0.55));
+      border: 1px solid rgba(255,255,255,0.06);
+      box-shadow:
+        0 30px 70px -20px rgba(0,0,0,0.75),
+        0 18px 45px -25px rgba(0,0,0,0.65),
+        inset 0 1px 0 rgba(255,255,255,0.05);
+    }
+    .apg-login-card-inner {
+      background: linear-gradient(160deg, #14161f 0%, #0f111a 100%);
+      border: 1px solid rgba(255,255,255,0.08);
+      border-radius: 22px;
+      padding: 32px 28px 26px;
+      color: #E5E7EB;
+      box-shadow: inset 0 1px 0 rgba(255,255,255,0.04);
+    }
+    .apg-login-logo {
+      width: 64px;
+      height: 64px;
+      margin: 0 auto 14px;
+      padding: 5px;
+      border-radius: 9999px;
+      background:
+        radial-gradient(circle, rgba(212,175,55,0.18) 0%, rgba(212,175,55,0) 70%),
+        rgba(255,255,255,0.04);
+      border: 2px solid rgba(212,175,55,0.42);
+      box-shadow: 0 8px 24px rgba(0,0,0,0.45);
+    }
+    .apg-login-title {
+      text-align: center;
+      font-size: 28px;
+      font-weight: 500;
+      letter-spacing: 0.22em;
+      color: #F4F6F8;
+      margin: 0 0 22px;
+      text-shadow: 0 1px 0 rgba(0,0,0,0.5);
+    }
+    .apg-login-label {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      font-size: 15px;
+      font-weight: 500;
+      color: #D1D5DB;
+      margin-bottom: 8px;
+    }
+    .apg-login-label-icon {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      width: 18px;
+      color: #C9CFDA;
+    }
+    .apg-login-label-icon--gold {
+      color: #D4AF37;
+    }
+    .apg-login-field {
+      position: relative;
+    }
+    .apg-login-input {
+      width: 100%;
+      border-radius: 9999px;
+      border: 1px solid rgba(255,255,255,0.10);
+      background: rgba(26,28,37,0.85);
+      color: #F4F6F8;
+      padding: 11px 44px 11px 18px;
+      font-size: 14px;
+      letter-spacing: 0.02em;
+      box-shadow: inset 0 1px 0 rgba(255,255,255,0.04), 0 6px 18px rgba(0,0,0,0.35);
+      transition: border-color 160ms ease, box-shadow 160ms ease;
+    }
+    .apg-login-input::placeholder {
+      color: #9AA1AE;
+    }
+    .apg-login-input:focus {
+      outline: none;
+      border-color: rgba(212,175,55,0.55);
+      box-shadow:
+        inset 0 1px 0 rgba(255,255,255,0.05),
+        0 0 0 3px rgba(212,175,55,0.18),
+        0 6px 18px rgba(0,0,0,0.4);
+    }
+    .apg-login-eye {
+      position: absolute;
+      right: 14px;
+      top: 50%;
+      transform: translateY(-50%);
+      background: transparent;
+      border: 0;
+      cursor: pointer;
+      color: #C9CFDA;
+      font-size: 16px;
+      line-height: 1;
+      padding: 4px;
+      border-radius: 9999px;
+    }
+    .apg-login-eye:hover { color: #FCD36B; }
+    .apg-login-eye:focus-visible {
+      outline: 2px solid rgba(212,175,55,0.55);
+      outline-offset: 1px;
+    }
+    .apg-login-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      font-size: 13px;
+      color: #B7BCC6;
+      margin-top: 4px;
+    }
+    .apg-login-remember {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      user-select: none;
+      cursor: pointer;
+    }
+    .apg-login-check {
+      width: 14px;
+      height: 14px;
+      accent-color: #D4AF37;
+    }
+    .apg-login-forgot {
+      background: transparent;
+      border: 0;
+      color: #C9CFDA;
+      font-weight: 500;
+      cursor: pointer;
+      padding: 4px 2px;
+      border-radius: 6px;
+    }
+    .apg-login-forgot:hover { color: #FCD36B; }
+    .apg-login-submit {
+      margin-top: 8px;
+      width: 100%;
+      border-radius: 12px;
+      background: linear-gradient(180deg, #E7C268 0%, #C9A23E 100%);
+      color: #0a0a0d;
+      font-size: 16px;
+      font-weight: 700;
+      letter-spacing: 0.18em;
+      padding: 12px 16px;
+      border: 1px solid rgba(212,175,55,0.65);
+      box-shadow:
+        0 14px 30px -12px rgba(212,175,55,0.45),
+        inset 0 1px 0 rgba(255,255,255,0.35);
+      cursor: pointer;
+      transition: transform 120ms ease, box-shadow 160ms ease, filter 160ms ease;
+    }
+    .apg-login-submit:hover {
+      filter: brightness(1.06);
+      box-shadow:
+        0 18px 38px -14px rgba(212,175,55,0.55),
+        inset 0 1px 0 rgba(255,255,255,0.4);
+    }
+    .apg-login-submit:active { transform: translateY(1px); }
+    .apg-login-submit:focus-visible {
+      outline: 2px solid #FCD36B;
+      outline-offset: 2px;
+    }
+    .apg-login-footer {
+      margin-top: 18px;
+      text-align: center;
+      font-size: 12.5px;
+      color: #9AA1AE;
+      line-height: 1.5;
+    }
+    .apg-login-error {
+      font-size: 13px;
+      color: #FDA4AF;
+      background: rgba(190,18,60,0.12);
+      border: 1px solid rgba(244,114,182,0.30);
+      padding: 8px 12px;
+      border-radius: 12px;
+    }
+    .apg-login-info {
+      font-size: 13px;
+      color: #6EE7B7;
+      background: rgba(16,185,129,0.10);
+      border: 1px solid rgba(110,231,183,0.30);
+      padding: 8px 12px;
+      border-radius: 12px;
+    }
+
+    /* --------------------------------------------------------------------- */
+    /* Global Toast / Notification Layer.                                    */
+    /* z-index hierarchy (top-down):                                         */
+    /*   apg-toast            ........................... 9999  (winner)    */
+    /*   modal (full-screen fixed)  ........... 60..100   (always below)    */
+    /*   apg-notif-popover (bell dropdown)  .... 9000  (above sticky bars)  */
+    /*   sticky table <thead>  .................... 10..20                  */
+    /*   sidebar / topbar  ........................ 20..40                  */
+    /*                                                                       */
+    /* `isolation: isolate` ensures the toast establishes its own stacking   */
+    /* context so an ancestor with `transform`, `filter`, or `backdrop-filter`*/
+    /* (e.g. apg-mobile-topbar) cannot trap the toast as a child layer.      */
+    /* --------------------------------------------------------------------- */
+    .apg-toast {
+      z-index: 9999 !important;
+      isolation: isolate;
+      pointer-events: auto;
+    }
+    .apg-toast--undo {
+      z-index: 9999 !important;
+    }
+    /* --------------------------------------------------------------------- */
+    /* Notification bell popover (mounted via React Portal to <body>).       */
+    /* Sits ABOVE all sticky sub-nav / filter bars (z-10..z-30) but BELOW    */
+    /* the global toast layer (z-9999) and the live mobile detail / modal   */
+    /* sheets that explicitly opt into z-9500+ on top.                       */
+    /*                                                                       */
+    /* The popover is portaled to <body>, so no ancestor `backdrop-filter`   */
+    /* (e.g. apg-mobile-topbar) can trap it inside a child stacking context. */
+    /* Modals close the popover via the document-click handler before they  */
+    /* mount, so a co-existence collision is not reachable in practice; the */
+    /* z-index simply guarantees correct paint order in the failure case.   */
+    /* --------------------------------------------------------------------- */
+    .apg-notif-popover {
+      position: fixed;
+      z-index: 9000;
+      isolation: isolate;
+      pointer-events: auto;
+    }
+  </style>
+</head>
+<body class="bg-slate-100 text-slate-900">
+  <!-- React mounts the application here -->
+  <div id="root"></div>
+  <script>
+    (function () {
+      var bootErrorTimer = null;
+      function appLooksMounted() {
+        var root = document.getElementById('root');
+        if (!root || !root.childElementCount) return false;
+        var text = String(root.innerText || '');
+        if (text.indexOf('USER LOGIN') >= 0 || text.indexOf('LOGIN') >= 0) return true;
+        if (root.querySelector('button, input, aside, nav, main')) return true;
+        return Boolean(text.trim());
+      }
+      function showBootError(msg) {
+        var root = document.getElementById('root');
+        if (!root || appLooksMounted()) return;
+        root.innerHTML = '<div data-boot-error="1" style="max-width:42rem;margin:2rem auto;padding:1.25rem 1.5rem;border:1px solid #fecaca;background:#fff1f2;color:#9f1239;border-radius:12px;font:14px/1.5 system-ui,sans-serif">'
+          + '<strong>App failed to start</strong><p style="margin:0.75rem 0 0">' + String(msg || 'Unknown error') + '</p>'
+          + '<p style="margin:0.75rem 0 0;color:#64748b">Open DevTools → Console for details. Try a hard refresh (Cmd+Shift+R). Use <code>npm run dev:web</code> for API + env.</p></div>';
+      }
+      function cancelBootError() {
+        if (bootErrorTimer) {
+          clearTimeout(bootErrorTimer);
+          bootErrorTimer = null;
+        }
+      }
+      function queueBootError(msg) {
+        cancelBootError();
+        bootErrorTimer = setTimeout(function () {
+          bootErrorTimer = null;
+          if (!appLooksMounted()) showBootError(msg);
+        }, 1500);
+      }
+      window.addEventListener('error', function (e) {
+        queueBootError(e && (e.message || e.error));
+      });
+      window.addEventListener('unhandledrejection', function (e) {
+        var reason = e && e.reason;
+        queueBootError(reason && (reason.message || reason));
+      });
+      var bootRoot = document.getElementById('root');
+      if (bootRoot && typeof MutationObserver !== 'undefined') {
+        new MutationObserver(function () {
+          if (appLooksMounted()) cancelBootError();
+        }).observe(bootRoot, { childList: true, subtree: true });
+      }
+    })();
+  </script>
+  <script>
+    window.__APG_MODULES = window.__APG_MODULES || {};
+    window.__APG_MODULES__ = window.__APG_MODULES;
+    window.__APG_MODULES_READY = new Promise((resolve) => {
+      window.__APG_RESOLVE_MODULES = resolve;
+      window.setTimeout(resolve, 3000);
+    });
+  </script>
+  <script src="./app.env.js"></script>
+  <script type="module" src="./src/runtime/registerApgModules.js"></script>
+  <!-- Application Code. Babel will compile this JSX on the fly. -->
+  <script src="./dist-legacy/app.bundle.js"></script>
+</body>
+</html>

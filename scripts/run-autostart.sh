@@ -24,6 +24,11 @@ esac
 # Keep startup deterministic after reboot/login.
 sleep 5
 
+# Build production-ready legacy frontend bundle (no runtime Babel) before launching services.
+if [[ -f "$APP_ROOT/scripts/build-legacy-prod-frontend.mjs" ]]; then
+  npm run build:legacy:prod >/dev/null 2>&1 || echo "[autostart] legacy prod frontend build failed; falling back to existing files." >&2
+fi
+
 if [[ "$(uname -s)" == Darwin && "$caf_on" -eq 1 ]]; then
   if ! command -v caffeinate >/dev/null 2>&1; then
     echo "[autostart] APG_CAFFEINATE=1 but caffeinate not found; starting without it." >&2
