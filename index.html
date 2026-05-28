@@ -8577,6 +8577,16 @@ Please pay by: ${formattedLastDate}`;
                 settings={settings}
                 updateSetting={updateSettingValue}
                 access={normalizeAccess(user?.access)}
+                currentUser={user}
+                gymCodes={gymCodes}
+                gymCodeLabel={gymCodeLabel}
+                hqGymCodeId={hqGymCodeId}
+                templatesBranchId={templatesBranchId}
+                onTemplatesBranchIdChange={setTemplatesBranchId}
+                whatsappTemplatesByBranch={whatsappTemplatesByBranch}
+                templatesBranchLoading={templatesBranchLoading}
+                fetchBranchWhatsappTemplates={fetchBranchWhatsappTemplates}
+                resolveWhatsappTemplateBody={resolveWhatsappTemplateBody}
               />
             )}
             {activeTab === 'Backend' && (
@@ -9881,7 +9891,8 @@ function Sidebar({ user, active, onSelect, theme, setTheme, layoutMode = 'classi
                     onClick={() => {
                       const target = overdueList[0];
                       if (!target || !onWelcome) return;
-                      const a = primaryMessageActionForMember(target, isOwner, fineRuleConfig, currentUserRole);
+                      const a = resolveMemberMessageAction(target, isOwner, fineRuleConfig, currentUserRole, todayKey, access);
+                      if (a.key === 'none' || a.disabled) return;
                       onWelcome(target, a.key);
                     }}
                     className="rounded-2xl border border-violet-200 bg-violet-50 p-3 text-xs font-semibold text-violet-700"
@@ -10111,7 +10122,7 @@ function Sidebar({ user, active, onSelect, theme, setTheme, layoutMode = 'classi
                         <td className="px-3 py-2 whitespace-nowrap">
                           <div className="flex items-center gap-2">
                             {(() => {
-                              const action = primaryMessageActionForMember(m, isOwner, fineRuleConfig, currentUserRole);
+                              const action = resolveMemberMessageAction(m, isOwner, fineRuleConfig, currentUserRole, todayKey, access);
                               const canSend = Boolean(String(m.mobile || '').trim()) && !action.disabled;
                               return (
                                 <>
@@ -10167,7 +10178,7 @@ function Sidebar({ user, active, onSelect, theme, setTheme, layoutMode = 'classi
                     <div className="text-xs text-slate-600">Overdue: {m.overdueDays} days</div>
                     <div className="mt-2 flex gap-2 flex-wrap items-center">
                       {(() => {
-                        const action = primaryMessageActionForMember(m, isOwner, fineRuleConfig, currentUserRole);
+                        const action = resolveMemberMessageAction(m, isOwner, fineRuleConfig, currentUserRole, todayKey, access);
                         const canSend = Boolean(String(m.mobile || '').trim()) && !action.disabled;
                         return (
                           <>
@@ -18999,14 +19010,73 @@ function PTClientsPage({ members, users, settings, updateSetting, currentUser, a
       );
     }
 
-    function SupportPage({ settings, updateSetting, access }) {
+    function SupportPage({
+      settings,
+      updateSetting,
+      access,
+      currentUser = null,
+      gymCodes = [],
+      gymCodeLabel = () => '—',
+      hqGymCodeId = null,
+      templatesBranchId = '',
+      onTemplatesBranchIdChange = null,
+      whatsappTemplatesByBranch = {},
+      templatesBranchLoading = false,
+      fetchBranchWhatsappTemplates = null,
+      resolveWhatsappTemplateBody = null,
+    }) {
       const [medicalTemplate, setMedicalTemplate] = React.useState(settings.medicalQuestionnaireTemplate || MEDICAL_QUESTIONNAIRE_TEMPLATE_DEFAULT);
       const [ackTemplate, setAckTemplate] = React.useState(settings.acknowledgementTemplate || ACKNOWLEDGEMENT_TEMPLATE_DEFAULT);
       const [ackU18Template, setAckU18Template] = React.useState(settings.acknowledgementUnder18Template || ACKNOWLEDGEMENT_UNDER18_TEMPLATE_DEFAULT);
       const [gmailTemplate, setGmailTemplate] = React.useState(settings.gmailWelcomeTemplate || GMAIL_WELCOME_TEMPLATE_DEFAULT);
+      const [supportTemplateKey, setSupportTemplateKey] = React.useState('reminder');
       const supportAccess = normalizeAccess(access).support;
       const canViewSupportTemplates = supportAccess?.viewSupportTemplates !== false;
       const canEditSupportTemplates = supportAccess?.editSupportTemplates !== false;
+      const authMayPickTemplateBranch = React.useCallback(() => {
+        const masterFn = window.__APG_MODULES?.authIsMasterOwnerUser || window.__APG_MODULES?.authIsOwnerUser;
+        if (typeof masterFn === 'function' && masterFn(currentUser)) return true;
+        const branchFn = window.__APG_MODULES?.authIsBranchOwnerUser;
+        if (typeof branchFn === 'function' && branchFn(currentUser)) return true;
+        return String(currentUser?.id || '').toLowerCase() === 'owner';
+      }, [currentUser]);
+      const assignableGymCodes = React.useMemo(() => {
+        const list = Array.isArray(gymCodes) ? gymCodes : [];
+        const allowedFn = window.__APG_MODULES?.allowedBranchIdsForUser;
+        if (typeof allowedFn !== 'function' || !currentUser) return list;
+        const allowed = allowedFn(currentUser);
+        if (allowed === null) return list;
+        const allowedSet = new Set(allowed);
+        return list.filter((c) => allowedSet.has(String(c.id)));
+      }, [gymCodes, currentUser?.id, currentUser?.staffRole, currentUser?.allowedBranchIds]);
+      const effectiveBranchId = React.useMemo(() => {
+        const fn = window.__APG_MODULES?.effectiveTemplateBranchIdForUser;
+        if (typeof fn === 'function') {
+          return fn(currentUser, templatesBranchId || hqGymCodeId);
+        }
+        return authMayPickTemplateBranch()
+          ? String(templatesBranchId || hqGymCodeId || '').trim()
+          : String(currentUser?.gymCodeId || '').trim();
+      }, [currentUser, templatesBranchId, hqGymCodeId, authMayPickTemplateBranch]);
+      const supportTemplateOptions = [
+        { key: 'reminder', label: 'Reminder' },
+        { key: 'monthReminder', label: 'Month-Based Reminder' },
+        { key: 'success', label: 'Success SMS' },
+        { key: 'fine', label: 'Fine SMS' },
+        { key: 'deactivate', label: 'Deactivate SMS' },
+        { key: 'hold', label: 'Hold SMS' },
+        { key: 'welcome', label: 'Welcome SMS' },
+      ];
+      const selectedSupportTemplate = React.useMemo(() => {
+        if (typeof resolveWhatsappTemplateBody === 'function') {
+          const body = resolveWhatsappTemplateBody(supportTemplateKey, {
+            assignedGymCodeId: effectiveBranchId,
+          });
+          return String(body || '').trim();
+        }
+        const branchMap = whatsappTemplatesByBranch[effectiveBranchId] || {};
+        return String(branchMap[supportTemplateKey] || SMS_TEMPLATE_DEFAULTS[supportTemplateKey] || '').trim();
+      }, [resolveWhatsappTemplateBody, supportTemplateKey, effectiveBranchId, whatsappTemplatesByBranch]);
       React.useEffect(() => {
         setMedicalTemplate(settings.medicalQuestionnaireTemplate || MEDICAL_QUESTIONNAIRE_TEMPLATE_DEFAULT);
         setAckTemplate(settings.acknowledgementTemplate || ACKNOWLEDGEMENT_TEMPLATE_DEFAULT);
@@ -19025,6 +19095,83 @@ function PTClientsPage({ members, users, settings, updateSetting, currentUser, a
       return (
         <div className="p-3 md:p-8 space-y-5 text-slate-900 dark:text-slate-100">
           <h1 className="text-xl md:text-2xl font-semibold text-slate-900 dark:text-slate-100">Support Templates</h1>
+          <div className="rounded-2xl border border-violet-200 bg-violet-50 p-4 shadow-sm space-y-3">
+            <div className="flex items-center justify-between gap-2">
+              <label className="text-sm font-semibold text-violet-900">Support Template Picker (WhatsApp)</label>
+              <span className="text-xs text-violet-700">
+                {templatesBranchLoading ? 'Loading branch templates…' : `Branch: ${gymCodeLabel(effectiveBranchId)}`}
+              </span>
+            </div>
+            {authMayPickTemplateBranch() && (
+              <div>
+                <label className="text-xs font-medium text-violet-800">Gym Branch (Gym Code)</label>
+                <select
+                  value={effectiveBranchId || ''}
+                  onChange={(e) => {
+                    const next = e.target.value;
+                    if (typeof onTemplatesBranchIdChange === 'function') onTemplatesBranchIdChange(next);
+                    if (typeof fetchBranchWhatsappTemplates === 'function') fetchBranchWhatsappTemplates(next);
+                  }}
+                  className="mt-1 w-full rounded-xl border border-violet-300 bg-white px-3 py-2 text-sm"
+                  data-testid="support-template-branch-select"
+                >
+                  <option value="">Select branch…</option>
+                  {(assignableGymCodes || []).map((c) => (
+                    <option key={c.id} value={c.id}>{c.code} / {c.name || c.branchName}</option>
+                  ))}
+                </select>
+              </div>
+            )}
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+              <div>
+                <label className="text-xs font-medium text-violet-800">Template Type</label>
+                <select
+                  value={supportTemplateKey}
+                  onChange={(e) => setSupportTemplateKey(e.target.value)}
+                  className="mt-1 w-full rounded-xl border border-violet-300 bg-white px-3 py-2 text-sm"
+                  data-testid="support-template-key-select"
+                >
+                  {supportTemplateOptions.map((opt) => (
+                    <option key={opt.key} value={opt.key}>{opt.label}</option>
+                  ))}
+                </select>
+              </div>
+              <div className="flex items-end gap-2">
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (!selectedSupportTemplate) return;
+                    try {
+                      navigator.clipboard.writeText(selectedSupportTemplate);
+                    } catch {}
+                  }}
+                  className="rounded-full border border-violet-300 bg-white px-4 py-2 text-sm font-medium text-violet-700 hover:bg-violet-100"
+                  data-testid="support-template-copy"
+                >
+                  Copy Template
+                </button>
+                <button
+                  type="button"
+                  disabled={!canEditSupportTemplates || !selectedSupportTemplate}
+                  onClick={() => {
+                    if (!selectedSupportTemplate) return;
+                    setGmailTemplate(selectedSupportTemplate);
+                  }}
+                  className="rounded-full bg-violet-700 px-4 py-2 text-sm font-medium text-white hover:bg-violet-800 disabled:opacity-50 disabled:cursor-not-allowed"
+                  data-testid="support-template-use-gmail"
+                >
+                  Use in Gmail Draft
+                </button>
+              </div>
+            </div>
+            <textarea
+              readOnly
+              value={selectedSupportTemplate || 'No template content found for selected branch/key.'}
+              rows={6}
+              className="w-full rounded-xl border border-violet-200 bg-white px-3 py-2 text-sm text-slate-900"
+              data-testid="support-template-preview"
+            />
+          </div>
           <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm space-y-3 dark:border-slate-700 dark:bg-slate-900">
             <label className="text-sm font-medium text-slate-700 dark:text-slate-200">Medical Questionnaire Template</label>
             <textarea disabled={!canEditSupportTemplates} value={medicalTemplate} onChange={(e) => setMedicalTemplate(e.target.value)} rows={10} className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 placeholder:text-slate-500 disabled:opacity-60 disabled:bg-slate-100 dark:border-slate-600 dark:bg-slate-900 dark:text-slate-100" />
