@@ -3126,8 +3126,11 @@ Phone: +91-7047157510`;
       finalRows.sort((a, b) => parseApgTimeMs(b.paidAt) - parseApgTimeMs(a.paidAt));
       return finalRows;
     };
-    /** Revenue rows for dashboard KPIs — payment history first, then billing-date fallback (slim list). */
-    const collectMemberRevenueEntries = (member, today = new Date()) => {
+    /** Revenue rows for dashboard KPIs — payment history first, then optional billing-date fallback. */
+    const collectMemberRevenueEntries = (
+      member,
+      { todayKey = localTodayCalendarKey(), includeBillingFallback = true } = {},
+    ) => {
       if (!member || typeof member !== 'object') return [];
       const history = normalizeMemberPaymentHistory(member);
       if (history.length > 0) {
@@ -3163,9 +3166,11 @@ Phone: +91-7047157510`;
           amount: Number(member.amount || 0),
         }];
       }
+      if (!includeBillingFallback) return [];
       if (member.billingDate && Number(member.amount || 0) > 0) {
         const due = retentionPaymentDeadline(member);
-        const pending = member.status === 'Active' && due && due < today;
+        const todayUtc = asUTC(todayKey);
+        const pending = member.status === 'Active' && due && todayUtc && due < todayUtc;
         if (!pending) {
           return [{
             receivedAt: iso(member.billingDate),
@@ -9725,34 +9730,36 @@ function Sidebar({ user, active, onSelect, theme, setTheme, layoutMode = 'classi
       const [field, setField] = React.useState('all');
       const [showTrendHistory, setShowTrendHistory] = React.useState(false);
       const [expandedOverdueId, setExpandedOverdueId] = React.useState('');
-      const today = new Date();
       const todayKey = localTodayCalendarKey();
+      const todayMonthKey = String(todayKey || '').slice(0, 7);
+      const todayUtc = asUTC(todayKey);
       const collectedRevenueEntries = React.useMemo(() => {
-        return (members || []).flatMap((m) => collectMemberRevenueEntries(m, today));
-      }, [members, today]);
+        // Only count actually collected payments in the KPI; avoid fallback estimates from billing date.
+        return (members || []).flatMap((m) =>
+          collectMemberRevenueEntries(m, { todayKey, includeBillingFallback: false }),
+        );
+      }, [members, todayKey]);
       const monthlyRevenue = collectedRevenueEntries
         .filter((r) => {
-          const rd = asUTC(r.receivedAt);
-          return rd && rd.getFullYear() === today.getFullYear() && rd.getMonth() === today.getMonth();
+          return String(localCalendarDateKey(r.receivedAt) || '').slice(0, 7) === todayMonthKey;
         })
         .reduce((sum, r) => sum + Number(r.amount || 0), 0);
       const growthRate = React.useMemo(() => {
         const current = collectedRevenueEntries
           .filter((r) => {
-            const rd = asUTC(r.receivedAt);
-            return rd && rd.getFullYear() === today.getFullYear() && rd.getMonth() === today.getMonth();
+            return String(localCalendarDateKey(r.receivedAt) || '').slice(0, 7) === todayMonthKey;
           })
           .reduce((sum, r) => sum + Number(r.amount || 0), 0);
-        const prevDt = new Date(today.getFullYear(), today.getMonth() - 1, 1);
+        const prevDt = todayUtc ? new Date(Date.UTC(todayUtc.getUTCFullYear(), todayUtc.getUTCMonth() - 1, 1)) : null;
+        const prevMonthKey = prevDt ? `${prevDt.getUTCFullYear()}-${String(prevDt.getUTCMonth() + 1).padStart(2, '0')}` : '';
         const prev = collectedRevenueEntries
           .filter((r) => {
-            const rd = asUTC(r.receivedAt);
-            return rd && rd.getFullYear() === prevDt.getFullYear() && rd.getMonth() === prevDt.getMonth();
+            return String(localCalendarDateKey(r.receivedAt) || '').slice(0, 7) === prevMonthKey;
           })
           .reduce((sum, r) => sum + Number(r.amount || 0), 0);
         if (!prev) return current ? 100 : 0;
         return Math.round(((current - prev) / prev) * 100);
-      }, [collectedRevenueEntries, today]);
+      }, [collectedRevenueEntries, todayMonthKey, todayUtc]);
       const overdueList = React.useMemo(() => {
         const todayUtc = asUTC(todayKey);
         return members
@@ -9765,7 +9772,7 @@ function Sidebar({ user, active, onSelect, theme, setTheme, layoutMode = 'classi
             return { ...m, overdueDays: days };
           })
           .sort((a, b) => b.overdueDays - a.overdueDays);
-      }, [members, todayKey]);
+      }, [members, todayKey, todayUtc]);
       const allMonthTrend = React.useMemo(() => {
         const dates = collectedRevenueEntries.map((r) => asUTC(r.receivedAt)).filter(Boolean);
         const start = dates.length
@@ -9791,7 +9798,7 @@ function Sidebar({ user, active, onSelect, theme, setTheme, layoutMode = 'classi
             return sum + Number(r.amount || 0);
           }, 0),
         }));
-      }, [collectedRevenueEntries, today]);
+      }, [collectedRevenueEntries, todayUtc]);
       const monthTrend = React.useMemo(() => allMonthTrend.slice(-6), [allMonthTrend]);
       const historicalTrend = React.useMemo(() => allMonthTrend.slice(0, -6), [allMonthTrend]);
       const maxTrend = Math.max(1, ...monthTrend.map(x => x.total));
