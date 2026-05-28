@@ -7516,6 +7516,15 @@ Please pay by: ${formattedLastDate}`;
         if (typeof branchFn === 'function' && branchFn(user)) return true;
         return user?.id === 'owner' && membersAccess?.deleteMembers !== false;
       }, [user]);
+      const isOwnerUser = React.useMemo(() => {
+        if (!user) return false;
+        const masterFn = window.__APG_MODULES?.authIsMasterOwnerUser;
+        if (typeof masterFn === 'function' && masterFn(user)) return true;
+        const ownerFn = window.__APG_MODULES?.authIsOwnerUser;
+        if (typeof ownerFn === 'function' && ownerFn(user)) return true;
+        const role = String(user?.staffRole || user?.role || '').trim().toLowerCase();
+        return String(user?.id || '').trim().toLowerCase() === 'owner' || role === 'owner' || role === 'master_owner';
+      }, [user]);
 
       // Login screen; saved session restores in the background when valid.
       if (!user) {
@@ -15903,7 +15912,7 @@ function PTClientsPage({ members, users, settings, updateSetting, currentUser, a
               }
             } else {
               const raw = String(err?.message || err || 'Failed to save setting.');
-              if (raw.includes('lookup-delete-master-protected')) {
+              if (raw.includes('lookup-delete-master-protected') || raw.includes('lookup-delete-owner-protected')) {
                 setLookupError('This value is owner-managed and read-only for staff.');
               } else if (raw.includes('lookup-delete-not-owned')) {
                 setLookupError('You can delete only values created by your own staff account/branch.');

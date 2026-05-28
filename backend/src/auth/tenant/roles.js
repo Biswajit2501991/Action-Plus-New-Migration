@@ -8,6 +8,7 @@ export const STAFF_ROLES = Object.freeze({
 export const LOOKUP_CREATED_BY = Object.freeze({
   MASTER_OWNER: 'master_owner',
   BRANCH_OWNER: 'branch_owner',
+  STAFF: 'staff',
 });
 
 export function normalizeStaffRole(raw, staffLoginId = '') {

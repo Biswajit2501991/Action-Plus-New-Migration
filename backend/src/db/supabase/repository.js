@@ -1308,17 +1308,19 @@ export async function deleteSettingsLookupValue(_scope, {
   if (!existing?.id) {
     return { ok: true, category: resolved.key, value: val, deleted: 0 };
   }
-  const createdRole = String(existing.created_by_role || '').trim();
-  const isBranchOwnerRequest = requesterRole === 'branch_owner';
-  if (isBranchOwnerRequest) {
-    if (createdRole !== 'branch_owner') {
-      const err = new Error('lookup-delete-master-protected');
+  const createdRole = String(existing.created_by_role || '').trim().toLowerCase();
+  const requesterRoleNorm = String(requesterRole || '').trim().toLowerCase();
+  const isMasterRequester = requesterRoleNorm === 'master_owner';
+  if (!isMasterRequester) {
+    // Legacy/null + explicit owner-created rows are read-only for non-owner staff.
+    if (!createdRole || createdRole === 'master_owner' || createdRole === 'owner') {
+      const err = new Error('lookup-delete-owner-protected');
       err.status = 403;
       throw err;
     }
     const creator = String(existing.created_by_staff_login_id || '').trim().toLowerCase();
     const requester = String(requesterStaffLoginId || '').trim().toLowerCase();
-    if (creator && requester && creator !== requester) {
+    if (!creator || !requester || creator !== requester) {
       const err = new Error('lookup-delete-not-owned');
       err.status = 403;
       throw err;

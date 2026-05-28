@@ -60,6 +60,7 @@ import {
 } from './auth/branchScope.js';
 import { bindGymContext } from './middleware/bindGymContext.js';
 import { requireMasterOwner, requireMasterOwnerUnlessProcessControl } from './middleware/requireMasterOwner.js';
+import { isOwnerAuth } from './middleware/requireOwner.js';
 import { requireBranchAdmin } from './middleware/requireBranchAdmin.js';
 import { filterUsersForAuth, sanitizeUsersBulkForAuth } from './auth/tenant/userScope.js';
 import { LOOKUP_CREATED_BY } from './auth/tenant/roles.js';
@@ -92,13 +93,11 @@ function requireStaffManagementWrite(req, res, next) {
 }
 
 function requireSettingsLookupAdd(req, res, next) {
-  if (env.BRANCH_OWNER_ENABLED) return requireBranchAdmin(req, res, next);
-  return requireMasterOwner(req, res, next);
+  return requireAccess(Access.settingsRead)(req, res, next);
 }
 
 function requireSettingsLookupDelete(req, res, next) {
-  if (env.BRANCH_OWNER_ENABLED) return requireBranchAdmin(req, res, next);
-  return requireMasterOwner(req, res, next);
+  return requireAccess(Access.settingsRead)(req, res, next);
 }
 
 function stripUsersForApi(users) {
@@ -878,9 +877,9 @@ app.post('/api/settings/lookups', requireSettingsLookupAdd, async (req, res) => 
     if (!value || value.length > 120) {
       return res.status(400).json({ error: 'invalid_value', message: 'Lookup value is required (max 120 chars)' });
     }
-    const createdByRole = authIsMasterOwner(req.auth)
+    const createdByRole = isOwnerAuth(req.auth) || authIsMasterOwner(req.auth)
       ? LOOKUP_CREATED_BY.MASTER_OWNER
-      : (authIsBranchOwner(req.auth) ? LOOKUP_CREATED_BY.BRANCH_OWNER : null);
+      : (authIsBranchOwner(req.auth) ? LOOKUP_CREATED_BY.BRANCH_OWNER : LOOKUP_CREATED_BY.STAFF);
     const saved = await addSettingsLookup(readSandboxScope(req), {
       category,
       value,
@@ -915,9 +914,9 @@ app.delete('/api/settings/lookups', requireSettingsLookupDelete, async (req, res
     if (!value) {
       return res.status(400).json({ error: 'invalid_value', message: 'Lookup value is required' });
     }
-    const requesterRole = authIsMasterOwner(req.auth)
+    const requesterRole = isOwnerAuth(req.auth) || authIsMasterOwner(req.auth)
       ? LOOKUP_CREATED_BY.MASTER_OWNER
-      : (authIsBranchOwner(req.auth) ? LOOKUP_CREATED_BY.BRANCH_OWNER : null);
+      : (authIsBranchOwner(req.auth) ? LOOKUP_CREATED_BY.BRANCH_OWNER : LOOKUP_CREATED_BY.STAFF);
     const result = await deleteSettingsLookup(readSandboxScope(req), {
       category,
       value,
@@ -939,7 +938,7 @@ app.delete('/api/settings/lookups', requireSettingsLookupDelete, async (req, res
     if (msg === 'invalid_lookup_category' || msg === 'invalid_lookup_value') {
       return res.status(400).json({ error: msg });
     }
-    if (msg === 'lookup-delete-master-protected' || msg === 'lookup-delete-not-owned') {
+    if (msg === 'lookup-delete-master-protected' || msg === 'lookup-delete-not-owned' || msg === 'lookup-delete-owner-protected') {
       return res.status(403).json({ error: msg });
     }
     return res.status(500).json({ error: 'settings_lookup_delete_failed', message: msg });
