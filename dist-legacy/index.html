@@ -305,6 +305,9 @@
     body[data-apg-layout="luxury"] .apg-sidebar .apg-sidebar-brand .text-slate-300 {
       color: var(--lux-text-primary) !important;
     }
+    body[data-apg-layout="luxury"] .apg-sidebar .apg-sidebar-brand [data-testid="sidebar-staff-name"] {
+      color: var(--lux-text-muted) !important;
+    }
     body[data-apg-layout="luxury"] .apg-sidebar nav button {
       color: var(--lux-text-secondary) !important;
       border-color: transparent !important;
@@ -333,6 +336,36 @@
     }
     body[data-apg-layout="luxury"] .apg-layout-toggle [class*="text-slate"] {
       color: var(--lux-text-primary) !important;
+    }
+
+    /* Dashboard header search — dark bar in luxury mode (screenshot reference) */
+    body[data-apg-layout="luxury"] .apg-header-search {
+      background: rgba(14,15,22,0.94) !important;
+      border: 1px solid var(--lux-border-strong) !important;
+      box-shadow: inset 0 1px 0 rgba(255,255,255,0.04);
+    }
+    body[data-apg-layout="luxury"] .apg-header-search:focus-within {
+      border-color: rgba(212,175,55,0.42) !important;
+      box-shadow: 0 0 0 1px rgba(212,175,55,0.10);
+    }
+    body[data-apg-layout="luxury"] .apg-header-search-icon {
+      background: rgba(212,175,55,0.08) !important;
+      border-color: var(--lux-border) !important;
+    }
+    body[data-apg-layout="luxury"] .apg-header-search-icon span {
+      filter: grayscale(1) brightness(1.35);
+      opacity: 0.85;
+    }
+    body[data-apg-layout="luxury"] .apg-header-search input {
+      color: var(--lux-text-primary) !important;
+    }
+    body[data-apg-layout="luxury"] .apg-header-search input::placeholder {
+      color: var(--lux-placeholder) !important;
+      opacity: 1;
+    }
+    body[data-apg-layout="luxury"] .apg-header-tools-bar {
+      background: var(--lux-surface-1) !important;
+      border-color: var(--lux-border-gold) !important;
     }
 
     /* --------------------------------------------------------------------- */
@@ -1045,6 +1078,6 @@
   <script src="./app.env.js"></script>
   <script type="module" src="./src/runtime/registerApgModules.js"></script>
   <!-- Application Code. Babel will compile this JSX on the fly. -->
-  <script src="./dist-legacy/app.bundle.js?v=1780053421045"></script>
+  <script src="./dist-legacy/app.bundle.js?v=1780053957048"></script>
 </body>
 </html>
