@@ -3452,9 +3452,13 @@ Phone: +91-7047157510`;
         { assignedBranchIds: prev.allowedBranchIds },
         { assignedBranchIds: branch.allowedBranchIds },
       );
+      const photo = pickUserPhoto(prev, prepared) || prepared.photo || prev.photo || null;
       return {
         ...prev,
         ...prepared,
+        name: prepared.name || prev.name,
+        photo,
+        staffRole: prepared.staffRole || prev.staffRole || 'staff',
         gymCodeId: branch.gymCodeId || prev.gymCodeId || '',
         activeBranchId: branch.activeBranchId || branch.gymCodeId || prev.activeBranchId || '',
         assignedBranchIds: mergedAssigned,
@@ -4231,7 +4235,14 @@ Phone: +91-7047157510`;
           return;
         }
         setBranchSwitching(true);
-        let nextUser = { ...user, gymCodeId: id, activeBranchId: id };
+        let nextUser = {
+          ...user,
+          gymCodeId: id,
+          activeBranchId: id,
+          name: user.name,
+          photo: user.photo || null,
+          staffRole: user.staffRole || 'staff',
+        };
         try {
           if (dataSyncMode === 'backend' && typeof backendJson === 'function') {
             const out = await backendJson('/auth/active-branch', {
@@ -4247,6 +4258,9 @@ Phone: +91-7047157510`;
               activeBranchId: id,
               allowedBranchIds: nextAllowed,
               assignedBranchIds: nextAssigned,
+              name: user.name,
+              photo: user.photo || null,
+              staffRole: user.staffRole || 'staff',
             };
             const prefFn = window.__APG_MODULES?.writeActiveBranchPref;
             if (typeof prefFn === 'function') prefFn(user.id, id);
@@ -6075,6 +6089,9 @@ Phone: +91-7047157510`;
           return {
             ...prev,
             ...prepared,
+            name: prepared.name || prev.name,
+            photo: pickUserPhoto(prev, prepared) || prepared.photo || prev.photo || null,
+            staffRole: prepared.staffRole || prev.staffRole || 'staff',
             assignedBranchIds: mergedBranches,
             allowedBranchIds: mergedBranches,
           };
@@ -7966,17 +7983,20 @@ Please pay by: ${formattedLastDate}`;
                 </button>
                 <BranchBrandingHeader
                   user={user}
-                  gymCodes={gymCodes}
-                  gymCodeLabel={gymCodeLabel}
                   branchBranding={branchBranding}
-                  activeBranchId={user?.activeBranchId || user?.gymCodeId}
-                  onSwitch={switchActiveBranch}
-                  switching={branchSwitching}
                   compact
                 />
               </div>
               <div className="flex items-center gap-1.5 shrink-0">
-              <UserProfileCard user={user} compact />
+              <UserProfileHeaderCard
+                user={user}
+                gymCodes={gymCodes}
+                gymCodeLabel={gymCodeLabel}
+                activeBranchId={user?.activeBranchId || user?.gymCodeId}
+                onSwitch={switchActiveBranch}
+                switching={branchSwitching}
+                compact
+              />
               {/* Light/Dark mode toggle removed — Luxury skin replaces classic dark mode (Phase 2 branding cleanup). */}
               <button
                 onClick={toggleDisplayTimeZone}
@@ -8246,12 +8266,7 @@ Please pay by: ${formattedLastDate}`;
                 <div className="flex items-center justify-between gap-3 flex-wrap">
                   <BranchBrandingHeader
                     user={user}
-                    gymCodes={gymCodes}
-                    gymCodeLabel={gymCodeLabel}
                     branchBranding={branchBranding}
-                    activeBranchId={user?.activeBranchId || user?.gymCodeId}
-                    onSwitch={switchActiveBranch}
-                    switching={branchSwitching}
                   />
                   <div className="flex items-center gap-2 min-w-0 flex-1 justify-center order-3 md:order-none w-full md:w-auto">
                     <div
@@ -8460,7 +8475,14 @@ Please pay by: ${formattedLastDate}`;
                       </NotificationPortal>
                     </div>
                     {/* Light/Dark mode toggle removed — Luxury skin replaces classic dark mode (Phase 2 branding cleanup). */}
-                    <UserProfileCard user={user} />
+                    <UserProfileHeaderCard
+                      user={user}
+                      gymCodes={gymCodes}
+                      gymCodeLabel={gymCodeLabel}
+                      activeBranchId={user?.activeBranchId || user?.gymCodeId}
+                      onSwitch={switchActiveBranch}
+                      switching={branchSwitching}
+                    />
                     <button
                       onClick={() => {
                         const input = headerDateInputRef.current;
@@ -9772,12 +9794,172 @@ Please pay by: ${formattedLastDate}`;
       );
     }
 
-    /** Active branch logo + gym name; branch switcher sits under this block when multi-branch. */
-    function BranchBrandingHeader({
+    /** Active branch logo + gym name (left header). */
+    function BranchBrandingHeader({ user, branchBranding = null, compact = false }) {
+      const defaultBrandFn = window.__APG_MODULES?.defaultClientBranding;
+      const brand = branchBranding || (typeof defaultBrandFn === 'function' ? defaultBrandFn() : { displayName: 'Action Plus Gym', logoUrl: './assets/action-plus-logo.png' });
+      if (!user) return null;
+      return (
+        <div
+          className={cx(
+            'flex items-center gap-2 rounded-xl border border-slate-200 bg-white shadow-[inset_0_1px_0_rgba(255,255,255,0.8)] dark:border-slate-600 dark:bg-slate-800/90 shrink-0 min-w-0',
+            compact ? 'px-2 py-1.5 max-w-[10.5rem]' : 'px-2.5 py-2 max-w-[16rem]',
+          )}
+          data-testid="header-branch-branding"
+        >
+          <BranchLogoImg
+            src={brand.logoUrl}
+            alt=""
+            className={cx('rounded-lg object-contain ring-1 ring-slate-200 shrink-0 bg-white', compact ? 'h-7 w-7' : 'h-9 w-9')}
+          />
+          <div
+            className={cx(
+              'font-semibold text-slate-800 truncate dark:text-slate-100 leading-tight min-w-0',
+              compact ? 'text-[11px]' : 'text-sm',
+            )}
+            data-testid="header-gym-name"
+          >
+            {brand.displayName || 'Action Plus Gym'}
+          </div>
+        </div>
+      );
+    }
+
+    function StaffAvatarRenderer({ user, compact = false }) {
+      const initialsFn = window.__APG_MODULES?.staffInitialsFromName;
+      const photoFn = window.__APG_MODULES?.staffPhotoSrcFromUser;
+      const [photoBroken, setPhotoBroken] = React.useState(false);
+      const photoSrc = typeof photoFn === 'function' ? photoFn(user) : String(user?.photo || user?.avatar || '').trim();
+      const showPhoto = Boolean(photoSrc) && !photoBroken;
+      const initials = typeof initialsFn === 'function' ? initialsFn(user?.name) : '?';
+      const sizeClass = compact ? 'h-7 w-7 text-[10px]' : 'h-8 w-8 text-xs';
+
+      React.useEffect(() => {
+        setPhotoBroken(false);
+      }, [user?.id, photoSrc]);
+
+      if (showPhoto) {
+        return (
+          <img
+            src={photoSrc}
+            alt=""
+            className={cx('rounded-full object-cover ring-1 ring-slate-200 shrink-0', sizeClass)}
+            onError={() => setPhotoBroken(true)}
+            data-testid="header-user-photo"
+          />
+        );
+      }
+      return (
+        <div
+          className={cx(
+            'rounded-full bg-slate-200 text-slate-700 grid place-items-center font-semibold ring-1 ring-slate-200 shrink-0 dark:bg-slate-700 dark:text-slate-100 dark:ring-slate-600',
+            sizeClass,
+          )}
+          data-testid="header-user-photo-initials"
+          aria-label={user?.name || 'Staff'}
+        >
+          {initials}
+        </div>
+      );
+    }
+
+    function UserRoleBadge({ user, compact = false }) {
+      const roleFn = window.__APG_MODULES?.staffRoleDisplayLabel;
+      const roleLabel = typeof roleFn === 'function' ? roleFn(user) : 'Staff';
+      return (
+        <div
+          className={cx('text-slate-500 truncate dark:text-slate-400', compact ? 'text-[10px]' : 'text-[11px]')}
+          data-testid="header-user-role"
+        >
+          {roleLabel}
+        </div>
+      );
+    }
+
+    function BranchSwitcherDropdown({
+      open,
+      setOpen,
+      anchorRef,
+      popRef,
+      branches,
+      active,
+      switching,
+      gymCodeLabel,
+      onPickBranch,
+      align = 'end',
+    }) {
+      const resolveFn = window.__APG_MODULES?.resolveClientBranchBranding;
+      const branchPanelWidth = React.useMemo(() => {
+        if (typeof window === 'undefined') return 288;
+        const vw = window.innerWidth || document.documentElement.clientWidth || 360;
+        return Math.min(288, Math.max(200, vw - 24));
+      }, [open]);
+
+      return (
+        <AnchoredPopoverPortal
+          open={open}
+          anchorRef={anchorRef}
+          popRef={popRef}
+          width={branchPanelWidth}
+          maxHeight={256}
+          offset={6}
+          align={align}
+          testId="header-branch-dropdown"
+          role="listbox"
+          ariaLabel="Select branch"
+        >
+          <div className="rounded-xl border border-slate-200 bg-white shadow-xl dark:border-slate-600 dark:bg-slate-900 overflow-hidden flex flex-col min-h-0">
+            <div className="px-3 py-2 border-b border-slate-100 text-[10px] font-bold uppercase tracking-wide text-slate-500 dark:border-slate-700 dark:text-slate-400 shrink-0">
+              Your branches
+            </div>
+            <div className="overflow-y-auto py-1 min-h-0 flex-1">
+              {branches.map((c) => {
+                const rowBrand = typeof resolveFn === 'function' ? resolveFn(c) : { displayName: c.name, logoUrl: c.logoUrl };
+                const isActive = String(c.id) === active;
+                return (
+                  <button
+                    key={c.id}
+                    type="button"
+                    role="option"
+                    aria-selected={isActive}
+                    disabled={switching}
+                    onClick={() => onPickBranch(c.id)}
+                    className={cx(
+                      'w-full flex items-center gap-2.5 px-3 py-2.5 text-left transition-colors',
+                      isActive
+                        ? 'bg-indigo-50 ring-1 ring-inset ring-indigo-300 dark:bg-indigo-950/40 dark:ring-indigo-600'
+                        : 'hover:bg-slate-50 dark:hover:bg-slate-800',
+                    )}
+                    data-testid={`header-branch-option-${c.code}`}
+                  >
+                    <BranchLogoImg src={rowBrand.logoUrl || c.logoUrl} alt="" className="h-9 w-9 rounded-lg object-contain ring-1 ring-slate-200 shrink-0 bg-white" />
+                    <div className="min-w-0 flex-1">
+                      <div className="text-sm font-semibold text-slate-900 truncate dark:text-slate-100">
+                        {rowBrand.displayName || c.name}
+                      </div>
+                      <div className="text-[11px] text-slate-500 truncate dark:text-slate-400">
+                        {c.code} · {gymCodeLabel(c.id) || c.name}
+                      </div>
+                    </div>
+                    {isActive && (
+                      <span className="shrink-0 rounded-full bg-indigo-600 px-2 py-0.5 text-[10px] font-bold text-white">
+                        Active
+                      </span>
+                    )}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        </AnchoredPopoverPortal>
+      );
+    }
+
+    /** Right header: staff identity + branch switch (identity unchanged on branch switch). */
+    function UserProfileHeaderCard({
       user,
       gymCodes = [],
       gymCodeLabel = () => '—',
-      branchBranding = null,
       activeBranchId = '',
       onSwitch,
       switching = false,
@@ -9786,9 +9968,8 @@ Please pay by: ${formattedLastDate}`;
       const [open, setOpen] = React.useState(false);
       const anchorRef = React.useRef(null);
       const popRef = React.useRef(null);
-      const resolveFn = window.__APG_MODULES?.resolveClientBranchBranding;
-      const defaultBrandFn = window.__APG_MODULES?.defaultClientBranding;
       const buildModelFn = window.__APG_MODULES?.buildHeaderBranchSwitcherModel;
+
       const switcherModel = React.useMemo(() => {
         if (typeof buildModelFn === 'function') {
           return buildModelFn({ user, gymCodes, activeBranchId });
@@ -9796,7 +9977,6 @@ Please pay by: ${formattedLastDate}`;
         return { branches: [], multiBranch: false, active: '' };
       }, [user, gymCodes, activeBranchId, buildModelFn]);
       const { branches, multiBranch, active } = switcherModel;
-      const brand = branchBranding || (typeof defaultBrandFn === 'function' ? defaultBrandFn() : { displayName: 'Action Plus Gym', logoUrl: './assets/action-plus-logo.png' });
 
       React.useEffect(() => {
         if (!open) return undefined;
@@ -9814,12 +9994,6 @@ Please pay by: ${formattedLastDate}`;
         };
       }, [open]);
 
-      const branchPanelWidth = React.useMemo(() => {
-        if (typeof window === 'undefined') return 288;
-        const vw = window.innerWidth || document.documentElement.clientWidth || 360;
-        return Math.min(288, Math.max(200, vw - 24));
-      }, [open]);
-
       if (!user) return null;
 
       const pickBranch = (branchId) => {
@@ -9830,158 +10004,52 @@ Please pay by: ${formattedLastDate}`;
       };
 
       return (
-        <div className="relative shrink-0 min-w-0" data-testid="header-branch-branding">
-          <button
-            ref={anchorRef}
-            type="button"
-            onClick={() => {
-              if (multiBranch) setOpen((v) => !v);
-            }}
-            disabled={switching}
+        <div className="relative shrink-0 min-w-0" data-testid="header-user-profile-card">
+          <div
             className={cx(
-              'flex items-start gap-2 rounded-xl border border-slate-200 bg-white text-left shadow-[inset_0_1px_0_rgba(255,255,255,0.8)] dark:border-slate-600 dark:bg-slate-800/90',
-              compact ? 'px-2 py-1.5 max-w-[10.5rem]' : 'px-2.5 py-2 max-w-[16rem]',
-              multiBranch ? 'hover:bg-slate-50 dark:hover:bg-slate-700/80 cursor-pointer' : 'cursor-default',
+              'flex items-start gap-2 rounded-xl border border-slate-200 bg-white shadow-[inset_0_1px_0_rgba(255,255,255,0.8)] dark:border-slate-600 dark:bg-slate-800/90',
+              compact ? 'px-2 py-1.5 max-w-[11rem]' : 'px-2.5 py-1.5 max-w-[14rem]',
             )}
-            aria-expanded={multiBranch ? open : false}
-            aria-haspopup={multiBranch ? 'listbox' : undefined}
-            data-testid="header-profile-branch-menu"
           >
-            <BranchLogoImg
-              src={brand.logoUrl}
-              alt=""
-              className={cx('rounded-lg object-contain ring-1 ring-slate-200 shrink-0 bg-white', compact ? 'h-7 w-7' : 'h-9 w-9')}
-            />
+            <StaffAvatarRenderer user={user} compact={compact} />
             <div className="leading-tight min-w-0 flex-1">
               <div
-                className={cx(
-                  'font-semibold text-slate-800 truncate dark:text-slate-100',
-                  compact ? 'text-[11px]' : 'text-sm',
-                )}
-                data-testid="header-gym-name"
+                className={cx('font-semibold text-slate-800 truncate dark:text-slate-100', compact ? 'text-[11px]' : 'text-xs')}
+                data-testid="header-user-name"
               >
-                {brand.displayName || 'Action Plus Gym'}
+                {user?.name || '-'}
               </div>
+              <UserRoleBadge user={user} compact={compact} />
               {multiBranch && (
-                <div className="text-[10px] font-semibold text-indigo-600 dark:text-indigo-300 mt-0.5 truncate">
+                <button
+                  ref={anchorRef}
+                  type="button"
+                  onClick={() => setOpen((v) => !v)}
+                  disabled={switching}
+                  className="mt-0.5 text-left text-[10px] font-semibold text-indigo-600 hover:text-indigo-700 dark:text-indigo-300 dark:hover:text-indigo-200 truncate max-w-full"
+                  aria-expanded={open}
+                  aria-haspopup="listbox"
+                  data-testid="header-profile-branch-menu"
+                >
                   {switching ? 'Switching…' : 'Change branch ▾'}
-                </div>
+                </button>
               )}
             </div>
-          </button>
+          </div>
           {multiBranch && (
-            <AnchoredPopoverPortal
+            <BranchSwitcherDropdown
               open={open}
+              setOpen={setOpen}
               anchorRef={anchorRef}
               popRef={popRef}
-              width={branchPanelWidth}
-              maxHeight={256}
-              offset={6}
-              align="start"
-              testId="header-branch-dropdown"
-              role="listbox"
-              ariaLabel="Select branch"
-            >
-              <div className="rounded-xl border border-slate-200 bg-white shadow-xl dark:border-slate-600 dark:bg-slate-900 overflow-hidden flex flex-col min-h-0">
-                <div className="px-3 py-2 border-b border-slate-100 text-[10px] font-bold uppercase tracking-wide text-slate-500 dark:border-slate-700 dark:text-slate-400 shrink-0">
-                  Your branches
-                </div>
-                <div className="overflow-y-auto py-1 min-h-0 flex-1">
-                  {branches.map((c) => {
-                    const rowBrand = typeof resolveFn === 'function' ? resolveFn(c) : { displayName: c.name, logoUrl: c.logoUrl };
-                    const isActive = String(c.id) === active;
-                    return (
-                      <button
-                        key={c.id}
-                        type="button"
-                        role="option"
-                        aria-selected={isActive}
-                        disabled={switching}
-                        onClick={() => pickBranch(c.id)}
-                        className={cx(
-                          'w-full flex items-center gap-2.5 px-3 py-2.5 text-left transition-colors',
-                          isActive
-                            ? 'bg-indigo-50 ring-1 ring-inset ring-indigo-300 dark:bg-indigo-950/40 dark:ring-indigo-600'
-                            : 'hover:bg-slate-50 dark:hover:bg-slate-800',
-                        )}
-                        data-testid={`header-branch-option-${c.code}`}
-                      >
-                        <BranchLogoImg src={rowBrand.logoUrl || c.logoUrl} alt="" className="h-9 w-9 rounded-lg object-contain ring-1 ring-slate-200 shrink-0 bg-white" />
-                        <div className="min-w-0 flex-1">
-                          <div className="text-sm font-semibold text-slate-900 truncate dark:text-slate-100">
-                            {rowBrand.displayName || c.name}
-                          </div>
-                          <div className="text-[11px] text-slate-500 truncate dark:text-slate-400">
-                            {c.code} · {gymCodeLabel(c.id) || c.name}
-                          </div>
-                        </div>
-                        {isActive && (
-                          <span className="shrink-0 rounded-full bg-indigo-600 px-2 py-0.5 text-[10px] font-bold text-white">
-                            Active
-                          </span>
-                        )}
-                      </button>
-                    );
-                  })}
-                </div>
-              </div>
-            </AnchoredPopoverPortal>
-          )}
-        </div>
-      );
-    }
-
-    /** Logged-in staff identity (photo, name, role) — unchanged when switching branches. */
-    function UserProfileCard({ user, compact = false }) {
-      const roleFn = window.__APG_MODULES?.staffRoleDisplayLabel;
-      const [photoBroken, setPhotoBroken] = React.useState(false);
-      const photoSrc = String(user?.photo || user?.avatar || '').trim();
-      const showPhoto = Boolean(photoSrc) && !photoBroken;
-      const roleLabel = typeof roleFn === 'function' ? roleFn(user) : 'Staff';
-
-      React.useEffect(() => {
-        setPhotoBroken(false);
-      }, [user?.id, photoSrc]);
-
-      if (!user) return null;
-
-      return (
-        <div
-          className={cx(
-            'flex items-center gap-2 rounded-xl border border-slate-200 bg-white shadow-[inset_0_1px_0_rgba(255,255,255,0.8)] dark:border-slate-600 dark:bg-slate-800/90 shrink-0',
-            compact ? 'px-2 py-1.5 max-w-[9.5rem]' : 'px-2.5 py-1.5 max-w-[12rem]',
-          )}
-          data-testid="header-user-profile-card"
-        >
-          {showPhoto ? (
-            <img
-              src={photoSrc}
-              alt=""
-              className={cx('rounded-full object-cover ring-1 ring-slate-200 shrink-0', compact ? 'h-7 w-7' : 'h-8 w-8')}
-              onError={() => setPhotoBroken(true)}
-              data-testid="header-user-photo"
-            />
-          ) : (
-            <div
-              className={cx('rounded-full border border-slate-200 shrink-0 dark:border-slate-600', compact ? 'h-7 w-7' : 'h-8 w-8')}
-              aria-hidden="true"
-              data-testid="header-user-photo-empty"
+              branches={branches}
+              active={active}
+              switching={switching}
+              gymCodeLabel={gymCodeLabel}
+              onPickBranch={pickBranch}
+              align="end"
             />
           )}
-          <div className="leading-tight min-w-0">
-            <div
-              className={cx('font-semibold text-slate-800 truncate dark:text-slate-100', compact ? 'text-[11px]' : 'text-xs')}
-              data-testid="header-user-name"
-            >
-              {user?.name || '-'}
-            </div>
-            <div
-              className={cx('text-slate-500 truncate dark:text-slate-400', compact ? 'text-[10px]' : 'text-[11px]')}
-              data-testid="header-user-role"
-            >
-              {roleLabel}
-            </div>
-          </div>
         </div>
       );
     }

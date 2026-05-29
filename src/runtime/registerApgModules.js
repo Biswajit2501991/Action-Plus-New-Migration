@@ -80,6 +80,7 @@ import {
 } from '../features/branding/activeBranchContext.js';
 import { staffRoleDisplayLabel } from '../features/branding/staffRoleLabel.js';
 import { buildHeaderBranchSwitcherModel } from '../features/branding/headerBranchSwitcherModel.js';
+import { staffInitialsFromName, staffPhotoSrcFromUser } from '../features/branding/staffAvatarInitials.js';
 import {
   shouldReplaceBranchDataOnHydrate,
   mergeMembersAfterBranchReplace,
@@ -233,6 +234,8 @@ window.__APG_MODULES.readActiveBranchPref = readActiveBranchPref;
 window.__APG_MODULES.writeActiveBranchPref = writeActiveBranchPref;
 window.__APG_MODULES.primaryBranchIdForLogin = primaryBranchIdForLogin;
 window.__APG_MODULES.staffRoleDisplayLabel = staffRoleDisplayLabel;
+window.__APG_MODULES.staffInitialsFromName = staffInitialsFromName;
+window.__APG_MODULES.staffPhotoSrcFromUser = staffPhotoSrcFromUser;
 window.__APG_MODULES.buildHeaderBranchSwitcherModel = buildHeaderBranchSwitcherModel;
 window.__APG_MODULES.activeBranchIdsForDataScope = activeBranchIdsForDataScope;
 window.__APG_MODULES.shouldReplaceBranchDataOnHydrate = shouldReplaceBranchDataOnHydrate;
