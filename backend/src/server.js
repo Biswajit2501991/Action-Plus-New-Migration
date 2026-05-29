@@ -65,7 +65,7 @@ import { requireBranchAdmin } from './middleware/requireBranchAdmin.js';
 import { requireStaffManagementRead, requireStaffManagementWrite } from './middleware/requireStaffManagement.js';
 import { filterUsersForAuth, sanitizeUsersBulkForAuth } from './auth/tenant/userScope.js';
 import { LOOKUP_CREATED_BY } from './auth/tenant/roles.js';
-import { authIsBranchOwner, authIsMasterOwner } from './auth/tenant/scopedAuth.js';
+import { authIsBranchOwner, authIsMasterOwner, authUsesGlobalDataRead } from './auth/tenant/scopedAuth.js';
 import { Access, getStaffAccessForUser } from './auth/accessControl.js';
 import { requireAccess, requireLogsBulkAccess } from './middleware/permissions.js';
 import authRouter from './routes/auth.js';
@@ -1269,7 +1269,7 @@ app.get('/api/attendance/records', requireAccess((a) => a.attendance?.viewAttend
       });
     }
     const records = await readStaffAttendanceInRange(readSandboxScope(req), { startDate, endDate });
-    if (authIsOwner(req.auth)) return res.json(records);
+    if (authUsesGlobalDataRead(req.auth)) return res.json(records);
     if (!req.auth?.gymCodeId) return res.json([]);
     const scope = await loadBranchScope(getSupabase(), req.auth);
     return res.json(records.filter((r) => scope.staffLogins?.has(String(r?.userId || '').trim())));
@@ -1357,7 +1357,7 @@ app.get('/api/logs', requireAccess(Access.logsRead), async (req, res) => {
     endDate,
   } : {};
   const logs = await readJsonCollection('apg.logs', [], scope, null, options);
-  if (authIsOwner(req.auth)) return res.json(logs);
+  if (authUsesGlobalDataRead(req.auth)) return res.json(logs);
   if (!req.auth?.gymCodeId) return res.json([]);
   const branchScope = await loadBranchScope(getSupabase(), req.auth);
   res.json(logs.filter((l) => logMatchesBranchScope(l, branchScope)));
@@ -1419,7 +1419,7 @@ app.post('/api/logs/cleanup', requireAccess(Access.logsClear), async (req, res) 
 
 app.get('/api/finance', requireAccess(Access.financeRead), async (req, res) => {
   const finance = await readScopedCollection(req, 'apg.finance', []);
-  if (authIsOwner(req.auth)) return res.json(finance);
+  if (authUsesGlobalDataRead(req.auth)) return res.json(finance);
   if (!req.auth?.gymCodeId) return res.json([]);
   const scope = await loadBranchScope(getSupabase(), req.auth);
   res.json(finance.filter((t) => {
@@ -1449,7 +1449,7 @@ app.put('/api/finance/bulk', requireAccess(Access.financeWrite), async (req, res
 
 app.get('/api/sms-events', requireAccess(Access.smsRead), async (req, res) => {
   const events = await readScopedCollection(req, 'apg.sms.events', []);
-  if (authIsOwner(req.auth)) return res.json(events);
+  if (authUsesGlobalDataRead(req.auth)) return res.json(events);
   if (!req.auth?.gymCodeId) return res.json([]);
   const scope = await loadBranchScope(getSupabase(), req.auth);
   res.json(events.filter((e) => {

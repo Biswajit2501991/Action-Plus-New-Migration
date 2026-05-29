@@ -23,6 +23,19 @@ describe('resolveReadBranchScope', () => {
     expect(s.staffNoBranch).toBe(false);
   });
 
+  it('owner with active branch gets operational gymCodeId scope', () => {
+    const s = resolveReadBranchScope({
+      userId: 'owner',
+      roles: ['owner'],
+      staffRole: 'master_owner',
+      activeBranchId: BRANCH_A,
+      gymCodeId: BRANCH_A,
+    });
+    expect(s.isOwner).toBe(true);
+    expect(s.gymCodeId).toBe(BRANCH_A);
+    expect(s.allowedBranchIds).toEqual([BRANCH_A]);
+  });
+
   it('staff with branch gets gymCodeId', () => {
     const s = resolveReadBranchScope({ userId: 'deep', gymCodeId: BRANCH_A });
     expect(s.staffNoBranch).toBe(false);
@@ -110,8 +123,13 @@ describe('client filterMembersForUser', () => {
     { memberId: 'm2', assignedGymCodeId: BRANCH_B },
   ];
 
-  it('owner sees all', () => {
+  it('owner without active branch sees all', () => {
     expect(filterMembersForUser(owner, rows)).toHaveLength(2);
+  });
+
+  it('owner with active branch sees only that branch', () => {
+    const ownerScoped = { id: 'owner', activeBranchId: BRANCH_A, gymCodeId: BRANCH_A };
+    expect(filterMembersForUser(ownerScoped, rows).map((r) => r.memberId)).toEqual(['m1']);
   });
 
   it('staff without branch sees none', () => {

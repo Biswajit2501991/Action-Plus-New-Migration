@@ -5875,7 +5875,7 @@ Phone: +91-7047157510`;
           if (dataSyncMode === 'backend' && token) {
             hydrateFromBackend({
               authUser: loginUser,
-              replaceBranchData: !isOwnerStaffUser(loginUser),
+              replaceBranchData: Boolean(loginUser.activeBranchId || loginUser.gymCodeId),
             }).catch(() => setBackendHydrated(false));
           }
           return true;
@@ -7703,7 +7703,7 @@ Please pay by: ${formattedLastDate}`;
 
       // Drop stale cross-branch rows from local state after branch assignment / hydrate.
       React.useEffect(() => {
-        if (!user?.id || isOwnerStaffUser(user)) return;
+        if (!user?.id) return;
         const filterFn = window.__APG_MODULES?.filterMembersForUser;
         if (typeof filterFn !== 'function') return;
         setMembers((prev) => {
@@ -7723,22 +7723,26 @@ Please pay by: ${formattedLastDate}`;
       const branchScopedMembers = React.useMemo(() => {
         const filterFn = window.__APG_MODULES?.filterMembersForUser;
         if (typeof filterFn === 'function') return filterFn(user, members);
-        if (!user || String(user.id || '').toLowerCase() === 'owner' || String(user.role || '').toLowerCase() === 'owner') {
-          return Array.isArray(members) ? members : [];
-        }
-        const staffCode = String(user.gymCodeId || '').trim();
-        if (!staffCode) return [];
-        return (Array.isArray(members) ? members : []).filter((m) => String(m?.assignedGymCodeId || '').trim() === staffCode);
+        const scopeFn = window.__APG_MODULES?.activeBranchIdsForDataScope;
+        const active = typeof scopeFn === 'function'
+          ? scopeFn(user)
+          : [String(user?.activeBranchId || user?.gymCodeId || '').trim()].filter(Boolean);
+        if (active === null) return Array.isArray(members) ? members : [];
+        if (!active?.length) return [];
+        const set = new Set(active);
+        return (Array.isArray(members) ? members : []).filter((m) => set.has(String(m?.assignedGymCodeId || '').trim()));
       }, [user, members]);
       const branchScopedVisitors = React.useMemo(() => {
         const filterFn = window.__APG_MODULES?.filterVisitorsForUser;
         if (typeof filterFn === 'function') return filterFn(user, visitors);
-        if (!user || String(user.id || '').toLowerCase() === 'owner' || String(user.role || '').toLowerCase() === 'owner') {
-          return Array.isArray(visitors) ? visitors : [];
-        }
-        const staffCode = String(user.gymCodeId || '').trim();
-        if (!staffCode) return [];
-        return (Array.isArray(visitors) ? visitors : []).filter((v) => String(v?.assignedGymCodeId || '').trim() === staffCode);
+        const scopeFn = window.__APG_MODULES?.activeBranchIdsForDataScope;
+        const active = typeof scopeFn === 'function'
+          ? scopeFn(user)
+          : [String(user?.activeBranchId || user?.gymCodeId || '').trim()].filter(Boolean);
+        if (active === null) return Array.isArray(visitors) ? visitors : [];
+        if (!active?.length) return [];
+        const set = new Set(active);
+        return (Array.isArray(visitors) ? visitors : []).filter((v) => set.has(String(v?.assignedGymCodeId || '').trim()));
       }, [user, visitors]);
       // Derived lists and search
       const filteredMembers = React.useMemo(() => {

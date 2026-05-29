@@ -11,10 +11,18 @@ import {
  */
 export function resolveReadBranchScope(auth) {
   if (!auth) return null;
-  if (authHasGlobalBranchRead(auth)) {
-    return { isOwner: true, gymCodeId: null, allowedBranchIds: null, staffNoBranch: false };
-  }
   const readIds = resolveReadBranchIds(auth);
+  if (authHasGlobalBranchRead(auth)) {
+    if (readIds === null) {
+      return { isOwner: true, gymCodeId: null, allowedBranchIds: null, staffNoBranch: false };
+    }
+    return {
+      isOwner: true,
+      gymCodeId: readIds[0],
+      allowedBranchIds: readIds,
+      staffNoBranch: false,
+    };
+  }
   if (!readIds?.length) {
     return { isOwner: false, gymCodeId: null, allowedBranchIds: [], staffNoBranch: true };
   }
@@ -25,6 +33,11 @@ export function resolveReadBranchScope(auth) {
     allowedBranchIds: readIds,
     staffNoBranch: false,
   };
+}
+
+/** List/read SQL filters to gymCodeId whenever operational active branch is set. */
+export function branchScopeRestrictsToGymCode(branchScope) {
+  return Boolean(branchScope?.gymCodeId);
 }
 
 /** @param {ReturnType<typeof resolveReadBranchScope>|null} branchScope */

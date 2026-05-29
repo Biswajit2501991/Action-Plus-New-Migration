@@ -27,6 +27,20 @@ describe('activeBranchIdsForDataScope', () => {
     expect(activeBranchIdsForDataScope(user)).toEqual(['hq']);
   });
 
+  it('master owner with active branch scopes to that branch only', () => {
+    const user = {
+      id: 'owner',
+      staffRole: 'master_owner',
+      activeBranchId: 'ap01',
+      gymCodeId: 'ap01',
+    };
+    expect(activeBranchIdsForDataScope(user)).toEqual(['ap01']);
+  });
+
+  it('master owner without active branch retains global scope', () => {
+    expect(activeBranchIdsForDataScope({ id: 'owner', staffRole: 'master_owner' })).toBeNull();
+  });
+
   it('branch owner uses active-branch-only scope like staff', () => {
     const user = {
       id: 'bo1',

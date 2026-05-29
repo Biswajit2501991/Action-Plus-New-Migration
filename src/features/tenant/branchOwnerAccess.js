@@ -40,12 +40,14 @@ export function allowedBranchIdsForUser(user) {
   return single ? [single] : [];
 }
 
-/** Data visibility scope — always the single active branch (never all assignments). */
+/** Data visibility scope — single active branch (staff, branch owner, and master owner in branch context). */
 export function activeBranchIdsForDataScope(user) {
-  const allowed = allowedBranchIdsForUser(user);
-  if (allowed === null) return null;
-  if (!allowed.length) return [];
   const active = String(user?.activeBranchId || user?.gymCodeId || '').trim();
+  if (authIsMasterOwnerUser(user)) {
+    return active ? [active] : null;
+  }
+  const allowed = allowedBranchIdsForUser(user);
+  if (!allowed?.length) return [];
   if (active && allowed.includes(active)) return [active];
   return [allowed[0]];
 }
@@ -60,7 +62,6 @@ export function userCanAccessBranch(user, gymCodeId) {
 
 export function memberInUserBranches(user, member) {
   if (!member) return false;
-  if (authIsMasterOwnerUser(user)) return true;
   const scope = activeBranchIdsForDataScope(user);
   if (scope === null) return true;
   if (!scope.length) return false;

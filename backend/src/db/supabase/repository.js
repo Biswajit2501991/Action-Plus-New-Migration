@@ -141,7 +141,7 @@ async function loadMemberPaymentsForList(sb, gid, memberIds, monthsBack = 14) {
 }
 
 async function readMemberByCode(memberCode, branchScope = null) {
-  if (branchScope && !branchScope.isOwner && branchScope.staffNoBranch) {
+  if (branchScope?.staffNoBranch) {
     return null;
   }
   const sb = getSupabase();
@@ -149,7 +149,7 @@ async function readMemberByCode(memberCode, branchScope = null) {
   const code = String(memberCode || '').trim();
   if (!code) return null;
   let q = sb.from(T.members).select('*').eq('gym_id', gid).eq('member_code', code);
-  if (branchScope && !branchScope.isOwner && branchScope.gymCodeId) {
+  if (branchScope?.gymCodeId) {
     q = q.eq('assigned_gym_code_id', branchScope.gymCodeId);
   }
   const { data: rows, error } = await q.order('updated_at', { ascending: false }).limit(1);
@@ -238,7 +238,7 @@ export async function deleteMemberPayment(memberCode, paymentId, branchScope = n
 }
 
 async function readMembers(scope, branchScope = null, options = {}) {
-  if (branchScope && !branchScope.isOwner && branchScope.staffNoBranch) {
+  if (branchScope?.staffNoBranch) {
     return [];
   }
   const sb = getSupabase();
@@ -249,7 +249,7 @@ async function readMembers(scope, branchScope = null, options = {}) {
   const memberRows = await fetchAll((from, to) => {
     let q = sb.from(T.members).select(columns).eq('gym_id', gid);
     // Phase 2 zero-leak: staff with a gym_code_id only see rows tagged to that branch.
-    if (branchScope && !branchScope.isOwner && branchScope.gymCodeId) {
+    if (branchScope?.gymCodeId) {
       q = q.eq('assigned_gym_code_id', branchScope.gymCodeId);
     }
     if (updatedSince) q = q.gte('updated_at', updatedSince);
@@ -379,13 +379,13 @@ async function updateMemberFields(memberCode, patch, branchScope = null) {
     throw err;
   }
 
-  if (branchScope && !branchScope.isOwner && branchScope.staffNoBranch) {
+  if (branchScope?.staffNoBranch) {
     const err = new Error('member-not-found');
     err.status = 404;
     throw err;
   }
 
-  if (branchScope && branchScope.gymCodeId && !branchScope.isOwner) {
+  if (branchScope?.gymCodeId) {
     const existingCode = String(existingRow.assigned_gym_code_id || '');
     if (existingCode !== String(branchScope.gymCodeId)) {
       // Staff cannot read or mutate rows outside their branch. We surface 404 (not 403)
@@ -1555,14 +1555,14 @@ export async function patchPtClientProfile(memberCode, incomingProfile, meta = {
 }
 
 async function readVisitors(scope, branchScope = null) {
-  if (branchScope && !branchScope.isOwner && branchScope.staffNoBranch) {
+  if (branchScope?.staffNoBranch) {
     return [];
   }
   const sb = getSupabase();
   const gid = gymId();
   const visitorsGymCodeReady = await visitorsHaveGymCodeColumn(sb);
-  const branchFilter = branchScope && !branchScope.isOwner && branchScope.gymCodeId && visitorsGymCodeReady;
-  if (branchScope && !branchScope.isOwner && branchScope.gymCodeId && !visitorsGymCodeReady) {
+  const branchFilter = branchScope?.gymCodeId && visitorsGymCodeReady;
+  if (branchScope?.gymCodeId && !visitorsGymCodeReady) {
     return [];
   }
   const rows = await fetchAll((from, to) => {

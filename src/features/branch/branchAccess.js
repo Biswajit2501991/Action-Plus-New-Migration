@@ -29,15 +29,15 @@ export function memberInStaffBranch(user, member) {
 
 export function filterMembersForUser(user, members) {
   const list = Array.isArray(members) ? members : [];
-  if (authIsMasterOwnerUser(user)) return list;
-  if (!staffHasBranch(user)) return [];
+  if (!user) return [];
+  if (!staffHasBranch(user) && !authIsMasterOwnerUser(user)) return [];
   return list.filter((m) => memberInUserBranches(user, m));
 }
 
 export function filterVisitorsForUser(user, visitors) {
   const list = Array.isArray(visitors) ? visitors : [];
-  if (authIsMasterOwnerUser(user)) return list;
-  if (!staffHasBranch(user)) return [];
+  if (!user) return [];
+  if (!staffHasBranch(user) && !authIsMasterOwnerUser(user)) return [];
   return list.filter((v) => memberInUserBranches(user, v));
 }
 

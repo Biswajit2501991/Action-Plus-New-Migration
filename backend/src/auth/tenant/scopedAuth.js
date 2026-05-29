@@ -29,6 +29,11 @@ export function authHasGlobalBranchRead(auth) {
   return engineHasGlobalBranchRead(auth);
 }
 
+/** Master owner viewing all branches (no active operational branch selected). */
+export function authUsesGlobalDataRead(auth) {
+  return authHasGlobalBranchRead(auth) && !resolveActiveBranchId(auth);
+}
+
 /**
  * @returns {string[]|null} null = all branches (master); [] = none; [...] = allowed UUIDs
  */
@@ -62,15 +67,19 @@ export function resolveActiveBranchId(auth) {
 }
 
 /**
- * Branch IDs used for read scoping. Multi-branch users see only the active branch.
- * @returns {string[]|null} null = all branches (master)
+ * Branch IDs used for read scoping.
+ * Staff / branch owners: active branch only.
+ * Master owner: active branch when set (operational context); null = all branches.
+ * @returns {string[]|null} null = all branches (master without active selection)
  */
 export function resolveReadBranchIds(auth) {
   if (!auth) return [];
-  if (authHasGlobalBranchRead(auth)) return null;
+  const active = resolveActiveBranchId(auth);
+  if (authHasGlobalBranchRead(auth)) {
+    return active ? [active] : null;
+  }
   const allowed = resolveAllowedBranchIds(auth);
   if (!allowed?.length) return [];
-  const active = resolveActiveBranchId(auth);
   if (allowed.length > 1 && active && allowed.includes(active)) {
     return [active];
   }
