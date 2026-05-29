@@ -4123,6 +4123,21 @@ Phone: +91-7047157510`;
         if (!user?.id || dataSyncMode !== 'backend') return;
         refreshGymCodes().catch(() => {});
       }, [user?.id, dataSyncMode, refreshGymCodes]);
+      // Self-heal stale sessions that only kept a single gymCodeId (no multi-branch arrays).
+      React.useEffect(() => {
+        if (!user?.id || dataSyncMode !== 'backend' || !readAuthToken()) return;
+        if (normalizeBranchIdList(user).length > 1) return;
+        let cancelled = false;
+        (async () => {
+          const data = await revalidateAuthSessionFromServer().catch(() => null);
+          if (cancelled || !data?.user) return;
+          const branch = branchIdsFromAuthPayload(data);
+          if (normalizeBranchIdList(branch).length <= 1) return;
+          setUser((prev) => applyAuthBranchContextToUser(prev, data));
+          setUsers((prev) => syncUsersRowBranchContext(prev, data.user.id, data));
+        })();
+        return () => { cancelled = true; };
+      }, [user?.id, dataSyncMode, user?.assignedBranchIds, user?.allowedBranchIds, user?.gymCodeId]);
       const pullStaffAttendance = React.useCallback(async (range) => {
         if (dataSyncMode !== 'backend' || !readAuthToken()) return;
         const r = range || staffAttendanceDefaultRange();
@@ -5952,7 +5967,7 @@ Phone: +91-7047157510`;
             });
             if (res.ok) {
               const data = await res.json();
-              const rec = data?.user ? prepareStaffUser(data.user) : null;
+              let rec = data?.user ? prepareStaffUser(data.user) : null;
               if (rec) {
                 const branch = branchIdsFromAuthPayload({
                   user: rec,
@@ -6121,7 +6136,7 @@ Phone: +91-7047157510`;
       // Keep live user details (like photo) in sync after Settings updates — never strip owner sections from DB row.
       React.useEffect(() => {
         if (!user?.id) return;
-        const latest = users.find((u) => u.id === user.id);
+        const latest = users.find((u) => authUserIdsMatch(u.id, user.id));
         if (!latest) return;
         const prepared = prepareStaffUser(latest);
         const nextSections = JSON.stringify(prepared.sections || []);
@@ -9982,16 +9997,42 @@ Please pay by: ${formattedLastDate}`;
       const [open, setOpen] = React.useState(false);
       const anchorRef = React.useRef(null);
       const popRef = React.useRef(null);
-      const buildModelFn = window.__APG_MODULES?.buildHeaderBranchSwitcherModel;
+      const [modulesReady, setModulesReady] = React.useState(
+        () => typeof window.__APG_MODULES?.buildHeaderBranchSwitcherModel === 'function',
+      );
+      React.useEffect(() => {
+        if (modulesReady) return undefined;
+        let cancelled = false;
+        Promise.resolve(window.__APG_MODULES_READY).finally(() => {
+          if (!cancelled) setModulesReady(true);
+        });
+        return () => { cancelled = true; };
+      }, [modulesReady]);
 
       const switcherModel = React.useMemo(() => {
+        const buildModelFn = window.__APG_MODULES?.buildHeaderBranchSwitcherModel;
         if (typeof buildModelFn === 'function') {
           return buildModelFn({ user, gymCodes, activeBranchId });
         }
-        return { branches: [], multiBranch: false, active: '' };
-      }, [user, gymCodes, activeBranchId, user?.allowedBranchIds, user?.assignedBranchIds, user?.staffRole, buildModelFn]);
+        const branchIds = normalizeBranchIdList(user);
+        const byId = new Map((Array.isArray(gymCodes) ? gymCodes : []).map((c) => [String(c.id), c]));
+        const branches = branchIds.map((id) => byId.get(String(id)) || {
+          id: String(id),
+          code: String(id).slice(0, 8).toUpperCase(),
+          name: 'Branch',
+          branchName: 'Branch',
+        });
+        const showFn = window.__APG_MODULES?.shouldShowBranchSwitcher;
+        const multiBranch = Boolean(
+          user && (typeof showFn === 'function' ? showFn(user, gymCodes) : branchIds.length > 1),
+        );
+        const active = String(
+          activeBranchId || user?.activeBranchId || user?.gymCodeId || branchIds[0] || '',
+        ).trim();
+        return { branches, multiBranch, active, branchIds };
+      }, [user, gymCodes, activeBranchId, user?.allowedBranchIds, user?.assignedBranchIds, user?.staffRole, modulesReady]);
       const { branches, multiBranch, active } = switcherModel;
-      const showBranchSwitcher = multiBranch || branches.length > 1;
+      const showBranchSwitcher = multiBranch || branches.length > 1 || normalizeBranchIdList(user).length > 1;
 
       React.useEffect(() => {
         if (!open) return undefined;
