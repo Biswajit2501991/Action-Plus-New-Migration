@@ -7981,11 +7981,7 @@ Please pay by: ${formattedLastDate}`;
                 >
                   <AppIcon name="menu" className="h-4 w-4" />
                 </button>
-                <BranchBrandingHeader
-                  user={user}
-                  branchBranding={branchBranding}
-                  compact
-                />
+                <div className="text-[14px] leading-tight font-bold text-slate-900 truncate dark:text-slate-100">{activeTab}</div>
               </div>
               <div className="flex items-center gap-1.5 shrink-0">
               <UserProfileHeaderCard
@@ -8252,7 +8248,6 @@ Please pay by: ${formattedLastDate}`;
             onCloseMobile={() => setMobileMenuOpen(false)}
             membersView={membersView}
             setMembersView={setMembersView}
-            branchBranding={branchBranding}
           />
           <main className="apg-main-scroll flex-1 overflow-y-auto pt-[112px] md:pt-0 pb-28 md:pb-0 w-full bg-[#F8FAFC] md:bg-transparent">
             {openedFromFileProtocol && (
@@ -8263,12 +8258,8 @@ Please pay by: ${formattedLastDate}`;
             )}
             <div className="hidden md:block px-8 pt-6 space-y-3">
               <div className="rounded-2xl border border-slate-200 bg-white p-3 shadow-sm apg-card">
-                <div className="flex items-center justify-between gap-3 flex-wrap">
-                  <BranchBrandingHeader
-                    user={user}
-                    branchBranding={branchBranding}
-                  />
-                  <div className="flex items-center gap-2 min-w-0 flex-1 justify-center order-3 md:order-none w-full md:w-auto">
+                <div className="flex items-center justify-between gap-3">
+                  <div className="flex items-center gap-2 min-w-0 flex-1">
                     <div
                       className={cx(
                         'flex w-full max-w-md items-stretch overflow-hidden rounded-xl border-2 bg-emerald-50 transition-colors duration-150 dark:border-emerald-900/60 dark:bg-emerald-950/35',
@@ -9794,37 +9785,6 @@ Please pay by: ${formattedLastDate}`;
       );
     }
 
-    /** Active branch logo + gym name (left header). */
-    function BranchBrandingHeader({ user, branchBranding = null, compact = false }) {
-      const defaultBrandFn = window.__APG_MODULES?.defaultClientBranding;
-      const brand = branchBranding || (typeof defaultBrandFn === 'function' ? defaultBrandFn() : { displayName: 'Action Plus Gym', logoUrl: './assets/action-plus-logo.png' });
-      if (!user) return null;
-      return (
-        <div
-          className={cx(
-            'flex items-center gap-2 rounded-xl border border-slate-200 bg-white shadow-[inset_0_1px_0_rgba(255,255,255,0.8)] dark:border-slate-600 dark:bg-slate-800/90 shrink-0 min-w-0',
-            compact ? 'px-2 py-1.5 max-w-[10.5rem]' : 'px-2.5 py-2 max-w-[16rem]',
-          )}
-          data-testid="header-branch-branding"
-        >
-          <BranchLogoImg
-            src={brand.logoUrl}
-            alt=""
-            className={cx('rounded-lg object-contain ring-1 ring-slate-200 shrink-0 bg-white', compact ? 'h-7 w-7' : 'h-9 w-9')}
-          />
-          <div
-            className={cx(
-              'font-semibold text-slate-800 truncate dark:text-slate-100 leading-tight min-w-0',
-              compact ? 'text-[11px]' : 'text-sm',
-            )}
-            data-testid="header-gym-name"
-          >
-            {brand.displayName || 'Action Plus Gym'}
-          </div>
-        </div>
-      );
-    }
-
     function StaffAvatarRenderer({ user, compact = false }) {
       const initialsFn = window.__APG_MODULES?.staffInitialsFromName;
       const photoFn = window.__APG_MODULES?.staffPhotoSrcFromUser;
@@ -10055,8 +10015,7 @@ Please pay by: ${formattedLastDate}`;
     }
 
     // ---- Sidebar Component ----
-function Sidebar({ user, active, onSelect, theme, setTheme, layoutMode = 'classic', setLayoutMode = () => {}, onLogout, onUndo, onRedo, canUndo, canRedo, mobileOpen, onCloseMobile, membersView = 'all', setMembersView, branchBranding = null }) {
-      const brand = branchBranding || (window.__APG_MODULES?.defaultClientBranding?.() || { displayName: 'Action Plus Gym', logoUrl: './assets/action-plus-logo.png' });
+function Sidebar({ user, active, onSelect, theme, setTheme, layoutMode = 'classic', setLayoutMode = () => {}, onLogout, onUndo, onRedo, canUndo, canRedo, mobileOpen, onCloseMobile, membersView = 'all', setMembersView }) {
       const NAV = [
         { key: 'Dashboard', label: 'Dashboard', icon: 'home', group: '' },
         { key: 'Members', label: 'Members', icon: 'users', group: 'MEMBERS & CLIENTS' },
@@ -10142,15 +10101,14 @@ function Sidebar({ user, active, onSelect, theme, setTheme, layoutMode = 'classi
             <button
               type="button"
               onClick={() => setCollapsed((v) => !v)}
-              className={cx('w-full flex items-center rounded-2xl hover:bg-slate-100/70 dark:hover:bg-slate-800/80', collapsed ? 'justify-center p-2' : 'gap-3 p-1.5')}
+              className={cx('w-full flex items-center rounded-2xl hover:bg-slate-100/70 dark:hover:bg-slate-800/80', collapsed ? 'justify-center p-2' : 'gap-2 px-2 py-1.5')}
               title={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
+              aria-label={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
             >
-              <div className="h-9 w-9 rounded-lg bg-blue-50 p-1 ring-1 ring-blue-100 overflow-hidden dark:bg-slate-800 dark:ring-slate-600">
-                <BranchLogoImg src={brand.logoUrl} alt={`${brand.displayName} logo`} className="h-full w-full rounded-md object-contain" />
-              </div>
-              {!collapsed && <div className="min-w-0 text-left">
-                <div className="truncate text-[13px] font-semibold text-slate-900 tracking-tight dark:text-slate-100" data-testid="sidebar-gym-display-name">{brand.displayName}</div>
-              </div>}
+              <AppIcon name="menu" className="h-5 w-5 shrink-0 text-slate-600 dark:text-slate-300" />
+              {!collapsed && (
+                <span className="text-[13px] font-semibold text-slate-700 dark:text-slate-200">Menu</span>
+              )}
             </button>
             {!collapsed && (
               <div className="apg-layout-toggle mt-3 rounded-2xl border border-slate-200 bg-slate-50/70 px-2.5 py-2 dark:border-slate-700 dark:bg-slate-800/60">
