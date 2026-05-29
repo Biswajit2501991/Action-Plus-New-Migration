@@ -1,5 +1,12 @@
 import { env } from '../../config/env.js';
-import { STAFF_ROLES, normalizeStaffRole, isMasterOwnerRole, isBranchOwnerRole } from './roles.js';
+import { STAFF_ROLES, normalizeStaffRole } from './roles.js';
+import { resolveRoleHierarchy } from './roleHierarchyResolver.js';
+import {
+  engineIsMasterOwner,
+  engineIsBranchOwner,
+  engineIsBranchAdmin,
+  engineHasGlobalBranchRead,
+} from './scopedAuthorizationEngine.js';
 
 export function branchOwnerFeatureEnabled() {
   const v = process.env.BRANCH_OWNER_ENABLED;
@@ -9,22 +16,17 @@ export function branchOwnerFeatureEnabled() {
 
 /** Global master owner (login owner or master_owner role). */
 export function authIsMasterOwner(auth) {
-  if (!auth) return false;
-  if (String(auth.userId || '').toLowerCase() === 'owner') return true;
-  if (Array.isArray(auth.roles) && auth.roles.includes('owner')) return true;
-  return isMasterOwnerRole(auth.staffRole);
+  return engineIsMasterOwner(auth);
 }
 
-/** Branch owner with feature enabled. */
+/** Branch owner — role-based; not gated by BRANCH_OWNER_ENABLED. */
 export function authIsBranchOwner(auth) {
-  if (!branchOwnerFeatureEnabled()) return false;
-  return isBranchOwnerRole(auth.staffRole)
-    || (Array.isArray(auth.roles) && auth.roles.includes('branch_owner'));
+  return engineIsBranchOwner(auth);
 }
 
 /** Cross-branch read (all gym branches). */
 export function authHasGlobalBranchRead(auth) {
-  return authIsMasterOwner(auth);
+  return engineHasGlobalBranchRead(auth);
 }
 
 /**
@@ -33,27 +35,12 @@ export function authHasGlobalBranchRead(auth) {
 export function resolveAllowedBranchIds(auth) {
   if (!auth) return [];
   if (authHasGlobalBranchRead(auth)) return null;
-  if (Array.isArray(auth.allowedBranchIds) && auth.allowedBranchIds.length) {
-    return auth.allowedBranchIds.map((id) => String(id).trim()).filter(Boolean);
-  }
+  const fromJwt = Array.isArray(auth.allowedBranchIds)
+    ? auth.allowedBranchIds.map((id) => String(id).trim()).filter(Boolean)
+    : [];
+  if (fromJwt.length) return [...new Set(fromJwt)];
   const single = String(auth.gymCodeId || auth.activeBranchId || '').trim();
   return single ? [single] : [];
-}
-
-/**
- * Branch IDs used for read scoping. Multi-branch users see only the active branch.
- * @returns {string[]|null} null = all branches (master)
- */
-export function resolveReadBranchIds(auth) {
-  if (!auth) return [];
-  if (authHasGlobalBranchRead(auth)) return null;
-  const allowed = resolveAllowedBranchIds(auth);
-  if (!allowed?.length) return [];
-  const active = resolveActiveBranchId(auth);
-  if (allowed.length > 1 && active && allowed.includes(active)) {
-    return [active];
-  }
-  return allowed;
 }
 
 export function authCanAccessBranch(auth, gymCodeId) {
@@ -74,9 +61,25 @@ export function resolveActiveBranchId(auth) {
   return allowed[0] || '';
 }
 
+/**
+ * Branch IDs used for read scoping. Multi-branch users see only the active branch.
+ * @returns {string[]|null} null = all branches (master)
+ */
+export function resolveReadBranchIds(auth) {
+  if (!auth) return [];
+  if (authHasGlobalBranchRead(auth)) return null;
+  const allowed = resolveAllowedBranchIds(auth);
+  if (!allowed?.length) return [];
+  const active = resolveActiveBranchId(auth);
+  if (allowed.length > 1 && active && allowed.includes(active)) {
+    return [active];
+  }
+  return allowed;
+}
+
 /** Elevated admin within assigned branches (not global master). */
 export function authIsBranchAdmin(auth) {
-  return authIsMasterOwner(auth) || authIsBranchOwner(auth);
+  return engineIsBranchAdmin(auth);
 }
 
 export function assertBranchInScope(auth, gymCodeId) {
@@ -91,3 +94,6 @@ export function normalizeAuthStaffRole(auth) {
   if (!auth) return STAFF_ROLES.STAFF;
   return normalizeStaffRole(auth.staffRole, auth.userId);
 }
+
+export { resolveRoleHierarchy } from './roleHierarchyResolver.js';
+export { engineDescribeAuth, engineCanListStaff, engineCanManageStaff } from './scopedAuthorizationEngine.js';

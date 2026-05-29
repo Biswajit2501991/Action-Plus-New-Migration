@@ -7,13 +7,12 @@ import { ALL_SECTIONS, DEFAULT_ACCESS, normalizeAccess } from '../../../src/feat
 import { hashPassword, verifyPassword } from './passwords.js';
 import { loadAllowedBranchIdsForStaffRow, resolveStaffBranchContext } from './tenant/branchAssignments.js';
 import { normalizeStaffRole, STAFF_ROLES } from './tenant/roles.js';
-import { branchOwnerFeatureEnabled } from './tenant/scopedAuth.js';
 
 function staffClaims(staffLoginId, gymIdValue, branchContext = {}) {
   const id = String(staffLoginId || '').trim().toLowerCase();
   const staffRole = branchContext.staffRole || (id === 'owner' ? STAFF_ROLES.MASTER_OWNER : STAFF_ROLES.STAFF);
   const isMaster = staffRole === STAFF_ROLES.MASTER_OWNER;
-  const isBranchOwner = branchOwnerFeatureEnabled() && staffRole === STAFF_ROLES.BRANCH_OWNER;
+  const isBranchOwner = staffRole === STAFF_ROLES.BRANCH_OWNER;
   const roles = isMaster ? ['owner'] : (isBranchOwner ? ['branch_owner'] : ['staff']);
   const claims = {
     userId: String(staffLoginId),
@@ -28,11 +27,9 @@ function staffClaims(staffLoginId, gymIdValue, branchContext = {}) {
     claims.activeBranchId = activeBranch;
   }
   const allowed = Array.isArray(branchContext.allowedBranchIds)
-    ? branchContext.allowedBranchIds.map((id) => String(id || '').trim()).filter(Boolean)
+    ? branchContext.allowedBranchIds.map((x) => String(x || '').trim()).filter(Boolean)
     : [];
-  if (allowed.length) {
-    claims.allowedBranchIds = allowed;
-  }
+  if (allowed.length) claims.allowedBranchIds = [...new Set(allowed)];
   return claims;
 }
 
