@@ -47,11 +47,8 @@ export function switchableBranchesForUser(user, gymCodes = []) {
 }
 
 export function shouldShowBranchSwitcher(user, gymCodes = []) {
-  const allowed = allowedBranchIdsForUser(user);
-  if (allowed === null) {
-    return (Array.isArray(gymCodes) ? gymCodes : []).length > 1;
-  }
-  return allowed.length > 1;
+  if (!user) return false;
+  return switchableBranchesForUser(user, gymCodes).length > 1;
 }
 
 /**

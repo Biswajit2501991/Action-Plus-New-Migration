@@ -369,6 +369,12 @@
       background: var(--lux-surface-1) !important;
       border-color: var(--lux-border-gold) !important;
     }
+    body[data-apg-layout="luxury"] .apg-header-branch-switch {
+      color: var(--lux-indigo) !important;
+    }
+    body[data-apg-layout="luxury"] .apg-header-branch-switch:hover {
+      color: #c7d2fe !important;
+    }
 
     /* --------------------------------------------------------------------- */
     /* Cards / glass surfaces — broaden the set so amber / pink / rose       */
@@ -3466,9 +3472,11 @@ Phone: +91-7047157510`;
       const authUser = data?.user || {};
       const allowedTop = Array.isArray(data?.allowedBranchIds) ? data.allowedBranchIds : [];
       const allowedUser = Array.isArray(authUser.allowedBranchIds) ? authUser.allowedBranchIds : [];
+      const assignedTop = Array.isArray(data?.assignedBranchIds) ? data.assignedBranchIds : [];
       const assigned = Array.isArray(authUser.assignedBranchIds) ? authUser.assignedBranchIds : [];
-      const allowed = allowedTop.length ? allowedTop : (allowedUser.length ? allowedUser : assigned);
-      const assignedOut = assigned.length ? assigned : allowed;
+      const assignedMerged = assignedTop.length ? assignedTop : assigned;
+      const allowed = allowedTop.length ? allowedTop : (allowedUser.length ? allowedUser : assignedMerged);
+      const assignedOut = assignedMerged.length ? assignedMerged : allowed;
       return {
         allowedBranchIds: allowed.length ? allowed : assignedOut,
         assignedBranchIds: assignedOut,
@@ -4111,6 +4119,10 @@ Phone: +91-7047157510`;
         }
         return null;
       }, []);
+      React.useEffect(() => {
+        if (!user?.id || dataSyncMode !== 'backend') return;
+        refreshGymCodes().catch(() => {});
+      }, [user?.id, dataSyncMode, refreshGymCodes]);
       const pullStaffAttendance = React.useCallback(async (range) => {
         if (dataSyncMode !== 'backend' || !readAuthToken()) return;
         const r = range || staffAttendanceDefaultRange();
@@ -5942,16 +5954,24 @@ Phone: +91-7047157510`;
               const data = await res.json();
               const rec = data?.user ? prepareStaffUser(data.user) : null;
               if (rec) {
-                const branch = branchIdsFromAuthPayload({ user: rec, allowedBranchIds: rec.allowedBranchIds });
+                const branch = branchIdsFromAuthPayload({
+                  user: rec,
+                  allowedBranchIds: rec.allowedBranchIds,
+                  assignedBranchIds: rec.assignedBranchIds,
+                  activeBranchId: rec.activeBranchId,
+                  gymCodeId: rec.gymCodeId,
+                });
+                rec = {
+                  ...rec,
+                  assignedBranchIds: branch.assignedBranchIds,
+                  allowedBranchIds: branch.allowedBranchIds,
+                  activeBranchId: branch.activeBranchId || rec.activeBranchId,
+                  gymCodeId: branch.gymCodeId || rec.gymCodeId,
+                };
                 setUsers((prev) => {
                   const exists = prev.some((u) => u.id === rec.id);
-                  const merged = {
-                    ...rec,
-                    assignedBranchIds: branch.assignedBranchIds,
-                    allowedBranchIds: branch.allowedBranchIds,
-                  };
-                  if (exists) return prev.map((u) => (u.id === rec.id ? { ...u, ...merged } : u));
-                  return [...prev, merged];
+                  if (exists) return prev.map((u) => (u.id === rec.id ? { ...u, ...rec } : u));
+                  return [...prev, rec];
                 });
               }
               if (dataSyncMode === 'checking') setDataSyncMode('backend');
@@ -9969,8 +9989,9 @@ Please pay by: ${formattedLastDate}`;
           return buildModelFn({ user, gymCodes, activeBranchId });
         }
         return { branches: [], multiBranch: false, active: '' };
-      }, [user, gymCodes, activeBranchId, buildModelFn]);
+      }, [user, gymCodes, activeBranchId, user?.allowedBranchIds, user?.assignedBranchIds, user?.staffRole, buildModelFn]);
       const { branches, multiBranch, active } = switcherModel;
+      const showBranchSwitcher = multiBranch || branches.length > 1;
 
       React.useEffect(() => {
         if (!open) return undefined;
@@ -10014,13 +10035,13 @@ Please pay by: ${formattedLastDate}`;
                 {user?.name || '-'}
               </div>
               <UserRoleBadge user={user} compact={compact} />
-              {multiBranch && (
+              {showBranchSwitcher && (
                 <button
                   ref={anchorRef}
                   type="button"
                   onClick={() => setOpen((v) => !v)}
                   disabled={switching}
-                  className="mt-0.5 text-left text-[10px] font-semibold text-indigo-600 hover:text-indigo-700 dark:text-indigo-300 dark:hover:text-indigo-200 truncate max-w-full"
+                  className="mt-0.5 text-left text-[10px] font-semibold text-indigo-600 hover:text-indigo-700 dark:text-indigo-300 dark:hover:text-indigo-200 truncate max-w-full apg-header-branch-switch"
                   aria-expanded={open}
                   aria-haspopup="listbox"
                   data-testid="header-profile-branch-menu"
@@ -10030,7 +10051,7 @@ Please pay by: ${formattedLastDate}`;
               )}
             </div>
           </div>
-          {multiBranch && (
+          {showBranchSwitcher && (
             <BranchSwitcherDropdown
               open={open}
               setOpen={setOpen}

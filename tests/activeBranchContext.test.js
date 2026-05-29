@@ -19,6 +19,13 @@ describe('activeBranchContext', () => {
     expect(shouldShowBranchSwitcher(user, [])).toBe(true);
   });
 
+  it('shows switcher for master owner when gymCodes has 2+ branches', () => {
+    const user = { id: 'owner', staffRole: 'master_owner' };
+    const gymCodes = [{ id: 'b1', code: 'HQ' }, { id: 'b2', code: 'R01' }];
+    expect(shouldShowBranchSwitcher(user, gymCodes)).toBe(true);
+    expect(shouldShowBranchSwitcher(user, [])).toBe(false);
+  });
+
   it('builds switchable list from branch ids when gymCodes empty', () => {
     const user = { id: 's1', allowedBranchIds: ['uuid-1', 'uuid-2'] };
     const branches = switchableBranchesForUser(user, []);

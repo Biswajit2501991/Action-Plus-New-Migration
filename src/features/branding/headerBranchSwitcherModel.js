@@ -4,7 +4,11 @@
 
 export function branchIdsForUser(user) {
   const allowedFn = typeof globalThis !== 'undefined' && globalThis.window?.__APG_MODULES?.allowedBranchIdsForUser;
-  if (typeof allowedFn === 'function') return allowedFn(user) || [];
+  if (typeof allowedFn === 'function') {
+    const allowed = allowedFn(user);
+    if (allowed === null) return [];
+    if (allowed.length) return allowed;
+  }
   const fromAllowed = Array.isArray(user?.allowedBranchIds) ? user.allowedBranchIds : [];
   const fromAssigned = Array.isArray(user?.assignedBranchIds) ? user.assignedBranchIds : [];
   const ids = [...fromAllowed, ...fromAssigned].map((x) => String(x || '').trim()).filter(Boolean);
@@ -42,7 +46,7 @@ export function buildHeaderBranchSwitcherModel({ user, gymCodes = [], activeBran
     user
     && (typeof showFn === 'function'
       ? showFn(user, gymCodes)
-      : branchIds.length > 1),
+      : branches.length > 1),
   );
 
   const active = String(
