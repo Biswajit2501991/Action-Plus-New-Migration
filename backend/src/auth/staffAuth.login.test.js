@@ -14,6 +14,9 @@ vi.mock('./tenant/branchAssignments.js', () => ({
   resolveStaffBranchContext: vi.fn(async () => {
     throw new Error('assignments table missing');
   }),
+  loadAllowedBranchIdsForStaffRow: vi.fn(async (row) => (
+    row?.gym_code_id ? [String(row.gym_code_id)] : []
+  )),
 }));
 
 import { getSupabase } from '../db/supabase/client.js';

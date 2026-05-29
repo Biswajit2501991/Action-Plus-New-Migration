@@ -25,13 +25,31 @@ export function authIsBranchAdminUser(user) {
   return authIsMasterOwnerUser(user) || authIsBranchOwnerUser(user);
 }
 
+function normalizeBranchIdList(ids) {
+  return [...new Set((ids || []).map((id) => String(id || '').trim()).filter(Boolean))];
+}
+
 export function allowedBranchIdsForUser(user) {
   if (!user) return [];
   if (authIsMasterOwnerUser(user)) return null;
-  const fromUser = Array.isArray(user.allowedBranchIds) ? user.allowedBranchIds : [];
-  if (fromUser.length) return fromUser.map((id) => String(id).trim()).filter(Boolean);
+  const fromAllowed = normalizeBranchIdList(user.allowedBranchIds);
+  const fromAssigned = normalizeBranchIdList(user.assignedBranchIds);
+  const union = normalizeBranchIdList([...fromAllowed, ...fromAssigned]);
+  if (union.length) return union;
   const single = String(user.activeBranchId || user.gymCodeId || '').trim();
   return single ? [single] : [];
+}
+
+/** Data visibility scope — active branch when user has multiple assignments. */
+export function activeBranchIdsForDataScope(user) {
+  const allowed = allowedBranchIdsForUser(user);
+  if (allowed === null) return null;
+  if (!allowed.length) return [];
+  const active = String(user?.activeBranchId || user?.gymCodeId || '').trim();
+  if (allowed.length > 1 && active && allowed.includes(active)) {
+    return [active];
+  }
+  return allowed;
 }
 
 export function userCanAccessBranch(user, gymCodeId) {
@@ -45,11 +63,12 @@ export function userCanAccessBranch(user, gymCodeId) {
 export function memberInUserBranches(user, member) {
   if (!member) return false;
   if (authIsMasterOwnerUser(user)) return true;
-  const allowed = allowedBranchIdsForUser(user);
-  if (!allowed?.length) return false;
+  const scope = activeBranchIdsForDataScope(user);
+  if (scope === null) return true;
+  if (!scope.length) return false;
   const memberBranch = String(member?.assignedGymCodeId || '').trim();
   if (!memberBranch) return false;
-  return allowed.includes(memberBranch);
+  return scope.includes(memberBranch);
 }
 
 export function canDeleteMemberForUser(user, member, membersAccess) {

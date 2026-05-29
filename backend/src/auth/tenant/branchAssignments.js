@@ -2,6 +2,20 @@ import { T } from '../../db/tables.js';
 import { getSupabase, gymId } from '../../db/supabase/client.js';
 import { normalizeStaffRole, STAFF_ROLES } from './roles.js';
 
+/**
+ * Avoid wiping multi-branch rows when a stale bulk payload only includes gymCodeId.
+ * Explicit staff saves set syncBranchAssignments: true.
+ */
+export function shouldSyncBranchAssignmentsOnWrite(u, branchIds, existingBranchIds = []) {
+  const incoming = [...new Set((branchIds || []).map((id) => String(id || '').trim()).filter(Boolean))];
+  const existing = [...new Set((existingBranchIds || []).map((id) => String(id || '').trim()).filter(Boolean))];
+  if (!incoming.length) return false;
+  if (u?.syncBranchAssignments === true) return true;
+  if (incoming.length > 1) return true;
+  if (existing.length > 1) return false;
+  return true;
+}
+
 function homeBranchIdsForStaffRow(staffRow) {
   const home = String(staffRow?.gym_code_id || '').trim();
   return home ? [home] : [];
@@ -23,7 +37,11 @@ export async function loadAllowedBranchIdsForStaffRow(staffRow) {
       .eq('staff_user_id', staffRow.id)
       .order('is_primary', { ascending: false });
     if (error) return fallback();
-    const ids = (data || []).map((r) => String(r.gym_code_id || '').trim()).filter(Boolean);
+    const rows = [...(data || [])].sort((a, b) => {
+      if (a.is_primary === b.is_primary) return 0;
+      return a.is_primary ? -1 : 1;
+    });
+    const ids = rows.map((r) => String(r.gym_code_id || '').trim()).filter(Boolean);
     if (ids.length) return [...new Set(ids)];
     return fallback();
   } catch {

@@ -8,12 +8,11 @@ import {
   loginStaff,
   requireOwnerAuth,
   requestStaffPasswordReset,
+  resolveAuthBranchProfile,
   setStaffPassword,
   signStaffToken,
   verifyStaffToken,
 } from '../auth/staffAuth.js';
-import { env } from '../config/env.js';
-import { authCanAccessBranch } from '../auth/tenant/scopedAuth.js';
 import { readBearerToken } from '../middleware/requireAuth.js';
 import {
   clearLoginFailures,
@@ -70,22 +69,31 @@ router.get('/me', async (req, res) => {
   const claims = verifyStaffToken(tokenFromReq(req));
   if (!claims?.userId) return res.status(401).json({ error: 'unauthorized' });
   try {
-    const user = await getStaffAppUser(claims.userId);
+    const profile = await resolveAuthBranchProfile(claims.userId, claims);
+    const user = profile.user;
     if (!user) return res.status(401).json({ error: 'invalid-token' });
     if (user.blocked) return res.status(403).json({ error: 'user-blocked' });
-    const gymCodeId = user.gymCodeId || claims.gymCodeId || claims.activeBranchId || null;
+    let nextToken;
+    if (profile.claimsStale && profile.row) {
+      nextToken = signStaffToken(claims.userId, profile.row.gym_id, {
+        ...(profile.tokenCtx || {}),
+        activeBranchId: profile.activeBranchId,
+      });
+    }
     return res.json({
       userId: user.id,
       gymId: claims.gymId || null,
-      gymCodeId,
-      activeBranchId: claims.activeBranchId || gymCodeId,
-      allowedBranchIds: claims.allowedBranchIds || (gymCodeId ? [gymCodeId] : []),
+      gymCodeId: profile.gymCodeId,
+      activeBranchId: profile.activeBranchId,
+      allowedBranchIds: profile.allowedBranchIds,
       staffRole: user.staffRole || claims.staffRole || 'staff',
+      ...(nextToken ? { token: nextToken } : {}),
       user: {
         ...user,
-        gymCodeId,
-        activeBranchId: claims.activeBranchId || gymCodeId,
-        allowedBranchIds: claims.allowedBranchIds || (gymCodeId ? [gymCodeId] : []),
+        gymCodeId: profile.gymCodeId,
+        activeBranchId: profile.activeBranchId,
+        assignedBranchIds: profile.assignedBranchIds,
+        allowedBranchIds: profile.allowedBranchIds,
       },
       roles: claims.roles || [],
       permissions: claims.permissions || [],
@@ -115,34 +123,35 @@ router.post('/change-password', async (req, res) => {
 
 router.patch('/active-branch', async (req, res) => {
   if (!useSupabase()) return res.status(503).json({ error: 'auth-requires-supabase' });
-  if (!env.BRANCH_OWNER_ENABLED) {
-    return res.status(404).json({ error: 'branch-owner-disabled' });
-  }
   const claims = verifyStaffToken(tokenFromReq(req));
   if (!claims?.userId) return res.status(401).json({ error: 'unauthorized' });
   const branchId = String(req.body?.gymCodeId || req.body?.activeBranchId || '').trim();
   if (!branchId) return res.status(400).json({ error: 'gym-code-id-required' });
   try {
-    const row = await findStaffByIdentifier(claims.userId);
-    if (!row) return res.status(401).json({ error: 'invalid-token' });
-    const tokenCtx = await buildStaffTokenContext(row);
-    const probeAuth = {
-      userId: claims.userId,
-      staffRole: tokenCtx.staffRole,
-      allowedBranchIds: tokenCtx.allowedBranchIds,
-      gymCodeId: tokenCtx.activeBranchId,
-    };
-    if (!authCanAccessBranch(probeAuth, branchId)) {
+    const profile = await resolveAuthBranchProfile(claims.userId, claims);
+    if (!profile.user) return res.status(401).json({ error: 'invalid-token' });
+    const allowed = profile.allowedBranchIds || [];
+    const isMaster = String(claims.userId || '').trim().toLowerCase() === 'owner'
+      || String(profile.user?.staffRole || '').toLowerCase() === 'master_owner';
+    if (!isMaster && allowed.length <= 1) {
+      return res.status(403).json({
+        error: 'branch-switch-unavailable',
+        message: 'This account is not assigned to multiple branches.',
+      });
+    }
+    if (!isMaster && !allowed.includes(branchId)) {
       return res.status(403).json({ error: 'branch-scope-forbidden' });
     }
+    const tokenCtx = profile.tokenCtx || await buildStaffTokenContext(profile.row);
     const nextCtx = { ...tokenCtx, activeBranchId: branchId };
-    const token = signStaffToken(claims.userId, row.gym_id, nextCtx);
+    const token = signStaffToken(claims.userId, profile.row.gym_id, nextCtx);
     return res.json({
       ok: true,
       token,
       gymCodeId: branchId,
       activeBranchId: branchId,
-      allowedBranchIds: tokenCtx.allowedBranchIds,
+      allowedBranchIds: allowed.length ? allowed : tokenCtx.allowedBranchIds,
+      assignedBranchIds: profile.assignedBranchIds,
     });
   } catch (error) {
     return res.status(500).json({ error: 'active-branch-failed', message: String(error?.message || error) });

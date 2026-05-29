@@ -69,6 +69,7 @@ import { Access, getStaffAccessForUser } from './auth/accessControl.js';
 import { requireAccess, requireLogsBulkAccess } from './middleware/permissions.js';
 import authRouter from './routes/auth.js';
 import gymCodesRouter from './routes/gymCodes.js';
+import brandingRouter from './routes/branding.js';
 import {
   authIsOwner,
   stampBranchOnRows,
@@ -456,6 +457,7 @@ app.use('/api', bindGymContext);
 
 // Phase 2 gym-codes feature: list is authenticated-only, write is owner-only (inside the router).
 app.use('/api/gym-codes', gymCodesRouter);
+app.use('/api/branding', brandingRouter);
 
 app.get('/api/realtime/stream', (req, res) => {
   if (!useSupabase()) {

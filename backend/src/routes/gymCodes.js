@@ -1,6 +1,11 @@
 import { Router } from 'express';
 import { requireOwner } from '../middleware/requireOwner.js';
 import { createGymCode, deleteGymCode, listGymCodes } from '../services/gymCodesService.js';
+import {
+  resolveBrandingForAuth,
+  updateBranchBranding,
+  uploadBranchBrandingLogo,
+} from '../tenant/branding/BranchScopedBrandingService.js';
 
 const router = Router();
 
@@ -31,6 +36,47 @@ router.post('/', requireOwner, async (req, res) => {
       return res.status(409).json({ error: msg });
     }
     res.status(500).json({ error: 'gym-codes-create-failed', message: msg });
+  }
+});
+
+router.get('/:id/branding', async (req, res) => {
+  try {
+    const branding = await resolveBrandingForAuth(req.auth, req.params.id);
+    res.json({ ok: true, branding });
+  } catch (err) {
+    const status = err.status || 500;
+    res.status(status).json({ error: err.message || 'branding-read-failed' });
+  }
+});
+
+router.patch('/:id/branding', requireOwner, async (req, res) => {
+  try {
+    const branding = await updateBranchBranding(req.auth, req.params.id, {
+      displayName: req.body?.displayName ?? req.body?.display_name,
+      clearLogo: Boolean(req.body?.clearLogo),
+    });
+    res.json({ ok: true, branding });
+  } catch (err) {
+    const status = err.status || 500;
+    res.status(status).json({ error: err.message || 'branding-update-failed' });
+  }
+});
+
+router.post('/:id/branding/logo', requireOwner, async (req, res) => {
+  try {
+    const raw = req.body?.logo || req.body?.dataUrl || req.body?.image;
+    if (!raw || typeof raw !== 'string') {
+      return res.status(400).json({ error: 'logo-data-required' });
+    }
+    const match = raw.match(/^data:(image\/[a-z+]+);base64,(.+)$/i);
+    const mime = match ? match[1].toLowerCase() : 'image/png';
+    const b64 = match ? match[2] : raw;
+    const buffer = Buffer.from(b64, 'base64');
+    const branding = await uploadBranchBrandingLogo(req.auth, req.params.id, { buffer, mime });
+    res.json({ ok: true, branding });
+  } catch (err) {
+    const status = err.status || 500;
+    res.status(status).json({ error: err.message || 'branding-logo-upload-failed' });
   }
 });
 

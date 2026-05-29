@@ -5,7 +5,7 @@ import { getSupabase, gymId } from '../db/supabase/client.js';
 import { staffRowToApp } from '../db/supabase/mappers.js';
 import { ALL_SECTIONS, DEFAULT_ACCESS, normalizeAccess } from '../../../src/features/access/permissions.js';
 import { hashPassword, verifyPassword } from './passwords.js';
-import { resolveStaffBranchContext } from './tenant/branchAssignments.js';
+import { loadAllowedBranchIdsForStaffRow, resolveStaffBranchContext } from './tenant/branchAssignments.js';
 import { normalizeStaffRole, STAFF_ROLES } from './tenant/roles.js';
 import { branchOwnerFeatureEnabled } from './tenant/scopedAuth.js';
 
@@ -27,8 +27,11 @@ function staffClaims(staffLoginId, gymIdValue, branchContext = {}) {
     claims.gymCodeId = activeBranch;
     claims.activeBranchId = activeBranch;
   }
-  if (isBranchOwner && Array.isArray(branchContext.allowedBranchIds) && branchContext.allowedBranchIds.length) {
-    claims.allowedBranchIds = branchContext.allowedBranchIds;
+  const allowed = Array.isArray(branchContext.allowedBranchIds)
+    ? branchContext.allowedBranchIds.map((id) => String(id || '').trim()).filter(Boolean)
+    : [];
+  if (allowed.length) {
+    claims.allowedBranchIds = allowed;
   }
   return claims;
 }
@@ -104,18 +107,66 @@ async function fetchStaffAccessJson(sb, staffPk) {
 async function loadStaffAppUser(row) {
   const sb = getSupabase();
   const staffPk = row.id;
-  const [secRes, access] = await Promise.all([
+  const [secRes, access, assignedBranchIds] = await Promise.all([
     sb.from(T.staff_user_sections).select('section_name').eq('staff_user_id', staffPk),
     fetchStaffAccessJson(sb, staffPk),
+    loadAllowedBranchIdsForStaffRow(row),
   ]);
   if (secRes.error) throw secRes.error;
   const sectionNames = (secRes.data || []).map((r) => r.section_name);
   const sections = [...new Set(sectionNames)];
   const loginId = String(row.staff_login_id || '').trim().toLowerCase();
   if (loginId === 'owner') {
-    return staffRowToApp(row, [...ALL_SECTIONS], normalizeAccess({ ...DEFAULT_ACCESS, ...(access || {}) }));
+    return staffRowToApp(
+      row,
+      [...ALL_SECTIONS],
+      normalizeAccess({ ...DEFAULT_ACCESS, ...(access || {}) }),
+      assignedBranchIds,
+    );
   }
-  return staffRowToApp(row, sections, access);
+  return staffRowToApp(row, sections, access, assignedBranchIds);
+}
+
+function normalizeBranchIdList(ids) {
+  return [...new Set((ids || []).map((id) => String(id || '').trim()).filter(Boolean))];
+}
+
+export function branchIdsMatch(a, b) {
+  const left = normalizeBranchIdList(a).sort();
+  const right = normalizeBranchIdList(b).sort();
+  return left.length === right.length && left.every((id, i) => id === right[i]);
+}
+
+/** DB-backed branch profile for login and /auth/me (never trust JWT alone). */
+export async function resolveAuthBranchProfile(staffLoginId, claims = {}) {
+  const row = await findStaffByIdentifier(staffLoginId);
+  const user = row ? await loadStaffAppUser(row) : null;
+  const tokenCtx = row ? await buildStaffTokenContext(row) : null;
+  const allowedFromDb = normalizeBranchIdList(tokenCtx?.allowedBranchIds);
+  const allowedFromClaims = normalizeBranchIdList(claims.allowedBranchIds);
+  const allowedBranchIds = allowedFromDb.length
+    ? allowedFromDb
+    : (allowedFromClaims.length
+      ? allowedFromClaims
+      : (user?.gymCodeId ? [String(user.gymCodeId)] : []));
+  const assignedBranchIds = normalizeBranchIdList(user?.assignedBranchIds).length
+    ? normalizeBranchIdList(user.assignedBranchIds)
+    : allowedBranchIds;
+  const activeFromClaims = String(claims.activeBranchId || claims.gymCodeId || '').trim();
+  const activeBranchId = (activeFromClaims && allowedBranchIds.includes(activeFromClaims))
+    ? activeFromClaims
+    : (String(tokenCtx?.activeBranchId || user?.gymCodeId || '').trim() || allowedBranchIds[0] || null);
+  const claimsStale = allowedFromDb.length > 0 && !branchIdsMatch(allowedFromDb, allowedFromClaims);
+  return {
+    row,
+    user,
+    tokenCtx,
+    allowedBranchIds,
+    assignedBranchIds,
+    activeBranchId,
+    gymCodeId: activeBranchId,
+    claimsStale,
+  };
 }
 
 export async function buildStaffTokenContext(row) {
@@ -170,18 +221,22 @@ export async function loginStaff(identifier, password) {
   if (String(user.id || '').toLowerCase() === 'owner') {
     await ensureOwnerSectionsPersisted(sb, row.id).catch(() => {});
   }
-  const tokenCtx = await buildStaffTokenContext(row);
-  const token = signStaffToken(user.id, row.gym_id, tokenCtx);
-  const gymCodeId = tokenCtx.activeBranchId || row.gym_code_id || null;
+  const profile = await resolveAuthBranchProfile(user.id, {});
+  const tokenCtx = profile.tokenCtx || await buildStaffTokenContext(row);
+  const token = signStaffToken(user.id, row.gym_id, {
+    ...tokenCtx,
+    activeBranchId: profile.activeBranchId || tokenCtx.activeBranchId,
+  });
   return {
     ok: true,
     token,
     user: {
       ...user,
       staffRole: tokenCtx.staffRole,
-      gymCodeId,
-      allowedBranchIds: tokenCtx.allowedBranchIds,
-      activeBranchId: gymCodeId,
+      gymCodeId: profile.gymCodeId,
+      assignedBranchIds: profile.assignedBranchIds,
+      allowedBranchIds: profile.allowedBranchIds,
+      activeBranchId: profile.activeBranchId,
       lastLoginAt: now,
     },
   };

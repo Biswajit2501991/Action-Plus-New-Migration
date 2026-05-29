@@ -2745,7 +2745,7 @@ Phone: +91-7047157510`;
         }
         const data = await me.json();
         const uid = data?.user?.id || data?.userId || parsed.userId;
-        touchAuthSession(uid, parsed.token);
+        touchAuthSession(uid, data?.token || parsed.token);
         apgLoadTimingRecord('auth', 'GET /auth/me', performance.now() - t0, {
           status: me.status,
           ok: true,
@@ -2766,9 +2766,12 @@ Phone: +91-7047157510`;
       if (!u || typeof u !== 'object') return u;
       const { password, photo, ...safe } = u;
       const photoStr = String(photo || '').trim();
+      const withSync = safe.syncBranchAssignments === true
+        ? { ...safe, syncBranchAssignments: true }
+        : safe;
       // Bulk sync must not re-upload huge base64 photos for every staff row (causes 413 / DB errors).
-      if (photoStr && photoStr.length <= 400000) return { ...safe, photo: photoStr };
-      return safe;
+      if (photoStr && photoStr.length <= 400000) return { ...withSync, photo: photoStr };
+      return withSync;
     });
     const isPasswordResetPending = (u) => {
       if (!u || String(u.id || '').toLowerCase() === 'owner') return false;
@@ -2802,6 +2805,40 @@ Phone: +91-7047157510`;
       if (isOwnerStaffUser(u)) return true;
       const m = normalizeAccess(u?.access).members;
       return m.editMembers || m.addMembers || m.deleteMembers;
+    };
+    const isBranchAdminUser = (u) => {
+      if (typeof window.__APG_MODULES?.authIsBranchAdminUser === 'function') {
+        return window.__APG_MODULES.authIsBranchAdminUser(u);
+      }
+      return isOwnerStaffUser(u);
+    };
+    /** GET /users — owner / branch owner only (not regular multi-branch staff). */
+    const canFetchStaffUsersList = (u) => Boolean(u?.id) && isBranchAdminUser(u);
+    const canFetchFinanceRead = (u) => {
+      if (!u?.id) return false;
+      if (isOwnerStaffUser(u)) return true;
+      const f = normalizeAccess(u?.access).finance;
+      return Boolean(
+        f.viewRevenueAutoMembers
+        || f.viewRevenueTrend4Months
+        || f.viewPlanPopularity
+        || f.viewTransactionsAutoMembers
+        || f.viewPendingPayments
+        || f.viewExpenseCard
+        || f.viewProfitCard
+        || f.manageExpenses,
+      );
+    };
+    const canFetchSmsEvents = (u) => {
+      if (!u?.id) return false;
+      if (isOwnerStaffUser(u)) return true;
+      const w = normalizeAccess(u?.access).whatsapp;
+      return Object.values(w).some(Boolean);
+    };
+    const canBulkSyncFinance = (u) => {
+      if (!u?.id) return false;
+      if (isOwnerStaffUser(u)) return true;
+      return normalizeAccess(u?.access).finance.manageExpenses !== false;
     };
     const prepareStaffUser = (rec) => {
       if (!rec) return rec;
@@ -3375,6 +3412,74 @@ Phone: +91-7047157510`;
       }
       return localPhoto || remotePhoto || '';
     };
+    const normalizeBranchIdList = (row) => {
+      const fromAllowed = Array.isArray(row?.allowedBranchIds) ? row.allowedBranchIds : [];
+      const fromAssigned = Array.isArray(row?.assignedBranchIds) ? row.assignedBranchIds : [];
+      const ids = [...fromAllowed, ...fromAssigned]
+        .map((x) => String(x || '').trim())
+        .filter(Boolean);
+      if (ids.length) return [...new Set(ids)];
+      const single = String(row?.gymCodeId || row?.activeBranchId || '').trim();
+      return single ? [single] : [];
+    };
+    const mergeAssignedBranchIds = (localRow, remoteRow) => {
+      const localIds = normalizeBranchIdList(localRow);
+      const remoteIds = normalizeBranchIdList(remoteRow);
+      const union = [...new Set([...remoteIds, ...localIds])];
+      if (union.length > 1) return union;
+      if (remoteIds.length > 1) return remoteIds;
+      if (localIds.length > 1) {
+        if (remoteIds.length === 1 && localIds.includes(remoteIds[0])) return localIds;
+        if (!remoteIds.length) return localIds;
+      }
+      return remoteIds.length ? remoteIds : localIds;
+    };
+    const branchIdsFromAuthPayload = (data) => {
+      const authUser = data?.user || {};
+      const allowedTop = Array.isArray(data?.allowedBranchIds) ? data.allowedBranchIds : [];
+      const allowedUser = Array.isArray(authUser.allowedBranchIds) ? authUser.allowedBranchIds : [];
+      const assigned = Array.isArray(authUser.assignedBranchIds) ? authUser.assignedBranchIds : [];
+      const allowed = allowedTop.length ? allowedTop : (allowedUser.length ? allowedUser : assigned);
+      const assignedOut = assigned.length ? assigned : allowed;
+      return {
+        allowedBranchIds: allowed.length ? allowed : assignedOut,
+        assignedBranchIds: assignedOut,
+        gymCodeId: String(authUser.gymCodeId || authUser.activeBranchId || data?.gymCodeId || '').trim(),
+        activeBranchId: String(authUser.activeBranchId || authUser.gymCodeId || data?.activeBranchId || '').trim(),
+      };
+    };
+    const applyAuthBranchContextToUser = (prev, data) => {
+      if (!prev || !data?.user) return prev;
+      const branch = branchIdsFromAuthPayload(data);
+      const prepared = prepareStaffUser(data.user);
+      const mergedAssigned = mergeAssignedBranchIds(prev, { assignedBranchIds: branch.assignedBranchIds });
+      const mergedAllowed = mergeAssignedBranchIds(
+        { assignedBranchIds: prev.allowedBranchIds },
+        { assignedBranchIds: branch.allowedBranchIds },
+      );
+      return {
+        ...prev,
+        ...prepared,
+        gymCodeId: branch.gymCodeId || prev.gymCodeId || '',
+        activeBranchId: branch.activeBranchId || branch.gymCodeId || prev.activeBranchId || '',
+        assignedBranchIds: mergedAssigned,
+        allowedBranchIds: mergedAllowed.length ? mergedAllowed : (prev.allowedBranchIds || mergedAssigned),
+      };
+    };
+    const syncUsersRowBranchContext = (rows, authUserId, data) => {
+      if (!authUserId || !data?.user) return rows;
+      const branch = branchIdsFromAuthPayload(data);
+      const prepared = prepareStaffUser(data.user);
+      return (Array.isArray(rows) ? rows : []).map((row) => (
+        row?.id === authUserId
+          ? {
+            ...row,
+            ...prepared,
+            assignedBranchIds: mergeAssignedBranchIds(row, { assignedBranchIds: branch.assignedBranchIds }),
+          }
+          : row
+      ));
+    };
     const mergeRemoteUsersWithLocal = (localUsers, remoteUsers) => {
       const locals = Array.isArray(localUsers) ? localUsers : [];
       const remotes = Array.isArray(remoteUsers) ? remoteUsers : [];
@@ -3401,8 +3506,13 @@ Phone: +91-7047157510`;
         const base = localTs >= remoteTs ? localRow : remoteRow;
         const other = base === localRow ? remoteRow : localRow;
         const mergedCore = { ...(other || {}), ...(base || {}) };
+        const assignedBranchIds = mergeAssignedBranchIds(localRow, remoteRow);
+        const gymCodeId = String(mergedCore?.gymCodeId || assignedBranchIds[0] || '').trim() || null;
         mergedRows.push(prepareStaffUser({
           ...mergedCore,
+          gymCodeId,
+          assignedBranchIds,
+          staffRole: mergedCore?.staffRole || remoteRow?.staffRole || localRow?.staffRole || 'staff',
           photo: pickUserPhoto(localRow, remoteRow) || null,
         }));
       });
@@ -3739,6 +3849,11 @@ Phone: +91-7047157510`;
       // Gym Codes (branches) — Phase 2 multi-tenant isolation.
       const [gymCodes, setGymCodes] = React.useState([]);
       const [gymCodesError, setGymCodesError] = React.useState('');
+      const [branchBranding, setBranchBranding] = React.useState(() => {
+        const fn = window.__APG_MODULES?.defaultClientBranding;
+        return typeof fn === 'function' ? fn() : { displayName: 'Action Plus Gym', logoUrl: './assets/action-plus-logo.png' };
+      });
+      const [branchSwitching, setBranchSwitching] = React.useState(false);
       const gymCodeById = React.useMemo(() => {
         const m = new Map();
         for (const c of gymCodes) m.set(String(c.id), c);
@@ -3770,12 +3885,36 @@ Phone: +91-7047157510`;
       }, [gymCodes, user?.id, user?.staffRole, user?.allowedBranchIds]);
       React.useEffect(() => {
         if (!user?.id) return;
-        if (!authIsOwnerForTemplates(user)) {
-          setTemplatesBranchId(String(user.gymCodeId || '').trim());
-        } else if (hqGymCodeId && !templatesBranchId) {
-          setTemplatesBranchId(hqGymCodeId);
+        const active = String(user.activeBranchId || user.gymCodeId || '').trim();
+        if (active) setTemplatesBranchId(active);
+        else if (authIsOwnerForTemplates(user) && hqGymCodeId) setTemplatesBranchId(hqGymCodeId);
+      }, [user?.id, user?.gymCodeId, user?.activeBranchId, hqGymCodeId, authIsOwnerForTemplates]);
+      const refreshBranchBranding = React.useCallback(async (branchId) => {
+        const resolveLocal = (id) => {
+          const fn = window.__APG_MODULES?.resolveClientBranchBranding;
+          const row = gymCodeById.get(String(id || ''));
+          return typeof fn === 'function' ? fn(row || {}) : { displayName: 'Action Plus Gym', logoUrl: './assets/action-plus-logo.png' };
+        };
+        if (dataSyncMode !== 'backend' || typeof backendJson !== 'function') {
+          setBranchBranding(resolveLocal(branchId || user?.gymCodeId));
+          return;
         }
-      }, [user?.id, user?.gymCodeId, hqGymCodeId, authIsOwnerForTemplates]);
+        try {
+          const target = String(branchId || user?.activeBranchId || user?.gymCodeId || '').trim();
+          const path = target
+            ? `/gym-codes/${encodeURIComponent(target)}/branding`
+            : '/branding/active';
+          const res = await backendJson(path);
+          if (res?.branding) setBranchBranding(res.branding);
+          else setBranchBranding(resolveLocal(target));
+        } catch {
+          setBranchBranding(resolveLocal(branchId || user?.gymCodeId));
+        }
+      }, [dataSyncMode, user?.gymCodeId, user?.activeBranchId, gymCodeById]);
+      React.useEffect(() => {
+        if (!user?.id) return;
+        refreshBranchBranding();
+      }, [user?.id, user?.gymCodeId, user?.activeBranchId, refreshBranchBranding]);
       const fetchBranchWhatsappTemplates = React.useCallback(async (branchId) => {
         const id = String(branchId || '').trim();
         if (!id || dataSyncMode !== 'backend') return;
@@ -3981,12 +4120,17 @@ Phone: +91-7047157510`;
           apgLoadTimingRecord('hydrate-bg', 'merge:settings (CPU)', performance.now() - tMerge, apgLoadTimingPayloadMeta(remoteSettings));
         } catch {}
       }, []);
-      const hydrateDeferredCollections = React.useCallback(async () => {
+      const hydrateDeferredCollections = React.useCallback(async (authUser) => {
+        const sessionUser = authUser || user;
         const tDeferred = performance.now();
         const [remoteVisitors, remoteFinance, remoteSmsEvents] = await Promise.all([
           apgTimedBackendJson('deferred', 'GET /visitors', '/visitors').catch(() => []),
-          apgTimedBackendJson('deferred', 'GET /finance', '/finance').catch(() => []),
-          apgTimedBackendJson('deferred', 'GET /sms-events', '/sms-events').catch(() => []),
+          canFetchFinanceRead(sessionUser)
+            ? apgTimedBackendJson('deferred', 'GET /finance', '/finance').catch(() => [])
+            : Promise.resolve([]),
+          canFetchSmsEvents(sessionUser)
+            ? apgTimedBackendJson('deferred', 'GET /sms-events', '/sms-events').catch(() => [])
+            : Promise.resolve([]),
         ]);
         if (Array.isArray(remoteVisitors) && remoteVisitors.length > 0) {
           setVisitors((prev) => mergeRemoteVisitorsWithLocal(prev, remoteVisitors));
@@ -3998,15 +4142,18 @@ Phone: +91-7047157510`;
         if (Array.isArray(remoteSmsEvents) && remoteSmsEvents.length > 0) setSmsEvents(remoteSmsEvents);
         await pullStaffAttendance().catch(() => {});
         apgLoadTimingFinish('deferred hydrate', performance.now() - tDeferred);
-      }, [pullStaffAttendance]);
-      const hydrateFromBackend = React.useCallback(async () => {
+      }, [pullStaffAttendance, user?.id]);
+      const hydrateFromBackend = React.useCallback(async (opts = {}) => {
         if (backendHydrateInFlightRef.current) return backendHydrateInFlightRef.current;
+        const authUser = opts.authUser || user;
         const run = (async () => {
           const tHydrate = performance.now();
           apgLoadTimingRecord('hydrate', 'hydrate started', 0);
           try {
             const [remoteUsers, remoteMembers, remoteGymCodes] = await Promise.all([
-              apgTimedBackendJson('hydrate', 'GET /users', '/users').catch(() => []),
+              canFetchStaffUsersList(authUser)
+                ? apgTimedBackendJson('hydrate', 'GET /users', '/users').catch(() => [])
+                : Promise.resolve([]),
               apgTimedBackendJson('hydrate', 'GET /members', '/members').catch(() => []),
               apgTimedBackendJson('hydrate', 'GET /gym-codes', '/gym-codes').catch(() => []),
             ]);
@@ -4028,19 +4175,72 @@ Phone: +91-7047157510`;
               apgLoadTimingRecord('hydrate', 'merge:members (CPU)', performance.now() - tMerge, { rows: remoteMembers.length });
             }
             setUser((prev) => (prev?.id ? prepareStaffUser(prev) : prev));
+            const authRefresh = await revalidateAuthSessionFromServer().catch(() => null);
+            if (authRefresh?.token && authRefresh?.user?.id) {
+              writeAuthSession(authRefresh.user.id, authRefresh.token);
+            }
+            if (authRefresh?.user) {
+              setUser((prev) => applyAuthBranchContextToUser(prev, authRefresh));
+              setUsers((prev) => syncUsersRowBranchContext(prev, authRefresh.user.id, authRefresh));
+            }
             hydrateCompletedAtRef.current = Date.now();
             setBackendHydrated(true);
             apgLoadTimingMark('backendHydrated (dashboard unblocked)');
             apgLoadTimingFinish('critical hydrate', performance.now() - tHydrate);
             hydrateSettingsFromBackend().catch(() => {});
-            hydrateDeferredCollections().catch(() => {});
+            hydrateDeferredCollections(authUser).catch(() => {});
           } finally {
             backendHydrateInFlightRef.current = null;
           }
         })();
         backendHydrateInFlightRef.current = run;
         return run;
-      }, [hydrateDeferredCollections, hydrateSettingsFromBackend]);
+      }, [hydrateDeferredCollections, hydrateSettingsFromBackend, user?.id]);
+      const switchActiveBranch = React.useCallback(async (gymCodeId) => {
+        const id = String(gymCodeId || '').trim();
+        if (!id || !user || branchSwitching) return;
+        const canFn = window.__APG_MODULES?.userCanAccessBranch;
+        if (typeof canFn === 'function' && !canFn(user, id)) {
+          setToast('You cannot access that branch.');
+          setTimeout(() => setToast(''), 2800);
+          return;
+        }
+        setBranchSwitching(true);
+        try {
+          if (dataSyncMode === 'backend' && typeof backendJson === 'function') {
+            const out = await backendJson('/auth/active-branch', {
+              method: 'PATCH',
+              body: JSON.stringify({ gymCodeId: id }),
+            });
+            if (out?.token) writeAuthSession(user.id, out.token);
+            const nextAllowed = Array.isArray(out?.allowedBranchIds) ? out.allowedBranchIds : user.allowedBranchIds;
+            const nextAssigned = Array.isArray(out?.assignedBranchIds) ? out.assignedBranchIds : nextAllowed;
+            const nextUser = {
+              ...user,
+              gymCodeId: id,
+              activeBranchId: id,
+              allowedBranchIds: nextAllowed,
+              assignedBranchIds: nextAssigned,
+            };
+            setUser(nextUser);
+            const prefFn = window.__APG_MODULES?.writeActiveBranchPref;
+            if (typeof prefFn === 'function') prefFn(user.id, id);
+          } else {
+            setUser({ ...user, gymCodeId: id, activeBranchId: id });
+          }
+          setTemplatesBranchId(id);
+          setBackendHydrated(false);
+          await refreshBranchBranding(id);
+          await hydrateFromBackend().catch(() => setBackendHydrated(false));
+          setToast('Branch context updated.');
+          setTimeout(() => setToast(''), 2200);
+        } catch (err) {
+          setToast(`Could not switch branch: ${err?.message || 'try again'}`);
+          setTimeout(() => setToast(''), 3500);
+        } finally {
+          setBranchSwitching(false);
+        }
+      }, [user, branchSwitching, dataSyncMode, writeAuthSession, refreshBranchBranding, hydrateFromBackend]);
       // Probe backend reachability (no auth). Full data loads after login.
       React.useEffect(() => {
         let alive = true;
@@ -4498,9 +4698,17 @@ Phone: +91-7047157510`;
                 await deleteQueuedSnapshot('members');
                 setOfflineQueueCount((c) => Math.max(0, c - 1));
               } else if (row.entity === 'users') {
-                await backendJson('/users/bulk', { method: 'PUT', body: JSON.stringify({ users: usersForApi(row.payload || []) }) });
-                await deleteQueuedSnapshot('users');
-                setOfflineQueueCount((c) => Math.max(0, c - 1));
+                const queuedUsers = usersForApi(row.payload || []);
+                const ownerSession = isOwnerStaffUser(user);
+                const explicitBranchSave = queuedUsers.some((u) => u?.syncBranchAssignments === true);
+                if (!ownerSession || !explicitBranchSave) {
+                  await deleteQueuedSnapshot('users');
+                  setOfflineQueueCount((c) => Math.max(0, c - 1));
+                } else {
+                  await backendJson('/users/bulk', { method: 'PUT', body: JSON.stringify({ users: queuedUsers }) });
+                  await deleteQueuedSnapshot('users');
+                  setOfflineQueueCount((c) => Math.max(0, c - 1));
+                }
               } else if (row.entity === 'visitors') {
                 await backendJson('/visitors/bulk', { method: 'PUT', body: JSON.stringify({ visitors: visitorsForBulkSync(row.payload || [], user) }) });
                 await deleteQueuedSnapshot('visitors');
@@ -4624,6 +4832,7 @@ Phone: +91-7047157510`;
           queueSyncSnapshot('finance', financeTransactions).then(() => setOfflineQueueCount((c) => c + 1)).catch(() => {});
           return;
         }
+        if (!canBulkSyncFinance(user)) return;
         if (financeSkipNextBulkRef.current) {
           financeSkipNextBulkRef.current = false;
           return;
@@ -4636,7 +4845,7 @@ Phone: +91-7047157510`;
           }).catch(() => queueSyncSnapshot('finance', financeTransactions).then(() => setOfflineQueueCount((c) => c + 1)).catch(() => {}));
         }, BACKEND_BULK_DEBOUNCE_MS);
         return () => clearTimeout(timer);
-      }, [financeTransactions, dataSyncMode, syncRuntimeReady, backendHydrated]);
+      }, [financeTransactions, dataSyncMode, syncRuntimeReady, backendHydrated, user?.id]);
       React.useEffect(() => {
         if (!syncRuntimeReady) return;
         if (dataSyncMode === 'backend' && !backendHydrated) return;
@@ -4743,6 +4952,7 @@ Phone: +91-7047157510`;
       // Pull staff/user updates from backend so multi-device changes appear without refresh.
       React.useEffect(() => {
         if (dataSyncMode !== 'backend' || !backendHydrated || !user?.id) return;
+        if (!canFetchStaffUsersList(user)) return;
         let alive = true;
         const pullUsers = () => {
           backendJson('/users')
@@ -4843,26 +5053,14 @@ Phone: +91-7047157510`;
       // staff or updated roles survive page reloads.
       React.useEffect(() => {
         if (!syncRuntimeReady) return;
-        if (dataSyncMode === 'backend' && !backendHydrated) return;
         if (dataSyncMode !== 'backend') {
           safeSetItemJSON(STORAGE_KEYS.users, users);
           queueSyncSnapshot('users', users).then(() => setOfflineQueueCount((c) => c + 1)).catch(() => {});
           return;
         }
-        if (!isOwnerStaffUser(user)) return;
-        if (usersSkipNextBulkRef.current) {
-          usersSkipNextBulkRef.current = false;
-          return;
+        if (backendHydrated && isOwnerStaffUser(user) && Array.isArray(users) && users.length) {
+          safeSetItemJSON(STORAGE_KEYS.users, users);
         }
-        if (skipBulkPushAfterHydrate()) return;
-        const payload = usersForApi(users);
-        const timer = setTimeout(() => {
-          backendJson('/users/bulk', {
-            method: 'PUT',
-            body: JSON.stringify({ users: payload }),
-          }).catch(() => queueSyncSnapshot('users', payload).then(() => setOfflineQueueCount((c) => c + 1)).catch(() => {}));
-        }, BACKEND_BULK_DEBOUNCE_MS);
-        return () => clearTimeout(timer);
       }, [users, dataSyncMode, syncRuntimeReady, backendHydrated, user?.id]);
       React.useEffect(() => {
         if (dataSyncMode === 'backend' || financeSeeded || financeTransactions.length > 0 || members.length === 0) return;
@@ -4912,7 +5110,7 @@ Phone: +91-7047157510`;
             }
           }).catch(() => {});
         }
-        if (activeTab === 'Finance' && financeTransactions.length === 0) {
+        if (activeTab === 'Finance' && financeTransactions.length === 0 && canFetchFinanceRead(user)) {
           backendJson('/finance').then((rows) => {
             if (Array.isArray(rows) && rows.length > 0) {
               financeSkipNextBulkRef.current = true;
@@ -4920,7 +5118,7 @@ Phone: +91-7047157510`;
             }
           }).catch(() => {});
         }
-        if (activeTab === 'WhatsApp SMS' && smsEvents.length === 0) {
+        if (activeTab === 'WhatsApp SMS' && smsEvents.length === 0 && canFetchSmsEvents(user)) {
           backendJson('/sms-events').then((rows) => {
             if (Array.isArray(rows) && rows.length > 0) setSmsEvents(rows);
           }).catch(() => {});
@@ -5606,22 +5804,34 @@ Phone: +91-7047157510`;
           const nowIso = new Date().toISOString();
           writeAuthSession(rec.id, token);
           const sessionUser = prepareStaffUser(rec);
+          const loginAllowed = Array.isArray(rec.allowedBranchIds) ? rec.allowedBranchIds : [];
+          const loginAssigned = Array.isArray(rec.assignedBranchIds) && rec.assignedBranchIds.length
+            ? rec.assignedBranchIds
+            : (loginAllowed.length ? loginAllowed : (rec.gymCodeId ? [rec.gymCodeId] : []));
+          const branchUnion = [...new Set([...loginAllowed, ...loginAssigned].map((x) => String(x || '').trim()).filter(Boolean))];
+          setBackendHydrated(false);
           setUser({
             ...sessionUser,
             gymCodeId: rec.gymCodeId || rec.activeBranchId || sessionUser.gymCodeId || '',
             activeBranchId: rec.activeBranchId || rec.gymCodeId || sessionUser.activeBranchId || '',
-            allowedBranchIds: Array.isArray(rec.allowedBranchIds) ? rec.allowedBranchIds : (rec.gymCodeId ? [rec.gymCodeId] : []),
+            assignedBranchIds: branchUnion.length ? branchUnion : loginAssigned,
+            allowedBranchIds: branchUnion.length ? branchUnion : loginAllowed,
             staffRole: rec.staffRole || sessionUser.staffRole || 'staff',
             lastLoginAt: nowIso,
           });
-          setUsers((prev) => prev.map((u) => (u.id === rec.id ? { ...prepareStaffUser(u.id === rec.id ? { ...u, ...sessionUser } : u), lastLoginAt: nowIso } : u)));
+          setUsers((prev) => prev.map((u) => (u.id === rec.id ? {
+            ...prepareStaffUser({ ...u, ...sessionUser }),
+            assignedBranchIds: branchUnion.length ? branchUnion : loginAssigned,
+            allowedBranchIds: branchUnion.length ? branchUnion : loginAllowed,
+            lastLoginAt: nowIso,
+          } : u)));
           markLoginAttendance(sessionUser, nowIso);
           pushAttendancePunch('login', sessionUser, nowIso);
           setActiveTab('Dashboard');
           setDashMode('summary');
           logEvent('auth.login', 'user', id, null, { id }, sessionUser.name || id);
           if (dataSyncMode === 'backend' && token) {
-            hydrateFromBackend().catch(() => setBackendHydrated(false));
+            hydrateFromBackend({ authUser: rec }).catch(() => setBackendHydrated(false));
           }
           return true;
         };
@@ -5640,10 +5850,16 @@ Phone: +91-7047157510`;
               const data = await res.json();
               const rec = data?.user ? prepareStaffUser(data.user) : null;
               if (rec) {
+                const branch = branchIdsFromAuthPayload({ user: rec, allowedBranchIds: rec.allowedBranchIds });
                 setUsers((prev) => {
                   const exists = prev.some((u) => u.id === rec.id);
-                  if (exists) return prev.map((u) => (u.id === rec.id ? { ...u, ...rec } : u));
-                  return [...prev, rec];
+                  const merged = {
+                    ...rec,
+                    assignedBranchIds: branch.assignedBranchIds,
+                    allowedBranchIds: branch.allowedBranchIds,
+                  };
+                  if (exists) return prev.map((u) => (u.id === rec.id ? { ...u, ...merged } : u));
+                  return [...prev, merged];
                 });
               }
               if (dataSyncMode === 'checking') setDataSyncMode('backend');
@@ -5800,9 +6016,25 @@ Phone: +91-7047157510`;
         const curSections = JSON.stringify(user.sections || []);
         const nextAccess = JSON.stringify(prepared.access || {});
         const curAccess = JSON.stringify(user.access || {});
-        if (nextSections === curSections && nextAccess === curAccess && latest.photo === user.photo) return;
-        setUser((prev) => (prev ? { ...prev, ...prepared } : prepared));
-      }, [users, user?.id, user?.sections, user?.photo]);
+        const curBranches = JSON.stringify(normalizeBranchIdList(user));
+        const nextBranches = JSON.stringify(normalizeBranchIdList(latest));
+        if (
+          nextSections === curSections
+          && nextAccess === curAccess
+          && latest.photo === user.photo
+          && curBranches === nextBranches
+        ) return;
+        setUser((prev) => {
+          if (!prev) return prepared;
+          const mergedBranches = mergeAssignedBranchIds(prev, latest);
+          return {
+            ...prev,
+            ...prepared,
+            assignedBranchIds: mergedBranches,
+            allowedBranchIds: mergedBranches,
+          };
+        });
+      }, [users, user?.id, user?.sections, user?.photo, user?.allowedBranchIds, user?.assignedBranchIds]);
       React.useEffect(() => {
         if (!Array.isArray(users) || users.length === 0) return;
         setSettings((prev) => {
@@ -5838,12 +6070,24 @@ Phone: +91-7047157510`;
           const rec = data?.user ? prepareStaffUser(data.user) : null;
           if (rec && !rec.blocked) {
             const nowIso = new Date().toISOString();
-            writeAuthSession(rec.id, parsed.token);
-            setUser({ ...rec, gymCodeId: rec.gymCodeId || '', lastLoginAt: nowIso });
+            writeAuthSession(rec.id, data?.token || parsed.token);
+            setBackendHydrated(false);
+            setUser(applyAuthBranchContextToUser({
+              ...rec,
+              gymCodeId: rec.gymCodeId || rec.activeBranchId || '',
+              activeBranchId: rec.activeBranchId || rec.gymCodeId || '',
+              lastLoginAt: nowIso,
+            }, data));
             setUsers((prev) => {
-              const exists = prev.some((u) => authUserIdsMatch(u.id, rec.id));
-              if (exists) return prev.map((u) => (authUserIdsMatch(u.id, rec.id) ? { ...prepareStaffUser({ ...u, ...rec }), lastLoginAt: nowIso } : u));
-              return [...prev, { ...rec, lastLoginAt: nowIso }];
+              const next = syncUsersRowBranchContext(prev, rec.id, data);
+              if (next.some((u) => authUserIdsMatch(u.id, rec.id))) return next;
+              const branch = branchIdsFromAuthPayload(data);
+              return [...next, {
+                ...rec,
+                assignedBranchIds: branch.assignedBranchIds,
+                allowedBranchIds: branch.allowedBranchIds,
+                lastLoginAt: nowIso,
+              }];
             });
             markLoginAttendance(rec, nowIso);
             pushAttendancePunch('login', rec, nowIso);
@@ -5931,10 +6175,9 @@ Phone: +91-7047157510`;
             const data = await revalidateAuthSessionFromServer();
             if (data?.user && !data.user.blocked) {
               const rec = prepareStaffUser(data.user);
-              writeAuthSession(rec.id, parsed.token);
-              setUser((prev) => (prev?.id === rec.id
-                ? { ...prev, ...rec, gymCodeId: rec.gymCodeId || prev.gymCodeId || '' }
-                : prev || { ...rec, gymCodeId: rec.gymCodeId || '', lastLoginAt: new Date().toISOString() }));
+              if (data?.token) writeAuthSession(rec.id, data.token);
+              setUser((prev) => applyAuthBranchContextToUser(prev || rec, data));
+              setUsers((prev) => syncUsersRowBranchContext(prev, rec.id, data));
             }
             if (!backendHydrated) {
               hydrateFromBackend().catch(() => setBackendHydrated(false));
@@ -7583,6 +7826,10 @@ Please pay by: ${formattedLastDate}`;
           pushAttendancePunch('logout', user, nowIso);
         }
         clearAuthSession();
+        setBackendHydrated(false);
+        hydrateCompletedAtRef.current = 0;
+        clearQueuedSnapshots().catch(() => {});
+        try { localStorage.removeItem(STORAGE_KEYS.users); } catch {}
         logEvent('auth.logout', 'user', user?.id || '', { id: user?.id }, null, user?.name || user?.id || '');
         setUser(null);
         setNotificationOpen(false);
@@ -7671,6 +7918,16 @@ Please pay by: ${formattedLastDate}`;
                 <div className="text-[14px] leading-tight font-bold text-slate-900 truncate">{activeTab}</div>
               </div>
               <div className="flex items-center gap-1.5">
+              <HeaderProfileBranchMenu
+                user={user}
+                gymCodes={gymCodes}
+                gymCodeLabel={gymCodeLabel}
+                branchBranding={branchBranding}
+                activeBranchId={user?.activeBranchId || user?.gymCodeId}
+                onSwitch={switchActiveBranch}
+                switching={branchSwitching}
+                compact
+              />
               {/* Light/Dark mode toggle removed — Luxury skin replaces classic dark mode (Phase 2 branding cleanup). */}
               <button
                 onClick={toggleDisplayTimeZone}
@@ -7926,6 +8183,7 @@ Please pay by: ${formattedLastDate}`;
             onCloseMobile={() => setMobileMenuOpen(false)}
             membersView={membersView}
             setMembersView={setMembersView}
+            branchBranding={branchBranding}
           />
           <main className="apg-main-scroll flex-1 overflow-y-auto pt-[112px] md:pt-0 pb-28 md:pb-0 w-full bg-[#F8FAFC] md:bg-transparent">
             {openedFromFileProtocol && (
@@ -8144,13 +8402,15 @@ Please pay by: ${formattedLastDate}`;
                       </NotificationPortal>
                     </div>
                     {/* Light/Dark mode toggle removed — Luxury skin replaces classic dark mode (Phase 2 branding cleanup). */}
-                    <div className="flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-2.5 py-1.5 shadow-[inset_0_1px_0_rgba(255,255,255,0.8)]">
-                      <Avatar name={user?.name || ''} photo={user?.photo || user?.avatar || null} className="h-8 w-8 rounded-full" />
-                      <div className="leading-tight pr-1">
-                        <div className="text-xs font-semibold text-slate-800">{user?.name || '-'}</div>
-                        <div className="text-[11px] text-slate-500">{user?.id || 'staff'}</div>
-                      </div>
-                    </div>
+                    <HeaderProfileBranchMenu
+                      user={user}
+                      gymCodes={gymCodes}
+                      gymCodeLabel={gymCodeLabel}
+                      branchBranding={branchBranding}
+                      activeBranchId={user?.activeBranchId || user?.gymCodeId}
+                      onSwitch={switchActiveBranch}
+                      switching={branchSwitching}
+                    />
                     <button
                       onClick={() => {
                         const input = headerDateInputRef.current;
@@ -8383,6 +8643,7 @@ Please pay by: ${formattedLastDate}`;
                 currentUser={user}
                 gymCodes={gymCodes}
                 refreshGymCodes={refreshGymCodes}
+                refreshBranchBranding={refreshBranchBranding}
                 backendJson={backendJson}
                 dataSyncMode={dataSyncMode}
                 touchSettingsLookupGuard={touchSettingsLookupGuard}
@@ -9443,8 +9704,200 @@ Please pay by: ${formattedLastDate}`;
       );
     }
 
+    function BranchLogoImg({ src, alt = 'Gym logo', className = '' }) {
+      const defaultLogo = window.__APG_MODULES?.DEFAULT_LOGO_PATH || './assets/action-plus-logo.png';
+      const [url, setUrl] = React.useState(src || defaultLogo);
+      React.useEffect(() => {
+        setUrl(src || defaultLogo);
+      }, [src, defaultLogo]);
+      return (
+        <img
+          src={url}
+          alt={alt}
+          className={className}
+          onError={() => {
+            if (url !== defaultLogo) setUrl(defaultLogo);
+          }}
+        />
+      );
+    }
+
+    function HeaderProfileBranchMenu({
+      user,
+      gymCodes = [],
+      gymCodeLabel = () => '—',
+      branchBranding = null,
+      activeBranchId = '',
+      onSwitch,
+      switching = false,
+      compact = false,
+    }) {
+      const [open, setOpen] = React.useState(false);
+      const menuRef = React.useRef(null);
+      const listFn = window.__APG_MODULES?.switchableBranchesForUser;
+      const showFn = window.__APG_MODULES?.shouldShowBranchSwitcher;
+      const resolveFn = window.__APG_MODULES?.resolveClientBranchBranding;
+      const defaultBrandFn = window.__APG_MODULES?.defaultClientBranding;
+      const branchIdsForUser = React.useMemo(() => {
+        const allowedFn = window.__APG_MODULES?.allowedBranchIdsForUser;
+        if (typeof allowedFn === 'function') return allowedFn(user) || [];
+        const fromAllowed = Array.isArray(user?.allowedBranchIds) ? user.allowedBranchIds : [];
+        const fromAssigned = Array.isArray(user?.assignedBranchIds) ? user.assignedBranchIds : [];
+        const ids = [...fromAllowed, ...fromAssigned].map((x) => String(x || '').trim()).filter(Boolean);
+        if (ids.length) return [...new Set(ids)];
+        const single = String(user?.activeBranchId || user?.gymCodeId || '').trim();
+        return single ? [single] : [];
+      }, [user?.id, user?.allowedBranchIds, user?.assignedBranchIds, user?.gymCodeId, user?.activeBranchId]);
+      const branches = React.useMemo(() => {
+        if (typeof listFn === 'function') return listFn(user, gymCodes);
+        const byId = new Map((Array.isArray(gymCodes) ? gymCodes : []).map((c) => [String(c.id), c]));
+        return branchIdsForUser.map((id) => byId.get(String(id)) || {
+          id: String(id),
+          code: String(id).slice(0, 8).toUpperCase(),
+          name: 'Branch',
+          branchName: 'Branch',
+        });
+      }, [user, gymCodes, branchIdsForUser, listFn]);
+      const multiBranch = Boolean(
+        user
+        && (typeof showFn === 'function'
+          ? showFn(user, gymCodes)
+          : branchIdsForUser.length > 1),
+      );
+      const effectiveFn = window.__APG_MODULES?.effectiveActiveBranchId;
+      const active = String(
+        activeBranchId
+        || (typeof effectiveFn === 'function' ? effectiveFn(user, gymCodes) : '')
+        || user?.activeBranchId
+        || user?.gymCodeId
+        || '',
+      ).trim();
+      const brand = branchBranding || (typeof defaultBrandFn === 'function' ? defaultBrandFn() : { displayName: 'Action Plus Gym', logoUrl: './assets/action-plus-logo.png' });
+
+      React.useEffect(() => {
+        if (!open) return undefined;
+        const onDoc = (e) => {
+          if (menuRef.current && !menuRef.current.contains(e.target)) setOpen(false);
+        };
+        document.addEventListener('mousedown', onDoc);
+        document.addEventListener('touchstart', onDoc);
+        return () => {
+          document.removeEventListener('mousedown', onDoc);
+          document.removeEventListener('touchstart', onDoc);
+        };
+      }, [open]);
+
+      if (!user) return null;
+
+      const pickBranch = (branchId) => {
+        const id = String(branchId || '').trim();
+        if (!id || id === active || switching) return;
+        if (typeof onSwitch === 'function') onSwitch(id);
+        setOpen(false);
+      };
+
+      return (
+        <div className="relative" ref={menuRef}>
+          <button
+            type="button"
+            onClick={() => {
+              if (multiBranch) setOpen((v) => !v);
+            }}
+            disabled={switching}
+            className={cx(
+              'flex items-center gap-2 rounded-xl border border-slate-200 bg-white text-left shadow-[inset_0_1px_0_rgba(255,255,255,0.8)] dark:border-slate-600 dark:bg-slate-800/90',
+              compact ? 'px-2 py-1.5 max-w-[11rem]' : 'px-2.5 py-1.5 max-w-[14rem]',
+              multiBranch ? 'hover:bg-slate-50 dark:hover:bg-slate-700/80 cursor-pointer' : 'cursor-default',
+            )}
+            aria-expanded={multiBranch ? open : false}
+            aria-haspopup={multiBranch ? 'listbox' : undefined}
+            data-testid="header-profile-branch-menu"
+          >
+            <BranchLogoImg
+              src={brand.logoUrl}
+              alt=""
+              className={cx('rounded-full object-cover ring-1 ring-slate-200 shrink-0', compact ? 'h-7 w-7' : 'h-8 w-8')}
+            />
+            <div className="leading-tight min-w-0 flex-1">
+              <div
+                className={cx(
+                  'font-semibold text-slate-800 truncate dark:text-slate-100',
+                  compact ? 'text-[11px]' : 'text-xs',
+                )}
+                data-testid="header-gym-name"
+              >
+                {brand.displayName || 'Action Plus Gym'}
+              </div>
+              <div className={cx('text-slate-600 truncate dark:text-slate-300', compact ? 'text-[10px]' : 'text-[11px]')}>
+                {user?.name || '-'}
+              </div>
+              {!compact && (
+                <div className="text-[10px] text-slate-400 truncate dark:text-slate-400">{user?.id || 'staff'}</div>
+              )}
+              {multiBranch && (
+                <div className="text-[10px] font-semibold text-indigo-600 dark:text-indigo-300 mt-0.5">
+                  {switching ? 'Switching…' : 'Change branch ▾'}
+                </div>
+              )}
+            </div>
+          </button>
+          {multiBranch && open && (
+            <div
+              className="absolute right-0 top-[calc(100%+6px)] z-[9100] w-[min(18rem,calc(100vw-1.5rem))] rounded-xl border border-slate-200 bg-white shadow-xl dark:border-slate-600 dark:bg-slate-900"
+              role="listbox"
+              aria-label="Select branch"
+              data-testid="header-branch-dropdown"
+            >
+              <div className="px-3 py-2 border-b border-slate-100 text-[10px] font-bold uppercase tracking-wide text-slate-500 dark:border-slate-700 dark:text-slate-400">
+                Your branches
+              </div>
+              <div className="max-h-64 overflow-y-auto py-1">
+                {branches.map((c) => {
+                  const rowBrand = typeof resolveFn === 'function' ? resolveFn(c) : { displayName: c.name, logoUrl: c.logoUrl };
+                  const isActive = String(c.id) === active;
+                  return (
+                    <button
+                      key={c.id}
+                      type="button"
+                      role="option"
+                      aria-selected={isActive}
+                      disabled={switching}
+                      onClick={() => pickBranch(c.id)}
+                      className={cx(
+                        'w-full flex items-center gap-2.5 px-3 py-2.5 text-left transition-colors',
+                        isActive
+                          ? 'bg-indigo-50 ring-1 ring-inset ring-indigo-300 dark:bg-indigo-950/40 dark:ring-indigo-600'
+                          : 'hover:bg-slate-50 dark:hover:bg-slate-800',
+                      )}
+                      data-testid={`header-branch-option-${c.code}`}
+                    >
+                      <BranchLogoImg src={rowBrand.logoUrl || c.logoUrl} alt="" className="h-9 w-9 rounded-full object-cover ring-1 ring-slate-200 shrink-0" />
+                      <div className="min-w-0 flex-1">
+                        <div className="text-sm font-semibold text-slate-900 truncate dark:text-slate-100">
+                          {rowBrand.displayName || c.name}
+                        </div>
+                        <div className="text-[11px] text-slate-500 truncate dark:text-slate-400">
+                          {c.code} · {gymCodeLabel(c.id) || c.name}
+                        </div>
+                      </div>
+                      {isActive && (
+                        <span className="shrink-0 rounded-full bg-indigo-600 px-2 py-0.5 text-[10px] font-bold text-white">
+                          Active
+                        </span>
+                      )}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+        </div>
+      );
+    }
+
     // ---- Sidebar Component ----
-function Sidebar({ user, active, onSelect, theme, setTheme, layoutMode = 'classic', setLayoutMode = () => {}, onLogout, onUndo, onRedo, canUndo, canRedo, mobileOpen, onCloseMobile, membersView = 'all', setMembersView }) {
+function Sidebar({ user, active, onSelect, theme, setTheme, layoutMode = 'classic', setLayoutMode = () => {}, onLogout, onUndo, onRedo, canUndo, canRedo, mobileOpen, onCloseMobile, membersView = 'all', setMembersView, branchBranding = null }) {
+      const brand = branchBranding || (window.__APG_MODULES?.defaultClientBranding?.() || { displayName: 'Action Plus Gym', logoUrl: './assets/action-plus-logo.png' });
       const NAV = [
         { key: 'Dashboard', label: 'Dashboard', icon: 'home', group: '' },
         { key: 'Members', label: 'Members', icon: 'users', group: 'MEMBERS & CLIENTS' },
@@ -9534,11 +9987,11 @@ function Sidebar({ user, active, onSelect, theme, setTheme, layoutMode = 'classi
               title={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
             >
               <div className="h-9 w-9 rounded-full bg-blue-50 p-1 ring-1 ring-blue-100 overflow-hidden dark:bg-slate-800 dark:ring-slate-600">
-                <img src="./assets/action-plus-logo.png" alt="Action Plus Gym logo" className="h-full w-full rounded-full object-cover" />
+                <BranchLogoImg src={brand.logoUrl} alt={`${brand.displayName} logo`} className="h-full w-full rounded-full object-cover" />
               </div>
               {!collapsed && <div className="min-w-0 text-left">
-                <div className="truncate text-[13px] font-semibold text-slate-900 tracking-tight dark:text-slate-100">Action Plus Gym</div>
-                <div className="truncate text-[11px] text-slate-500 dark:text-slate-300">{user?.name || 'User'}</div>
+                <div className="truncate text-[13px] font-semibold text-slate-900 tracking-tight dark:text-slate-100" data-testid="sidebar-gym-display-name">{brand.displayName}</div>
+                <div className="truncate text-[11px] text-slate-500 dark:text-slate-300" data-testid="sidebar-staff-name">{user?.name || 'User'}</div>
               </div>}
             </button>
             {!collapsed && (
@@ -15768,7 +16221,7 @@ function PTClientsPage({ members, users, settings, updateSetting, currentUser, a
       };
 
     // ---- Settings Page ----
-    function SettingsPage({ settings, updateSetting, members, users = [], access, storageInfo, backendStorageInfo, dataSyncMode, offlineQueueCount = 0, canResetFreshStart = false, availableBackups = [], onExport, onImport, onResetFreshStart, onRestoreFromBackup, onDeleteBackup, onDeleteBackupsOlderThan, onKeepLatestBackups, currentUser = null, gymCodes = [], refreshGymCodes = () => {}, backendJson = null, touchSettingsLookupGuard = () => {} }) {
+    function SettingsPage({ settings, updateSetting, members, users = [], access, storageInfo, backendStorageInfo, dataSyncMode, offlineQueueCount = 0, canResetFreshStart = false, availableBackups = [], onExport, onImport, onResetFreshStart, onRestoreFromBackup, onDeleteBackup, onDeleteBackupsOlderThan, onKeepLatestBackups, currentUser = null, gymCodes = [], refreshGymCodes = () => {}, refreshBranchBranding = () => {}, backendJson = null, touchSettingsLookupGuard = () => {} }) {
       const [newValues, setNewValues] = React.useState({
         plans: '', statuses: '', paymentMethods: '', holdDurations: '', genders: '',
         expenseCategories: '', exerciseTypes: '',
@@ -15781,6 +16234,33 @@ function PTClientsPage({ members, users, settings, updateSetting, currentUser, a
       const [gymCodeForm, setGymCodeForm] = React.useState({ code: '', name: '' });
       const [gymCodeError, setGymCodeError] = React.useState('');
       const [gymCodeBusy, setGymCodeBusy] = React.useState(false);
+      const [brandingDrafts, setBrandingDrafts] = React.useState({});
+      const saveBranchBranding = async (branchRow, { displayName, logoDataUrl, clearLogo = false }) => {
+        if (!backendJson || !branchRow?.id) return;
+        setGymCodeBusy(true);
+        setGymCodeError('');
+        try {
+          await backendJson(`/gym-codes/${encodeURIComponent(branchRow.id)}/branding`, {
+            method: 'PATCH',
+            body: JSON.stringify({
+              displayName: displayName != null ? displayName : (brandingDrafts[branchRow.id]?.displayName ?? ''),
+              clearLogo,
+            }),
+          });
+          if (logoDataUrl) {
+            await backendJson(`/gym-codes/${encodeURIComponent(branchRow.id)}/branding/logo`, {
+              method: 'POST',
+              body: JSON.stringify({ logo: logoDataUrl }),
+            });
+          }
+          await refreshGymCodes();
+          await refreshBranchBranding(branchRow.id);
+        } catch (err) {
+          setGymCodeError(String(err?.message || err || 'Failed to save branch branding.'));
+        } finally {
+          setGymCodeBusy(false);
+        }
+      };
       const isOwnerForCodes = String(currentUser?.id || '').toLowerCase() === 'owner'
         || (Array.isArray(currentUser?.roles) && currentUser.roles.includes('owner'));
       const upperShortCode = (raw) => String(raw || '').trim().toUpperCase().replace(/[^A-Z0-9_-]/g, '').slice(0, 20);
@@ -16083,18 +16563,67 @@ function PTClientsPage({ members, users, settings, updateSetting, currentUser, a
                     <tr className="bg-slate-50 text-left text-xs uppercase tracking-wide text-slate-500">
                       <th className="px-3 py-2 font-medium">Code</th>
                       <th className="px-3 py-2 font-medium">Branch Name</th>
+                      <th className="px-3 py-2 font-medium">Display / Logo</th>
                       <th className="px-3 py-2 font-medium">Created</th>
                       <th className="px-3 py-2 font-medium text-right">Actions</th>
                     </tr>
                   </thead>
                   <tbody>
                     {(gymCodes || []).length === 0 && (
-                      <tr><td colSpan="4" className="px-3 py-4 text-center text-slate-400">No branches yet. Add your first above.</td></tr>
+                      <tr><td colSpan="5" className="px-3 py-4 text-center text-slate-400">No branches yet. Add your first above.</td></tr>
                     )}
-                    {(gymCodes || []).map((c) => (
-                      <tr key={c.id} className="border-t border-slate-100" data-testid={`gym-code-row-${c.code}`}>
+                    {(gymCodes || []).map((c) => {
+                      const resolveFn = window.__APG_MODULES?.resolveClientBranchBranding;
+                      const brand = typeof resolveFn === 'function' ? resolveFn(c) : { displayName: c.displayName || '', logoUrl: c.logoUrl || '' };
+                      const draft = brandingDrafts[c.id] || { displayName: c.displayName || brand.displayName || '' };
+                      return (
+                      <tr key={c.id} className="border-t border-slate-100 align-top" data-testid={`gym-code-row-${c.code}`}>
                         <td className="px-3 py-2 font-mono font-semibold">{c.code}</td>
                         <td className="px-3 py-2">{c.name || c.branchName}</td>
+                        <td className="px-3 py-2">
+                          <div className="flex flex-col gap-2 min-w-[220px]">
+                            <input
+                              type="text"
+                              value={draft.displayName}
+                              onChange={(e) => setBrandingDrafts((prev) => ({
+                                ...prev,
+                                [c.id]: { ...(prev[c.id] || {}), displayName: e.target.value },
+                              }))}
+                              placeholder={brand.displayName}
+                              className="w-full rounded-lg border border-slate-300 px-2 py-1 text-xs"
+                              data-testid={`gym-code-display-name-${c.code}`}
+                            />
+                            <div className="flex items-center gap-2">
+                              <BranchLogoImg src={c.logoUrl || brand.logoUrl} alt="" className="h-8 w-8 rounded-full object-cover ring-1 ring-slate-200" />
+                              <input
+                                type="file"
+                                accept="image/png,image/jpeg,image/webp,image/gif"
+                                className="text-[10px] max-w-[9rem]"
+                                data-testid={`gym-code-logo-input-${c.code}`}
+                                onChange={(e) => {
+                                  const file = e.target.files?.[0];
+                                  if (!file) return;
+                                  const reader = new FileReader();
+                                  reader.onload = () => {
+                                    const dataUrl = String(reader.result || '');
+                                    void saveBranchBranding(c, { displayName: draft.displayName, logoDataUrl: dataUrl });
+                                  };
+                                  reader.readAsDataURL(file);
+                                  e.target.value = '';
+                                }}
+                              />
+                            </div>
+                            <button
+                              type="button"
+                              disabled={gymCodeBusy}
+                              onClick={() => saveBranchBranding(c, { displayName: draft.displayName })}
+                              className="self-start rounded-lg bg-slate-800 px-2 py-1 text-[10px] font-semibold text-white hover:bg-slate-900 disabled:opacity-50"
+                              data-testid={`gym-code-branding-save-${c.code}`}
+                            >
+                              Save branding
+                            </button>
+                          </div>
+                        </td>
                         <td className="px-3 py-2 text-xs text-slate-500">{c.createdAt ? new Date(c.createdAt).toLocaleDateString() : '—'}</td>
                         <td className="px-3 py-2 text-right">
                           <button
@@ -16108,7 +16637,7 @@ function PTClientsPage({ members, users, settings, updateSetting, currentUser, a
                           </button>
                         </td>
                       </tr>
-                    ))}
+                    );})}
                   </tbody>
                 </table>
               </div>
@@ -19269,6 +19798,7 @@ function PTClientsPage({ members, users, settings, updateSetting, currentUser, a
         return list.filter((c) => allowedSet.has(String(c.id)));
       }, [gymCodes, currentUser, isOwner]);
       const branchOwnerFormMode = isOwner && editingId !== 'owner' && String(form.staffRole || 'staff') === 'branch_owner';
+      const ownerMultiBranchFormMode = isOwner && editingId !== 'owner';
       const staffAccessRoleLabel = (u) => {
         const r = String(u?.staffRole || 'staff').toLowerCase();
         if (u?.id === 'owner' || r === 'master_owner') return 'Master';
@@ -19936,15 +20466,27 @@ function PTClientsPage({ members, users, settings, updateSetting, currentUser, a
           unblockNote = window.prompt('Optional note for unblocking this staff member:') || '';
         }
         const now = new Date().toISOString();
-        setUsers(prev => prev.map(x => x.id === u.id ? {
-          ...x,
-          blocked: nextBlocked,
-          blockedReason: nextBlocked ? blockedReason : '',
-          blockedAt: nextBlocked ? now : '',
-          updatedBy: currentUser?.id || currentUser?.name || 'owner',
-          unblockNote: nextBlocked ? '' : unblockNote,
-          updatedAt: now,
-        } : x));
+        setUsers((prev) => {
+          const next = prev.map((x) => (x.id === u.id ? {
+            ...x,
+            blocked: nextBlocked,
+            blockedReason: nextBlocked ? blockedReason : '',
+            blockedAt: nextBlocked ? now : '',
+            updatedBy: currentUser?.id || currentUser?.name || 'owner',
+            unblockNote: nextBlocked ? '' : unblockNote,
+            updatedAt: now,
+          } : x));
+          if (dataSyncMode === 'backend' && isOwner) {
+            const updated = next.find((row) => row.id === u.id);
+            if (updated) {
+              backendJson('/users/bulk', {
+                method: 'PUT',
+                body: JSON.stringify({ users: usersForApi([updated]) }),
+              }).catch(() => queueSyncSnapshot('users', usersForApi([updated])).then(() => setOfflineQueueCount((c) => c + 1)).catch(() => {}));
+            }
+          }
+          return next;
+        });
         logEvent && logEvent('staff.block_toggled', 'user', u.id, u, { ...u, blocked: nextBlocked, blockedReason, blockedAt: nextBlocked ? now : '', unblockNote });
       };
 
@@ -20026,16 +20568,22 @@ function PTClientsPage({ members, users, settings, updateSetting, currentUser, a
           : (isOwner ? (form.staffRole === 'branch_owner' ? 'branch_owner' : 'staff') : 'staff');
         let assignedBranchIds = [];
         let gymCodeId = form.gymCodeId || beforeUser?.gymCodeId || null;
+        const formBranchIds = [...new Set(
+          (Array.isArray(form.assignedBranchIds) ? form.assignedBranchIds : [])
+            .map((x) => String(x || '').trim())
+            .filter(Boolean),
+        )];
         if (id !== 'owner' && resolvedStaffRole === 'branch_owner') {
-          assignedBranchIds = [...new Set(
-            (Array.isArray(form.assignedBranchIds) ? form.assignedBranchIds : [])
-              .map((x) => String(x || '').trim())
-              .filter(Boolean),
-          )];
+          assignedBranchIds = formBranchIds;
           if (!assignedBranchIds.length) {
             showStaffError('Branch Owner must be assigned to at least one gym branch.');
             return;
           }
+          if (!gymCodeId || !assignedBranchIds.includes(String(gymCodeId))) {
+            gymCodeId = assignedBranchIds[0];
+          }
+        } else if (id !== 'owner' && isOwner && formBranchIds.length > 0) {
+          assignedBranchIds = formBranchIds;
           if (!gymCodeId || !assignedBranchIds.includes(String(gymCodeId))) {
             gymCodeId = assignedBranchIds[0];
           }
@@ -20063,6 +20611,7 @@ function PTClientsPage({ members, users, settings, updateSetting, currentUser, a
           gymCodeId,
           staffRole: resolvedStaffRole,
           assignedBranchIds,
+          syncBranchAssignments: id !== 'owner',
           updatedAt: new Date().toISOString(),
           ...(dataSyncMode !== 'backend' && needsPassword ? { password: passwordInput || beforeUser?.password || '' } : {}),
         };
@@ -20135,15 +20684,18 @@ function PTClientsPage({ members, users, settings, updateSetting, currentUser, a
           closeStaffModal();
           setEditingId(null);
           if (dataSyncMode === 'backend' && isBranchAdmin) {
-            // Background reconcile: do not block modal close on a /users round-trip
-            // that grows with staff count (E2E timed out at 30s; users see stale row briefly otherwise).
-            backendJson('/users')
-              .then((remoteUsers) => {
-                if (Array.isArray(remoteUsers) && remoteUsers.length > 0) {
-                  setUsers((prev) => mergeRemoteUsersWithLocal(prev, remoteUsers.map((u) => prepareStaffUser(u))));
-                }
-              })
-              .catch(() => {});
+            const savedSnapshot = prepareStaffUser(updatedUser);
+            window.setTimeout(() => {
+              backendJson('/users')
+                .then((remoteUsers) => {
+                  if (!Array.isArray(remoteUsers) || !remoteUsers.length) return;
+                  setUsers((prev) => {
+                    const withSaved = prev.map((u) => (u.id === savedSnapshot.id ? { ...savedSnapshot, ...u, ...savedSnapshot } : u));
+                    return mergeRemoteUsersWithLocal(withSaved, remoteUsers.map((u) => prepareStaffUser(u)));
+                  });
+                })
+                .catch(() => {});
+            }, 1200);
           }
         } finally {
           setSaving(false);
@@ -20500,20 +21052,20 @@ function PTClientsPage({ members, users, settings, updateSetting, currentUser, a
                               ...prev,
                               staffRole: 'staff',
                               gymCodeId: single,
-                              assignedBranchIds: single ? [single] : [],
+                              assignedBranchIds: assigned.length > 1 ? assigned : (single ? [single] : []),
                             };
                           });
                         }}
                         className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900"
                         data-testid="staff-access-role-select"
                       >
-                        <option value="staff">Staff (single branch)</option>
-                        <option value="branch_owner">Branch Owner (multi-branch)</option>
+                        <option value="staff">Staff</option>
+                        <option value="branch_owner">Branch Owner (admin)</option>
                       </select>
-                      <p className="mt-1 text-xs text-slate-500">Only the Master Owner can create Branch Owners.</p>
+                      <p className="mt-1 text-xs text-slate-500">Use checkboxes below for multi-branch access. Branch Owner can manage staff in assigned branches.</p>
                     </div>
                   )}
-                  {branchOwnerFormMode ? (
+                  {ownerMultiBranchFormMode ? (
                     <div className="space-y-3">
                       <div>
                         <label className="text-sm font-medium text-slate-700">Assigned branches <span className="text-rose-500">*</span></label>
@@ -20529,9 +21081,12 @@ function PTClientsPage({ members, users, settings, updateSetting, currentUser, a
                             </label>
                           ))}
                         </div>
+                        <p className="mt-1 text-xs text-slate-500">
+                          Select one or more branches. Staff with multiple branches can switch from the top-right profile menu after login.
+                        </p>
                       </div>
                       <div>
-                        <label className="text-sm font-medium text-slate-700">Primary branch (home) <span className="text-rose-500">*</span></label>
+                        <label className="text-sm font-medium text-slate-700">Default branch at login <span className="text-rose-500">*</span></label>
                         <select
                           value={form.gymCodeId || ''}
                           onChange={(e) => setForm({ ...form, gymCodeId: e.target.value })}
@@ -20539,14 +21094,14 @@ function PTClientsPage({ members, users, settings, updateSetting, currentUser, a
                           data-testid="staff-gym-code-select"
                           required
                         >
-                          <option value="">Select primary branch…</option>
+                          <option value="">Select default branch…</option>
                           {(form.assignedBranchIds || []).map((branchId) => {
                             const c = (gymCodes || []).find((g) => String(g.id) === String(branchId));
                             if (!c) return null;
                             return <option key={c.id} value={c.id}>{c.code} / {c.name || c.branchName}</option>;
                           })}
                         </select>
-                        <p className="mt-1 text-xs text-slate-500">Branch Owners can switch active branch after login; primary branch is the default home.</p>
+                        <p className="mt-1 text-xs text-slate-500">Which branch they land on after login. They can still switch to any assigned branch from the top-right menu.</p>
                       </div>
                     </div>
                   ) : editingId !== 'owner' && (

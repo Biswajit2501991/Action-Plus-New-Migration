@@ -7,6 +7,7 @@ import {
   authIsMasterOwner,
   resolveAllowedBranchIds,
   resolveActiveBranchId,
+  resolveReadBranchIds,
 } from './tenant/scopedAuth.js';
 
 /** Master Owner only — cross-branch global authority (legacy name kept). */
@@ -33,7 +34,7 @@ export function filterRowsByBranch(rows, auth) {
   if (!Array.isArray(rows)) return [];
   if (authHasGlobalBranchRead(auth)) return rows;
   if (!auth) return [];
-  const allowed = resolveAllowedBranchIds(auth);
+  const allowed = resolveReadBranchIds(auth);
   if (allowed === null) return rows;
   if (!allowed.length) return [];
   if (allowed.length === 1) {
@@ -70,7 +71,7 @@ export function stampBranchOnRows(rows, auth, defaultCode = null) {
 export function assertBranchWriteAllowed(rows, auth) {
   if (!Array.isArray(rows) || rows.length === 0) return;
   if (authHasGlobalBranchRead(auth)) return;
-  const allowed = resolveAllowedBranchIds(auth);
+  const allowed = resolveReadBranchIds(auth);
   if (!allowed?.length) {
     const err = new Error('branch-scope-missing');
     err.status = 403;
@@ -97,7 +98,7 @@ export async function loadBranchScope(sb, auth) {
   if (authHasGlobalBranchRead(auth)) {
     return { limited: false, gymCodeId: null, memberCodes: null, staffLogins: null, visitorIds: null };
   }
-  const allowed = resolveAllowedBranchIds(auth);
+  const allowed = resolveReadBranchIds(auth);
   if (!allowed?.length) {
     return {
       limited: true,

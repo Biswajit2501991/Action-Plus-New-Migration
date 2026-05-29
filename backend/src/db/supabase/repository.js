@@ -753,10 +753,16 @@ async function readUsers(scope) {
       .eq('gym_id', gid)
       .in('staff_user_id', staffIds);
     if (!assignRes.error) {
-      for (const row of assignRes.data || []) {
+      const rows = [...(assignRes.data || [])].sort((a, b) => {
+        if (a.is_primary === b.is_primary) return 0;
+        return a.is_primary ? -1 : 1;
+      });
+      for (const row of rows) {
         const pk = row.staff_user_id;
+        const id = String(row.gym_code_id || '').trim();
+        if (!id) continue;
         const list = branchesByStaff.get(pk) || [];
-        list.push(String(row.gym_code_id || '').trim());
+        if (!list.includes(id)) list.push(id);
         branchesByStaff.set(pk, list);
       }
     }
@@ -799,6 +805,34 @@ async function writeUsers(users, scope) {
   if (scope) existingQuery = existingQuery.eq('sandbox_id', scope.sandboxId);
   const existing = await fetchAll((from, to) => existingQuery.range(from, to));
 
+  const branchesByStaffPk = new Map();
+  try {
+    const staffPks = (existing || []).map((r) => r.id).filter(Boolean);
+    if (staffPks.length) {
+      const assignRes = await sb
+        .from(T.staff_branch_assignments)
+        .select('staff_user_id, gym_code_id, is_primary')
+        .eq('gym_id', gid)
+        .in('staff_user_id', staffPks);
+      if (!assignRes.error) {
+        const rows = [...(assignRes.data || [])].sort((a, b) => {
+          if (a.is_primary === b.is_primary) return 0;
+          return a.is_primary ? -1 : 1;
+        });
+        for (const row of rows) {
+          const pk = row.staff_user_id;
+          const id = String(row.gym_code_id || '').trim();
+          if (!id) continue;
+          const list = branchesByStaffPk.get(pk) || [];
+          if (!list.includes(id)) list.push(id);
+          branchesByStaffPk.set(pk, list);
+        }
+      }
+    }
+  } catch {
+    /* assignments optional until migration */
+  }
+
   // Upsert-only: do not delete staff missing from a partial browser list (prevents losing accounts like Deep).
 
   for (const u of incoming) {
@@ -840,21 +874,23 @@ async function writeUsers(users, scope) {
     await syncStaffUserSections(sb, staffPk, sections);
     await syncStaffUserAccess(sb, staffPk, u.access);
     const branchIds = Array.isArray(u.assignedBranchIds) && u.assignedBranchIds.length
-      ? u.assignedBranchIds.map((id) => String(id || '').trim()).filter(Boolean)
+      ? [...new Set(u.assignedBranchIds.map((id) => String(id || '').trim()).filter(Boolean))]
       : (row.gym_code_id ? [String(row.gym_code_id)] : []);
     try {
-      const { syncStaffBranchAssignments } = await import('../../auth/tenant/branchAssignments.js');
-      const { branchOwnerFeatureEnabled } = await import('../../auth/tenant/scopedAuth.js');
-      if (branchOwnerFeatureEnabled() && branchIds.length) {
+      const { syncStaffBranchAssignments, shouldSyncBranchAssignmentsOnWrite } = await import('../../auth/tenant/branchAssignments.js');
+      const existingBranchIds = branchesByStaffPk.get(staffPk) || [];
+      if (shouldSyncBranchAssignmentsOnWrite(u, branchIds, existingBranchIds)) {
         await syncStaffBranchAssignments(
           staffPk,
           branchIds,
           row.gym_code_id || branchIds[0],
           u.updatedBy || null,
         );
+        branchesByStaffPk.set(staffPk, branchIds);
       }
-    } catch {
-      /* assignments table may not exist until migration */
+    } catch (assignErr) {
+      console.error('[users] staff_branch_assignments sync failed:', assignErr?.message || assignErr);
+      throw assignErr;
     }
     invalidateStaffAccessCache(u.id);
   }
