@@ -75,18 +75,26 @@ describe('branchScope multi-branch', () => {
     expect(branchScopeAllowsMember(scope, 'b9')).toBe(false);
   });
 
-  it('filterRowsByBranch supports multiple ids', () => {
+  it('filterRowsByBranch scopes to active branch when multiple assignments', () => {
     const rows = [
       { memberId: '1', assignedGymCodeId: 'b1' },
       { memberId: '2', assignedGymCodeId: 'b2' },
       { memberId: '3', assignedGymCodeId: 'x' },
     ];
-    const out = filterRowsByBranch(rows, {
+    const outB1 = filterRowsByBranch(rows, {
       staffRole: 'branch_owner',
       allowedBranchIds: ['b1', 'b2'],
       gymCodeId: 'b1',
+      activeBranchId: 'b1',
     });
-    expect(out.map((r) => r.memberId)).toEqual(['1', '2']);
+    expect(outB1.map((r) => r.memberId)).toEqual(['1']);
+    const outB2 = filterRowsByBranch(rows, {
+      staffRole: 'branch_owner',
+      allowedBranchIds: ['b1', 'b2'],
+      gymCodeId: 'b2',
+      activeBranchId: 'b2',
+    });
+    expect(outB2.map((r) => r.memberId)).toEqual(['2']);
   });
 });
 

@@ -10,7 +10,7 @@ export async function listGymCodes() {
   const gid = gymId();
   const { data, error } = await sb
     .from(T.gym_codes)
-    .select('id, gym_id, code, name, created_at')
+    .select('id, gym_id, code, name, display_name, logo_url, branding_updated_at, created_at')
     .eq('gym_id', gid)
     .order('code', { ascending: true });
   if (error) throw new Error(error.message);
@@ -19,6 +19,8 @@ export async function listGymCodes() {
     code: row.code,
     name: row.name,
     branchName: row.name,
+    displayName: row.display_name || null,
+    logoUrl: row.logo_url || null,
     createdAt: row.created_at,
   }));
 }

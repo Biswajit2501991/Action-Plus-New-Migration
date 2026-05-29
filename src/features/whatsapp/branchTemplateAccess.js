@@ -18,9 +18,9 @@ export function staffMayEditWhatsappTemplates(user) {
 
 export function effectiveTemplateBranchIdForUser(user, ownerSelectedBranchId) {
   if (authIsOwnerUser(user)) {
-    return String(ownerSelectedBranchId || user?.gymCodeId || '').trim();
+    return String(ownerSelectedBranchId || user?.activeBranchId || user?.gymCodeId || '').trim();
   }
-  return String(user?.gymCodeId || '').trim();
+  return String(user?.activeBranchId || user?.gymCodeId || '').trim();
 }
 
 /**

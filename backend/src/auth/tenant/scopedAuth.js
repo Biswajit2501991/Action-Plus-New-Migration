@@ -33,11 +33,27 @@ export function authHasGlobalBranchRead(auth) {
 export function resolveAllowedBranchIds(auth) {
   if (!auth) return [];
   if (authHasGlobalBranchRead(auth)) return null;
-  if (authIsBranchOwner(auth) && Array.isArray(auth.allowedBranchIds) && auth.allowedBranchIds.length) {
+  if (Array.isArray(auth.allowedBranchIds) && auth.allowedBranchIds.length) {
     return auth.allowedBranchIds.map((id) => String(id).trim()).filter(Boolean);
   }
   const single = String(auth.gymCodeId || auth.activeBranchId || '').trim();
   return single ? [single] : [];
+}
+
+/**
+ * Branch IDs used for read scoping. Multi-branch users see only the active branch.
+ * @returns {string[]|null} null = all branches (master)
+ */
+export function resolveReadBranchIds(auth) {
+  if (!auth) return [];
+  if (authHasGlobalBranchRead(auth)) return null;
+  const allowed = resolveAllowedBranchIds(auth);
+  if (!allowed?.length) return [];
+  const active = resolveActiveBranchId(auth);
+  if (allowed.length > 1 && active && allowed.includes(active)) {
+    return [active];
+  }
+  return allowed;
 }
 
 export function authCanAccessBranch(auth, gymCodeId) {

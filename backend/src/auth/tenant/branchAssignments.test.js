@@ -47,6 +47,6 @@ describe('loadAllowedBranchIdsForStaffRow', () => {
       id: 'staff-pk-2',
       gym_code_id: 'b1',
     });
-    expect(ids).toEqual(['b2', 'b1']);
+    expect(ids).toEqual(['b1', 'b2']);
   });
 });
