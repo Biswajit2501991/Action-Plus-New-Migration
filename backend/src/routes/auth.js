@@ -6,13 +6,16 @@ import {
   findStaffByIdentifier,
   getStaffAppUser,
   loginStaff,
-  requireOwnerAuth,
   requestStaffPasswordReset,
   resolveAuthBranchProfile,
-  setStaffPassword,
   signStaffToken,
   verifyStaffToken,
 } from '../auth/staffAuth.js';
+import { resolvePasswordResetDecisionAuth } from '../auth/passwordReset/passwordResetAuth.js';
+import {
+  approveStaffPasswordReset,
+  rejectStaffPasswordReset,
+} from '../auth/passwordReset/passwordResetRequestService.js';
 import { readBearerToken } from '../middleware/requireAuth.js';
 import {
   clearLoginFailures,
@@ -160,7 +163,8 @@ router.patch('/active-branch', async (req, res) => {
 
 router.post('/admin-set-password', async (req, res) => {
   if (!useSupabase()) return res.status(503).json({ error: 'auth-requires-supabase' });
-  if (!requireOwnerAuth(req, res)) return;
+  const auth = resolvePasswordResetDecisionAuth(req, res);
+  if (!auth) return;
   const staffId = (req.body?.staffId || req.body?.id || '').trim();
   const newPassword = req.body?.newPassword || req.body?.password || '';
   if (!staffId || staffId.toLowerCase() === 'owner') {
@@ -170,12 +174,30 @@ router.post('/admin-set-password', async (req, res) => {
     return res.status(400).json({ error: 'password-too-short' });
   }
   try {
-    await setStaffPassword(staffId, newPassword, { clearPasswordReset: true });
-    return res.json({ ok: true, staffId });
+    const result = await approveStaffPasswordReset(auth, staffId, newPassword);
+    return res.json({ ok: true, staffId: result.staffId, status: result.status });
   } catch (error) {
     const msg = String(error?.message || error);
-    const status = msg.includes('staff-not-found') ? 404 : 400;
+    const status = error.status || (msg.includes('staff-not-found') ? 404 : 400);
     return res.status(status).json({ error: 'set-password-failed', message: msg });
+  }
+});
+
+router.post('/reject-password-reset', async (req, res) => {
+  if (!useSupabase()) return res.status(503).json({ error: 'auth-requires-supabase' });
+  const auth = resolvePasswordResetDecisionAuth(req, res);
+  if (!auth) return;
+  const staffId = (req.body?.staffId || req.body?.id || '').trim();
+  if (!staffId || staffId.toLowerCase() === 'owner') {
+    return res.status(400).json({ error: 'invalid-staff-id' });
+  }
+  try {
+    const result = await rejectStaffPasswordReset(auth, staffId);
+    return res.json({ ok: true, staffId: result.staffId, status: result.status });
+  } catch (error) {
+    const msg = String(error?.message || error);
+    const status = error.status || (msg.includes('staff-not-found') ? 404 : 400);
+    return res.status(status).json({ error: 'reject-password-reset-failed', message: msg });
   }
 });
 

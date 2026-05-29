@@ -206,6 +206,13 @@ function staticCacheControlForPath(reqPath, ext) {
   if (reqPath === '/index.html' || reqPath === '/') {
     return 'no-cache, must-revalidate';
   }
+  if (
+    reqPath.startsWith('/src/runtime/')
+    || reqPath.startsWith('/src/features/passwordReset/')
+    || reqPath.startsWith('/src/components/passwordReset/')
+  ) {
+    return 'no-cache, must-revalidate';
+  }
   if (reqPath === '/app.bundle.js' || reqPath.startsWith('/modules/')) {
     return 'public, max-age=31536000, immutable';
   }
@@ -374,6 +381,12 @@ const server = http.createServer((req, res) => {
     } else {
       serveV2Static(req, res);
     }
+    return;
+  }
+
+  if (reqPath === '/dist-legacy/index.html' || reqPath === '/dist-legacy/' || reqPath === '/dist-legacy') {
+    res.writeHead(301, { Location: '/index.html' });
+    res.end();
     return;
   }
 

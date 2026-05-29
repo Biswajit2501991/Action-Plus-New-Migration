@@ -1080,7 +1080,6 @@
     window.__APG_MODULES__ = window.__APG_MODULES;
     window.__APG_MODULES_READY = new Promise((resolve) => {
       window.__APG_RESOLVE_MODULES = resolve;
-      window.setTimeout(resolve, 3000);
     });
   </script>
   <script src="./app.env.js"></script>
@@ -1606,6 +1605,7 @@
       'staff.created': 'Staff added',
       'staff.password_reset.requested': 'Password reset requested',
       'staff.password_reset.approved': 'Password reset approved',
+      'staff.password_reset.rejected': 'Password reset rejected',
       'staff.password_changed.self': 'Password changed (self)',
       'member.payment.added': 'Member payment added',
       'member.payment.edited': 'Member payment edited',
@@ -2808,6 +2808,8 @@ Phone: +91-7047157510`;
       return withSync;
     });
     const isPasswordResetPending = (u) => {
+      const fn = window.__APG_MODULES?.isPasswordResetPendingUser;
+      if (typeof fn === 'function') return fn(u);
       if (!u || String(u.id || '').toLowerCase() === 'owner') return false;
       if (String(u.passwordResetStatus || '') === 'pending') return true;
       const req = u.passwordResetRequestedAt;
@@ -2815,6 +2817,152 @@ Phone: +91-7047157510`;
       const app = u.passwordResetApprovedAt;
       if (!app) return true;
       return new Date(req).getTime() > new Date(app).getTime();
+    };
+    // Fallback when registerApgModules.js is stale/cached without password-reset exports.
+    const createPasswordResetDecisionHandlersFallback = ({
+      backendJson,
+      dataSyncMode,
+      getUsers,
+      setUsers,
+      getActor,
+      logEvent,
+      canDecideForStaff = () => true,
+      onToast,
+    }) => {
+      const toast = (msg, ms = 2400) => {
+        if (typeof onToast === 'function') onToast(msg, ms);
+      };
+      const findStaffUser = (staffUserId) => {
+        const key = String(staffUserId || '').trim().toLowerCase();
+        const list = typeof getUsers === 'function' ? getUsers() : [];
+        return (Array.isArray(list) ? list : []).find(
+          (u) => String(u?.id || '').trim().toLowerCase() === key,
+        ) || null;
+      };
+      const patchUserRow = (staffUserId, patchFn) => {
+        const key = String(staffUserId || '').trim().toLowerCase();
+        setUsers((prev) => (Array.isArray(prev) ? prev : []).map((x) => (
+          String(x?.id || '').trim().toLowerCase() === key ? patchFn(x) : x
+        )));
+      };
+      const patchAfterApprove = (targetUser, opts = {}) => {
+        const now = opts.now || new Date().toISOString();
+        const actor = opts.actor || 'owner';
+        return {
+          ...targetUser,
+          passwordUpdatedAt: now,
+          passwordUpdatedBy: actor,
+          passwordResetStatus: 'approved',
+          passwordResetApprovedAt: now,
+          passwordResetApprovedBy: actor,
+          passwordResetRequestedAt: '',
+          passwordResetRequestedByLogin: '',
+          passwordResetRejectedAt: '',
+          passwordResetRejectedBy: '',
+        };
+      };
+      const patchAfterReject = (targetUser, opts = {}) => {
+        const now = opts.now || new Date().toISOString();
+        const actor = opts.actor || 'owner';
+        return {
+          ...targetUser,
+          passwordResetStatus: 'rejected',
+          passwordResetRejectedAt: now,
+          passwordResetRejectedBy: actor,
+          passwordResetRequestedAt: '',
+          passwordResetRequestedByLogin: '',
+          passwordResetApprovedAt: '',
+          passwordResetApprovedBy: '',
+        };
+      };
+      async function approvePasswordReset(staffUserId) {
+        const targetId = String(staffUserId || '').trim();
+        if (!targetId || targetId.toLowerCase() === 'owner') return { ok: false };
+        const targetUser = findStaffUser(staffUserId);
+        if (!targetUser) {
+          toast('Staff account not found.', 2200);
+          return { ok: false };
+        }
+        if (!canDecideForStaff(targetUser)) {
+          toast('You cannot manage password resets for this staff member.', 2600);
+          return { ok: false };
+        }
+        if (!isPasswordResetPending(targetUser)) {
+          toast('No pending reset request for this staff.', 2200);
+          return { ok: false };
+        }
+        const nextPassword = String(window.prompt(`Set new password for ${targetUser.name || targetUser.id}:`) || '').trim();
+        if (!nextPassword) return { ok: false };
+        if (dataSyncMode === 'backend' && typeof backendJson === 'function') {
+          try {
+            await backendJson('/auth/admin-set-password', {
+              method: 'POST',
+              body: JSON.stringify({ staffId: targetUser.id, newPassword: nextPassword }),
+            });
+          } catch {
+            toast('Could not set password on server. Try again.', 2600);
+            return { ok: false };
+          }
+        }
+        const now = new Date().toISOString();
+        const actor = typeof getActor === 'function' ? getActor() : 'owner';
+        patchUserRow(targetUser.id, (x) => patchAfterApprove(x, { actor, now }));
+        if (typeof logEvent === 'function') {
+          logEvent('staff.password_reset.approved', 'user', targetUser.id, null, {
+            staffId: targetUser.id,
+            staffName: targetUser.name || '',
+            approvedAt: now,
+            approvedBy: actor,
+          });
+        }
+        toast(`Password reset approved for ${targetUser.name || targetUser.id}.`);
+        return { ok: true };
+      }
+      async function rejectPasswordReset(staffUserId) {
+        const targetId = String(staffUserId || '').trim();
+        if (!targetId || targetId.toLowerCase() === 'owner') return { ok: false };
+        const targetUser = findStaffUser(staffUserId);
+        if (!targetUser) {
+          toast('Staff account not found.', 2200);
+          return { ok: false };
+        }
+        if (!canDecideForStaff(targetUser)) {
+          toast('You cannot manage password resets for this staff member.', 2600);
+          return { ok: false };
+        }
+        if (!isPasswordResetPending(targetUser)) {
+          toast('No pending reset request for this staff.', 2200);
+          return { ok: false };
+        }
+        if (!window.confirm(`Reject password reset for ${targetUser.name || targetUser.id}? Their current password will stay unchanged.`)) {
+          return { ok: false };
+        }
+        if (dataSyncMode === 'backend' && typeof backendJson === 'function') {
+          try {
+            await backendJson('/auth/reject-password-reset', {
+              method: 'POST',
+              body: JSON.stringify({ staffId: targetUser.id }),
+            });
+          } catch (err) {
+            toast(String(err?.message || 'Could not reject reset on server. Try again.'), 3200);
+            return { ok: false };
+          }
+        }
+        const now = new Date().toISOString();
+        const actor = typeof getActor === 'function' ? getActor() : 'owner';
+        patchUserRow(targetUser.id, (x) => patchAfterReject(x, { actor, now }));
+        if (typeof logEvent === 'function') {
+          logEvent('staff.password_reset.rejected', 'user', targetUser.id, null, {
+            staffId: targetUser.id,
+            staffName: targetUser.name || '',
+            rejectedAt: now,
+            rejectedBy: actor,
+          });
+        }
+        toast(`Password reset rejected for ${targetUser.name || targetUser.id}.`);
+        return { ok: true };
+      }
+      return { approvePasswordReset, rejectPasswordReset };
     };
     const isOwnerStaffUser = (u) => {
       if (window.__APG_MODULES?.authIsOwnerUser) return window.__APG_MODULES.authIsOwnerUser(u);
@@ -5354,6 +5502,7 @@ Phone: +91-7047157510`;
           .slice(0, 20);
       }, [settings?.leaveRequests, user]);
       const [leaveApprovingId, setLeaveApprovingId] = React.useState('');
+      const [passwordResetDecidingId, setPasswordResetDecidingId] = React.useState('');
       const leaveRequestsRef = React.useRef([]);
       React.useEffect(() => {
         leaveRequestsRef.current = Array.isArray(settings?.leaveRequests) ? settings.leaveRequests : [];
@@ -5377,10 +5526,12 @@ Phone: +91-7047157510`;
           .slice(0, 20);
       }, [user?.access, visitors]);
       const isOwnerForResetFlow = React.useMemo(() => {
+        const fn = window.__APG_MODULES?.canViewPasswordResetNotifications;
+        if (typeof fn === 'function') return fn(user);
         const idKey = String(user?.id || '').trim().toLowerCase();
-        const roleKey = String(user?.role || '').trim().toLowerCase();
-        return idKey === 'owner' || roleKey === 'owner';
-      }, [user?.id, user?.role]);
+        const roleKey = String(user?.role || user?.staffRole || '').trim().toLowerCase();
+        return idKey === 'owner' || roleKey === 'owner' || roleKey === 'master_owner' || roleKey === 'branch_owner';
+      }, [user?.id, user?.role, user?.staffRole]);
       const passwordResetNotifications = React.useMemo(() => {
         if (!isOwnerForResetFlow) return [];
         return (users || [])
@@ -6085,53 +6236,73 @@ Phone: +91-7047157510`;
         setTimeout(() => setToast(''), 2800);
         return true;
       };
-      const approvePasswordResetRequest = async (staffUserId) => {
-        if (!isOwnerForResetFlow) return false;
-        const targetId = String(staffUserId || '').trim();
-        if (!targetId || targetId === 'owner') return false;
-        const targetUser = (users || []).find((u) => String(u?.id || '') === targetId);
-        if (!targetUser) return false;
-        if (!isPasswordResetPending(targetUser)) {
-          setToast('No pending reset request for this staff.');
-          setTimeout(() => setToast(''), 2200);
+      const canDecidePasswordResetForStaff = React.useCallback((targetUser) => {
+        if (!isOwnerForResetFlow || !targetUser) return false;
+        const masterFn = window.__APG_MODULES?.authIsMasterOwnerUser;
+        if (typeof masterFn === 'function' && masterFn(user)) return true;
+        if (String(user?.id || '').trim().toLowerCase() === 'owner') return true;
+        const allowedFn = window.__APG_MODULES?.allowedBranchIdsForUser;
+        if (typeof allowedFn !== 'function') return true;
+        const allowed = allowedFn(user);
+        if (allowed === null) return true;
+        const branch = String(targetUser?.gymCodeId || '').trim();
+        if (branch && allowed.includes(branch)) return true;
+        const assigned = Array.isArray(targetUser?.assignedBranchIds) ? targetUser.assignedBranchIds : [];
+        return assigned.some((id) => allowed.includes(String(id || '').trim()));
+      }, [isOwnerForResetFlow, user?.id, user?.staffRole, user?.allowedBranchIds]);
+      const buildPasswordResetDecisionHandlers = React.useCallback(() => {
+        const deps = {
+          backendJson,
+          dataSyncMode,
+          getUsers: () => users,
+          setUsers,
+          getActor: () => user?.id || user?.name || 'owner',
+          logEvent,
+          canDecideForStaff: canDecidePasswordResetForStaff,
+          onToast: (msg, ms) => {
+            setToast(msg);
+            setTimeout(() => setToast(''), Number(ms) || 2400);
+          },
+        };
+        const factory = window.__APG_MODULES?.createPasswordResetDecisionHandlers;
+        if (typeof factory === 'function') return factory(deps);
+        return createPasswordResetDecisionHandlersFallback(deps);
+      }, [backendJson, dataSyncMode, users, user?.id, user?.name, canDecidePasswordResetForStaff]);
+      const approvePasswordResetRequest = React.useCallback(async (staffUserId) => {
+        if (!isOwnerForResetFlow || passwordResetDecidingId) return false;
+        const id = String(staffUserId || '').trim();
+        if (!id) return false;
+        setPasswordResetDecidingId(id);
+        try {
+          const handlers = buildPasswordResetDecisionHandlers();
+          const fn = handlers?.approvePasswordReset;
+          if (typeof fn !== 'function') return false;
+          const result = await fn(id);
+          return Boolean(result?.ok);
+        } finally {
+          setPasswordResetDecidingId('');
+        }
+      }, [isOwnerForResetFlow, passwordResetDecidingId, buildPasswordResetDecisionHandlers]);
+      const rejectPasswordResetRequest = React.useCallback(async (staffUserId) => {
+        if (!isOwnerForResetFlow) {
+          setToast('You do not have permission to reject password resets.');
+          setTimeout(() => setToast(''), 2600);
           return false;
         }
-        const nextPassword = String(window.prompt(`Set new password for ${targetUser.name || targetUser.id}:`) || '').trim();
-        if (!nextPassword) return false;
-        if (dataSyncMode === 'backend') {
-          try {
-            await backendJson('/auth/admin-set-password', {
-              method: 'POST',
-              body: JSON.stringify({ staffId: targetUser.id, newPassword: nextPassword }),
-            });
-          } catch {
-            setToast('Could not set password on server. Try again.');
-            setTimeout(() => setToast(''), 2600);
-            return false;
-          }
+        if (passwordResetDecidingId) return false;
+        const id = String(staffUserId || '').trim();
+        if (!id) return false;
+        setPasswordResetDecidingId(id);
+        try {
+          const handlers = buildPasswordResetDecisionHandlers();
+          const fn = handlers?.rejectPasswordReset;
+          if (typeof fn !== 'function') return false;
+          const result = await fn(id);
+          return Boolean(result?.ok);
+        } finally {
+          setPasswordResetDecidingId('');
         }
-        const now = new Date().toISOString();
-        const actor = user?.id || user?.name || 'owner';
-        setUsers((prev) => prev.map((x) => (x.id === targetUser.id ? {
-          ...x,
-          passwordUpdatedAt: now,
-          passwordUpdatedBy: actor,
-          passwordResetStatus: 'approved',
-          passwordResetApprovedAt: now,
-          passwordResetApprovedBy: actor,
-          passwordResetRequestedAt: '',
-          passwordResetRequestedByLogin: '',
-        } : x)));
-        logEvent('staff.password_reset.approved', 'user', targetUser.id, null, {
-          staffId: targetUser.id,
-          staffName: targetUser.name || '',
-          approvedAt: now,
-          approvedBy: actor,
-        });
-        setToast(`Password reset approved for ${targetUser.name || targetUser.id}.`);
-        setTimeout(() => setToast(''), 2400);
-        return true;
-      };
+      }, [isOwnerForResetFlow, passwordResetDecidingId, buildPasswordResetDecisionHandlers]);
 
       // Keep live user details (like photo) in sync after Settings updates — never strip owner sections from DB row.
       React.useEffect(() => {
@@ -8128,28 +8299,37 @@ Please pay by: ${formattedLastDate}`;
                         ) : (
                           <div className="max-h-64 overflow-auto space-y-1 mb-1">
                             {passwordResetNotifications.map((u) => (
-                              <button
-                                key={`pwd-reset-mobile-${u.id}`}
-                                onClick={() => {
-                                  setNotificationOpen(false);
-                                  setActiveTab('Staff');
-                                }}
-                                className="w-full rounded-lg border border-blue-200 bg-blue-50 px-2 py-2 text-left hover:bg-blue-100"
-                              >
-                                <div className="text-xs font-semibold text-blue-800">{u.name || u.id} requested password reset</div>
-                                <div className="text-[11px] text-blue-700 mb-1">User: {u.id} • {formatDateTimeTz(u.passwordResetRequestedAt, displayTimeZone)}</div>
-                                <button
-                                  onClick={(e) => {
-                                    e.stopPropagation();
-                                    e.preventDefault();
-                                    const ok = approvePasswordResetRequest(u.id);
-                                    if (ok) setNotificationOpen(false);
-                                  }}
-                                  className="rounded-full border border-blue-300 bg-white px-2.5 py-1 text-[11px] font-semibold text-blue-700 hover:bg-blue-50"
-                                >
-                                  Approve Reset
-                                </button>
-                              </button>
+                              window.__APG_MODULES?.PasswordResetNotificationCard
+                                ? React.createElement(window.__APG_MODULES.PasswordResetNotificationCard, {
+                                    key: `pwd-reset-mobile-${u.id}`,
+                                    user: u,
+                                    fmtDateTime: (v) => formatDateTimeTz(v, displayTimeZone),
+                                    busy: passwordResetDecidingId === u.id,
+                                    onOpen: () => {
+                                      setNotificationOpen(false);
+                                      setActiveTab('Staff');
+                                    },
+                                    onApprove: async (staffId) => {
+                                      const ok = await approvePasswordResetRequest(staffId);
+                                      if (ok) setNotificationOpen(false);
+                                    },
+                                    onReject: async (staffId) => {
+                                      const ok = await rejectPasswordResetRequest(staffId);
+                                      if (ok) setNotificationOpen(false);
+                                    },
+                                  })
+                                : (
+                                  <button
+                                    key={`pwd-reset-mobile-${u.id}`}
+                                    onClick={() => {
+                                      setNotificationOpen(false);
+                                      setActiveTab('Staff');
+                                    }}
+                                    className="w-full rounded-lg border border-blue-200 bg-blue-50 px-2 py-2 text-left hover:bg-blue-100"
+                                  >
+                                    <div className="text-xs font-semibold text-blue-800">{u.name || u.id} requested password reset</div>
+                                  </button>
+                                )
                             ))}
                           </div>
                         )}
@@ -8423,28 +8603,37 @@ Please pay by: ${formattedLastDate}`;
                             ) : (
                               <div className="max-h-72 overflow-auto space-y-1 mb-1">
                                 {passwordResetNotifications.map((u) => (
-                                  <button
-                                    key={`pwd-reset-desktop-${u.id}`}
-                                    onClick={() => {
-                                      setNotificationOpen(false);
-                                      setActiveTab('Staff');
-                                    }}
-                                    className="w-full rounded-lg border border-blue-200 bg-blue-50 px-2 py-2 text-left hover:bg-blue-100"
-                                  >
-                                    <div className="text-xs font-semibold text-blue-800">{u.name || u.id} requested password reset</div>
-                                    <div className="text-[11px] text-blue-700 mb-1">User: {u.id} • {formatDateTimeTz(u.passwordResetRequestedAt, displayTimeZone)}</div>
-                                    <button
-                                      onClick={(e) => {
-                                        e.stopPropagation();
-                                        e.preventDefault();
-                                        const ok = approvePasswordResetRequest(u.id);
-                                        if (ok) setNotificationOpen(false);
-                                      }}
-                                      className="rounded-full border border-blue-300 bg-white px-2.5 py-1 text-[11px] font-semibold text-blue-700 hover:bg-blue-50"
-                                    >
-                                      Approve Reset
-                                    </button>
-                                  </button>
+                                  window.__APG_MODULES?.PasswordResetNotificationCard
+                                    ? React.createElement(window.__APG_MODULES.PasswordResetNotificationCard, {
+                                        key: `pwd-reset-desktop-${u.id}`,
+                                        user: u,
+                                        fmtDateTime: (v) => formatDateTimeTz(v, displayTimeZone),
+                                        busy: passwordResetDecidingId === u.id,
+                                        onOpen: () => {
+                                          setNotificationOpen(false);
+                                          setActiveTab('Staff');
+                                        },
+                                        onApprove: async (staffId) => {
+                                          const ok = await approvePasswordResetRequest(staffId);
+                                          if (ok) setNotificationOpen(false);
+                                        },
+                                        onReject: async (staffId) => {
+                                          const ok = await rejectPasswordResetRequest(staffId);
+                                          if (ok) setNotificationOpen(false);
+                                        },
+                                      })
+                                    : (
+                                      <button
+                                        key={`pwd-reset-desktop-${u.id}`}
+                                        onClick={() => {
+                                          setNotificationOpen(false);
+                                          setActiveTab('Staff');
+                                        }}
+                                        className="w-full rounded-lg border border-blue-200 bg-blue-50 px-2 py-2 text-left hover:bg-blue-100"
+                                      >
+                                        <div className="text-xs font-semibold text-blue-800">{u.name || u.id} requested password reset</div>
+                                      </button>
+                                    )
                                 ))}
                               </div>
                             )}
@@ -8947,6 +9136,8 @@ Please pay by: ${formattedLastDate}`;
                 backendJson={backendJson}
                 logEvent={logEvent}
                 onApprovePasswordReset={approvePasswordResetRequest}
+                onRejectPasswordReset={rejectPasswordResetRequest}
+                passwordResetDecidingId={passwordResetDecidingId}
                 gymCodes={gymCodes}
                 hqGymCodeId={hqGymCodeId}
                 gymCodeLabel={gymCodeLabel}
@@ -17482,6 +17673,9 @@ function PTClientsPage({ members, users, settings, updateSetting, currentUser, a
         if (act === 'staff.password_reset.approved') {
           return [a.staffName || a.staffId || l.entityId, `approved by ${a.approvedBy || 'owner'}`].filter(Boolean).join(' · ');
         }
+        if (act === 'staff.password_reset.rejected') {
+          return [a.staffName || a.staffId || l.entityId, `rejected by ${a.rejectedBy || 'owner'}`].filter(Boolean).join(' · ');
+        }
         if (act === 'staff.password_changed.self') {
           return [a.staffName || a.staffId || l.entityId, 'self changed password'].filter(Boolean).join(' · ');
         }
@@ -20019,7 +20213,7 @@ function PTClientsPage({ members, users, settings, updateSetting, currentUser, a
 
     // ---- User Management Page ----
     // This page allows the owner to add new staff and assign which sections they can access.
-    function UserManagementPage({ users, setUsers, settings, setSettings, currentUser, dataSyncMode = 'local', backendJson = null, logEvent, onApprovePasswordReset, gymCodes = [], hqGymCodeId = null, gymCodeLabel = () => '—' }) {
+    function UserManagementPage({ users, setUsers, settings, setSettings, currentUser, dataSyncMode = 'local', backendJson = null, logEvent, onApprovePasswordReset, onRejectPasswordReset, passwordResetDecidingId = '', gymCodes = [], hqGymCodeId = null, gymCodeLabel = () => '—' }) {
       const [modalOpen, setModalOpen] = React.useState(false);
       const [photoPickerOpen, setPhotoPickerOpen] = React.useState(false);
       const [form, setForm] = React.useState({ id: '', password: '', name: '', email: '', sections: [], access: { ...DEFAULT_ACCESS }, blocked: false, blockedReason: '', blockedAt: '', updatedBy: '', photo: null, testProfile: false, sandboxId: '', gymCodeId: '', staffRole: 'staff', assignedBranchIds: [] });
@@ -20665,9 +20859,15 @@ function PTClientsPage({ members, users, settings, updateSetting, currentUser, a
         logEvent && logEvent('staff.password.view_toggled', 'user', u.id, null, { shown: !shownPasswords[u.id] });
       };
       const approveResetRequest = (u) => {
-        if (!isOwner || !u || u.id === 'owner') return;
+        if (!isBranchAdmin || !u || u.id === 'owner') return;
         if (typeof onApprovePasswordReset === 'function') {
-          onApprovePasswordReset(u.id);
+          void onApprovePasswordReset(u.id);
+        }
+      };
+      const rejectResetRequest = (u) => {
+        if (!isBranchAdmin || !u || u.id === 'owner') return;
+        if (typeof onRejectPasswordReset === 'function') {
+          void onRejectPasswordReset(u.id);
         }
       };
       const changeOwnPassword = async (u) => {
@@ -21145,9 +21345,22 @@ function PTClientsPage({ members, users, settings, updateSetting, currentUser, a
                           {u.id !== 'owner' && (
                             <>
                               {isPasswordResetPending(u) && (
-                                <button onClick={() => approveResetRequest(u)} className="text-blue-700 hover:underline text-xs font-medium">
-                                  Approve Reset
-                                </button>
+                                <>
+                                  <button
+                                    onClick={() => approveResetRequest(u)}
+                                    disabled={passwordResetDecidingId === u.id}
+                                    className="text-blue-700 hover:underline text-xs font-medium disabled:opacity-50"
+                                  >
+                                    Approve Reset
+                                  </button>
+                                  <button
+                                    onClick={() => rejectResetRequest(u)}
+                                    disabled={passwordResetDecidingId === u.id}
+                                    className="text-rose-700 hover:underline text-xs font-medium disabled:opacity-50"
+                                  >
+                                    Reject Reset
+                                  </button>
+                                </>
                               )}
                               <button onClick={() => toggleBlocked(u)} className={cx('hover:underline text-xs font-medium', u.blocked ? 'text-emerald-600' : 'text-amber-700')}>
                                 {u.blocked ? 'Unblock' : 'Block'}
@@ -21215,9 +21428,22 @@ function PTClientsPage({ members, users, settings, updateSetting, currentUser, a
                         {u.id !== 'owner' && (
                           <>
                             {isPasswordResetPending(u) && (
-                              <button onClick={() => approveResetRequest(u)} className="rounded-lg border border-blue-300 bg-blue-50 px-3 py-2 min-h-[44px] text-xs font-medium text-blue-700 hover:bg-blue-100">
-                                Approve Reset
-                              </button>
+                              <>
+                                <button
+                                  onClick={() => approveResetRequest(u)}
+                                  disabled={passwordResetDecidingId === u.id}
+                                  className="rounded-lg border border-blue-300 bg-blue-50 px-3 py-2 min-h-[44px] text-xs font-medium text-blue-700 hover:bg-blue-100 disabled:opacity-50"
+                                >
+                                  Approve Reset
+                                </button>
+                                <button
+                                  onClick={() => rejectResetRequest(u)}
+                                  disabled={passwordResetDecidingId === u.id}
+                                  className="rounded-lg border border-rose-300 bg-rose-50 px-3 py-2 min-h-[44px] text-xs font-medium text-rose-700 hover:bg-rose-100 disabled:opacity-50"
+                                >
+                                  Reject Reset
+                                </button>
+                              </>
                             )}
                             <button onClick={() => toggleBlocked(u)} className={cx('rounded-lg border px-3 py-2 min-h-[44px] text-xs font-medium', u.blocked ? 'border-emerald-300 bg-emerald-50 text-emerald-700 hover:bg-emerald-100' : 'border-amber-300 bg-amber-50 text-amber-700 hover:bg-amber-100')}>
                               {u.blocked ? 'Unblock' : 'Block'}

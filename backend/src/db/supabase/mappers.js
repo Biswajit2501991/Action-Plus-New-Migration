@@ -1,4 +1,5 @@
 import crypto from 'node:crypto';
+import { passwordResetStatusFromRecord } from '../../../../src/features/passwordReset/passwordResetStatus.js';
 import { emptyText, financeStatusFromNumeric, financeStatusToNumeric, toDate, toTs } from './utils.js';
 
 /** Columns fetched for list pulls — excludes photo + heavy JSON/signature blobs. */
@@ -198,19 +199,19 @@ export function attachmentRowToApp(row) {
   };
 }
 
-export function passwordResetStatusFromTimestamps(requestedAt, approvedAt) {
-  if (!requestedAt) return '';
-  if (!approvedAt) return 'pending';
-  const reqMs = new Date(requestedAt).getTime();
-  const appMs = new Date(approvedAt).getTime();
-  if (!Number.isFinite(reqMs)) return '';
-  if (!Number.isFinite(appMs) || reqMs > appMs) return 'pending';
-  return 'approved';
+export function passwordResetStatusFromTimestamps(requestedAt, approvedAt, rejectedAt = '') {
+  return passwordResetStatusFromRecord({
+    passwordResetRequestedAt: requestedAt,
+    passwordResetApprovedAt: approvedAt,
+    passwordResetRejectedAt: rejectedAt,
+  });
 }
 
 export function staffRowToApp(row, sections = [], access = {}, assignedBranchIds = null) {
   const passwordResetRequestedAt = row.password_reset_requested_at || '';
   const passwordResetApprovedAt = row.password_reset_approved_at || '';
+  const passwordResetRejectedAt = row.password_reset_rejected_at || '';
+  const passwordResetRejectedBy = row.password_reset_rejected_by || '';
   return {
     id: row.staff_login_id,
     name: row.full_name,
@@ -226,10 +227,13 @@ export function staffRowToApp(row, sections = [], access = {}, assignedBranchIds
     sandboxId: row.sandbox_id || '',
     passwordResetRequestedAt,
     passwordResetApprovedAt,
-    passwordResetStatus: passwordResetStatusFromTimestamps(
+    passwordResetRejectedAt,
+    passwordResetRejectedBy,
+    passwordResetStatus: passwordResetStatusFromRecord({
       passwordResetRequestedAt,
       passwordResetApprovedAt,
-    ),
+      passwordResetRejectedAt,
+    }),
     lastLoginAt: row.last_login_at || '',
     gymCodeId: row.gym_code_id || null,
     staffRole: row.staff_role || 'staff',
@@ -259,6 +263,8 @@ export function appStaffToRow(u, gymId) {
     sandbox_id: u.sandboxId || null,
     password_reset_requested_at: toTs(u.passwordResetRequestedAt),
     password_reset_approved_at: toTs(u.passwordResetApprovedAt),
+    password_reset_rejected_at: toTs(u.passwordResetRejectedAt),
+    password_reset_rejected_by: u.passwordResetRejectedBy || null,
     last_login_at: toTs(u.lastLoginAt),
     created_at: toTs(u.createdAt) || updatedAt,
     updated_at: updatedAt,

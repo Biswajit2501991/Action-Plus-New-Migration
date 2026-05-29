@@ -92,6 +92,19 @@ import {
   ANCHORED_POPOVER_LAYER_CLASS,
   ANCHORED_POPOVER_Z_INDEX,
 } from '../features/overlay/anchoredPopoverCoords.js';
+import {
+  PASSWORD_RESET_STATUS,
+  canViewPasswordResetNotifications,
+  isPasswordResetPendingUser,
+  passwordResetStatusFromRecord,
+} from '../features/passwordReset/passwordResetStatus.js';
+import { createPasswordResetDecisionHandlers } from '../features/passwordReset/passwordResetDecisionHandlers.js';
+import {
+  patchUserAfterPasswordResetApprove,
+  patchUserAfterPasswordResetReject,
+  patchUserAfterPasswordResetRequest,
+} from '../features/passwordReset/passwordResetUserPatch.js';
+import PasswordResetNotificationCard from '../components/passwordReset/PasswordResetNotificationCard.js';
 
 function emitTelemetry(level, code, message, meta = {}) {
   const payload = {
@@ -149,8 +162,10 @@ async function loadLeaveTrackerModuleWithRetry(maxAttempts = 3) {
     });
   }
 
-  if (!window.Babel) throw new Error('fallback-babel-missing');
-  if (!window.React) throw new Error('fallback-react-missing');
+  if (!window.Babel || !window.React) {
+    emitTelemetry('warn', 'leave-tracker-stub', 'Leave Tracker unavailable in prod bundle (Babel not loaded)');
+    return null;
+  }
 
   const source = await fetchLeaveTrackerSource();
   let lastErr = null;
@@ -244,6 +259,19 @@ window.__APG_MODULES.mergeVisitorsAfterBranchReplace = mergeVisitorsAfterBranchR
 window.__APG_MODULES.measureAnchoredPopoverCoords = measureAnchoredPopoverCoords;
 window.__APG_MODULES.ANCHORED_POPOVER_LAYER_CLASS = ANCHORED_POPOVER_LAYER_CLASS;
 window.__APG_MODULES.ANCHORED_POPOVER_Z_INDEX = ANCHORED_POPOVER_Z_INDEX;
+window.__APG_MODULES.PASSWORD_RESET_STATUS = PASSWORD_RESET_STATUS;
+window.__APG_MODULES.passwordResetStatusFromRecord = passwordResetStatusFromRecord;
+window.__APG_MODULES.isPasswordResetPendingUser = isPasswordResetPendingUser;
+window.__APG_MODULES.canViewPasswordResetNotifications = canViewPasswordResetNotifications;
+window.__APG_MODULES.createPasswordResetDecisionHandlers = createPasswordResetDecisionHandlers;
+window.__APG_MODULES.patchUserAfterPasswordResetApprove = patchUserAfterPasswordResetApprove;
+window.__APG_MODULES.patchUserAfterPasswordResetReject = patchUserAfterPasswordResetReject;
+window.__APG_MODULES.patchUserAfterPasswordResetRequest = patchUserAfterPasswordResetRequest;
+window.__APG_MODULES.PasswordResetNotificationCard = PasswordResetNotificationCard;
+// Core modules are registered — unblock app mount before LeaveTracker async load finishes.
+if (typeof window.__APG_RESOLVE_MODULES === 'function') {
+  window.__APG_RESOLVE_MODULES();
+}
 // Legacy alias used in parts of index.html (typo: trailing underscores).
 window.__APG_MODULES__ = window.__APG_MODULES;
 

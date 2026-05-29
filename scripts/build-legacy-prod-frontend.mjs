@@ -53,11 +53,22 @@ function buildProdHtml(html, inlineFullMatch) {
     /[ \t]*<!-- Babel Standalone served locally for in-browser JSX compilation -->\s*[\r\n]+[ \t]*<script src="\.\/vendor\/babel\.min\.js"><\/script>\s*/i,
     '',
   );
-  return withoutBabelRuntime
+  const withBundle = withoutBabelRuntime
     .replace(
       inlineFullMatch,
-      `<script src="./dist-legacy/app.bundle.js?v=${buildTag}"></script>`,
+      `<script src="/dist-legacy/app.bundle.js?v=${buildTag}"></script>`,
+    )
+    .replace(
+      /<script\s+type="module"\s+src="\.\/src\/runtime\/registerApgModules\.js"><\/script>/i,
+      `<script type="module" src="/src/runtime/registerApgModules.js?v=${buildTag}"></script>`,
     );
+  // Root-absolute asset URLs so /index.html and /dist-legacy/index.html both work.
+  return withBundle
+    .replace(/src="\.\/dist-legacy\//g, 'src="/dist-legacy/')
+    .replace(/src="\.\/src\//g, 'src="/src/')
+    .replace(/src="\.\/app\.env\.js"/g, 'src="/app.env.js"')
+    .replace(/src="\.\/vendor\//g, 'src="/vendor/')
+    .replace(/"\.\/vendor\//g, '"/vendor/');
 }
 
 async function main() {

@@ -255,6 +255,8 @@ export async function setStaffPassword(staffLoginId, newPassword, options = {}) 
   if (options.clearPasswordReset) {
     patch.password_reset_requested_at = null;
     patch.password_reset_approved_at = now;
+    patch.password_reset_rejected_at = null;
+    patch.password_reset_rejected_by = null;
   }
   const { error } = await sb.from(T.staff_users).update(patch).eq('id', row.id);
   if (error) throw error;
@@ -262,21 +264,8 @@ export async function setStaffPassword(staffLoginId, newPassword, options = {}) 
 }
 
 export async function requestStaffPasswordReset(identifier) {
-  const row = await findStaffByIdentifier(identifier);
-  if (!row) return { ok: true };
-  if (String(row.staff_login_id || '').toLowerCase() === 'owner') return { ok: true };
-  if (row.is_blocked) return { ok: true };
-  const sb = getSupabase();
-  const now = new Date().toISOString();
-  await sb
-    .from(T.staff_users)
-    .update({
-      password_reset_requested_at: now,
-      password_reset_approved_at: null,
-      updated_at: now,
-    })
-    .eq('id', row.id);
-  return { ok: true };
+  const { requestStaffPasswordResetWithAudit } = await import('./passwordReset/passwordResetRequestService.js');
+  return requestStaffPasswordResetWithAudit(identifier);
 }
 
 export async function changeStaffPassword(staffLoginId, currentPassword, newPassword) {
