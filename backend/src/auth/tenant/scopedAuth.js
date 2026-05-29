@@ -61,6 +61,22 @@ export function resolveActiveBranchId(auth) {
   return allowed[0] || '';
 }
 
+/**
+ * Branch IDs used for read scoping. Multi-branch users see only the active branch.
+ * @returns {string[]|null} null = all branches (master)
+ */
+export function resolveReadBranchIds(auth) {
+  if (!auth) return [];
+  if (authHasGlobalBranchRead(auth)) return null;
+  const allowed = resolveAllowedBranchIds(auth);
+  if (!allowed?.length) return [];
+  const active = resolveActiveBranchId(auth);
+  if (allowed.length > 1 && active && allowed.includes(active)) {
+    return [active];
+  }
+  return allowed;
+}
+
 /** Elevated admin within assigned branches (not global master). */
 export function authIsBranchAdmin(auth) {
   return engineIsBranchAdmin(auth);

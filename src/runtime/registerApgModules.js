@@ -64,6 +64,19 @@ import {
   resolveMemberTemplateFromCache,
 } from '../features/whatsapp/branchTemplateAccess.js';
 import { WHATSAPP_TEMPLATE_KEYS } from '../features/whatsapp/templateKeys.js';
+import {
+  resolveClientBranchBranding,
+  defaultClientBranding,
+  DEFAULT_LOGO_PATH,
+  DEFAULT_GYM_DISPLAY_NAME,
+} from '../features/branding/branchBranding.js';
+import {
+  switchableBranchesForUser,
+  shouldShowBranchSwitcher,
+  effectiveActiveBranchId,
+  readActiveBranchPref,
+  writeActiveBranchPref,
+} from '../features/branding/activeBranchContext.js';
 
 function emitTelemetry(level, code, message, meta = {}) {
   const payload = {
@@ -195,6 +208,15 @@ window.__APG_MODULES.authIsOwnerUserWhatsapp = authIsOwnerUserWhatsapp;
 window.__APG_MODULES.staffMayEditWhatsappTemplates = staffMayEditWhatsappTemplates;
 window.__APG_MODULES.effectiveTemplateBranchIdForUser = effectiveTemplateBranchIdForUser;
 window.__APG_MODULES.resolveMemberTemplateFromCache = resolveMemberTemplateFromCache;
+window.__APG_MODULES.resolveClientBranchBranding = resolveClientBranchBranding;
+window.__APG_MODULES.defaultClientBranding = defaultClientBranding;
+window.__APG_MODULES.DEFAULT_LOGO_PATH = DEFAULT_LOGO_PATH;
+window.__APG_MODULES.DEFAULT_GYM_DISPLAY_NAME = DEFAULT_GYM_DISPLAY_NAME;
+window.__APG_MODULES.switchableBranchesForUser = switchableBranchesForUser;
+window.__APG_MODULES.shouldShowBranchSwitcher = shouldShowBranchSwitcher;
+window.__APG_MODULES.effectiveActiveBranchId = effectiveActiveBranchId;
+window.__APG_MODULES.readActiveBranchPref = readActiveBranchPref;
+window.__APG_MODULES.writeActiveBranchPref = writeActiveBranchPref;
 // Legacy alias used in parts of index.html (typo: trailing underscores).
 window.__APG_MODULES__ = window.__APG_MODULES;
 

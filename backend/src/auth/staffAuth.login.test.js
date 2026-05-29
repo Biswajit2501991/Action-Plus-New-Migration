@@ -11,9 +11,12 @@ vi.mock('./passwords.js', () => ({
 }));
 
 vi.mock('./tenant/branchAssignments.js', () => ({
-  resolveStaffBranchContext: vi.fn(async () => {
-    throw new Error('assignments table missing');
-  }),
+  resolveStaffBranchContext: vi.fn(async () => ({
+    staffRole: 'staff',
+    allowedBranchIds: ['branch-1'],
+    primaryBranchId: 'branch-1',
+  })),
+  loadAllowedBranchIdsForStaffRow: vi.fn(async () => ['branch-1']),
 }));
 
 import { getSupabase } from '../db/supabase/client.js';

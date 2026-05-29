@@ -2745,7 +2745,7 @@ Phone: +91-7047157510`;
         }
         const data = await me.json();
         const uid = data?.user?.id || data?.userId || parsed.userId;
-        touchAuthSession(uid, parsed.token);
+        touchAuthSession(uid, data?.token || parsed.token);
         apgLoadTimingRecord('auth', 'GET /auth/me', performance.now() - t0, {
           status: me.status,
           ok: true,
@@ -2791,6 +2791,34 @@ Phone: +91-7047157510`;
     };
     /** GET /users — master owner / branch owner only (not regular staff). */
     const canFetchStaffUsersList = (u) => Boolean(u?.id) && isBranchAdminUser(u);
+    const branchIdsFromAuthPayload = (data) => {
+      const authUser = data?.user || {};
+      const allowedTop = Array.isArray(data?.allowedBranchIds) ? data.allowedBranchIds : [];
+      const allowedUser = Array.isArray(authUser.allowedBranchIds) ? authUser.allowedBranchIds : [];
+      const assigned = Array.isArray(authUser.assignedBranchIds) ? authUser.assignedBranchIds : [];
+      const allowed = allowedTop.length ? allowedTop : (allowedUser.length ? allowedUser : assigned);
+      const assignedOut = assigned.length ? assigned : allowed;
+      return {
+        allowedBranchIds: allowed.length ? allowed : assignedOut,
+        assignedBranchIds: assignedOut,
+        gymCodeId: String(authUser.gymCodeId || authUser.activeBranchId || data?.gymCodeId || '').trim(),
+        activeBranchId: String(authUser.activeBranchId || authUser.gymCodeId || data?.activeBranchId || '').trim(),
+      };
+    };
+    const applyAuthBranchContextToUser = (prev, data) => {
+      if (!prev || !data?.user) return prev;
+      const branch = branchIdsFromAuthPayload(data);
+      const prepared = prepareStaffUser(data.user);
+      const unionIds = (a, b) => [...new Set([...(Array.isArray(a) ? a : []), ...(Array.isArray(b) ? b : [])].map((x) => String(x || '').trim()).filter(Boolean))];
+      return {
+        ...prev,
+        ...prepared,
+        gymCodeId: branch.gymCodeId || prev.gymCodeId || '',
+        activeBranchId: branch.activeBranchId || branch.gymCodeId || prev.activeBranchId || '',
+        assignedBranchIds: unionIds(prev.assignedBranchIds, branch.assignedBranchIds),
+        allowedBranchIds: unionIds(prev.allowedBranchIds, branch.allowedBranchIds),
+      };
+    };
     const visitorsForBulkSync = (list, currentUser = null) => {
       let scoped = Array.isArray(list) ? list : [];
       if (currentUser) {
@@ -3628,6 +3656,7 @@ Phone: +91-7047157510`;
     // ---- App Component ----
     function GymApp() {
       const [user, setUser] = React.useState(null);
+      const [branchSwitching, setBranchSwitching] = React.useState(false);
       const [toast, setToast] = React.useState('');
       const sessionTouchRef = React.useRef(0);
       const [dataSyncMode, setDataSyncMode] = React.useState('checking');
@@ -5618,14 +5647,23 @@ Phone: +91-7047157510`;
           const nowIso = new Date().toISOString();
           writeAuthSession(rec.id, token);
           const sessionUser = prepareStaffUser(rec);
+          const loginAssigned = Array.isArray(rec.assignedBranchIds) && rec.assignedBranchIds.length
+            ? rec.assignedBranchIds
+            : (Array.isArray(rec.allowedBranchIds) ? rec.allowedBranchIds : (rec.gymCodeId ? [rec.gymCodeId] : []));
+          const branchUnion = [...new Set(loginAssigned.map((x) => String(x || '').trim()).filter(Boolean))];
           setUser({
             ...sessionUser,
             gymCodeId: rec.gymCodeId || rec.activeBranchId || sessionUser.gymCodeId || '',
             activeBranchId: rec.activeBranchId || rec.gymCodeId || sessionUser.activeBranchId || '',
-            allowedBranchIds: Array.isArray(rec.allowedBranchIds) ? rec.allowedBranchIds : (rec.gymCodeId ? [rec.gymCodeId] : []),
+            assignedBranchIds: branchUnion.length ? branchUnion : loginAssigned,
+            allowedBranchIds: branchUnion.length ? branchUnion : loginAssigned,
             staffRole: rec.staffRole || sessionUser.staffRole || 'staff',
             lastLoginAt: nowIso,
           });
+          const prefFn = window.__APG_MODULES?.writeActiveBranchPref;
+          if (typeof prefFn === 'function' && (rec.activeBranchId || rec.gymCodeId)) {
+            prefFn(rec.id, rec.activeBranchId || rec.gymCodeId);
+          }
           setUsers((prev) => prev.map((u) => (u.id === rec.id ? { ...prepareStaffUser(u.id === rec.id ? { ...u, ...sessionUser } : u), lastLoginAt: nowIso } : u)));
           markLoginAttendance(sessionUser, nowIso);
           pushAttendancePunch('login', sessionUser, nowIso);
@@ -5851,7 +5889,11 @@ Phone: +91-7047157510`;
           if (rec && !rec.blocked) {
             const nowIso = new Date().toISOString();
             writeAuthSession(rec.id, parsed.token);
-            setUser({ ...rec, gymCodeId: rec.gymCodeId || '', lastLoginAt: nowIso });
+            setUser(applyAuthBranchContextToUser(
+              { ...rec, gymCodeId: rec.gymCodeId || '', lastLoginAt: nowIso },
+              data,
+            ));
+            if (data?.token) writeAuthSession(rec.id, data.token);
             setUsers((prev) => {
               const exists = prev.some((u) => authUserIdsMatch(u.id, rec.id));
               if (exists) return prev.map((u) => (authUserIdsMatch(u.id, rec.id) ? { ...prepareStaffUser({ ...u, ...rec }), lastLoginAt: nowIso } : u));
@@ -7586,6 +7628,49 @@ Please pay by: ${formattedLastDate}`;
         } catch {}
       };
 
+      const switchActiveBranch = React.useCallback(async (gymCodeId) => {
+        const id = String(gymCodeId || '').trim();
+        if (!id || !user || branchSwitching) return;
+        const canFn = window.__APG_MODULES?.userCanAccessBranch;
+        if (typeof canFn === 'function' && !canFn(user, id)) {
+          setToast('You cannot access that branch.');
+          setTimeout(() => setToast(''), 2800);
+          return;
+        }
+        setBranchSwitching(true);
+        try {
+          if (dataSyncMode === 'backend' && typeof backendJson === 'function') {
+            const out = await backendJson('/auth/active-branch', {
+              method: 'PATCH',
+              body: JSON.stringify({ gymCodeId: id }),
+            });
+            if (out?.token) writeAuthSession(user.id, out.token);
+            const nextAllowed = Array.isArray(out?.allowedBranchIds) ? out.allowedBranchIds : user.allowedBranchIds;
+            const nextAssigned = Array.isArray(out?.assignedBranchIds) ? out.assignedBranchIds : nextAllowed;
+            setUser({
+              ...user,
+              gymCodeId: id,
+              activeBranchId: id,
+              allowedBranchIds: nextAllowed,
+              assignedBranchIds: nextAssigned,
+            });
+            const prefFn = window.__APG_MODULES?.writeActiveBranchPref;
+            if (typeof prefFn === 'function') prefFn(user.id, id);
+          } else {
+            setUser({ ...user, gymCodeId: id, activeBranchId: id });
+          }
+          setBackendHydrated(false);
+          await hydrateFromBackend({ authUser: { ...user, gymCodeId: id, activeBranchId: id } }).catch(() => setBackendHydrated(false));
+          setToast('Branch context updated.');
+          setTimeout(() => setToast(''), 2200);
+        } catch (err) {
+          setToast(`Could not switch branch: ${err?.message || 'try again'}`);
+          setTimeout(() => setToast(''), 3500);
+        } finally {
+          setBranchSwitching(false);
+        }
+      }, [user, branchSwitching, dataSyncMode, writeAuthSession, hydrateFromBackend]);
+
       // Logout handler clears the current user and resets navigation state.
       const logout = () => {
         const nowIso = new Date().toISOString();
@@ -7683,6 +7768,15 @@ Please pay by: ${formattedLastDate}`;
                 <div className="text-[14px] leading-tight font-bold text-slate-900 truncate">{activeTab}</div>
               </div>
               <div className="flex items-center gap-1.5">
+              <HeaderProfileBranchMenu
+                user={user}
+                gymCodes={gymCodes}
+                gymCodeLabel={gymCodeLabel}
+                activeBranchId={user?.activeBranchId || user?.gymCodeId}
+                onSwitch={switchActiveBranch}
+                switching={branchSwitching}
+                compact
+              />
               {/* Light/Dark mode toggle removed — Luxury skin replaces classic dark mode (Phase 2 branding cleanup). */}
               <button
                 onClick={toggleDisplayTimeZone}
@@ -9451,6 +9545,130 @@ Please pay by: ${formattedLastDate}`;
               <p className="apg-login-footer">Please use your assigned staff credentials.</p>
             </div>
           </div>
+        </div>
+      );
+    }
+
+    function HeaderProfileBranchMenu({
+      user,
+      gymCodes = [],
+      gymCodeLabel = () => '—',
+      activeBranchId = '',
+      onSwitch,
+      switching = false,
+      compact = false,
+    }) {
+      const [open, setOpen] = React.useState(false);
+      const menuRef = React.useRef(null);
+      const showFn = window.__APG_MODULES?.shouldShowBranchSwitcher;
+      const listFn = window.__APG_MODULES?.switchableBranchesForUser;
+      const effectiveFn = window.__APG_MODULES?.effectiveActiveBranchId;
+      const defaultBrandFn = window.__APG_MODULES?.defaultClientBranding;
+      const branches = React.useMemo(() => (
+        typeof listFn === 'function' ? listFn(user, gymCodes) : []
+      ), [user, gymCodes, listFn]);
+      const multiBranch = Boolean(user && (typeof showFn === 'function' ? showFn(user) : branches.length > 1));
+      const active = String(
+        activeBranchId
+        || (typeof effectiveFn === 'function' ? effectiveFn(user, gymCodes) : '')
+        || user?.activeBranchId
+        || user?.gymCodeId
+        || '',
+      ).trim();
+      const brand = typeof defaultBrandFn === 'function' ? defaultBrandFn() : { displayName: 'Action Plus Gym', logoUrl: './assets/action-plus-logo.png' };
+      const activeBranchRow = branches.find((c) => String(c.id) === active);
+      const headerLabel = activeBranchRow
+        ? `${activeBranchRow.code || ''} / ${activeBranchRow.name || activeBranchRow.branchName || gymCodeLabel(active)}`.replace(/^ \/ /, '')
+        : (brand.displayName || 'Action Plus Gym');
+
+      React.useEffect(() => {
+        if (!open) return undefined;
+        const onDoc = (e) => {
+          if (menuRef.current && !menuRef.current.contains(e.target)) setOpen(false);
+        };
+        document.addEventListener('mousedown', onDoc);
+        document.addEventListener('touchstart', onDoc);
+        return () => {
+          document.removeEventListener('mousedown', onDoc);
+          document.removeEventListener('touchstart', onDoc);
+        };
+      }, [open]);
+
+      if (!user) return null;
+
+      return (
+        <div className="relative max-w-[11rem]" ref={menuRef}>
+          <button
+            type="button"
+            onClick={() => { if (multiBranch) setOpen((v) => !v); }}
+            disabled={switching}
+            className={cx(
+              'flex items-center gap-2 rounded-xl border border-slate-200 bg-white text-left dark:border-slate-600 dark:bg-slate-800/90',
+              compact ? 'px-2 py-1.5' : 'px-2.5 py-1.5',
+              multiBranch ? 'hover:bg-slate-50 dark:hover:bg-slate-700/80 cursor-pointer' : 'cursor-default',
+            )}
+            data-testid="header-profile-branch-menu"
+          >
+            <img src={brand.logoUrl} alt="" className={cx('rounded-full object-cover ring-1 ring-slate-200 shrink-0', compact ? 'h-7 w-7' : 'h-8 w-8')} />
+            <div className="leading-tight min-w-0 flex-1">
+              <div className={cx('font-semibold text-slate-800 truncate dark:text-slate-100', compact ? 'text-[11px]' : 'text-xs')} data-testid="header-gym-name">
+                {headerLabel}
+              </div>
+              <div className={cx('text-slate-600 truncate dark:text-slate-300', compact ? 'text-[10px]' : 'text-[11px]')}>
+                {user?.name || '-'}
+              </div>
+              {multiBranch && (
+                <div className="text-[10px] font-semibold text-indigo-600 dark:text-indigo-300 mt-0.5">
+                  {switching ? 'Switching…' : 'Change branch ▾'}
+                </div>
+              )}
+            </div>
+          </button>
+          {multiBranch && open && (
+            <div
+              className="absolute right-0 top-[calc(100%+6px)] z-[9100] w-[min(18rem,calc(100vw-1.5rem))] rounded-xl border border-slate-200 bg-white shadow-xl dark:border-slate-600 dark:bg-slate-900"
+              role="listbox"
+              aria-label="Select branch"
+              data-testid="header-branch-dropdown"
+            >
+              <div className="px-3 py-2 border-b border-slate-100 text-[10px] font-bold uppercase tracking-wide text-slate-500 dark:border-slate-700">
+                Your branches
+              </div>
+              <div className="max-h-64 overflow-y-auto py-1">
+                {branches.map((c) => {
+                  const isActive = String(c.id) === active;
+                  return (
+                    <button
+                      key={c.id}
+                      type="button"
+                      role="option"
+                      aria-selected={isActive}
+                      disabled={switching}
+                      onClick={() => {
+                        const bid = String(c.id || '').trim();
+                        if (!bid || bid === active || switching) return;
+                        if (typeof onSwitch === 'function') onSwitch(bid);
+                        setOpen(false);
+                      }}
+                      className={cx(
+                        'w-full flex items-center gap-2.5 px-3 py-2.5 text-left transition-colors',
+                        isActive ? 'bg-indigo-50 ring-1 ring-inset ring-indigo-300 dark:bg-indigo-950/40' : 'hover:bg-slate-50 dark:hover:bg-slate-800',
+                      )}
+                      data-testid={`header-branch-option-${c.code}`}
+                    >
+                      <div className="min-w-0 flex-1">
+                        <div className="text-sm font-semibold text-slate-900 truncate dark:text-slate-100">{c.name || c.branchName}</div>
+                        <div className="text-[11px] text-slate-500 truncate">{c.code} · {gymCodeLabel(c.id) || c.name}</div>
+                      </div>
+                      {isActive && (
+                        <span className="shrink-0 rounded-full bg-indigo-600 px-2 py-0.5 text-[10px] font-bold text-white">Active</span>
+                      )}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          )}
         </div>
       );
     }
