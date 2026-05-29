@@ -77,6 +77,11 @@ import {
   readActiveBranchPref,
   writeActiveBranchPref,
 } from '../features/branding/activeBranchContext.js';
+import {
+  measureAnchoredPopoverCoords,
+  ANCHORED_POPOVER_LAYER_CLASS,
+  ANCHORED_POPOVER_Z_INDEX,
+} from '../features/overlay/anchoredPopoverCoords.js';
 
 function emitTelemetry(level, code, message, meta = {}) {
   const payload = {
@@ -217,6 +222,9 @@ window.__APG_MODULES.shouldShowBranchSwitcher = shouldShowBranchSwitcher;
 window.__APG_MODULES.effectiveActiveBranchId = effectiveActiveBranchId;
 window.__APG_MODULES.readActiveBranchPref = readActiveBranchPref;
 window.__APG_MODULES.writeActiveBranchPref = writeActiveBranchPref;
+window.__APG_MODULES.measureAnchoredPopoverCoords = measureAnchoredPopoverCoords;
+window.__APG_MODULES.ANCHORED_POPOVER_LAYER_CLASS = ANCHORED_POPOVER_LAYER_CLASS;
+window.__APG_MODULES.ANCHORED_POPOVER_Z_INDEX = ANCHORED_POPOVER_Z_INDEX;
 // Legacy alias used in parts of index.html (typo: trailing underscores).
 window.__APG_MODULES__ = window.__APG_MODULES;
 

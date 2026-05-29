@@ -956,7 +956,7 @@
     /* z-index hierarchy (top-down):                                         */
     /*   apg-toast            ........................... 9999  (winner)    */
     /*   modal (full-screen fixed)  ........... 60..100   (always below)    */
-    /*   apg-notif-popover (bell dropdown)  .... 9000  (above sticky bars)  */
+    /*   apg-anchored-popover (portaled menus) . 9000  (above sticky bars)  */
     /*   sticky table <thead>  .................... 10..20                  */
     /*   sidebar / topbar  ........................ 20..40                  */
     /*                                                                       */
@@ -973,17 +973,12 @@
       z-index: 9999 !important;
     }
     /* --------------------------------------------------------------------- */
-    /* Notification bell popover (mounted via React Portal to <body>).       */
-    /* Sits ABOVE all sticky sub-nav / filter bars (z-10..z-30) but BELOW    */
-    /* the global toast layer (z-9999) and the live mobile detail / modal   */
-    /* sheets that explicitly opt into z-9500+ on top.                       */
-    /*                                                                       */
-    /* The popover is portaled to <body>, so no ancestor `backdrop-filter`   */
-    /* (e.g. apg-mobile-topbar) can trap it inside a child stacking context. */
-    /* Modals close the popover via the document-click handler before they  */
-    /* mount, so a co-existence collision is not reachable in practice; the */
-    /* z-index simply guarantees correct paint order in the failure case.   */
+    /* Anchored popovers (notifications, branch switcher, future dropdowns). */
+    /* Portaled to <body> with `position:fixed` so ancestor stacking traps  */
+    /* (`backdrop-filter` on apg-mobile-topbar, `overflow` on main scroll)   */
+    /* cannot clip or bury the panel beneath sticky filters / dashboard cards. */
     /* --------------------------------------------------------------------- */
+    .apg-anchored-popover,
     .apg-notif-popover {
       position: fixed;
       z-index: 9000;
@@ -9733,7 +9728,8 @@ Please pay by: ${formattedLastDate}`;
       compact = false,
     }) {
       const [open, setOpen] = React.useState(false);
-      const menuRef = React.useRef(null);
+      const anchorRef = React.useRef(null);
+      const popRef = React.useRef(null);
       const listFn = window.__APG_MODULES?.switchableBranchesForUser;
       const showFn = window.__APG_MODULES?.shouldShowBranchSwitcher;
       const resolveFn = window.__APG_MODULES?.resolveClientBranchBranding;
@@ -9777,7 +9773,10 @@ Please pay by: ${formattedLastDate}`;
       React.useEffect(() => {
         if (!open) return undefined;
         const onDoc = (e) => {
-          if (menuRef.current && !menuRef.current.contains(e.target)) setOpen(false);
+          const target = e.target;
+          if (anchorRef.current?.contains(target)) return;
+          if (popRef.current?.contains(target)) return;
+          setOpen(false);
         };
         document.addEventListener('mousedown', onDoc);
         document.addEventListener('touchstart', onDoc);
@@ -9785,6 +9784,12 @@ Please pay by: ${formattedLastDate}`;
           document.removeEventListener('mousedown', onDoc);
           document.removeEventListener('touchstart', onDoc);
         };
+      }, [open]);
+
+      const branchPanelWidth = React.useMemo(() => {
+        if (typeof window === 'undefined') return 288;
+        const vw = window.innerWidth || document.documentElement.clientWidth || 360;
+        return Math.min(288, Math.max(200, vw - 24));
       }, [open]);
 
       if (!user) return null;
@@ -9797,8 +9802,9 @@ Please pay by: ${formattedLastDate}`;
       };
 
       return (
-        <div className="relative" ref={menuRef}>
+        <div className="relative">
           <button
+            ref={anchorRef}
             type="button"
             onClick={() => {
               if (multiBranch) setOpen((v) => !v);
@@ -9841,55 +9847,63 @@ Please pay by: ${formattedLastDate}`;
               )}
             </div>
           </button>
-          {multiBranch && open && (
-            <div
-              className="absolute right-0 top-[calc(100%+6px)] z-[9100] w-[min(18rem,calc(100vw-1.5rem))] rounded-xl border border-slate-200 bg-white shadow-xl dark:border-slate-600 dark:bg-slate-900"
+          {multiBranch && (
+            <AnchoredPopoverPortal
+              open={open}
+              anchorRef={anchorRef}
+              popRef={popRef}
+              width={branchPanelWidth}
+              maxHeight={256}
+              offset={6}
+              align="end"
+              testId="header-branch-dropdown"
               role="listbox"
-              aria-label="Select branch"
-              data-testid="header-branch-dropdown"
+              ariaLabel="Select branch"
             >
-              <div className="px-3 py-2 border-b border-slate-100 text-[10px] font-bold uppercase tracking-wide text-slate-500 dark:border-slate-700 dark:text-slate-400">
-                Your branches
-              </div>
-              <div className="max-h-64 overflow-y-auto py-1">
-                {branches.map((c) => {
-                  const rowBrand = typeof resolveFn === 'function' ? resolveFn(c) : { displayName: c.name, logoUrl: c.logoUrl };
-                  const isActive = String(c.id) === active;
-                  return (
-                    <button
-                      key={c.id}
-                      type="button"
-                      role="option"
-                      aria-selected={isActive}
-                      disabled={switching}
-                      onClick={() => pickBranch(c.id)}
-                      className={cx(
-                        'w-full flex items-center gap-2.5 px-3 py-2.5 text-left transition-colors',
-                        isActive
-                          ? 'bg-indigo-50 ring-1 ring-inset ring-indigo-300 dark:bg-indigo-950/40 dark:ring-indigo-600'
-                          : 'hover:bg-slate-50 dark:hover:bg-slate-800',
-                      )}
-                      data-testid={`header-branch-option-${c.code}`}
-                    >
-                      <BranchLogoImg src={rowBrand.logoUrl || c.logoUrl} alt="" className="h-9 w-9 rounded-full object-cover ring-1 ring-slate-200 shrink-0" />
-                      <div className="min-w-0 flex-1">
-                        <div className="text-sm font-semibold text-slate-900 truncate dark:text-slate-100">
-                          {rowBrand.displayName || c.name}
+              <div className="rounded-xl border border-slate-200 bg-white shadow-xl dark:border-slate-600 dark:bg-slate-900 overflow-hidden flex flex-col min-h-0">
+                <div className="px-3 py-2 border-b border-slate-100 text-[10px] font-bold uppercase tracking-wide text-slate-500 dark:border-slate-700 dark:text-slate-400 shrink-0">
+                  Your branches
+                </div>
+                <div className="overflow-y-auto py-1 min-h-0 flex-1">
+                  {branches.map((c) => {
+                    const rowBrand = typeof resolveFn === 'function' ? resolveFn(c) : { displayName: c.name, logoUrl: c.logoUrl };
+                    const isActive = String(c.id) === active;
+                    return (
+                      <button
+                        key={c.id}
+                        type="button"
+                        role="option"
+                        aria-selected={isActive}
+                        disabled={switching}
+                        onClick={() => pickBranch(c.id)}
+                        className={cx(
+                          'w-full flex items-center gap-2.5 px-3 py-2.5 text-left transition-colors',
+                          isActive
+                            ? 'bg-indigo-50 ring-1 ring-inset ring-indigo-300 dark:bg-indigo-950/40 dark:ring-indigo-600'
+                            : 'hover:bg-slate-50 dark:hover:bg-slate-800',
+                        )}
+                        data-testid={`header-branch-option-${c.code}`}
+                      >
+                        <BranchLogoImg src={rowBrand.logoUrl || c.logoUrl} alt="" className="h-9 w-9 rounded-full object-cover ring-1 ring-slate-200 shrink-0" />
+                        <div className="min-w-0 flex-1">
+                          <div className="text-sm font-semibold text-slate-900 truncate dark:text-slate-100">
+                            {rowBrand.displayName || c.name}
+                          </div>
+                          <div className="text-[11px] text-slate-500 truncate dark:text-slate-400">
+                            {c.code} · {gymCodeLabel(c.id) || c.name}
+                          </div>
                         </div>
-                        <div className="text-[11px] text-slate-500 truncate dark:text-slate-400">
-                          {c.code} · {gymCodeLabel(c.id) || c.name}
-                        </div>
-                      </div>
-                      {isActive && (
-                        <span className="shrink-0 rounded-full bg-indigo-600 px-2 py-0.5 text-[10px] font-bold text-white">
-                          Active
-                        </span>
-                      )}
-                    </button>
-                  );
-                })}
+                        {isActive && (
+                          <span className="shrink-0 rounded-full bg-indigo-600 px-2 py-0.5 text-[10px] font-bold text-white">
+                            Active
+                          </span>
+                        )}
+                      </button>
+                    );
+                  })}
+                </div>
               </div>
-            </div>
+            </AnchoredPopoverPortal>
           )}
         </div>
       );
@@ -11608,14 +11622,27 @@ function MobileMemberDetailView({ m, onBack, onEdit, onWelcome, onWhatsAppCall, 
         </span>
       );
     }
-    // ---- Notification Popover Portal ----
-    // Lifts the bell dropdown out of any ancestor stacking trap (apg-mobile-topbar's
-    // `backdrop-filter` would otherwise pin the panel beneath sticky sub-nav strips,
-    // even with z-9999). The popover is mounted to <body> via ReactDOM.createPortal,
-    // positioned with `fixed` coordinates measured from the bell anchor.
-    function NotificationPortal({ open, anchorRef, width = 320, offset = 8, children, testId }) {
+    // ---- Anchored popover portal (notifications, branch switcher, future menus) ----
+    // Renders to document.body so parent `overflow`, `transform`, and `backdrop-filter`
+    // cannot trap the panel in a low stacking context (e.g. apg-mobile-topbar z-20).
+    function AnchoredPopoverPortal({
+      open,
+      anchorRef,
+      popRef: externalPopRef,
+      width = 320,
+      maxHeight = 320,
+      offset = 8,
+      align = 'end',
+      children,
+      testId,
+      role = 'dialog',
+      ariaLabel = '',
+      layerClassName = 'apg-anchored-popover',
+    }) {
       const [coords, setCoords] = React.useState(null);
-      const popRef = React.useRef(null);
+      const popRef = externalPopRef || React.useRef(null);
+      const measureFn = window.__APG_MODULES?.measureAnchoredPopoverCoords;
+      const layerClass = window.__APG_MODULES?.ANCHORED_POPOVER_LAYER_CLASS || 'apg-anchored-popover';
       React.useLayoutEffect(() => {
         if (!open) {
           setCoords(null);
@@ -11625,13 +11652,17 @@ function MobileMemberDetailView({ m, onBack, onEdit, onWelcome, onWhatsAppCall, 
           const node = anchorRef && anchorRef.current;
           if (!node) return;
           const rect = node.getBoundingClientRect();
-          const viewportWidth = typeof window !== 'undefined'
-            ? (window.innerWidth || document.documentElement.clientWidth || 0)
-            : 0;
+          const viewport = {
+            width: window.innerWidth || document.documentElement.clientWidth || 0,
+            height: window.innerHeight || document.documentElement.clientHeight || 0,
+          };
+          if (typeof measureFn === 'function') {
+            setCoords(measureFn(rect, viewport, { width, maxHeight, offset, align }));
+            return;
+          }
           const padding = 12;
-          const right = Math.max(padding, viewportWidth - rect.right);
-          const top = rect.bottom + offset;
-          setCoords({ top, right });
+          const right = Math.max(padding, viewport.width - rect.right);
+          setCoords({ top: rect.bottom + offset, right, width, maxHeight });
         }
         measure();
         const onScroll = () => measure();
@@ -11642,18 +11673,25 @@ function MobileMemberDetailView({ m, onBack, onEdit, onWelcome, onWhatsAppCall, 
           window.removeEventListener('resize', onResize);
           window.removeEventListener('scroll', onScroll, true);
         };
-      }, [open, anchorRef, offset]);
+      }, [open, anchorRef, offset, width, maxHeight, align, measureFn]);
       if (!open || !coords) return null;
+      const style = {
+        top: coords.top,
+        width: coords.width,
+        maxHeight: coords.maxHeight,
+      };
+      if (coords.right != null) style.right = coords.right;
+      if (coords.left != null) style.left = coords.left;
       const node = (
         <div
           ref={popRef}
-          className="apg-notif-popover"
-          data-testid={testId || 'apg-notif-popover'}
-          role="dialog"
+          className={cx(layerClassName, layerClass)}
+          data-testid={testId || 'apg-anchored-popover'}
+          role={role}
           aria-modal="false"
-          aria-label="Notifications"
+          aria-label={ariaLabel || undefined}
           onClick={(e) => e.stopPropagation()}
-          style={{ top: coords.top, right: coords.right, width }}
+          style={style}
         >
           {children}
         </div>
@@ -11662,6 +11700,22 @@ function MobileMemberDetailView({ m, onBack, onEdit, onWelcome, onWhatsAppCall, 
         return node;
       }
       return ReactDOM.createPortal(node, document.body);
+    }
+    function NotificationPortal({ open, anchorRef, width = 320, offset = 8, children, testId }) {
+      return (
+        <AnchoredPopoverPortal
+          open={open}
+          anchorRef={anchorRef}
+          width={width}
+          offset={offset}
+          testId={testId || 'apg-notif-popover'}
+          role="dialog"
+          ariaLabel="Notifications"
+          layerClassName="apg-notif-popover"
+        >
+          {children}
+        </AnchoredPopoverPortal>
+      );
     }
     // ---- Modal Portal ----
     // Full-screen modals must mount to <body>, not inside `.apg-main-scroll`

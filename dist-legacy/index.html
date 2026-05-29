@@ -954,7 +954,7 @@
     /* z-index hierarchy (top-down):                                         */
     /*   apg-toast            ........................... 9999  (winner)    */
     /*   modal (full-screen fixed)  ........... 60..100   (always below)    */
-    /*   apg-notif-popover (bell dropdown)  .... 9000  (above sticky bars)  */
+    /*   apg-anchored-popover (portaled menus) . 9000  (above sticky bars)  */
     /*   sticky table <thead>  .................... 10..20                  */
     /*   sidebar / topbar  ........................ 20..40                  */
     /*                                                                       */
@@ -971,17 +971,12 @@
       z-index: 9999 !important;
     }
     /* --------------------------------------------------------------------- */
-    /* Notification bell popover (mounted via React Portal to <body>).       */
-    /* Sits ABOVE all sticky sub-nav / filter bars (z-10..z-30) but BELOW    */
-    /* the global toast layer (z-9999) and the live mobile detail / modal   */
-    /* sheets that explicitly opt into z-9500+ on top.                       */
-    /*                                                                       */
-    /* The popover is portaled to <body>, so no ancestor `backdrop-filter`   */
-    /* (e.g. apg-mobile-topbar) can trap it inside a child stacking context. */
-    /* Modals close the popover via the document-click handler before they  */
-    /* mount, so a co-existence collision is not reachable in practice; the */
-    /* z-index simply guarantees correct paint order in the failure case.   */
+    /* Anchored popovers (notifications, branch switcher, future dropdowns). */
+    /* Portaled to <body> with `position:fixed` so ancestor stacking traps  */
+    /* (`backdrop-filter` on apg-mobile-topbar, `overflow` on main scroll)   */
+    /* cannot clip or bury the panel beneath sticky filters / dashboard cards. */
     /* --------------------------------------------------------------------- */
+    .apg-anchored-popover,
     .apg-notif-popover {
       position: fixed;
       z-index: 9000;
@@ -1050,6 +1045,6 @@
   <script src="./app.env.js"></script>
   <script type="module" src="./src/runtime/registerApgModules.js"></script>
   <!-- Application Code. Babel will compile this JSX on the fly. -->
-  <script src="./dist-legacy/app.bundle.js?v=1780046889695"></script>
+  <script src="./dist-legacy/app.bundle.js?v=1780047191986"></script>
 </body>
 </html>
