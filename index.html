@@ -7981,7 +7981,8 @@ Please pay by: ${formattedLastDate}`;
                 >
                   <AppIcon name="menu" className="h-4 w-4" />
                 </button>
-                <div className="text-[14px] leading-tight font-bold text-slate-900 truncate dark:text-slate-100">{activeTab}</div>
+                <HeaderBranchIdentity user={user} branchBranding={branchBranding} compact />
+                <div className="text-[14px] leading-tight font-bold text-slate-900 truncate dark:text-slate-100 min-w-0">{activeTab}</div>
               </div>
               <div className="flex items-center gap-1.5 shrink-0">
               <UserProfileHeaderCard
@@ -8257,7 +8258,9 @@ Please pay by: ${formattedLastDate}`;
               </div>
             )}
             <div className="hidden md:block px-8 pt-6 space-y-3">
-              <div className="rounded-2xl border border-slate-200 bg-white p-3 shadow-sm apg-card">
+              <div className="flex items-center gap-4 min-w-0">
+                <HeaderBranchIdentity user={user} branchBranding={branchBranding} />
+                <div className="rounded-2xl border border-slate-200 bg-white p-3 shadow-sm apg-card flex-1 min-w-0">
                 <div className="flex items-center justify-between gap-3">
                   <div className="flex items-center gap-2 min-w-0 flex-1">
                     <div
@@ -8500,6 +8503,7 @@ Please pay by: ${formattedLastDate}`;
                       aria-hidden="true"
                     />
                   </div>
+                </div>
                 </div>
               </div>
               <div className="rounded-2xl border border-slate-200 bg-white p-3 shadow-sm apg-card">
@@ -9782,6 +9786,40 @@ Please pay by: ${formattedLastDate}`;
             if (url !== defaultLogo) setUrl(defaultLogo);
           }}
         />
+      );
+    }
+
+    /** Branch logo + gym name — sits left of the desktop tools panel (not inside it). */
+    function HeaderBranchIdentity({ user, branchBranding = null, compact = false }) {
+      const defaultBrandFn = window.__APG_MODULES?.defaultClientBranding;
+      const brand = branchBranding || (typeof defaultBrandFn === 'function' ? defaultBrandFn() : { displayName: 'Action Plus Gym', logoUrl: './assets/action-plus-logo.png' });
+      if (!user) return null;
+      return (
+        <div
+          className={cx(
+            'shrink-0 flex items-center gap-2 min-w-0',
+            compact ? 'max-w-[10rem]' : 'max-w-[12rem] lg:max-w-[14rem]',
+          )}
+          data-testid="header-branch-identity"
+        >
+          <BranchLogoImg
+            src={brand.logoUrl}
+            alt=""
+            className={cx(
+              'rounded-lg object-contain ring-1 ring-slate-200 bg-white shrink-0',
+              compact ? 'h-8 w-8' : 'h-10 w-10',
+            )}
+          />
+          <div
+            className={cx(
+              'font-semibold text-slate-900 truncate leading-tight dark:text-slate-100',
+              compact ? 'text-[11px]' : 'text-sm',
+            )}
+            data-testid="header-gym-name"
+          >
+            {brand.displayName || 'Action Plus Gym'}
+          </div>
+        </div>
       );
     }
 
