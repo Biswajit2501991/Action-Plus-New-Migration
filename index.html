@@ -2783,6 +2783,14 @@ Phone: +91-7047157510`;
       if (window.__APG_MODULES?.authIsOwnerUser) return window.__APG_MODULES.authIsOwnerUser(u);
       return String(u?.id || '').trim().toLowerCase() === 'owner';
     };
+    const isBranchAdminUser = (u) => {
+      if (typeof window.__APG_MODULES?.authIsBranchAdminUser === 'function') {
+        return window.__APG_MODULES.authIsBranchAdminUser(u);
+      }
+      return isOwnerStaffUser(u);
+    };
+    /** GET /users — master owner / branch owner only (not regular staff). */
+    const canFetchStaffUsersList = (u) => Boolean(u?.id) && isBranchAdminUser(u);
     const visitorsForBulkSync = (list, currentUser = null) => {
       let scoped = Array.isArray(list) ? list : [];
       if (currentUser) {
@@ -3999,14 +4007,17 @@ Phone: +91-7047157510`;
         await pullStaffAttendance().catch(() => {});
         apgLoadTimingFinish('deferred hydrate', performance.now() - tDeferred);
       }, [pullStaffAttendance]);
-      const hydrateFromBackend = React.useCallback(async () => {
+      const hydrateFromBackend = React.useCallback(async (opts = {}) => {
         if (backendHydrateInFlightRef.current) return backendHydrateInFlightRef.current;
+        const authUser = opts.authUser || user;
         const run = (async () => {
           const tHydrate = performance.now();
           apgLoadTimingRecord('hydrate', 'hydrate started', 0);
           try {
             const [remoteUsers, remoteMembers, remoteGymCodes] = await Promise.all([
-              apgTimedBackendJson('hydrate', 'GET /users', '/users').catch(() => []),
+              canFetchStaffUsersList(authUser)
+                ? apgTimedBackendJson('hydrate', 'GET /users', '/users').catch(() => [])
+                : Promise.resolve([]),
               apgTimedBackendJson('hydrate', 'GET /members', '/members').catch(() => []),
               apgTimedBackendJson('hydrate', 'GET /gym-codes', '/gym-codes').catch(() => []),
             ]);
@@ -4743,6 +4754,7 @@ Phone: +91-7047157510`;
       // Pull staff/user updates from backend so multi-device changes appear without refresh.
       React.useEffect(() => {
         if (dataSyncMode !== 'backend' || !backendHydrated || !user?.id) return;
+        if (!canFetchStaffUsersList(user)) return;
         let alive = true;
         const pullUsers = () => {
           backendJson('/users')
