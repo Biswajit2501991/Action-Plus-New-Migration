@@ -7956,27 +7956,27 @@ Please pay by: ${formattedLastDate}`;
           )}
           <div className="apg-mobile-topbar fixed top-0 inset-x-0 w-full z-20 md:hidden border-b border-slate-200 bg-white/95 backdrop-blur px-3 pt-3 pb-2 dark:bg-slate-900/95 dark:border-slate-700">
             <div className="flex items-center justify-between gap-2">
-              <div className="flex items-center gap-2 min-w-0 pr-1">
+              <div className="flex items-center gap-2 min-w-0 flex-1 pr-1">
                 <button
                   onClick={() => setMobileMenuOpen(true)}
-                  className="rounded-xl border border-slate-300 bg-white px-2.5 py-1.5 text-xs font-semibold text-slate-700"
+                  className="rounded-xl border border-slate-300 bg-white px-2.5 py-1.5 text-xs font-semibold text-slate-700 shrink-0"
                   aria-label="Open navigation menu"
                 >
                   <AppIcon name="menu" className="h-4 w-4" />
                 </button>
-                <div className="text-[14px] leading-tight font-bold text-slate-900 truncate">{activeTab}</div>
+                <BranchBrandingHeader
+                  user={user}
+                  gymCodes={gymCodes}
+                  gymCodeLabel={gymCodeLabel}
+                  branchBranding={branchBranding}
+                  activeBranchId={user?.activeBranchId || user?.gymCodeId}
+                  onSwitch={switchActiveBranch}
+                  switching={branchSwitching}
+                  compact
+                />
               </div>
-              <div className="flex items-center gap-1.5">
-              <HeaderProfileBranchMenu
-                user={user}
-                gymCodes={gymCodes}
-                gymCodeLabel={gymCodeLabel}
-                branchBranding={branchBranding}
-                activeBranchId={user?.activeBranchId || user?.gymCodeId}
-                onSwitch={switchActiveBranch}
-                switching={branchSwitching}
-                compact
-              />
+              <div className="flex items-center gap-1.5 shrink-0">
+              <UserProfileCard user={user} compact />
               {/* Light/Dark mode toggle removed — Luxury skin replaces classic dark mode (Phase 2 branding cleanup). */}
               <button
                 onClick={toggleDisplayTimeZone}
@@ -8243,8 +8243,17 @@ Please pay by: ${formattedLastDate}`;
             )}
             <div className="hidden md:block px-8 pt-6 space-y-3">
               <div className="rounded-2xl border border-slate-200 bg-white p-3 shadow-sm apg-card">
-                <div className="flex items-center justify-between gap-3">
-                  <div className="flex items-center gap-2 min-w-0 flex-1">
+                <div className="flex items-center justify-between gap-3 flex-wrap">
+                  <BranchBrandingHeader
+                    user={user}
+                    gymCodes={gymCodes}
+                    gymCodeLabel={gymCodeLabel}
+                    branchBranding={branchBranding}
+                    activeBranchId={user?.activeBranchId || user?.gymCodeId}
+                    onSwitch={switchActiveBranch}
+                    switching={branchSwitching}
+                  />
+                  <div className="flex items-center gap-2 min-w-0 flex-1 justify-center order-3 md:order-none w-full md:w-auto">
                     <div
                       className={cx(
                         'flex w-full max-w-md items-stretch overflow-hidden rounded-xl border-2 bg-emerald-50 transition-colors duration-150 dark:border-emerald-900/60 dark:bg-emerald-950/35',
@@ -8451,15 +8460,7 @@ Please pay by: ${formattedLastDate}`;
                       </NotificationPortal>
                     </div>
                     {/* Light/Dark mode toggle removed — Luxury skin replaces classic dark mode (Phase 2 branding cleanup). */}
-                    <HeaderProfileBranchMenu
-                      user={user}
-                      gymCodes={gymCodes}
-                      gymCodeLabel={gymCodeLabel}
-                      branchBranding={branchBranding}
-                      activeBranchId={user?.activeBranchId || user?.gymCodeId}
-                      onSwitch={switchActiveBranch}
-                      switching={branchSwitching}
-                    />
+                    <UserProfileCard user={user} />
                     <button
                       onClick={() => {
                         const input = headerDateInputRef.current;
@@ -9771,7 +9772,8 @@ Please pay by: ${formattedLastDate}`;
       );
     }
 
-    function HeaderProfileBranchMenu({
+    /** Active branch logo + gym name; branch switcher sits under this block when multi-branch. */
+    function BranchBrandingHeader({
       user,
       gymCodes = [],
       gymCodeLabel = () => '—',
@@ -9784,44 +9786,16 @@ Please pay by: ${formattedLastDate}`;
       const [open, setOpen] = React.useState(false);
       const anchorRef = React.useRef(null);
       const popRef = React.useRef(null);
-      const listFn = window.__APG_MODULES?.switchableBranchesForUser;
-      const showFn = window.__APG_MODULES?.shouldShowBranchSwitcher;
       const resolveFn = window.__APG_MODULES?.resolveClientBranchBranding;
       const defaultBrandFn = window.__APG_MODULES?.defaultClientBranding;
-      const branchIdsForUser = React.useMemo(() => {
-        const allowedFn = window.__APG_MODULES?.allowedBranchIdsForUser;
-        if (typeof allowedFn === 'function') return allowedFn(user) || [];
-        const fromAllowed = Array.isArray(user?.allowedBranchIds) ? user.allowedBranchIds : [];
-        const fromAssigned = Array.isArray(user?.assignedBranchIds) ? user.assignedBranchIds : [];
-        const ids = [...fromAllowed, ...fromAssigned].map((x) => String(x || '').trim()).filter(Boolean);
-        if (ids.length) return [...new Set(ids)];
-        const single = String(user?.activeBranchId || user?.gymCodeId || '').trim();
-        return single ? [single] : [];
-      }, [user?.id, user?.allowedBranchIds, user?.assignedBranchIds, user?.gymCodeId, user?.activeBranchId]);
-      const branches = React.useMemo(() => {
-        if (typeof listFn === 'function') return listFn(user, gymCodes);
-        const byId = new Map((Array.isArray(gymCodes) ? gymCodes : []).map((c) => [String(c.id), c]));
-        return branchIdsForUser.map((id) => byId.get(String(id)) || {
-          id: String(id),
-          code: String(id).slice(0, 8).toUpperCase(),
-          name: 'Branch',
-          branchName: 'Branch',
-        });
-      }, [user, gymCodes, branchIdsForUser, listFn]);
-      const multiBranch = Boolean(
-        user
-        && (typeof showFn === 'function'
-          ? showFn(user, gymCodes)
-          : branchIdsForUser.length > 1),
-      );
-      const effectiveFn = window.__APG_MODULES?.effectiveActiveBranchId;
-      const active = String(
-        activeBranchId
-        || (typeof effectiveFn === 'function' ? effectiveFn(user, gymCodes) : '')
-        || user?.activeBranchId
-        || user?.gymCodeId
-        || '',
-      ).trim();
+      const buildModelFn = window.__APG_MODULES?.buildHeaderBranchSwitcherModel;
+      const switcherModel = React.useMemo(() => {
+        if (typeof buildModelFn === 'function') {
+          return buildModelFn({ user, gymCodes, activeBranchId });
+        }
+        return { branches: [], multiBranch: false, active: '' };
+      }, [user, gymCodes, activeBranchId, buildModelFn]);
+      const { branches, multiBranch, active } = switcherModel;
       const brand = branchBranding || (typeof defaultBrandFn === 'function' ? defaultBrandFn() : { displayName: 'Action Plus Gym', logoUrl: './assets/action-plus-logo.png' });
 
       React.useEffect(() => {
@@ -9856,7 +9830,7 @@ Please pay by: ${formattedLastDate}`;
       };
 
       return (
-        <div className="relative">
+        <div className="relative shrink-0 min-w-0" data-testid="header-branch-branding">
           <button
             ref={anchorRef}
             type="button"
@@ -9865,8 +9839,8 @@ Please pay by: ${formattedLastDate}`;
             }}
             disabled={switching}
             className={cx(
-              'flex items-center gap-2 rounded-xl border border-slate-200 bg-white text-left shadow-[inset_0_1px_0_rgba(255,255,255,0.8)] dark:border-slate-600 dark:bg-slate-800/90',
-              compact ? 'px-2 py-1.5 max-w-[11rem]' : 'px-2.5 py-1.5 max-w-[14rem]',
+              'flex items-start gap-2 rounded-xl border border-slate-200 bg-white text-left shadow-[inset_0_1px_0_rgba(255,255,255,0.8)] dark:border-slate-600 dark:bg-slate-800/90',
+              compact ? 'px-2 py-1.5 max-w-[10.5rem]' : 'px-2.5 py-2 max-w-[16rem]',
               multiBranch ? 'hover:bg-slate-50 dark:hover:bg-slate-700/80 cursor-pointer' : 'cursor-default',
             )}
             aria-expanded={multiBranch ? open : false}
@@ -9876,26 +9850,20 @@ Please pay by: ${formattedLastDate}`;
             <BranchLogoImg
               src={brand.logoUrl}
               alt=""
-              className={cx('rounded-full object-cover ring-1 ring-slate-200 shrink-0', compact ? 'h-7 w-7' : 'h-8 w-8')}
+              className={cx('rounded-lg object-contain ring-1 ring-slate-200 shrink-0 bg-white', compact ? 'h-7 w-7' : 'h-9 w-9')}
             />
             <div className="leading-tight min-w-0 flex-1">
               <div
                 className={cx(
                   'font-semibold text-slate-800 truncate dark:text-slate-100',
-                  compact ? 'text-[11px]' : 'text-xs',
+                  compact ? 'text-[11px]' : 'text-sm',
                 )}
                 data-testid="header-gym-name"
               >
                 {brand.displayName || 'Action Plus Gym'}
               </div>
-              <div className={cx('text-slate-600 truncate dark:text-slate-300', compact ? 'text-[10px]' : 'text-[11px]')}>
-                {user?.name || '-'}
-              </div>
-              {!compact && (
-                <div className="text-[10px] text-slate-400 truncate dark:text-slate-400">{user?.id || 'staff'}</div>
-              )}
               {multiBranch && (
-                <div className="text-[10px] font-semibold text-indigo-600 dark:text-indigo-300 mt-0.5">
+                <div className="text-[10px] font-semibold text-indigo-600 dark:text-indigo-300 mt-0.5 truncate">
                   {switching ? 'Switching…' : 'Change branch ▾'}
                 </div>
               )}
@@ -9909,7 +9877,7 @@ Please pay by: ${formattedLastDate}`;
               width={branchPanelWidth}
               maxHeight={256}
               offset={6}
-              align="end"
+              align="start"
               testId="header-branch-dropdown"
               role="listbox"
               ariaLabel="Select branch"
@@ -9938,7 +9906,7 @@ Please pay by: ${formattedLastDate}`;
                         )}
                         data-testid={`header-branch-option-${c.code}`}
                       >
-                        <BranchLogoImg src={rowBrand.logoUrl || c.logoUrl} alt="" className="h-9 w-9 rounded-full object-cover ring-1 ring-slate-200 shrink-0" />
+                        <BranchLogoImg src={rowBrand.logoUrl || c.logoUrl} alt="" className="h-9 w-9 rounded-lg object-contain ring-1 ring-slate-200 shrink-0 bg-white" />
                         <div className="min-w-0 flex-1">
                           <div className="text-sm font-semibold text-slate-900 truncate dark:text-slate-100">
                             {rowBrand.displayName || c.name}
@@ -9959,6 +9927,61 @@ Please pay by: ${formattedLastDate}`;
               </div>
             </AnchoredPopoverPortal>
           )}
+        </div>
+      );
+    }
+
+    /** Logged-in staff identity (photo, name, role) — unchanged when switching branches. */
+    function UserProfileCard({ user, compact = false }) {
+      const roleFn = window.__APG_MODULES?.staffRoleDisplayLabel;
+      const [photoBroken, setPhotoBroken] = React.useState(false);
+      const photoSrc = String(user?.photo || user?.avatar || '').trim();
+      const showPhoto = Boolean(photoSrc) && !photoBroken;
+      const roleLabel = typeof roleFn === 'function' ? roleFn(user) : 'Staff';
+
+      React.useEffect(() => {
+        setPhotoBroken(false);
+      }, [user?.id, photoSrc]);
+
+      if (!user) return null;
+
+      return (
+        <div
+          className={cx(
+            'flex items-center gap-2 rounded-xl border border-slate-200 bg-white shadow-[inset_0_1px_0_rgba(255,255,255,0.8)] dark:border-slate-600 dark:bg-slate-800/90 shrink-0',
+            compact ? 'px-2 py-1.5 max-w-[9.5rem]' : 'px-2.5 py-1.5 max-w-[12rem]',
+          )}
+          data-testid="header-user-profile-card"
+        >
+          {showPhoto ? (
+            <img
+              src={photoSrc}
+              alt=""
+              className={cx('rounded-full object-cover ring-1 ring-slate-200 shrink-0', compact ? 'h-7 w-7' : 'h-8 w-8')}
+              onError={() => setPhotoBroken(true)}
+              data-testid="header-user-photo"
+            />
+          ) : (
+            <div
+              className={cx('rounded-full border border-slate-200 shrink-0 dark:border-slate-600', compact ? 'h-7 w-7' : 'h-8 w-8')}
+              aria-hidden="true"
+              data-testid="header-user-photo-empty"
+            />
+          )}
+          <div className="leading-tight min-w-0">
+            <div
+              className={cx('font-semibold text-slate-800 truncate dark:text-slate-100', compact ? 'text-[11px]' : 'text-xs')}
+              data-testid="header-user-name"
+            >
+              {user?.name || '-'}
+            </div>
+            <div
+              className={cx('text-slate-500 truncate dark:text-slate-400', compact ? 'text-[10px]' : 'text-[11px]')}
+              data-testid="header-user-role"
+            >
+              {roleLabel}
+            </div>
+          </div>
         </div>
       );
     }
@@ -10054,12 +10077,11 @@ function Sidebar({ user, active, onSelect, theme, setTheme, layoutMode = 'classi
               className={cx('w-full flex items-center rounded-2xl hover:bg-slate-100/70 dark:hover:bg-slate-800/80', collapsed ? 'justify-center p-2' : 'gap-3 p-1.5')}
               title={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
             >
-              <div className="h-9 w-9 rounded-full bg-blue-50 p-1 ring-1 ring-blue-100 overflow-hidden dark:bg-slate-800 dark:ring-slate-600">
-                <BranchLogoImg src={brand.logoUrl} alt={`${brand.displayName} logo`} className="h-full w-full rounded-full object-cover" />
+              <div className="h-9 w-9 rounded-lg bg-blue-50 p-1 ring-1 ring-blue-100 overflow-hidden dark:bg-slate-800 dark:ring-slate-600">
+                <BranchLogoImg src={brand.logoUrl} alt={`${brand.displayName} logo`} className="h-full w-full rounded-md object-contain" />
               </div>
               {!collapsed && <div className="min-w-0 text-left">
                 <div className="truncate text-[13px] font-semibold text-slate-900 tracking-tight dark:text-slate-100" data-testid="sidebar-gym-display-name">{brand.displayName}</div>
-                <div className="truncate text-[11px] text-slate-500 dark:text-slate-300" data-testid="sidebar-staff-name">{user?.name || 'User'}</div>
               </div>}
             </button>
             {!collapsed && (
