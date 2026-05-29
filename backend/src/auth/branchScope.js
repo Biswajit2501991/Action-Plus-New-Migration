@@ -1,26 +1,28 @@
 import { authHasGlobalBranchRead, filterRowsByBranch } from './branchFilter.js';
-import { resolveAllowedBranchIds, resolveActiveBranchId } from './tenant/scopedAuth.js';
+import {
+  resolveActiveBranchId,
+  resolveReadBranchIds,
+} from './tenant/scopedAuth.js';
 
 /**
  * Read-scope descriptor for SQL / in-memory collection filtering.
  * - Master Owner: no branch filter (sees all members in gym).
- * - Branch Owner: allowedBranchIds (multi-branch IN filter).
- * - Staff: single gymCodeId match.
+ * - Staff / Branch Owner: single active branch (tenant context slice).
  */
 export function resolveReadBranchScope(auth) {
   if (!auth) return null;
   if (authHasGlobalBranchRead(auth)) {
     return { isOwner: true, gymCodeId: null, allowedBranchIds: null, staffNoBranch: false };
   }
-  const allowed = resolveAllowedBranchIds(auth);
-  if (!allowed?.length) {
+  const readIds = resolveReadBranchIds(auth);
+  if (!readIds?.length) {
     return { isOwner: false, gymCodeId: null, allowedBranchIds: [], staffNoBranch: true };
   }
-  const gymCodeId = resolveActiveBranchId(auth) || allowed[0];
+  const gymCodeId = readIds[0];
   return {
     isOwner: false,
     gymCodeId,
-    allowedBranchIds: allowed,
+    allowedBranchIds: readIds,
     staffNoBranch: false,
   };
 }
@@ -36,11 +38,8 @@ export function branchScopeAllowsMember(branchScope, assignedGymCodeId) {
   if (branchScope.staffNoBranch) return false;
   const rowCode = String(assignedGymCodeId || '').trim();
   if (!rowCode) return false;
-  const allowed = branchScope.allowedBranchIds;
-  if (Array.isArray(allowed) && allowed.length > 1) {
-    return allowed.includes(rowCode);
-  }
-  return rowCode === String(branchScope.gymCodeId);
+  const active = String(branchScope.gymCodeId || branchScope.allowedBranchIds?.[0] || '').trim();
+  return rowCode === active;
 }
 
 /**
@@ -50,12 +49,8 @@ export function filterMembersForBranchScope(rows, branchScope) {
   if (!Array.isArray(rows)) return [];
   if (!branchScope || branchScope.isOwner) return rows;
   if (branchScope.staffNoBranch) return [];
-  const allowed = branchScope.allowedBranchIds;
-  if (Array.isArray(allowed) && allowed.length > 1) {
-    const set = new Set(allowed);
-    return rows.filter((r) => set.has(String(r?.assignedGymCodeId || '').trim()));
-  }
-  const code = String(branchScope.gymCodeId);
+  const code = String(branchScope.gymCodeId || branchScope.allowedBranchIds?.[0] || '').trim();
+  if (!code) return [];
   return rows.filter((r) => String(r?.assignedGymCodeId || '').trim() === code);
 }
 
@@ -70,7 +65,7 @@ export function filterRowsForStaffWrite(rows, auth) {
 /** @throws {Error & { status?: number }} */
 export function assertStaffHasBranchForWrite(auth) {
   if (!auth || authHasGlobalBranchRead(auth)) return;
-  const allowed = resolveAllowedBranchIds(auth);
+  const allowed = resolveReadBranchIds(auth);
   if (allowed?.length) return;
   if (!String(auth.gymCodeId || auth.activeBranchId || '').trim()) {
     const err = new Error('branch-scope-missing');

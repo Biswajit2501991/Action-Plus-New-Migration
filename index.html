@@ -4115,8 +4115,12 @@ Phone: +91-7047157510`;
           apgLoadTimingRecord('hydrate-bg', 'merge:settings (CPU)', performance.now() - tMerge, apgLoadTimingPayloadMeta(remoteSettings));
         } catch {}
       }, []);
-      const hydrateDeferredCollections = React.useCallback(async (authUser) => {
+      const hydrateDeferredCollections = React.useCallback(async (authUser, hydrateOpts = {}) => {
         const sessionUser = authUser || user;
+        const replaceBranch = typeof window.__APG_MODULES?.shouldReplaceBranchDataOnHydrate === 'function'
+          ? window.__APG_MODULES.shouldReplaceBranchDataOnHydrate(hydrateOpts)
+          : hydrateOpts.replaceBranchData === true;
+        const activeBranchId = String(sessionUser?.activeBranchId || sessionUser?.gymCodeId || '').trim();
         const tDeferred = performance.now();
         const [remoteVisitors, remoteFinance, remoteSmsEvents] = await Promise.all([
           apgTimedBackendJson('deferred', 'GET /visitors', '/visitors').catch(() => []),
@@ -4127,20 +4131,37 @@ Phone: +91-7047157510`;
             ? apgTimedBackendJson('deferred', 'GET /sms-events', '/sms-events').catch(() => [])
             : Promise.resolve([]),
         ]);
-        if (Array.isArray(remoteVisitors) && remoteVisitors.length > 0) {
-          setVisitors((prev) => mergeRemoteVisitorsWithLocal(prev, remoteVisitors));
+        if (Array.isArray(remoteVisitors)) {
+          if (replaceBranch) {
+            const mergeV = window.__APG_MODULES?.mergeVisitorsAfterBranchReplace;
+            setVisitors(typeof mergeV === 'function'
+              ? mergeV([], remoteVisitors, activeBranchId)
+              : remoteVisitors);
+          } else if (remoteVisitors.length > 0) {
+            setVisitors((prev) => mergeRemoteVisitorsWithLocal(prev, remoteVisitors));
+          }
         }
-        if (Array.isArray(remoteFinance) && remoteFinance.length > 0) {
+        if (canFetchFinanceRead(sessionUser)) {
           financeSkipNextBulkRef.current = true;
-          setFinanceTransactions(remoteFinance);
+          setFinanceTransactions(Array.isArray(remoteFinance) ? remoteFinance : []);
         }
-        if (Array.isArray(remoteSmsEvents) && remoteSmsEvents.length > 0) setSmsEvents(remoteSmsEvents);
+        if (canFetchSmsEvents(sessionUser)) {
+          setSmsEvents(Array.isArray(remoteSmsEvents) ? remoteSmsEvents : []);
+        }
+        if (replaceBranch) {
+          const remoteLogs = await apgTimedBackendJson('deferred', 'GET /logs', `/logs?${LOGS_LIST_QUERY}`).catch(() => []);
+          if (Array.isArray(remoteLogs)) setLogs(remoteLogs);
+        }
         await pullStaffAttendance().catch(() => {});
         apgLoadTimingFinish('deferred hydrate', performance.now() - tDeferred);
       }, [pullStaffAttendance, user?.id]);
       const hydrateFromBackend = React.useCallback(async (opts = {}) => {
         if (backendHydrateInFlightRef.current) return backendHydrateInFlightRef.current;
         const authUser = opts.authUser || user;
+        const replaceBranch = typeof window.__APG_MODULES?.shouldReplaceBranchDataOnHydrate === 'function'
+          ? window.__APG_MODULES.shouldReplaceBranchDataOnHydrate(opts)
+          : opts.replaceBranchData === true;
+        const activeBranchId = String(authUser?.activeBranchId || authUser?.gymCodeId || '').trim();
         const run = (async () => {
           const tHydrate = performance.now();
           apgLoadTimingRecord('hydrate', 'hydrate started', 0);
@@ -4164,10 +4185,19 @@ Phone: +91-7047157510`;
               setUsers((prev) => mergeRemoteUsersWithLocal(prev, normalizedRemoteUsers));
               apgLoadTimingRecord('hydrate', 'merge:users (CPU)', performance.now() - tMerge, { rows: remoteUsers.length });
             }
-            if (Array.isArray(remoteMembers) && remoteMembers.length > 0) {
+            if (Array.isArray(remoteMembers)) {
               const tMerge = performance.now();
-              setMembers((prev) => mergeRemoteMembersWithLocal(prev, remoteMembers));
+              if (replaceBranch) {
+                const mergeM = window.__APG_MODULES?.mergeMembersAfterBranchReplace;
+                setMembers(typeof mergeM === 'function'
+                  ? mergeM([], remoteMembers, activeBranchId)
+                  : remoteMembers);
+              } else if (remoteMembers.length > 0) {
+                setMembers((prev) => mergeRemoteMembersWithLocal(prev, remoteMembers));
+              }
               apgLoadTimingRecord('hydrate', 'merge:members (CPU)', performance.now() - tMerge, { rows: remoteMembers.length });
+            } else if (replaceBranch) {
+              setMembers([]);
             }
             setUser((prev) => (prev?.id ? prepareStaffUser(prev) : prev));
             const authRefresh = await revalidateAuthSessionFromServer().catch(() => null);
@@ -4183,7 +4213,7 @@ Phone: +91-7047157510`;
             apgLoadTimingMark('backendHydrated (dashboard unblocked)');
             apgLoadTimingFinish('critical hydrate', performance.now() - tHydrate);
             hydrateSettingsFromBackend().catch(() => {});
-            hydrateDeferredCollections(authUser).catch(() => {});
+            hydrateDeferredCollections(authUser, opts).catch(() => {});
           } finally {
             backendHydrateInFlightRef.current = null;
           }
@@ -4201,6 +4231,7 @@ Phone: +91-7047157510`;
           return;
         }
         setBranchSwitching(true);
+        let nextUser = { ...user, gymCodeId: id, activeBranchId: id };
         try {
           if (dataSyncMode === 'backend' && typeof backendJson === 'function') {
             const out = await backendJson('/auth/active-branch', {
@@ -4210,23 +4241,29 @@ Phone: +91-7047157510`;
             if (out?.token) writeAuthSession(user.id, out.token);
             const nextAllowed = Array.isArray(out?.allowedBranchIds) ? out.allowedBranchIds : user.allowedBranchIds;
             const nextAssigned = Array.isArray(out?.assignedBranchIds) ? out.assignedBranchIds : nextAllowed;
-            const nextUser = {
+            nextUser = {
               ...user,
               gymCodeId: id,
               activeBranchId: id,
               allowedBranchIds: nextAllowed,
               assignedBranchIds: nextAssigned,
             };
-            setUser(nextUser);
             const prefFn = window.__APG_MODULES?.writeActiveBranchPref;
             if (typeof prefFn === 'function') prefFn(user.id, id);
-          } else {
-            setUser({ ...user, gymCodeId: id, activeBranchId: id });
           }
+          setUser(nextUser);
           setTemplatesBranchId(id);
           setBackendHydrated(false);
+          setMembers([]);
+          setVisitors([]);
+          setFinanceTransactions([]);
+          setSmsEvents([]);
+          setLogs([]);
           await refreshBranchBranding(id);
-          await hydrateFromBackend().catch(() => setBackendHydrated(false));
+          await hydrateFromBackend({
+            replaceBranchData: true,
+            authUser: nextUser,
+          }).catch(() => setBackendHydrated(false));
           setToast('Branch context updated.');
           setTimeout(() => setToast(''), 2200);
         } catch (err) {
@@ -5804,16 +5841,26 @@ Phone: +91-7047157510`;
             ? rec.assignedBranchIds
             : (loginAllowed.length ? loginAllowed : (rec.gymCodeId ? [rec.gymCodeId] : []));
           const branchUnion = [...new Set([...loginAllowed, ...loginAssigned].map((x) => String(x || '').trim()).filter(Boolean))];
-          setBackendHydrated(false);
-          setUser({
+          const loginBranchMeta = {
             ...sessionUser,
-            gymCodeId: rec.gymCodeId || rec.activeBranchId || sessionUser.gymCodeId || '',
-            activeBranchId: rec.activeBranchId || rec.gymCodeId || sessionUser.activeBranchId || '',
             assignedBranchIds: branchUnion.length ? branchUnion : loginAssigned,
             allowedBranchIds: branchUnion.length ? branchUnion : loginAllowed,
+            activeBranchId: rec.activeBranchId || rec.gymCodeId || '',
+            gymCodeId: rec.gymCodeId || rec.activeBranchId || '',
+          };
+          const primaryFn = window.__APG_MODULES?.primaryBranchIdForLogin;
+          const activePrimary = typeof primaryFn === 'function'
+            ? primaryFn(loginBranchMeta)
+            : (rec.activeBranchId || rec.gymCodeId || sessionUser.gymCodeId || '');
+          const loginUser = {
+            ...loginBranchMeta,
+            gymCodeId: activePrimary,
+            activeBranchId: activePrimary,
             staffRole: rec.staffRole || sessionUser.staffRole || 'staff',
             lastLoginAt: nowIso,
-          });
+          };
+          setBackendHydrated(false);
+          setUser(loginUser);
           setUsers((prev) => prev.map((u) => (u.id === rec.id ? {
             ...prepareStaffUser({ ...u, ...sessionUser }),
             assignedBranchIds: branchUnion.length ? branchUnion : loginAssigned,
@@ -5826,7 +5873,10 @@ Phone: +91-7047157510`;
           setDashMode('summary');
           logEvent('auth.login', 'user', id, null, { id }, sessionUser.name || id);
           if (dataSyncMode === 'backend' && token) {
-            hydrateFromBackend({ authUser: rec }).catch(() => setBackendHydrated(false));
+            hydrateFromBackend({
+              authUser: loginUser,
+              replaceBranchData: !isOwnerStaffUser(loginUser),
+            }).catch(() => setBackendHydrated(false));
           }
           return true;
         };
@@ -7669,7 +7719,7 @@ Please pay by: ${formattedLastDate}`;
             return scoped;
           });
         }
-      }, [user?.id, user?.gymCodeId]);
+      }, [user?.id, user?.gymCodeId, user?.activeBranchId]);
       const branchScopedMembers = React.useMemo(() => {
         const filterFn = window.__APG_MODULES?.filterMembersForUser;
         if (typeof filterFn === 'function') return filterFn(user, members);

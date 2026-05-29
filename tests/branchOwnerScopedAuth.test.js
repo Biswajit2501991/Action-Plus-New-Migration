@@ -65,13 +65,15 @@ describe('userScope', () => {
 });
 
 describe('branchScope multi-branch', () => {
-  it('allows member in any assigned branch', () => {
+  it('allows member only in active branch (not other assignments)', () => {
     const scope = resolveReadBranchScope({
       staffRole: 'branch_owner',
       allowedBranchIds: ['b1', 'b2'],
       gymCodeId: 'b1',
+      activeBranchId: 'b1',
     });
-    expect(branchScopeAllowsMember(scope, 'b2')).toBe(true);
+    expect(branchScopeAllowsMember(scope, 'b1')).toBe(true);
+    expect(branchScopeAllowsMember(scope, 'b2')).toBe(false);
     expect(branchScopeAllowsMember(scope, 'b9')).toBe(false);
   });
 

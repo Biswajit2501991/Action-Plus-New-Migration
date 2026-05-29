@@ -54,6 +54,11 @@ export function shouldShowBranchSwitcher(user, gymCodes = []) {
   return allowed.length > 1;
 }
 
+/**
+ * Resolve active branch for UI and client scope.
+ * Login default: primary assignment (first in allowed list from DB is_primary order).
+ * After branch switch: JWT activeBranchId wins; localStorage pref only when JWT active unset.
+ */
 export function effectiveActiveBranchId(user, gymCodes = []) {
   const allowed = allowedBranchIdsForUser(user);
   const fromUser = String(user?.activeBranchId || user?.gymCodeId || '').trim();
@@ -64,5 +69,15 @@ export function effectiveActiveBranchId(user, gymCodes = []) {
   if (fromUser && allowed.includes(fromUser)) return fromUser;
   const pref = readActiveBranchPref(user?.id);
   if (pref && allowed.includes(pref)) return pref;
+  return allowed[0];
+}
+
+/** Login/session bootstrap: primary assignment only (ignore localStorage pref). */
+export function primaryBranchIdForLogin(user) {
+  const allowed = allowedBranchIdsForUser(user);
+  if (allowed === null) return String(user?.gymCodeId || user?.activeBranchId || '').trim();
+  if (!allowed.length) return '';
+  const fromServer = String(user?.activeBranchId || user?.gymCodeId || '').trim();
+  if (fromServer && allowed.includes(fromServer)) return fromServer;
   return allowed[0];
 }

@@ -74,9 +74,16 @@ import {
   switchableBranchesForUser,
   shouldShowBranchSwitcher,
   effectiveActiveBranchId,
+  primaryBranchIdForLogin,
   readActiveBranchPref,
   writeActiveBranchPref,
 } from '../features/branding/activeBranchContext.js';
+import {
+  shouldReplaceBranchDataOnHydrate,
+  mergeMembersAfterBranchReplace,
+  mergeVisitorsAfterBranchReplace,
+} from '../features/tenant/branchSwitchCoordinator.js';
+import { activeBranchIdsForDataScope } from '../features/tenant/branchOwnerAccess.js';
 import {
   measureAnchoredPopoverCoords,
   ANCHORED_POPOVER_LAYER_CLASS,
@@ -222,6 +229,11 @@ window.__APG_MODULES.shouldShowBranchSwitcher = shouldShowBranchSwitcher;
 window.__APG_MODULES.effectiveActiveBranchId = effectiveActiveBranchId;
 window.__APG_MODULES.readActiveBranchPref = readActiveBranchPref;
 window.__APG_MODULES.writeActiveBranchPref = writeActiveBranchPref;
+window.__APG_MODULES.primaryBranchIdForLogin = primaryBranchIdForLogin;
+window.__APG_MODULES.activeBranchIdsForDataScope = activeBranchIdsForDataScope;
+window.__APG_MODULES.shouldReplaceBranchDataOnHydrate = shouldReplaceBranchDataOnHydrate;
+window.__APG_MODULES.mergeMembersAfterBranchReplace = mergeMembersAfterBranchReplace;
+window.__APG_MODULES.mergeVisitorsAfterBranchReplace = mergeVisitorsAfterBranchReplace;
 window.__APG_MODULES.measureAnchoredPopoverCoords = measureAnchoredPopoverCoords;
 window.__APG_MODULES.ANCHORED_POPOVER_LAYER_CLASS = ANCHORED_POPOVER_LAYER_CLASS;
 window.__APG_MODULES.ANCHORED_POPOVER_Z_INDEX = ANCHORED_POPOVER_Z_INDEX;

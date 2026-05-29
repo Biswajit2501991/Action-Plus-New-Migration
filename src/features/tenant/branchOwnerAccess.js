@@ -40,16 +40,14 @@ export function allowedBranchIdsForUser(user) {
   return single ? [single] : [];
 }
 
-/** Data visibility scope — active branch when user has multiple assignments. */
+/** Data visibility scope — always the single active branch (never all assignments). */
 export function activeBranchIdsForDataScope(user) {
   const allowed = allowedBranchIdsForUser(user);
   if (allowed === null) return null;
   if (!allowed.length) return [];
   const active = String(user?.activeBranchId || user?.gymCodeId || '').trim();
-  if (allowed.length > 1 && active && allowed.includes(active)) {
-    return [active];
-  }
-  return allowed;
+  if (active && allowed.includes(active)) return [active];
+  return [allowed[0]];
 }
 
 export function userCanAccessBranch(user, gymCodeId) {
