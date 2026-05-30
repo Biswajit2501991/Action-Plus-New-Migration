@@ -8,6 +8,10 @@ import { loadEnvFromFile } from './load-env-file.mjs';
 import { securityHeaders } from './security-headers.mjs';
 import { resolveAuthSessionTiming } from '../src/shared/authSessionTiming.js';
 import { parseAuthCookieMode } from '../src/shared/authCookieMode.js';
+import {
+  isSupervisorMutationPath,
+  verifySupervisorProxyOwner,
+} from './supervisor-proxy-auth.mjs';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -71,6 +75,9 @@ const authSessionTiming = resolveAuthSessionTiming(
   process.env.APG_AUTH_SESSION_IDLE_MS,
 );
 const authCookieMode = parseAuthCookieMode(process.env.APG_AUTH_COOKIE_MODE);
+const supervisorProxyRequireOwner = !['0', 'false', 'no'].includes(
+  String(process.env.APG_SUPERVISOR_PROXY_REQUIRE_OWNER ?? '1').toLowerCase(),
+);
 
 let supervisorChild = null;
 let supervisorChildOwned = false;
@@ -421,6 +428,24 @@ const server = http.createServer((req, res) => {
         'Access-Control-Max-Age': '86400',
       });
       res.end();
+      return;
+    }
+    const u = new URL(req.url || '/', `http://${frontendHost}:${frontendPort}`);
+    const needsOwnerGate = supervisorProxyRequireOwner && isSupervisorMutationPath(u.pathname);
+    if (needsOwnerGate) {
+      verifySupervisorProxyOwner(req, { backendHost, backendPort }).then((ok) => {
+        if (!ok) {
+          if (!res.headersSent) {
+            res.writeHead(403, { 'Content-Type': 'application/json; charset=utf-8' });
+            res.end(JSON.stringify({
+              error: 'supervisor-proxy-forbidden',
+              message: 'Master owner login required for backend process control.',
+            }));
+          }
+          return;
+        }
+        proxyToSupervisor(req, res);
+      });
       return;
     }
     proxyToSupervisor(req, res);

@@ -19837,6 +19837,14 @@ function PTClientsPage({ members, users, settings, updateSetting, currentUser, a
       const backendAccess = normalizeAccess(access).backend;
       const canViewBackendPage = backendAccess?.viewBackendPage !== false;
       const canControlBackend = backendAccess?.controlBackendProcesses !== false;
+      const supervisorFetchInit = () => {
+        const headers = {};
+        if (!AUTH_COOKIE_MODE) {
+          const token = readAuthToken();
+          if (token) headers.Authorization = `Bearer ${token}`;
+        }
+        return { cache: 'no-store', credentials: 'include', headers };
+      };
       const pingHealth = React.useCallback(async () => {
         const ts = new Date().toLocaleTimeString([], { hour12: false });
         let apiUp = false;
@@ -19849,7 +19857,7 @@ function PTClientsPage({ members, users, settings, updateSetting, currentUser, a
         let supUp = null;
         if (supervisorBase) {
           try {
-            const sres = await fetch(`${supervisorBase}/health`, { cache: 'no-store' });
+            const sres = await fetch(`${supervisorBase}/health`, supervisorFetchInit());
             supUp = sres.ok;
           } catch {
             supUp = false;
@@ -19880,7 +19888,8 @@ function PTClientsPage({ members, users, settings, updateSetting, currentUser, a
           try {
             const res = await fetch(`${supervisorBase}${supPaths[action]}`, {
               method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
+              headers: { 'Content-Type': 'application/json', ...supervisorFetchInit().headers },
+              credentials: 'include',
             });
             let data = {};
             try {
