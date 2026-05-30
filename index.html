@@ -19806,12 +19806,6 @@ function PTClientsPage({ members, users, settings, updateSetting, currentUser, a
         if (h === 'localhost' || h === '127.0.0.1') return 'http://127.0.0.1:4010';
         return '';
       }, []);
-      const controlHeaders = React.useCallback(() => {
-        const h = {};
-        const t = window.__APG_ENV__ && window.__APG_ENV__.PROCESS_CONTROL_TOKEN;
-        if (t) h['x-apg-process-token'] = String(t);
-        return h;
-      }, []);
       const backendAccess = normalizeAccess(access).backend;
       const canViewBackendPage = backendAccess?.viewBackendPage !== false;
       const canControlBackend = backendAccess?.controlBackendProcesses !== false;
@@ -19847,7 +19841,6 @@ function PTClientsPage({ members, users, settings, updateSetting, currentUser, a
           setTimeout(() => setToast(''), 2500);
           return;
         }
-        const apiPaths = { restart: '/process/restart', stop: '/process/stop', start: '/process/start' };
         const supPaths = { restart: '/backend/restart', stop: '/backend/stop', start: '/backend/start' };
         setBusy(action);
         const doneToast = (msg, isErr) => {
@@ -19859,22 +19852,7 @@ function PTClientsPage({ members, users, settings, updateSetting, currentUser, a
           try {
             const res = await fetch(`${supervisorBase}${supPaths[action]}`, {
               method: 'POST',
-              headers: controlHeaders(),
-            });
-            let data = {};
-            try {
-              data = await res.json();
-            } catch {}
-            return { res, data };
-          } catch (e) {
-            return { res: null, data: {}, netError: String(e?.message || e) };
-          }
-        };
-        const tryApi = async () => {
-          try {
-            const res = await fetch(`${getBackendApiBaseUrl()}${apiPaths[action]}`, {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json', ...controlHeaders() },
+              headers: { 'Content-Type': 'application/json' },
             });
             let data = {};
             try {
@@ -19890,30 +19868,21 @@ function PTClientsPage({ members, users, settings, updateSetting, currentUser, a
           setTimeout(() => pingHealth(), action === 'start' || action === 'restart' ? 2200 : 500);
         };
         try {
-          if (supervisorBase) {
-            const s = await trySupervisor();
-            if (s && s.res && s.res.ok) {
-              doneToast(s.data.message || 'Supervisor completed the request.');
-              applySuccess();
-              return;
-            }
-          }
-          const a = await tryApi();
-          if (a.netError) {
-            doneToast(
-              supervisorBase
-                ? `${a.netError} (API unreachable; supervisor also failed — is the desktop app or node scripts/apg-supervisor.mjs running?)`
-                : a.netError,
-              true
-            );
+          if (!supervisorBase) {
+            doneToast('Supervisor is not available. Ensure the local app stack is running (npm run prod:start).', true);
             return;
           }
-          if (!a.res || !a.res.ok) {
-            doneToast(a.data?.message || a.data?.error || `Request failed (${a.res?.status || '?'})`, true);
+          const s = await trySupervisor();
+          if (s && s.res && s.res.ok) {
+            doneToast(s.data.message || 'Supervisor completed the request.');
+            applySuccess();
             return;
           }
-          doneToast(a.data.message || 'Done.');
-          applySuccess();
+          if (s?.netError) {
+            doneToast(`${s.netError} (Is node scripts/apg-supervisor.mjs running?)`, true);
+            return;
+          }
+          doneToast(s?.data?.message || s?.data?.error || `Request failed (${s?.res?.status || '?'})`, true);
         } catch (e) {
           doneToast(String(e?.message || e), true);
         } finally {
@@ -19931,7 +19900,7 @@ function PTClientsPage({ members, users, settings, updateSetting, currentUser, a
           <>
           <h1 className="text-xl md:text-2xl font-semibold text-slate-900">Backend</h1>
           <p className="text-sm text-slate-600 max-w-2xl">
-            <b>Turn on</b> and <b>Restart</b> use a local supervisor on port 4010 when you launch via the desktop app or <code className="text-xs bg-slate-100 px-1 rounded">npm run dev:all</code>, so they work even when the API is down. If the API is up, the same buttons can use the API when the supervisor is unavailable.
+            Restart, stop, and start use the local supervisor proxy only. Process control tokens are never exposed to the browser.
           </p>
           <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm space-y-3 max-w-xl">
             <div className="text-sm space-y-1">
@@ -20009,7 +19978,7 @@ function PTClientsPage({ members, users, settings, updateSetting, currentUser, a
               </div>
             )}
             <p className="text-xs text-slate-500">
-              In production, set <code className="bg-slate-100 px-1 rounded">PROCESS_CONTROL_ENABLED=true</code> and optionally <code className="bg-slate-100 px-1 rounded">PROCESS_CONTROL_TOKEN</code> (must match frontend <code className="bg-slate-100 px-1 rounded">PROCESS_CONTROL_TOKEN</code> in <code className="bg-slate-100 px-1 rounded">/app.env.js</code>).
+              Supervisor runs locally on this machine. In production, public <code className="bg-slate-100 px-1 rounded">/api/process/*</code> endpoints are disabled; keep <code className="bg-slate-100 px-1 rounded">PROCESS_CONTROL_ENABLED=false</code> in <code className="bg-slate-100 px-1 rounded">.env.prod</code>.
             </p>
           </div>
           </>

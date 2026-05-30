@@ -129,6 +129,15 @@ function openBrowser(url) {
   spawn('xdg-open', [url], { detached: true, stdio: 'ignore' }).unref();
 }
 
+async function ensureSecurityEnv() {
+  const envFile = String(process.env.ENV_FILE || '');
+  const isProdLike = envFile.includes('prod') || process.env.NODE_ENV === 'production';
+  if (!isProdLike) return;
+  const npmCmd = process.platform === 'win32' ? 'npm.cmd' : 'npm';
+  console.log('[bootstrap] Running security env check (production)...');
+  await run(npmCmd, ['run', 'security:check-env'], backendDir, 'security-check');
+}
+
 async function main() {
   const npmCmd = process.platform === 'win32' ? 'npm.cmd' : 'npm';
   loadEnvFromFile(rootDir);
@@ -137,6 +146,7 @@ async function main() {
   console.log('[bootstrap] Preparing local SQLite database...');
   await ensureDatabase();
   await ensureV2Build();
+  await ensureSecurityEnv();
   loadApgCaffeinateFromDotenv();
   const caffWanted = isApgCaffeinateEnabled();
   const stackScript = path.join(rootDir, 'scripts', 'dev-all-with-tunnel.mjs');

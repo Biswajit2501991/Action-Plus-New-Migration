@@ -11,10 +11,10 @@ LABEL="com.actionplus.gym.autostart"
 PLIST_DIR="$HOME/Library/LaunchAgents"
 PLIST_PATH="$PLIST_DIR/$LABEL.plist"
 LOG_DIR="$APP_ROOT/logs"
-OUT_LOG="$LOG_DIR/autostart.out.log"
-ERR_LOG="$LOG_DIR/autostart.err.log"
+OUT_LOG="$HOME/Library/Logs/com.actionplus.gym/autostart.out.log"
+ERR_LOG="$HOME/Library/Logs/com.actionplus.gym/autostart.err.log"
 
-mkdir -p "$PLIST_DIR" "$LOG_DIR"
+mkdir -p "$PLIST_DIR" "$LOG_DIR" "$HOME/Library/Logs/com.actionplus.gym"
 
 cat > "$PLIST_PATH" <<EOF
 <?xml version="1.0" encoding="UTF-8"?>
@@ -29,7 +29,7 @@ cat > "$PLIST_PATH" <<EOF
     <string>$APP_ROOT/scripts/run-autostart.sh</string>
   </array>
   <key>WorkingDirectory</key>
-  <string>$HOME</string>
+  <string>$APP_ROOT</string>
   <key>RunAtLoad</key>
   <true/>
   <key>KeepAlive</key>
@@ -43,9 +43,11 @@ cat > "$PLIST_PATH" <<EOF
 EOF
 
 launchctl bootout "gui/$(id -u)/$LABEL" >/dev/null 2>&1 || true
+# Service may be in launchctl's disabled overrides (causes bootstrap I/O error 5).
+launchctl enable "gui/$(id -u)/$LABEL" >/dev/null 2>&1 || true
 launchctl bootstrap "gui/$(id -u)" "$PLIST_PATH"
 launchctl enable "gui/$(id -u)/$LABEL"
-launchctl kickstart -k "gui/$(id -u)/$LABEL"
+launchctl kickstart -k "gui/$(id -u)/$LABEL" 2>/dev/null || true
 
 echo "[autostart] Installed and started: $LABEL"
 echo "[autostart] Plist: $PLIST_PATH"

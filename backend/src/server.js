@@ -8,6 +8,7 @@ import { gzip, gunzip } from 'node:zlib';
 import { promisify } from 'node:util';
 import { randomUUID } from 'node:crypto';
 import { env } from './config/env.js';
+import { assertSecurityEnvAtStartup } from './config/validateSecurityEnv.js';
 import { isOriginAllowed } from './config/cors.js';
 import { query } from './db/adapter.js';
 import { membersTableName } from './db/tables.js';
@@ -80,6 +81,10 @@ import {
 } from './auth/branchFilter.js';
 import { getSupabase, gymId } from './db/supabase/client.js';
 import { resolvePtClientMemberId } from './utils/ptClientMemberId.js';
+
+import { isLoopbackRequest } from './middleware/isLoopbackRequest.js';
+
+assertSecurityEnvAtStartup();
 
 const app = express();
 app.set('trust proxy', true);
@@ -469,6 +474,12 @@ function allowProcessControl(req, res) {
     return res.status(403).json({
       error: 'process-control-disabled',
       message: 'Backend process control is disabled. Set PROCESS_CONTROL_ENABLED=true to allow restart/stop/start.',
+    });
+  }
+  if (env.NODE_ENV === 'production' && !isLoopbackRequest(req)) {
+    return res.status(403).json({
+      error: 'process-control-forbidden',
+      message: 'Process control API is not available on the public network. Use the local supervisor instead.',
     });
   }
   const token = env.PROCESS_CONTROL_TOKEN;

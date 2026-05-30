@@ -27,10 +27,12 @@ console.log(`
 
    PROCESS_CONTROL_ENABLED=false
 
-   • If you need supervisor restart from the Backend tab on a trusted Mac only:
+   • Never put PROCESS_CONTROL_TOKEN in app.env.js or the browser.
+   • Backend tab uses /__apg_supervisor; the frontend proxy injects the token server-side.
+   • Optional on the Mac only (supervisor + local proxy):
 
-   PROCESS_CONTROL_ENABLED=true
-   PROCESS_CONTROL_TOKEN=<long random string>
+   APG_SUPERVISOR_TOKEN=<long random string>
+   PROCESS_CONTROL_TOKEN=<same value if supervisor auth is required>
 
 4) CORS (already in code defaults; optional explicit .env)
 

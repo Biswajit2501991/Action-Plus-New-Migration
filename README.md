@@ -214,12 +214,21 @@ To automatically start app + tunnel after login:
 2. Optional — keep the Mac awake while the tunnel runs (recommended for `app.gymactionplus.com`):
    - Add `APG_CAFFEINATE=1` to `.env` (uses `caffeinate` on macOS; works on battery or AC)
 3. Check logs if needed:
-   - `logs/autostart.out.log`
-   - `logs/autostart.err.log`
+   - `~/Library/Logs/com.actionplus.gym/autostart.out.log`
+   - `~/Library/Logs/com.actionplus.gym/autostart.err.log`
    - `logs/health-check.log` (single post-boot `OK/FAIL` line)
    - `logs/watchdog.log` (continuous health + auto-restart events)
 4. Remove auto-start later:
    - `npm run autostart:uninstall`
+
+If `npm run autostart:install` fails with `Bootstrap failed: 5: Input/output error`, the launch agent was likely disabled in a prior uninstall. Re-run install (the script re-enables it), or run manually:
+
+```bash
+launchctl enable "gui/$(id -u)/com.actionplus.gym.autostart"
+npm run autostart:install
+```
+
+Stop any manually started prod stack (`npm run prod:start`) before installing autostart, so ports `5501` / `4010` are free.
 
 This uses `launchd` with label `com.actionplus.gym.autostart` and runs `npm run dev:all:tunnel` plus the health watchdog (`scripts/watchdog-autorestart.sh`). The local supervisor (`scripts/apg-supervisor.mjs`) auto-restarts the backend if it crashes.
 You can also run health check manually with `npm run health:check`.

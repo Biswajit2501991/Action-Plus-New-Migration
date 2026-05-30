@@ -1,5 +1,6 @@
 import { env } from '../config/env.js';
 import { verifyAuthToken } from './requireAuth.js';
+import { isLoopbackRequest } from './isLoopbackRequest.js';
 
 /** Paths under /api that do not require JWT (relative to /api mount). */
 const PUBLIC_PATHS = new Set([
@@ -25,18 +26,22 @@ export function requireApiAuth(req, res, next) {
   if (PUBLIC_PATHS.has(path)) return next();
 
   if (path.startsWith('/process/') && env.PROCESS_CONTROL_ENABLED) {
-    const controlToken = String(env.PROCESS_CONTROL_TOKEN || '');
-    const fromHeader = String(req.headers['x-apg-process-token'] || '');
-    const bearer = readBearerToken(req);
-    if (controlToken && (fromHeader === controlToken || bearer === controlToken)) {
-      req.auth = {
-        userId: 'process-control',
-        roles: ['owner'],
-        permissions: ['*'],
-        gymId: env.APG_GYM_ID || undefined,
-        token: bearer || fromHeader,
-      };
-      return next();
+    if (env.NODE_ENV === 'production' && !isLoopbackRequest(req)) {
+      // Fall through to normal JWT auth (public callers cannot use process token).
+    } else {
+      const controlToken = String(env.PROCESS_CONTROL_TOKEN || '');
+      const fromHeader = String(req.headers['x-apg-process-token'] || '');
+      const bearer = readBearerToken(req);
+      if (controlToken && (fromHeader === controlToken || bearer === controlToken)) {
+        req.auth = {
+          userId: 'process-control',
+          roles: ['owner'],
+          permissions: ['*'],
+          gymId: env.APG_GYM_ID || undefined,
+          token: bearer || fromHeader,
+        };
+        return next();
+      }
     }
   }
 

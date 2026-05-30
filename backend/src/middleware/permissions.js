@@ -10,7 +10,7 @@ export function requireAccess(checkFn) {
       if (!req.auth?.userId) {
         return res.status(401).json({ error: 'unauthorized', message: 'Login required.' });
       }
-      if (isOwnerAuth(req.auth) || req.auth.userId === 'process-control') {
+      if (isOwnerAuth(req.auth)) {
         return next();
       }
 

@@ -19,6 +19,9 @@ const apiBaseUrl = process.env.API_BASE_URL || '/api';
 const backendHost = process.env.BACKEND_HOST || '127.0.0.1';
 const supervisorPort = Number(process.env.APG_SUPERVISOR_PORT || 4010);
 const SUPERVISOR_PROXY_PREFIX = '/__apg_supervisor';
+const supervisorAuthToken = String(
+  process.env.APG_SUPERVISOR_TOKEN || process.env.PROCESS_CONTROL_TOKEN || '',
+).trim();
 const API_PROXY_PREFIX = '/api';
 const V2_PREFIX = '/v2';
 const v2DistDir = path.resolve(rootDir, 'v2', 'dist');
@@ -97,6 +100,12 @@ function proxyToSupervisor(clientReq, clientRes) {
     if (!v) continue;
     if (hopHeaders.has(k.toLowerCase())) continue;
     outHeaders[k] = v;
+  }
+  // V-003: inject supervisor token server-side — never expose it in app.env.js.
+  if (supervisorAuthToken) {
+    outHeaders['x-apg-process-token'] = supervisorAuthToken;
+  } else {
+    delete outHeaders['x-apg-process-token'];
   }
 
   const proxyReq = http.request(
@@ -335,9 +344,6 @@ const server = http.createServer((req, res) => {
       API_BASE_URL: apiBaseUrl,
       SUPERVISOR_URL: `http://127.0.0.1:${supervisorPort}`,
       SUPERVISOR_RELATIVE: SUPERVISOR_PROXY_PREFIX,
-      ...(process.env.PROCESS_CONTROL_TOKEN
-        ? { PROCESS_CONTROL_TOKEN: process.env.PROCESS_CONTROL_TOKEN }
-        : {}),
       V2_VISITORS_ENABLED: ['1', 'true', 'yes'].includes(
         String(process.env.V2_VISITORS_ENABLED || '').toLowerCase(),
       ),
