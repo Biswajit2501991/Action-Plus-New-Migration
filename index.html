@@ -4531,6 +4531,19 @@ Phone: +91-7047157510`;
         }
         setBranchSwitching(true);
         try {
+          const syncVisitorsBeforeSwitch = async () => {
+            if (dataSyncMode !== 'backend' || !hasBackendAuth()) return;
+            const activeUser = authoritativeActiveBranchId
+              ? { ...user, gymCodeId: authoritativeActiveBranchId, activeBranchId: authoritativeActiveBranchId }
+              : user;
+            const scoped = visitorsForBulkSync(visitors, activeUser);
+            if (!scoped.length) return;
+            visitorsSkipNextBulkRef.current = true;
+            await backendJson('/visitors/bulk', {
+              method: 'PUT',
+              body: JSON.stringify({ visitors: scoped }),
+            });
+          };
           const { nextUser } = await orchestrate({
             branchId: id,
             user,
@@ -4540,6 +4553,7 @@ Phone: +91-7047157510`;
             backendJson,
             writeAuthSession,
             setBranchBranding,
+            syncVisitorsBeforeSwitch,
             cacheHandlers: {
               setMembers,
               setVisitors,
@@ -4564,7 +4578,7 @@ Phone: +91-7047157510`;
         } finally {
           setBranchSwitching(false);
         }
-      }, [user, branchSwitching, dataSyncMode, writeAuthSession, hydrateFromBackend, gymCodes, gymCodeById]);
+      }, [user, branchSwitching, dataSyncMode, writeAuthSession, hydrateFromBackend, gymCodes, gymCodeById, visitors, authoritativeActiveBranchId]);
       // Probe backend reachability (no auth). Full data loads after login.
       React.useEffect(() => {
         let alive = true;
@@ -4813,6 +4827,7 @@ Phone: +91-7047157510`;
       const hydrateCompletedAtRef = React.useRef(0);
       const usersSkipNextBulkRef = React.useRef(false);
       const financeSkipNextBulkRef = React.useRef(false);
+      const visitorsSkipNextBulkRef = React.useRef(false);
       const skipPostHydratePoll = () => hydrateCompletedAtRef.current > 0
         && (Date.now() - hydrateCompletedAtRef.current) < 5000;
       const skipBulkPushAfterHydrate = () => hydrateCompletedAtRef.current > 0
@@ -5104,6 +5119,10 @@ Phone: +91-7047157510`;
         if (!Array.isArray(visitors) || visitors.length === 0) return;
         if (skipBulkPushAfterHydrate()) return;
         if (branchSwitching) return;
+        if (visitorsSkipNextBulkRef.current) {
+          visitorsSkipNextBulkRef.current = false;
+          return;
+        }
         const timer = setTimeout(() => {
           backendJson('/visitors/bulk', {
             method: 'PUT',
@@ -7707,6 +7726,22 @@ Please pay by: ${formattedLastDate}`;
           if (exists) return prev.map((v) => (v.id === id ? next : v));
           return [next, ...prev];
         });
+        if (dataSyncMode === 'backend' && hasBackendAuth()) {
+          const activeUser = authoritativeActiveBranchId
+            ? { ...user, gymCodeId: authoritativeActiveBranchId, activeBranchId: authoritativeActiveBranchId }
+            : user;
+          const scoped = visitorsForBulkSync(
+            [...(visitors || []).filter((v) => v.id !== id), next],
+            activeUser,
+          );
+          if (scoped.length) {
+            visitorsSkipNextBulkRef.current = true;
+            backendJson('/visitors/bulk', {
+              method: 'PUT',
+              body: JSON.stringify({ visitors: scoped }),
+            }).catch(() => { visitorsSkipNextBulkRef.current = false; });
+          }
+        }
         logEvent(payload.id ? 'visitor.updated' : 'visitor.created', 'visitor', id, payload.id ? payload : null, next);
         setToast(payload.id ? 'Visitor updated.' : 'Visitor saved.');
         setTimeout(() => setToast(''), 1800);

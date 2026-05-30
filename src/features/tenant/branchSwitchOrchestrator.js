@@ -32,6 +32,12 @@ export async function orchestrateBranchSwitch(ctx) {
   }
 
   beginActiveBranchSwitch(user.id, branchId);
+
+  // Persist current-branch visitors while JWT still matches the outgoing branch.
+  if (typeof ctx.syncVisitorsBeforeSwitch === 'function') {
+    await ctx.syncVisitorsBeforeSwitch();
+  }
+
   invalidateCachesForBranchSwitch(ctx.cacheHandlers || {}, branchId);
 
   let nextUser = applyAuthoritativeBranchToUser({

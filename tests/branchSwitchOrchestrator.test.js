@@ -22,6 +22,38 @@ describe('orchestrateBranchSwitch', () => {
     resetActiveBranchStore();
   });
 
+  it('flushes visitors before cache invalidation and branch PATCH', async () => {
+    const syncVisitorsBeforeSwitch = vi.fn().mockResolvedValue(undefined);
+    const { orchestrateBranchSwitch } = await import('../src/features/tenant/branchSwitchOrchestrator.js');
+    const order = [];
+    const backendJson = vi.fn().mockImplementation(async (path) => {
+      order.push(path);
+      return {
+        token: 'jwt-adra',
+        allowedBranchIds: ['raja', 'adra'],
+        assignedBranchIds: ['raja', 'adra'],
+      };
+    });
+    syncVisitorsBeforeSwitch.mockImplementation(async () => { order.push('flush-visitors'); });
+
+    await orchestrateBranchSwitch({
+      branchId: 'adra',
+      user: { id: 'staff1', gymCodeId: 'raja', activeBranchId: 'raja', allowedBranchIds: ['raja', 'adra'] },
+      gymCodes: [{ id: 'adra', code: 'AP01', name: 'Adra' }],
+      gymCodeById: new Map([['adra', { id: 'adra', code: 'AP01', name: 'Adra' }]]),
+      dataSyncMode: 'backend',
+      backendJson,
+      syncVisitorsBeforeSwitch,
+      writeAuthSession: vi.fn(),
+      setBranchBranding: vi.fn(),
+      cacheHandlers: { setVisitors: vi.fn() },
+      hydrateFromBackend: vi.fn().mockResolvedValue(undefined),
+    });
+
+    expect(syncVisitorsBeforeSwitch).toHaveBeenCalledTimes(1);
+    expect(order.indexOf('flush-visitors')).toBeLessThan(order.indexOf('/auth/active-branch'));
+  });
+
   it('patches active branch, refreshes branding, and hydrates with skip overwrite', async () => {
     const { orchestrateBranchSwitch } = await import('../src/features/tenant/branchSwitchOrchestrator.js');
     const hydrateFromBackend = vi.fn().mockResolvedValue(undefined);

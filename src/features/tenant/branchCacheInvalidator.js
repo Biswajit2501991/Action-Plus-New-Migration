@@ -13,7 +13,8 @@ export function invalidateCachesForBranchSwitch(handlers, nextBranchId) {
   invalidateAllBranchBrandingExcept(id);
 
   if (typeof handlers.setMembers === 'function') handlers.setMembers([]);
-  if (typeof handlers.setVisitors === 'function') handlers.setVisitors([]);
+  // Never clear visitors here — unsynced rows are lost before debounced bulk runs.
+  // Branch-scoped hydrate replaces the in-memory list after the JWT switches.
   if (typeof handlers.setFinanceTransactions === 'function') handlers.setFinanceTransactions([]);
   if (typeof handlers.setSmsEvents === 'function') handlers.setSmsEvents([]);
   if (typeof handlers.setLogs === 'function') handlers.setLogs([]);
