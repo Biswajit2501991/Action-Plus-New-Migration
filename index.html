@@ -3433,6 +3433,22 @@ Phone: +91-7047157510`;
       }
       return [];
     };
+    const sumMonthlyCollectedRevenueInline = (entries, monthKey) => {
+      const key = String(monthKey || '').trim();
+      if (!/^\d{4}-\d{2}$/.test(key)) return 0;
+      return (Array.isArray(entries) ? entries : [])
+        .filter((r) => String(localCalendarDateKey(r?.receivedAt) || '').slice(0, 7) === key)
+        .reduce((sum, r) => sum + Number(r?.amount || 0), 0);
+    };
+    const sumMonthlyCollectedRevenue = (entries, monthKey) => {
+      const fn = window.__APG_MODULES?.sumMonthlyCollectedRevenue;
+      return typeof fn === 'function' ? fn(entries, monthKey) : sumMonthlyCollectedRevenueInline(entries, monthKey);
+    };
+    const buildCollectedRevenueEntries = (members, todayKey = localTodayCalendarKey()) => {
+      return (members || []).flatMap((m) =>
+        collectMemberRevenueEntries(m, { todayKey, includeBillingFallback: true }),
+      );
+    };
     /**
      * Backend GET can briefly lag behind a local PUT. Replacing React state with that payload
      * was wiping lastSmsSent / messageHistory and the next autosave persisted the loss.
@@ -10832,31 +10848,16 @@ function Sidebar({ user, active, onSelect, theme, setTheme, layoutMode = 'classi
       const todayKey = localTodayCalendarKey();
       const todayMonthKey = String(todayKey || '').slice(0, 7);
       const todayUtc = asUTC(todayKey);
-      const collectedRevenueEntries = React.useMemo(() => {
-        // Include billing-date fallback for members without explicit payment rows so
-        // "Total Revenue (Monthly)" stays aligned with member billing-based expectations.
-        return (members || []).flatMap((m) =>
-          collectMemberRevenueEntries(m, { todayKey, includeBillingFallback: true }),
-        );
-      }, [members, todayKey]);
-      const monthlyRevenue = collectedRevenueEntries
-        .filter((r) => {
-          return String(localCalendarDateKey(r.receivedAt) || '').slice(0, 7) === todayMonthKey;
-        })
-        .reduce((sum, r) => sum + Number(r.amount || 0), 0);
+      const collectedRevenueEntries = React.useMemo(
+        () => buildCollectedRevenueEntries(members, todayKey),
+        [members, todayKey],
+      );
+      const monthlyRevenue = sumMonthlyCollectedRevenue(collectedRevenueEntries, todayMonthKey);
       const growthRate = React.useMemo(() => {
-        const current = collectedRevenueEntries
-          .filter((r) => {
-            return String(localCalendarDateKey(r.receivedAt) || '').slice(0, 7) === todayMonthKey;
-          })
-          .reduce((sum, r) => sum + Number(r.amount || 0), 0);
+        const current = sumMonthlyCollectedRevenue(collectedRevenueEntries, todayMonthKey);
         const prevDt = todayUtc ? new Date(Date.UTC(todayUtc.getUTCFullYear(), todayUtc.getUTCMonth() - 1, 1)) : null;
         const prevMonthKey = prevDt ? `${prevDt.getUTCFullYear()}-${String(prevDt.getUTCMonth() + 1).padStart(2, '0')}` : '';
-        const prev = collectedRevenueEntries
-          .filter((r) => {
-            return String(localCalendarDateKey(r.receivedAt) || '').slice(0, 7) === prevMonthKey;
-          })
-          .reduce((sum, r) => sum + Number(r.amount || 0), 0);
+        const prev = sumMonthlyCollectedRevenue(collectedRevenueEntries, prevMonthKey);
         if (!prev) return current ? 100 : 0;
         return Math.round(((current - prev) / prev) * 100);
       }, [collectedRevenueEntries, todayMonthKey, todayUtc]);
@@ -19302,11 +19303,13 @@ function PTClientsPage({ members, users, settings, updateSetting, currentUser, a
         setShowExpenseForm(true);
       }, [openExpenseSignal]);
 
+      const collectedRevenueEntries = React.useMemo(
+        () => buildCollectedRevenueEntries(members, localTodayCalendarKey()),
+        [members],
+      );
       const incomeRows = filteredTransactions.filter((t) => t.type !== 'expense');
       const pendingRows = incomeRows.filter(t => t.status === 'pending');
-      const revenue = incomeRows
-        .filter((t) => t.status !== 'pending')
-        .reduce((sum, t) => sum + Number(t.amount || 0), 0);
+      const revenue = sumMonthlyCollectedRevenue(collectedRevenueEntries, financeMonth);
       const pendingAmount = pendingRows.reduce((sum, t) => sum + Number(t.amount || 0), 0);
       const actualExpense = filteredTransactions
         .filter((t) => t.type === 'expense')
@@ -19382,21 +19385,12 @@ function PTClientsPage({ members, users, settings, updateSetting, currentUser, a
         for (let i = 3; i >= 0; i -= 1) {
           const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
           const label = MONTHS[d.getMonth()];
-          // A "Revenue Trend" must reflect collected income only — including
-          // expenses (negative or positive) gave a misleading net. Pending
-          // income is also excluded to match the Total Revenue card so the
-          // bar heights line up with the headline number.
-          const total = filteredTransactions.reduce((sum, t) => {
-            if (t?.type === 'expense') return sum;
-            if (t?.status === 'pending') return sum;
-            const td = asUTC(t.date);
-            if (!td || td.getFullYear() !== d.getFullYear() || td.getMonth() !== d.getMonth()) return sum;
-            return sum + Number(t.amount || 0);
-          }, 0);
+          const monthKey = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+          const total = sumMonthlyCollectedRevenue(collectedRevenueEntries, monthKey);
           months.push({ label, total });
         }
         return months;
-      }, [filteredTransactions]);
+      }, [collectedRevenueEntries]);
       const highestMonth = Math.max(1, ...monthTotals.map(x => x.total));
       const hasAnyMonthData = monthTotals.some((x) => Number(x.total) > 0);
 

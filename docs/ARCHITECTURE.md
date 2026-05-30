@@ -269,20 +269,20 @@ When SSE is connected, settings polling is reduced to save Supabase quota.
 
 ## 7. Feature flows
 
-### 7.1 Dashboard — Total Revenue (Monthly)
+### 7.1 Total Revenue (Monthly) — Dashboard & Finance
 
 ```
-members[] → collectedRevenueEntries
+members[] → buildCollectedRevenueEntries (collectMemberRevenueEntries per member)
   Priority per member:
-    1. paymentHistory rows (receivedAt/date + amount)
+    1. paymentHistory rows (paidAt/receivedAt + amount)
     2. Else success WhatsApp in messageHistory (one row per calendar day, member.amount)
     3. Else legacy paymentReceivedAt + member.amount
-→ filter: received date in current calendar month (local)
-→ sum amounts
+    4. Else billingDate fallback when not pending overdue
+→ sumMonthlyCollectedRevenue(entries, YYYY-MM) — local calendar month filter
 ```
 
-**File:** `DashboardSummary` in `index.html` (~lines 8727–8771).  
-**Note:** Does not use Finance ledger; gross collected member payments only.
+**Files:** `DashboardSummary` and `FinancePage` in `index.html`; shared sum in `src/features/finance/monthlyRevenue.js`.  
+**Note:** Headline revenue does not use `financeTransactions` or billing-date-only auto rows; pending amounts stay on Finance’s pending card via ledger rows.
 
 ### 7.2 Members — add, edit, payments
 

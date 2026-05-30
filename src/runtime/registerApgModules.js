@@ -119,6 +119,7 @@ import {
   patchUserAfterPasswordResetRequest,
 } from '../features/passwordReset/passwordResetUserPatch.js';
 import PasswordResetNotificationCard from '../components/passwordReset/PasswordResetNotificationCard.js';
+import { sumMonthlyCollectedRevenue } from '../features/finance/monthlyRevenue.js';
 
 function emitTelemetry(level, code, message, meta = {}) {
   const payload = {
@@ -292,6 +293,7 @@ window.__APG_MODULES.patchUserAfterPasswordResetApprove = patchUserAfterPassword
 window.__APG_MODULES.patchUserAfterPasswordResetReject = patchUserAfterPasswordResetReject;
 window.__APG_MODULES.patchUserAfterPasswordResetRequest = patchUserAfterPasswordResetRequest;
 window.__APG_MODULES.PasswordResetNotificationCard = PasswordResetNotificationCard;
+window.__APG_MODULES.sumMonthlyCollectedRevenue = sumMonthlyCollectedRevenue;
 // Core modules are registered — unblock app mount before LeaveTracker async load finishes.
 if (typeof window.__APG_RESOLVE_MODULES === 'function') {
   window.__APG_RESOLVE_MODULES();
