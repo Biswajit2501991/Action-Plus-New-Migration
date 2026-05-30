@@ -23,6 +23,7 @@ import {
   visitorRowToApp,
 } from './mappers.js';
 import { invalidateStaffAccessCache } from '../../auth/accessControl.js';
+import { branchScopeAllowsMember } from '../../auth/branchScope.js';
 import { hashPassword } from '../../auth/passwords.js';
 import { syncGymRowsByExternalId, syncMemberChildRows } from './collectionSync.js';
 import { bulkUpsertMemberRows, membersBulkUpsertReady } from './membersWrite.js';
@@ -1614,6 +1615,56 @@ async function writeVisitors(visitors, scope) {
     deleteOrphans: false,
   });
   notifyCollectionChange('visitors');
+}
+
+/**
+ * Surgical delete for one visitor by external id (branch-scoped for staff).
+ */
+export async function deleteVisitorByExternalId(externalVisitorId, branchScope = null) {
+  const sb = getSupabase();
+  const gid = gymId();
+  const extId = String(externalVisitorId || '').trim();
+  if (!extId) {
+    const err = new Error('visitor-id-required');
+    err.status = 400;
+    throw err;
+  }
+
+  const includeGymCode = await visitorsHaveGymCodeColumn(sb);
+  const selectCols = includeGymCode
+    ? 'id, external_visitor_id, assigned_gym_code_id'
+    : 'id, external_visitor_id';
+
+  const { data: existing, error: selErr } = await sb
+    .from(T.visitors)
+    .select(selectCols)
+    .eq('gym_id', gid)
+    .eq('external_visitor_id', extId)
+    .maybeSingle();
+  if (selErr) throw new Error(`visitor lookup: ${selErr.message}`);
+  if (!existing) {
+    const err = new Error('visitor-not-found');
+    err.status = 404;
+    throw err;
+  }
+
+  if (branchScope && !branchScope.isOwner) {
+    const assigned = includeGymCode ? existing.assigned_gym_code_id : null;
+    if (!branchScopeAllowsMember(branchScope, assigned)) {
+      const err = new Error('branch-write-forbidden');
+      err.status = 403;
+      throw err;
+    }
+  }
+
+  const { error: delErr } = await sb
+    .from(T.visitors)
+    .delete()
+    .eq('gym_id', gid)
+    .eq('external_visitor_id', extId);
+  if (delErr) throw new Error(`visitor delete: ${delErr.message}`);
+  notifyCollectionChange('visitors');
+  return { ok: true, id: extId };
 }
 
 async function readFinance(scope) {

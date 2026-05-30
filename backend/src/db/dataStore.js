@@ -110,6 +110,29 @@ export async function deleteMemberPayment(memberCode, paymentId, branchScope = n
   return { ok: true, deleted: true, paymentId: pid, member: rows[idx] };
 }
 
+export async function deleteVisitor(externalVisitorId, branchScope = null) {
+  if (useSupabase()) return supabaseStore.deleteVisitorByExternalId(externalVisitorId, branchScope);
+  const rows = await kvStore.readJsonCollection('apg.visitors', []);
+  const extId = String(externalVisitorId || '').trim();
+  const idx = rows.findIndex((v) => String(v?.id || '').trim() === extId);
+  if (idx === -1) {
+    const err = new Error('visitor-not-found');
+    err.status = 404;
+    throw err;
+  }
+  if (branchScope?.gymCodeId) {
+    const existing = String(rows[idx]?.assignedGymCodeId || '');
+    if (existing !== String(branchScope.gymCodeId)) {
+      const err = new Error('branch-write-forbidden');
+      err.status = 403;
+      throw err;
+    }
+  }
+  rows.splice(idx, 1);
+  await kvStore.writeJsonCollection('apg.visitors', rows);
+  return { ok: true, id: extId };
+}
+
 export async function updateMember(memberCode, patch, branchScope = null) {
   if (useSupabase()) return supabaseStore.updateMemberFields(memberCode, patch, branchScope);
   const rows = await kvStore.readJsonCollection('apg.members', []);

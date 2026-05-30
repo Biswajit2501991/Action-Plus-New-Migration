@@ -44,6 +44,7 @@ import {
   addSettingsLookup,
   deleteSettingsLookup,
   deleteMemberPayment,
+  deleteVisitor,
   writeRoleTemplates,
   patchPtClientProfileValue,
 } from './db/dataStore.js';
@@ -715,6 +716,40 @@ app.put('/api/visitors/bulk', requireAccess(Access.visitorsWrite), async (req, r
   await writeScopedCollection(req, 'apg.visitors', stamped);
   queueDatabaseBackup('visitors-bulk');
   res.json({ ok: true });
+});
+
+app.delete('/api/visitors/:visitorId', requireAccess(Access.visitorsDelete), async (req, res) => {
+  const visitorId = String(req.params?.visitorId || '').trim();
+  if (!visitorId) {
+    return res.status(400).json({ error: 'visitor-id-required' });
+  }
+  try {
+    assertStaffHasBranchForWrite(req.auth);
+  } catch (err) {
+    return res.status(err.status || 403).json({
+      error: err.message,
+      detail: err.detail || null,
+    });
+  }
+  try {
+    const branchScope = buildBranchScope(req);
+    const result = await deleteVisitor(visitorId, branchScope);
+    await appendAuditLog(req, {
+      action: 'visitor.deleted',
+      entityType: 'visitor',
+      entityId: visitorId,
+      before: { id: visitorId },
+      after: null,
+    });
+    queueDatabaseBackup('visitor-delete');
+    return res.json(result);
+  } catch (err) {
+    const status = err.status || 500;
+    return res.status(status).json({
+      error: err.message || 'visitor-delete-failed',
+      detail: err.detail || null,
+    });
+  }
 });
 
 app.get('/api/users', requireStaffManagementRead, async (req, res) => {

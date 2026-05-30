@@ -7747,11 +7747,33 @@ Please pay by: ${formattedLastDate}`;
         setTimeout(() => setToast(''), 1800);
         return true;
       };
-      const deleteVisitor = (visitorId) => {
+      const deleteVisitor = async (visitorId) => {
         if (!visitorId) return;
+        if (!canDeleteMembers && !canEditMembers) {
+          setToast('You do not have permission to delete visitors.');
+          setTimeout(() => setToast(''), 2500);
+          return;
+        }
         const target = visitors.find((v) => v.id === visitorId) || null;
         setVisitors((prev) => prev.filter((v) => v.id !== visitorId));
         logEvent('visitor.deleted', 'visitor', visitorId, target, null);
+        if (dataSyncMode === 'backend' && hasBackendAuth()) {
+          visitorsSkipNextBulkRef.current = true;
+          try {
+            await backendJson(`/visitors/${encodeURIComponent(visitorId)}`, { method: 'DELETE' });
+            setToast('Visitor deleted.');
+            setTimeout(() => setToast(''), 1800);
+          } catch {
+            if (target) {
+              setVisitors((prev) => {
+                if (prev.some((v) => v.id === visitorId)) return prev;
+                return [target, ...prev];
+              });
+            }
+            setToast('Could not delete visitor. Please try again.');
+            setTimeout(() => setToast(''), 2800);
+          }
+        }
       };
       const markVisitorCalled = async (visitorId) => {
         if (!visitorId || markingVisitorCalledId) return;

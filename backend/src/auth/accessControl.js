@@ -99,6 +99,7 @@ export const Access = {
   membersWrite: (a) => a.members.editMembers || a.members.addMembers || a.members.deleteMembers,
   visitorsRead: (a) => a.members.viewVisitors,
   visitorsWrite: (a) => a.members.editMembers || a.members.addMembers,
+  visitorsDelete: (a) => a.members.deleteMembers || a.members.editMembers,
   financeRead: (a) => {
     const f = a.finance;
     return (
