@@ -68,6 +68,8 @@ import { filterUsersForAuth, sanitizeUsersBulkForAuth } from './auth/tenant/user
 import { LOOKUP_CREATED_BY } from './auth/tenant/roles.js';
 import { authIsBranchOwner, authIsMasterOwner, authUsesGlobalDataRead } from './auth/tenant/scopedAuth.js';
 import { Access, getStaffAccessForUser } from './auth/accessControl.js';
+import { canReadSettingsScope } from './db/supabase/settingsBranchFilter.js';
+import { normalizeSettingsScope } from './db/supabase/settingsScope.js';
 import { requireAccess, requireLogsBulkAccess } from './middleware/permissions.js';
 import authRouter from './routes/auth.js';
 import gymCodesRouter from './routes/gymCodes.js';
@@ -821,11 +823,23 @@ app.post('/api/users/cleanup', requireStaffManagementWrite, async (req, res) => 
 });
 
 app.get('/api/settings', requireAccess(Access.settingsRead), async (req, res) => {
-  const settingsScope = String(req.query?.scope || 'full').trim().toLowerCase();
+  const settingsScope = normalizeSettingsScope(req.query?.scope);
   const scope = readSandboxScope(req);
   const { readSettingsDeduped } = await import('./services/settingsReadService.js');
   try {
-    const settings = await readSettingsDeduped(scope, { scope: settingsScope, auth: req.auth || null });
+    const staffAccess = req.staffAccess || await getStaffAccessForUser(req.auth?.userId);
+    if (!canReadSettingsScope(req.auth, staffAccess, settingsScope)) {
+      return res.status(403).json({
+        error: 'settings_scope_forbidden',
+        message: 'You do not have permission to read this settings scope.',
+        scope: settingsScope,
+      });
+    }
+    const settings = await readSettingsDeduped(scope, {
+      scope: settingsScope,
+      auth: req.auth || null,
+      staffAccess,
+    });
     return res.json(settings || {});
   } catch (error) {
     return res.status(500).json({

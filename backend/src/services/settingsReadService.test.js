@@ -27,7 +27,11 @@ describe('readSettingsDeduped', () => {
       const a = readSettingsDeduped(null, { scope: 'core' });
       const b = readSettingsDeduped(null, { scope: 'core' });
       expect(readJsonValue).toHaveBeenCalledTimes(1);
-      expect(readJsonValue).toHaveBeenCalledWith('apg.settings', {}, null, { scope: 'core' });
+      expect(readJsonValue).toHaveBeenCalledWith('apg.settings', {}, null, {
+        scope: 'core',
+        auth: null,
+        staffAccess: null,
+      });
       resolve({ plans: ['Basic'] });
       const [ra, rb] = await Promise.all([a, b]);
       expect(ra).toEqual({ plans: ['Basic'] });

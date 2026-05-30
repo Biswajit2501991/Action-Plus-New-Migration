@@ -10,19 +10,27 @@ function cacheKey(scope, options = {}) {
   const settingsScope = normalizeSettingsScope(options.scope);
   const sandboxId = scope?.sandboxId ? String(scope.sandboxId) : '';
   const auth = options.auth || null;
+  const staffAccess = options.staffAccess || null;
   const role = String(auth?.staffRole || auth?.staff_role || auth?.role || '').trim().toLowerCase();
   const login = String(auth?.userId || '').trim().toLowerCase();
   const branch = String(auth?.gymCodeId || auth?.gym_code_id || '').trim();
-  const assigned = (Array.isArray(auth?.assignedBranchIds) ? auth.assignedBranchIds : [])
+  const assigned = (Array.isArray(auth?.allowedBranchIds) ? auth.allowedBranchIds : [])
     .map((x) => String(x || '').trim())
     .filter(Boolean)
     .sort()
     .join(',');
-  return `${gid}:${sandboxId}:${settingsScope}:${login}:${role}:${branch}:${assigned}`;
+  const accessKey = staffAccess?.__owner
+    ? 'owner'
+    : `${staffAccess?.leave?.viewLeaveRequests === false ? '0' : '1'}:${staffAccess?.ptClients?.viewPtClients === false ? '0' : '1'}`;
+  return `${gid}:${sandboxId}:${settingsScope}:${login}:${role}:${branch}:${assigned}:${accessKey}`;
 }
 
-async function readSettingsFromStore(scope, settingsScope) {
-  return readJsonValue('apg.settings', {}, scope, { scope: settingsScope });
+async function readSettingsFromStore(scope, settingsScope, auth, staffAccess) {
+  return readJsonValue('apg.settings', {}, scope, {
+    scope: settingsScope,
+    auth: auth || null,
+    staffAccess: staffAccess || null,
+  });
 }
 
 /**
@@ -30,6 +38,8 @@ async function readSettingsFromStore(scope, settingsScope) {
  * Uses dataStore.readJsonValue (dynamic import) to avoid circular ESM init issues.
  */
 export async function readSettingsDeduped(scope = null, options = {}) {
+  const auth = options.auth || null;
+  const staffAccess = options.staffAccess || null;
   const key = cacheKey(scope, options);
   const existing = inFlight.get(key);
   if (existing) return existing;
@@ -40,7 +50,7 @@ export async function readSettingsDeduped(scope = null, options = {}) {
     console.info('[settings-read] start', { key, scope: settingsScope });
   }
 
-  const run = readSettingsFromStore(scope, settingsScope)
+  const run = readSettingsFromStore(scope, settingsScope, auth, staffAccess)
     .then((settings) => {
       if (process.env.APG_DEBUG_SETTINGS === '1') {
         console.info('[settings-read] ok', {

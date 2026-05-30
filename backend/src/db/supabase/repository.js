@@ -39,6 +39,7 @@ import {
   shouldSkipLookupCategorySync,
 } from './settingsLookupLogic.js';
 import { settingsScopeFlags } from './settingsScope.js';
+import { applySettingsBranchFilter } from './settingsBranchFilter.js';
 import {
   dedupeRoleTemplates,
   mergeSettingsPreservingRoleTemplates,
@@ -992,6 +993,20 @@ function authAllowedBranchIds(auth) {
   return [...new Set([one, ...assigned, ...assigned2].map((x) => String(x || '').trim()).filter(Boolean))];
 }
 
+async function finalizeSettingsForAuth(settings, options, settingsScope) {
+  const auth = options?.auth || null;
+  if (!auth) return settings;
+  const sb = getSupabase();
+  const gid = gymId();
+  return applySettingsBranchFilter(
+    settings,
+    auth,
+    options?.staffAccess || null,
+    settingsScope,
+    { sb, gid, fetchAll, chunk },
+  );
+}
+
 async function readSettings(scope, options = {}) {
   if (scope) {
     return readSettingsSandbox(scope.sandboxId);
@@ -1003,13 +1018,17 @@ async function readSettings(scope, options = {}) {
   if (settingsScope === 'leave') {
     const leaveRows = await fetchAll((from, to) =>
       sb.from(T.leave_requests).select('*').eq('gym_id', gid).range(from, to));
-    return { leaveRequests: mapLeaveRows(leaveRows) };
+    return finalizeSettingsForAuth({ leaveRequests: mapLeaveRows(leaveRows) }, options, 'leave');
   }
 
   if (settingsScope === 'pt') {
     const ptRows = await fetchAll((from, to) =>
       sb.from(T.pt_client_profiles).select('*').eq('gym_id', gid).range(from, to));
-    return { ptClientProfiles: await buildPtProfilesFromRows(sb, gid, ptRows) };
+    return finalizeSettingsForAuth(
+      { ptClientProfiles: await buildPtProfilesFromRows(sb, gid, ptRows) },
+      options,
+      'pt',
+    );
   }
 
   const fetches = [];
@@ -1066,7 +1085,7 @@ async function readSettings(scope, options = {}) {
     settings.ptClientProfiles = await buildPtProfilesFromRows(sb, gid, ptRows);
   }
 
-  return settings;
+  return finalizeSettingsForAuth(settings, options, settingsScope);
 }
 
 function mapLeaveRows(leaveRows) {
