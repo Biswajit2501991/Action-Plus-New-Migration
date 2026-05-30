@@ -99,3 +99,11 @@ describe('MEMBER_PHOTO_BATCH_MAX', () => {
     expect(MEMBER_PHOTO_BATCH_MAX).toBe(100);
   });
 });
+
+describe('MEMBER_PHOTO_MAX_BYTES', () => {
+  it('defaults upload limit to 10 MB', async () => {
+    const { MEMBER_PHOTO_MAX_BYTES, MEMBER_PHOTO_MAX_MB } = await import('../backend/src/services/memberPhoto/storageConstants.js');
+    expect(MEMBER_PHOTO_MAX_BYTES).toBe(10 * 1024 * 1024);
+    expect(MEMBER_PHOTO_MAX_MB).toBe(10);
+  });
+});

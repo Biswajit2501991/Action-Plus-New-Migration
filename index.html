@@ -2637,6 +2637,7 @@ Phone: +91-7047157510`;
     const STORAGE_SOFT_LIMIT_BYTES = 4.5 * 1024 * 1024; // ~4.5MB budget
     const MAX_IMPORT_FILE_BYTES = 5 * 1024 * 1024; // 5MB guardrail for backup imports
     const MAX_IMAGE_FILE_BYTES = 10 * 1024 * 1024; // 10MB input guard
+    const PHOTO_TOO_LARGE_MSG = 'Photo dropped — file is too large (maximum 10 MB).';
     const MAX_IMAGE_EDGE_PX = 720;
     const IMAGE_JPEG_QUALITY = 0.78;
 
@@ -3866,15 +3867,25 @@ Phone: +91-7047157510`;
       img.onerror = () => resolve(dataUrl);
       img.src = dataUrl;
     });
+    const dataUrlDecodedBytes = (dataUrl) => {
+      const raw = String(dataUrl || '');
+      const comma = raw.indexOf(',');
+      const b64 = comma >= 0 ? raw.slice(comma + 1) : raw;
+      return Math.floor((b64.length * 3) / 4);
+    };
     const applyPhotoFromFile = async (file, { onSuccess, onError }) => {
       if (!file) return;
       if (file.size > MAX_IMAGE_FILE_BYTES) {
-        onError('Image too large. Please upload a file up to 10MB.');
+        onError(PHOTO_TOO_LARGE_MSG);
         return;
       }
       try {
         const raw = await loadImageDataUrl(file);
         const compressed = await downscaleImageDataUrl(raw);
+        if (dataUrlDecodedBytes(compressed) > MAX_IMAGE_FILE_BYTES) {
+          onError(PHOTO_TOO_LARGE_MSG);
+          return;
+        }
         onSuccess(compressed);
       } catch {
         onError('Unable to process photo. Please try another image.');
@@ -4926,8 +4937,9 @@ Phone: +91-7047157510`;
               setMembers((prev) => prev.map((m) => (m.memberId === res.member.memberId ? { ...m, ...res.member } : m)));
             }
             setPhotoCacheRev((n) => n + 1);
-          } catch {
-            setToast('Photo upload failed. Please try again.');
+          } catch (err) {
+            const tooLarge = err?.apiError === 'photo-too-large' || String(err?.message || '').includes('photo-too-large');
+            setToast(tooLarge ? PHOTO_TOO_LARGE_MSG : 'Photo upload failed. Please try again.');
             setTimeout(() => setToast(''), 2800);
           }
           return;
@@ -11636,7 +11648,7 @@ function MemberRow({ m, memberSyncPending = {}, expanded, onToggle, onEdit, onSt
         const file = e.target.files?.[0];
         if (!file) return;
         if (file.size > MAX_IMAGE_FILE_BYTES) {
-          window.alert('File too large. Please upload up to 10MB.');
+          window.alert(PHOTO_TOO_LARGE_MSG);
           return;
         }
         const reader = new FileReader();
@@ -15188,7 +15200,7 @@ function EditMemberModal({ member, onClose, onSave, onPhotoUploaded = null, plan
         const files = Array.from(e.target.files || []);
         if (!files.length) return;
         const valid = files.filter(f => f.size <= MAX_IMAGE_FILE_BYTES);
-        if (valid.length !== files.length) setWarn('Some files were skipped (over 10MB).');
+        if (valid.length !== files.length) setWarn('Some files were dropped — too large (maximum 10 MB each).');
         const entries = await Promise.all(valid.map((file) => new Promise((resolve) => {
           const r = new FileReader();
           r.onload = () => resolve({

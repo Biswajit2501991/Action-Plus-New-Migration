@@ -1,7 +1,10 @@
 /** Private Supabase Storage bucket for gym media (members, future staff/docs). */
 export const MEMBER_PHOTO_BUCKET = process.env.APG_MEDIA_BUCKET || 'apg-media';
 
-export const MEMBER_PHOTO_MAX_BYTES = Number(process.env.MEMBER_PHOTO_MAX_BYTES || 5 * 1024 * 1024);
+/** Max decoded image bytes accepted on upload (default 10 MB). */
+export const MEMBER_PHOTO_MAX_BYTES = Number(process.env.MEMBER_PHOTO_MAX_BYTES || 10 * 1024 * 1024);
+
+export const MEMBER_PHOTO_MAX_MB = Math.round(MEMBER_PHOTO_MAX_BYTES / (1024 * 1024));
 
 export const MEMBER_PHOTO_SIGNED_URL_TTL_SEC = Number(process.env.MEMBER_PHOTO_SIGNED_URL_TTL_SEC || 3600);
 

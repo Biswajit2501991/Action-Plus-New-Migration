@@ -6,6 +6,7 @@ import {
   MEMBER_PHOTO_ALLOWED_MIMES,
   MEMBER_PHOTO_BATCH_MAX,
   MEMBER_PHOTO_MAX_BYTES,
+  MEMBER_PHOTO_MAX_MB,
   memberPhotoStorageEnabled,
 } from './storageConstants.js';
 import { memberPhotosStorageReady } from './memberPhotoSchema.js';
@@ -133,6 +134,7 @@ export async function uploadMemberPhoto(auth, memberCode, imagePayload, branchSc
   if (parsed.buffer.length > MEMBER_PHOTO_MAX_BYTES) {
     const err = new Error('photo-too-large');
     err.status = 400;
+    err.detail = { maxBytes: MEMBER_PHOTO_MAX_BYTES, maxMb: MEMBER_PHOTO_MAX_MB };
     throw err;
   }
 

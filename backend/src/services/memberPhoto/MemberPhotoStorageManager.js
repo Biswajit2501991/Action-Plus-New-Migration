@@ -1,6 +1,7 @@
 import { getSupabase } from '../../db/supabase/client.js';
 import {
   MEMBER_PHOTO_BUCKET,
+  MEMBER_PHOTO_MAX_BYTES,
   MEMBER_PHOTO_SIGNED_URL_TTL_SEC,
   buildMemberPhotoStoragePath,
   mimeToExtension,
@@ -15,10 +16,17 @@ export async function ensureMemberPhotoBucket() {
   if (!data) {
     const { error } = await sb.storage.createBucket(MEMBER_PHOTO_BUCKET, {
       public: false,
-      fileSizeLimit: 5 * 1024 * 1024,
+      fileSizeLimit: MEMBER_PHOTO_MAX_BYTES,
     });
     if (error && !String(error.message || '').includes('already exists')) {
       throw new Error(`storage bucket create: ${error.message}`);
+    }
+  } else if (typeof sb.storage.updateBucket === 'function') {
+    const { error } = await sb.storage.updateBucket(MEMBER_PHOTO_BUCKET, {
+      fileSizeLimit: MEMBER_PHOTO_MAX_BYTES,
+    });
+    if (error && !String(error.message || '').includes('not found')) {
+      console.warn(`[member-photo] bucket fileSizeLimit update: ${error.message}`);
     }
   }
   bucketEnsured = true;
