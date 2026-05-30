@@ -3594,8 +3594,8 @@ Phone: +91-7047157510`;
           return;
         }
         if (localRow && !remoteRow) {
-          // Backend is authoritative for staff rows. Keeping local-only rows causes
-          // deleted staff to resurrect after refresh/poll.
+          // Keep optimistic local rows until backend bulk sync catches up (same as members).
+          mergedRows.push(localRow);
           return;
         }
         const localTs = visitorSortTimestamp(localRow);
@@ -7679,7 +7679,13 @@ Please pay by: ${formattedLastDate}`;
           convertedMemberId: payload.convertedMemberId || '',
           lastCalledAt: payload.lastCalledAt || '',
           lastCalledBy: payload.lastCalledBy || '',
-          assignedGymCodeId: payload.assignedGymCodeId || null,
+          assignedGymCodeId: String(
+            payload.assignedGymCodeId
+            || authoritativeActiveBranchId
+            || user?.activeBranchId
+            || user?.gymCodeId
+            || '',
+          ).trim() || null,
         };
         if (!next.fullName || !next.email || !next.dob || !next.mobile || !next.gender) {
           setToast('Please complete all visitor required fields.');
@@ -14314,7 +14320,7 @@ function EditMemberModal({ member, onClose, onSave, onPhotoUploaded = null, plan
         || (Array.isArray(currentUser?.roles) && currentUser.roles.includes('owner'));
       const visitorDefaultGymCodeId = isOwnerVisitor
         ? (hqGymCodeId || (gymCodes?.[0]?.id) || '')
-        : (currentUser?.gymCodeId || hqGymCodeId || '');
+        : (currentUser?.activeBranchId || currentUser?.gymCodeId || hqGymCodeId || '');
       const [form, setForm] = React.useState(() => ({
         id: visitor?.id || '',
         fullName: visitor?.fullName || '',
