@@ -12246,6 +12246,12 @@ function MobileMemberDetailView({ m, onBack, onEdit, onWelcome, onWhatsAppCall, 
 
     // ---- Avatar Component ----
     function Avatar({ name, photo, member, className }) {
+      const [, photoCacheTick] = React.useReducer((n) => n + 1, 0);
+      React.useEffect(() => {
+        const onPhotoCache = () => photoCacheTick();
+        window.addEventListener('apg:photo-cache-updated', onPhotoCache);
+        return () => window.removeEventListener('apg:photo-cache-updated', onPhotoCache);
+      }, []);
       const resolveFn = window.__APG_MODULES?.resolveMemberAvatarSrc;
       const src = typeof resolveFn === 'function' && member
         ? resolveFn(member)

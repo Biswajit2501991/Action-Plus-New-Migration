@@ -37,9 +37,14 @@ export function clearMemberPhotoCache() {
 }
 
 export function applyBatchPhotoUrls(rows = []) {
+  let changed = false;
   for (const row of rows) {
     const memberId = String(row?.memberId || '').trim();
     if (!memberId || !row?.url) continue;
     setCachedMemberPhotoUrl(memberId, row.photoVersion, row.url);
+    changed = true;
+  }
+  if (changed && typeof window !== 'undefined') {
+    window.dispatchEvent(new CustomEvent('apg:photo-cache-updated'));
   }
 }
