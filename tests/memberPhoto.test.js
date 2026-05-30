@@ -1,0 +1,91 @@
+import { describe, expect, it } from 'vitest';
+import {
+  buildMemberPhotoStoragePath,
+  sanitizeMemberCodeForPath,
+  memberPhotoStorageEnabled,
+  MEMBER_PHOTO_BATCH_MAX,
+} from '../backend/src/services/memberPhoto/storageConstants.js';
+import {
+  getCachedMemberPhotoUrl,
+  setCachedMemberPhotoUrl,
+  memberIdsNeedingPhotoUrls,
+  invalidateMemberPhotoCache,
+} from '../src/features/members/photoUrlCache.js';
+import {
+  resolveMemberAvatarSrc,
+  mergeMemberPhotoFields,
+} from '../src/features/members/memberAvatarResolver.js';
+
+describe('sanitizeMemberCodeForPath', () => {
+  it('escapes slashes in member codes', () => {
+    expect(sanitizeMemberCodeForPath('APG-183/22')).toBe('APG-183_22');
+  });
+});
+
+describe('buildMemberPhotoStoragePath', () => {
+  it('builds versioned gym-scoped path', () => {
+    const p = buildMemberPhotoStoragePath('gym-1', 'APG-100/26', 2, 'jpg');
+    expect(p).toBe('gyms/gym-1/members/APG-100_26/profile/v2.jpg');
+  });
+});
+
+describe('photoUrlCache', () => {
+  it('stores and retrieves by version', () => {
+    setCachedMemberPhotoUrl('M1', 3, 'https://signed.example/a.jpg', 60000);
+    expect(getCachedMemberPhotoUrl('M1', 3)).toContain('https://');
+    expect(getCachedMemberPhotoUrl('M1', 2)).toBeNull();
+    invalidateMemberPhotoCache('M1');
+    expect(getCachedMemberPhotoUrl('M1', 3)).toBeNull();
+  });
+
+  it('memberIdsNeedingPhotoUrls skips cached members', () => {
+    setCachedMemberPhotoUrl('M2', 1, 'https://signed.example/b.jpg', 60000);
+    const ids = memberIdsNeedingPhotoUrls([
+      { memberId: 'M2', hasPhoto: true, photoVersion: 1 },
+      { memberId: 'M3', hasPhoto: true, photoVersion: 1 },
+    ]);
+    expect(ids).toEqual(['M3']);
+    invalidateMemberPhotoCache('M2');
+  });
+});
+
+describe('mergeMemberPhotoFields', () => {
+  it('prefers higher photoVersion in storage mode', () => {
+    const prev = global.window;
+    global.window = { __APG_ENV__: { MEMBER_PHOTO_STORAGE_ENABLED: true } };
+    const out = mergeMemberPhotoFields(
+      { memberId: 'M1', photo: 'data:old', photoVersion: 1, hasPhoto: true },
+      { memberId: 'M1', photo: '', photoVersion: 2, hasPhoto: true },
+    );
+    expect(out.photoVersion).toBe(2);
+    expect(out.hasPhoto).toBe(true);
+    global.window = prev;
+  });
+});
+
+describe('resolveMemberAvatarSrc', () => {
+  it('uses cache when storage enabled', () => {
+    const prev = global.window;
+    global.window = { __APG_ENV__: { MEMBER_PHOTO_STORAGE_ENABLED: true } };
+    setCachedMemberPhotoUrl('M9', 4, 'https://cdn.example/m9.jpg', 60000);
+    const src = resolveMemberAvatarSrc({ memberId: 'M9', hasPhoto: true, photoVersion: 4 });
+    expect(src).toContain('https://');
+    invalidateMemberPhotoCache('M9');
+    global.window = prev;
+  });
+});
+
+describe('memberPhotoStorageEnabled env', () => {
+  it('reads env flag', () => {
+    const prev = process.env.MEMBER_PHOTO_STORAGE_ENABLED;
+    process.env.MEMBER_PHOTO_STORAGE_ENABLED = 'true';
+    expect(memberPhotoStorageEnabled()).toBe(true);
+    process.env.MEMBER_PHOTO_STORAGE_ENABLED = prev;
+  });
+});
+
+describe('MEMBER_PHOTO_BATCH_MAX', () => {
+  it('caps batch size at 50', () => {
+    expect(MEMBER_PHOTO_BATCH_MAX).toBe(50);
+  });
+});

@@ -363,6 +363,14 @@ async function updateMemberFields(memberCode, patch, branchScope = null) {
     throw err;
   }
 
+  const { memberPhotoStorageEnabled } = await import('../../services/memberPhoto/storageConstants.js');
+  if (memberPhotoStorageEnabled() && Object.prototype.hasOwnProperty.call(patch, 'photo')) {
+    const err = new Error('member-photo-use-upload-endpoint');
+    err.status = 400;
+    err.detail = { hint: 'POST /api/members/:memberId/photo' };
+    throw err;
+  }
+
   // We tolerate (data-anomaly) duplicate member_codes by picking the most recently
   // updated row. .maybeSingle() throws on >1 — that's correct for assertions but
   // unhelpful when the legacy snapshot has accidental dupes from old imports.

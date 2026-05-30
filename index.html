@@ -3475,6 +3475,11 @@ Phone: +91-7047157510`;
     };
     /** Keep photo when backend row is newer but photo_url was not persisted yet (bulk race / stale GET). */
     const pickMemberPhoto = (localRow, remoteRow) => {
+      const mergeFn = window.__APG_MODULES?.mergeMemberPhotoFields;
+      if (typeof mergeFn === 'function') {
+        const merged = mergeFn(localRow, remoteRow);
+        return merged.photo || '';
+      }
       const localPhoto = String(localRow?.photo || '').trim();
       const remotePhoto = String(remoteRow?.photo || '').trim();
       if (localPhoto && remotePhoto) {
@@ -3483,6 +3488,16 @@ Phone: +91-7047157510`;
         return localTs >= remoteTs ? localPhoto : remotePhoto;
       }
       return localPhoto || remotePhoto || '';
+    };
+    const pickMemberPhotoMeta = (localRow, remoteRow) => {
+      const mergeFn = window.__APG_MODULES?.mergeMemberPhotoFields;
+      if (typeof mergeFn === 'function') return mergeFn(localRow, remoteRow);
+      const photo = pickMemberPhoto(localRow, remoteRow);
+      return {
+        photo,
+        photoVersion: Math.max(Number(localRow?.photoVersion || 0), Number(remoteRow?.photoVersion || 0)),
+        hasPhoto: Boolean(photo || localRow?.hasPhoto || remoteRow?.hasPhoto),
+      };
     };
     const pickMergedPaymentHistory = (localRow, remoteRow, localTs, remoteTs, syncPending) => {
       const id = String(localRow?.memberId || remoteRow?.memberId || '').trim();
@@ -3556,7 +3571,7 @@ Phone: +91-7047157510`;
         );
         mergedRows.push({
           ...mergedCore,
-          photo: pickMemberPhoto(localRow, remoteRow),
+          ...pickMemberPhotoMeta(localRow, remoteRow),
           attachments: mergedAttachments,
           medicalAnswers: remoteSlim && localRow?.medicalAnswers && !remoteRow?.medicalAnswers
             ? localRow.medicalAnswers
@@ -4109,6 +4124,7 @@ Phone: +91-7047157510`;
         return store.subscribe(() => setBranchContextRev((n) => n + 1));
       }, []);
       const [branchSwitching, setBranchSwitching] = React.useState(false);
+      const [photoCacheRev, setPhotoCacheRev] = React.useState(0);
       const gymCodeById = React.useMemo(() => {
         const m = new Map();
         for (const c of gymCodes) m.set(String(c.id), c);
@@ -4882,11 +4898,25 @@ Phone: +91-7047157510`;
           memberDetailInFlightRef.current.delete(id);
         }
       }, [dataSyncMode, memberSyncPending]);
-      const patchMemberPhoto = React.useCallback((memberId, photo) => {
+      const patchMemberPhoto = React.useCallback(async (memberId, photo) => {
         if (dataSyncMode !== 'backend') return;
         const id = String(memberId || '').trim();
         const photoStr = String(photo || '').trim();
         if (!id || !photoStr) return;
+        const storageOn = window.__APG_MODULES?.memberPhotoStorageEnabled?.();
+        const uploadFn = window.__APG_MODULES?.uploadMemberPhotoApi;
+        if (storageOn && typeof uploadFn === 'function') {
+          try {
+            const res = await uploadFn(id, photoStr, backendJson);
+            if (res?.photoUrl && typeof window.__APG_MODULES?.setCachedMemberPhotoUrl === 'function') {
+              window.__APG_MODULES.setCachedMemberPhotoUrl(id, res.photoVersion, res.photoUrl);
+            }
+            if (res?.member?.memberId) {
+              setMembers((prev) => prev.map((m) => (m.memberId === res.member.memberId ? { ...m, ...res.member } : m)));
+            }
+          } catch {}
+          return;
+        }
         backendJson(`/members/${encodeURIComponent(id)}`, {
           method: 'PATCH',
           body: JSON.stringify({ patch: { photo: photoStr } }),
@@ -5279,6 +5309,21 @@ Phone: +91-7047157510`;
           window.removeEventListener('apg-realtime', onRealtime);
         };
       }, [dataSyncMode, realtimeConnected, backendHydrated, pruneMemberAwaitingBackendSync, memberSyncPending, scheduleDebouncedPull]);
+      // Batch-fetch signed member photo URLs (Supabase Storage Option A).
+      React.useEffect(() => {
+        if (dataSyncMode !== 'backend' || !backendHydrated) return;
+        if (!window.__APG_MODULES?.memberPhotoStorageEnabled?.()) return;
+        const needFn = window.__APG_MODULES?.memberIdsNeedingPhotoUrls;
+        const batchFn = window.__APG_MODULES?.batchFetchMemberPhotoUrls;
+        if (typeof needFn !== 'function' || typeof batchFn !== 'function') return;
+        const ids = needFn(members, 50);
+        if (!ids.length) return;
+        let alive = true;
+        batchFn(ids, backendJson).then(() => {
+          if (alive) setPhotoCacheRev((n) => n + 1);
+        }).catch(() => {});
+        return () => { alive = false; };
+      }, [members, dataSyncMode, backendHydrated]);
       // Pull visitor updates from backend so multi-device changes appear without refresh.
       React.useEffect(() => {
         if (dataSyncMode !== 'backend' || !backendHydrated || !user?.id) return;
@@ -7164,12 +7209,18 @@ Please pay by: ${formattedLastDate}`;
             'ackAccepted','ackSignature','ackDate','parentGuardianName','parentGuardianDob','parentGuardianSignature',
             'familyGroupId','familyPrimaryMemberId','lastSmsSent','assignedGymCodeId',
           ];
+          const photoStorageOn = window.__APG_MODULES?.memberPhotoStorageEnabled?.();
           const delta = {};
           for (const key of PATCH_KEYS) {
+            if (photoStorageOn && key === 'photo') continue;
             const a = toSave[key]; const b = beforeMember[key];
             const sa = typeof a === 'object' ? JSON.stringify(a || null) : String(a == null ? '' : a);
             const sb = typeof b === 'object' ? JSON.stringify(b || null) : String(b == null ? '' : b);
             if (sa !== sb) delta[key] = a == null ? null : a;
+          }
+          const photoChanged = String(toSave.photo || '').trim() !== String(beforeMember.photo || '').trim();
+          if (photoStorageOn && photoChanged && String(toSave.photo || '').trim()) {
+            patchMemberPhoto(toSave.memberId, toSave.photo);
           }
           if (Object.keys(delta).length) {
             backendJson(`/members/${encodeURIComponent(toSave.memberId)}`, {
@@ -11036,7 +11087,7 @@ function Sidebar({ user, active, onSelect, theme, setTheme, layoutMode = 'classi
                   <button key={m.memberId} onClick={() => onOpenMember && onOpenMember(m.memberId)} className="w-full rounded-2xl border border-slate-200 bg-white px-3 py-2.5 text-left shadow-sm">
                     <div className="flex items-center justify-between gap-2">
                       <div className="flex items-center gap-2 min-w-0">
-                        <Avatar name={m.name} photo={m.photo} className="h-9 w-9 rounded-xl" />
+                        <Avatar name={m.name} photo={m.photo} member={m} className="h-9 w-9 rounded-xl" />
                         <div className="min-w-0">
                           <div className="truncate text-sm font-semibold text-slate-900">{m.name}</div>
                           <div className="truncate text-[11px] text-slate-500">{m.mobile || '-'}</div>
@@ -11700,7 +11751,7 @@ function MemberRowDesktopView({ m, selectable, selected, onSelectToggle, onToggl
               ? 'rounded-md bg-[#F08080] px-1.5 py-0.5 text-black font-semibold animate-pulse'
               : (billingToday ? 'rounded-md bg-lime-300 px-1.5 py-0.5 text-black font-semibold animate-pulse' : '')
           )}>
-            <Avatar name={m.name} photo={m.photo} className="h-6 w-6" />
+            <Avatar name={m.name} photo={m.photo} member={m} className="h-6 w-6" />
             <span className="truncate">{m.name}</span>
           </div>
           <div className="col-span-1 truncate">{m.plan}</div>
@@ -11784,7 +11835,7 @@ function MemberRowDesktopView({ m, selectable, selected, onSelectToggle, onToggl
                     onClick={(e) => e.stopPropagation()}
                   />
                 )}
-                <Avatar name={m.name} photo={m.photo} className="h-9 w-9 rounded-xl" />
+                <Avatar name={m.name} photo={m.photo} member={m} className="h-9 w-9 rounded-xl" />
                 <span className={cx('font-semibold truncate', fineHighlight ? 'text-rose-700' : (billingToday ? 'text-emerald-700' : 'text-slate-900'))}>{m.name}</span>
                 {syncPending && (
                   <span className="inline-flex shrink-0 items-center rounded-full border border-amber-200 bg-amber-50 px-1.5 py-0.5 text-[9px] font-semibold text-amber-800" title="Saving to server — other devices may briefly show older data until sync completes.">
@@ -11881,7 +11932,7 @@ function MobileMemberDetailView({ m, onBack, onEdit, onWelcome, onWhatsAppCall, 
           <div className="p-4 space-y-4 pb-24">
             <div className="rounded-[28px] border border-slate-200 bg-gradient-to-br from-white to-blue-50 p-5 shadow-sm">
               <div className="flex items-center gap-4">
-                <Avatar name={m.name} photo={m.photo} className="h-20 w-20 rounded-3xl border-4 border-white shadow-lg" />
+                <Avatar name={m.name} photo={m.photo} member={m} className="h-20 w-20 rounded-3xl border-4 border-white shadow-lg" />
                 <div className="min-w-0">
                   <div className="text-xl font-bold text-slate-900 truncate">{m.name || '-'}</div>
                   <div className="text-xs text-slate-500 truncate">{m.email || m.mobile || '-'}</div>
@@ -12170,10 +12221,14 @@ function MobileMemberDetailView({ m, onBack, onEdit, onWelcome, onWhatsAppCall, 
     }
 
     // ---- Avatar Component ----
-    function Avatar({ name, photo, className }) {
+    function Avatar({ name, photo, member, className }) {
+      const resolveFn = window.__APG_MODULES?.resolveMemberAvatarSrc;
+      const src = typeof resolveFn === 'function' && member
+        ? resolveFn(member)
+        : String(photo || '').trim();
       const initials = (name || '').split(' ').map(p => p[0]).slice(0, 2).join('').toUpperCase();
-      if (photo) {
-        return <img src={photo} alt={name} className={cx('rounded-full object-cover', className)} />;
+      if (src) {
+        return <img src={src} alt={name} className={cx('rounded-full object-cover', className)} />;
       }
       return (
         <div className={cx('rounded-full bg-slate-200 text-slate-700 grid place-items-center text-xs font-semibold', className)}>{initials || '?'}</div>
@@ -15802,7 +15857,7 @@ function PTClientsPage({ members, users, settings, updateSetting, currentUser, a
                           }}
                           className={cx('w-full flex items-center gap-3 px-3 py-3 text-left border-b border-slate-100 hover:bg-slate-50', active && 'bg-blue-50')}
                         >
-                          <Avatar name={m.name} photo={m.photo} className="h-10 w-10 rounded-full" />
+                          <Avatar name={m.name} photo={m.photo} member={m} className="h-10 w-10 rounded-full" />
                           <div className="min-w-0 flex-1">
                             <div className="flex flex-wrap items-center gap-2">
                               <div className="truncate text-sm font-medium text-slate-900">{m.name}</div>

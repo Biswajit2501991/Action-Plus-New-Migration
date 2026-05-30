@@ -7,6 +7,8 @@ import { membersBulkUpsertReady } from './supabase/membersWrite.js';
 import { visitorsHaveGymCodeColumn } from './supabase/visitorsSchema.js';
 import * as supabaseStore from './supabase/repository.js';
 import { branchScopeAllowsMemberTransfer } from '../auth/branchScope.js';
+import { enrichMemberWithPhotoUrl } from '../services/memberPhoto/MemberPhotoService.js';
+import { memberPhotoStorageEnabled } from '../services/memberPhoto/storageConstants.js';
 
 export function useSupabase() {
   if (env.DATA_BACKEND === 'supabase') return true;
@@ -45,16 +47,23 @@ export async function readJsonCollection(key, fallback = [], scope = null, branc
 }
 
 export async function readMember(memberCode, branchScope = null) {
-  if (useSupabase()) return supabaseStore.readMemberByCode(memberCode, branchScope);
-  const rows = await kvStore.readJsonCollection('apg.members', []);
-  const code = String(memberCode || '').trim();
-  const found = rows.find((m) => String(m?.memberId || '').trim() === code);
-  if (!found) return null;
-  if (branchScope?.staffNoBranch) return null;
-  if (branchScope?.gymCodeId && String(found.assignedGymCodeId || '') !== String(branchScope.gymCodeId)) {
-    return null;
+  let member;
+  if (useSupabase()) {
+    member = await supabaseStore.readMemberByCode(memberCode, branchScope);
+  } else {
+    const rows = await kvStore.readJsonCollection('apg.members', []);
+    const code = String(memberCode || '').trim();
+    member = rows.find((m) => String(m?.memberId || '').trim() === code) || null;
+    if (member && branchScope?.staffNoBranch) member = null;
+    if (member && branchScope?.gymCodeId && String(member.assignedGymCodeId || '') !== String(branchScope.gymCodeId)) {
+      member = null;
+    }
   }
-  return found;
+  if (!member) return null;
+  if (memberPhotoStorageEnabled() && useSupabase()) {
+    return enrichMemberWithPhotoUrl(member);
+  }
+  return member;
 }
 
 export async function assertStaffPaymentDeletesAllowed(incomingMembers, branchScope = null) {

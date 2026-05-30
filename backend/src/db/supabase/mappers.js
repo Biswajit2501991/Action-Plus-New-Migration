@@ -2,7 +2,7 @@ import crypto from 'node:crypto';
 import { passwordResetStatusFromRecord } from '../../../../src/features/passwordReset/passwordResetStatus.js';
 import { emptyText, financeStatusFromNumeric, financeStatusToNumeric, toDate, toTs } from './utils.js';
 
-/** Columns fetched for list pulls — excludes photo + heavy JSON/signature blobs. */
+/** Columns fetched for list pulls — excludes photo blob; includes storage metadata. */
 export const MEMBER_LIST_COLUMNS = [
   'id', 'member_code', 'form_no', 'full_name', 'email', 'mobile', 'dob', 'gender', 'address',
   'assigned_staff', 'plan_name', 'status', 'hold_duration', 'amount', 'payment_method',
@@ -10,6 +10,7 @@ export const MEMBER_LIST_COLUMNS = [
   'pay_month', 'remark', 'medical_skipped', 'ack_accepted', 'ack_date', 'parent_guardian_name',
   'parent_guardian_dob', 'family_group_id', 'family_primary_member_id', 'last_sms_sent_json',
   'updated_by', 'assigned_gym_code_id', 'created_at', 'updated_at',
+  'photo_version', 'photo_path', 'photo_url',
 ].join(',');
 
 /** Audit log columns for list pulls — excludes before/after JSON blobs. */
@@ -59,11 +60,14 @@ export function memberRowToApp(row, children = {}, options = {}) {
     assignedGymCodeId: row.assigned_gym_code_id || null,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
+    photoVersion: Number(row.photo_version || 0),
+    hasPhoto: Boolean(String(row.photo_path || '').trim() || String(row.photo_url || '').trim()),
   };
   if (slim) {
     return {
       ...base,
       __listSlim: true,
+      photo: '',
       paymentHistory: children.payments || [],
       messageHistory: [],
       attachments: [],

@@ -14,6 +14,8 @@ import { query } from './db/adapter.js';
 import { membersTableName } from './db/tables.js';
 import { membersBulkUpsertReady } from './db/supabase/membersWrite.js';
 import { visitorsHaveGymCodeColumn } from './db/supabase/visitorsSchema.js';
+import { memberPhotosStorageReady } from './services/memberPhoto/memberPhotoSchema.js';
+import { memberPhotoStorageEnabled } from './services/memberPhoto/storageConstants.js';
 import {
   findOverlappingPendingLeave,
   insertLeaveRequest,
@@ -75,6 +77,7 @@ import { requireAccess, requireLogsBulkAccess } from './middleware/permissions.j
 import authRouter from './routes/auth.js';
 import gymCodesRouter from './routes/gymCodes.js';
 import brandingRouter from './routes/branding.js';
+import memberPhotosRouter from './routes/memberPhotos.js';
 import {
   authIsOwner,
   stampBranchOnRows,
@@ -430,6 +433,8 @@ async function healthPayload(extra = {}) {
     membersTable: useSupabase() ? membersTableName : null,
     membersBulkUpsert: useSupabase() ? await membersBulkUpsertReady() : null,
     visitorsGymCodeColumn: useSupabase() ? await visitorsHaveGymCodeColumn(getSupabase()) : null,
+    memberPhotoStorageEnabled: memberPhotoStorageEnabled(),
+    memberPhotoStorageReady: useSupabase() ? await memberPhotosStorageReady(getSupabase()) : null,
     realtime: useSupabase() ? { ...realtimeListenerStatus(), sseClients: sseClientCount() } : null,
     ...extra,
   };
@@ -573,6 +578,8 @@ app.get('/api/members', requireAccess(Access.membersRead), async (req, res) => {
   const members = await readJsonCollection('apg.members', [], scope, branchScope, options);
   res.json(members);
 });
+
+app.use('/api/members', memberPhotosRouter);
 
 app.get('/api/members/:memberId', requireAccess(Access.membersRead), async (req, res) => {
   const memberCode = decodeURIComponent(String(req.params.memberId || '').trim());

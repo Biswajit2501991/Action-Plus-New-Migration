@@ -405,6 +405,9 @@ const server = http.createServer((req, res) => {
         String(process.env.V2_VISITORS_ENABLED || '').toLowerCase(),
       ),
       V2_BASE_PATH: '/v2/',
+      MEMBER_PHOTO_STORAGE_ENABLED: ['1', 'true', 'yes'].includes(
+        String(process.env.MEMBER_PHOTO_STORAGE_ENABLED || '').toLowerCase(),
+      ),
       AUTH_SESSION_TTL_MS: authSessionTiming.ttlMs,
       AUTH_SESSION_IDLE_MS: authSessionTiming.idleMs,
       JWT_EXPIRES_IN: authSessionTiming.jwtExpiresIn,

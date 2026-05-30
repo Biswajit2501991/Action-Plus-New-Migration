@@ -120,6 +120,23 @@ import {
 } from '../features/passwordReset/passwordResetUserPatch.js';
 import PasswordResetNotificationCard from '../components/passwordReset/PasswordResetNotificationCard.js';
 import { sumMonthlyCollectedRevenue } from '../features/finance/monthlyRevenue.js';
+import {
+  uploadMemberPhotoApi,
+  deleteMemberPhotoApi,
+  batchFetchMemberPhotoUrls,
+  memberPhotoStorageEnabled as memberPhotoStorageEnabledApi,
+} from '../features/members/memberPhotoApi.js';
+import {
+  resolveMemberAvatarSrc,
+  mergeMemberPhotoFields,
+} from '../features/members/memberAvatarResolver.js';
+import {
+  getCachedMemberPhotoUrl,
+  setCachedMemberPhotoUrl,
+  invalidateMemberPhotoCache,
+  applyBatchPhotoUrls,
+  memberIdsNeedingPhotoUrls,
+} from '../features/members/photoUrlCache.js';
 
 function emitTelemetry(level, code, message, meta = {}) {
   const payload = {
@@ -294,6 +311,17 @@ window.__APG_MODULES.patchUserAfterPasswordResetReject = patchUserAfterPasswordR
 window.__APG_MODULES.patchUserAfterPasswordResetRequest = patchUserAfterPasswordResetRequest;
 window.__APG_MODULES.PasswordResetNotificationCard = PasswordResetNotificationCard;
 window.__APG_MODULES.sumMonthlyCollectedRevenue = sumMonthlyCollectedRevenue;
+window.__APG_MODULES.memberPhotoStorageEnabled = memberPhotoStorageEnabledApi;
+window.__APG_MODULES.uploadMemberPhotoApi = uploadMemberPhotoApi;
+window.__APG_MODULES.deleteMemberPhotoApi = deleteMemberPhotoApi;
+window.__APG_MODULES.batchFetchMemberPhotoUrls = batchFetchMemberPhotoUrls;
+window.__APG_MODULES.resolveMemberAvatarSrc = resolveMemberAvatarSrc;
+window.__APG_MODULES.mergeMemberPhotoFields = mergeMemberPhotoFields;
+window.__APG_MODULES.getCachedMemberPhotoUrl = getCachedMemberPhotoUrl;
+window.__APG_MODULES.setCachedMemberPhotoUrl = setCachedMemberPhotoUrl;
+window.__APG_MODULES.invalidateMemberPhotoCache = invalidateMemberPhotoCache;
+window.__APG_MODULES.applyBatchPhotoUrls = applyBatchPhotoUrls;
+window.__APG_MODULES.memberIdsNeedingPhotoUrls = memberIdsNeedingPhotoUrls;
 // Core modules are registered — unblock app mount before LeaveTracker async load finishes.
 if (typeof window.__APG_RESOLVE_MODULES === 'function') {
   window.__APG_RESOLVE_MODULES();
