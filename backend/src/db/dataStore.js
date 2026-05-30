@@ -6,6 +6,7 @@ import { getSupabase } from './supabase/client.js';
 import { membersBulkUpsertReady } from './supabase/membersWrite.js';
 import { visitorsHaveGymCodeColumn } from './supabase/visitorsSchema.js';
 import * as supabaseStore from './supabase/repository.js';
+import { branchScopeAllowsMemberTransfer } from '../auth/branchScope.js';
 
 export function useSupabase() {
   if (env.DATA_BACKEND === 'supabase') return true;
@@ -142,17 +143,20 @@ export async function updateMember(memberCode, patch, branchScope = null) {
     err.status = 404;
     throw err;
   }
-  if (branchScope?.gymCodeId) {
+  if (branchScope?.gymCodeId && !branchScope.isOwner) {
     const existing = String(rows[idx]?.assignedGymCodeId || '');
     if (existing !== String(branchScope.gymCodeId)) {
       const err = new Error('member-not-found');
       err.status = 404;
       throw err;
     }
-    if (Object.prototype.hasOwnProperty.call(patch, 'assignedGymCodeId') && String(patch.assignedGymCodeId || '') !== String(branchScope.gymCodeId)) {
-      const err = new Error('cross-branch-write-forbidden');
-      err.status = 403;
-      throw err;
+    if (Object.prototype.hasOwnProperty.call(patch, 'assignedGymCodeId')) {
+      const want = String(patch.assignedGymCodeId || '').trim();
+      if (want && !branchScopeAllowsMemberTransfer(branchScope, existing, want)) {
+        const err = new Error('cross-branch-write-forbidden');
+        err.status = 403;
+        throw err;
+      }
     }
   }
   const targetBranch = Object.prototype.hasOwnProperty.call(patch, 'assignedGymCodeId')

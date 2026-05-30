@@ -7175,10 +7175,29 @@ Please pay by: ${formattedLastDate}`;
             backendJson(`/members/${encodeURIComponent(toSave.memberId)}`, {
               method: 'PATCH',
               body: JSON.stringify({ patch: delta }),
-            }).then(() => {
+            }).then((res) => {
               clearMemberAwaitingBackendSync(toSave.memberId);
-            }).catch(() => {
-              // PATCH failure is non-fatal — the bulk PUT debounce is still the safety net.
+              const branchChanged = Object.prototype.hasOwnProperty.call(delta, 'assignedGymCodeId')
+                && String(delta.assignedGymCodeId || '').trim() !== String(beforeMember.assignedGymCodeId || '').trim();
+              if (branchChanged) {
+                const activeBranch = String(
+                  authoritativeActiveBranchId || user?.activeBranchId || user?.gymCodeId || '',
+                ).trim();
+                const nextBranch = String(res?.member?.assignedGymCodeId || delta.assignedGymCodeId || '').trim();
+                if (activeBranch && nextBranch && nextBranch !== activeBranch) {
+                  setMembers((prev) => prev.filter((m) => m.memberId !== toSave.memberId));
+                } else if (res?.member?.memberId) {
+                  setMembers((prev) => prev.map((m) => (m.memberId === res.member.memberId ? { ...m, ...res.member } : m)));
+                }
+              }
+            }).catch((err) => {
+              setMembers(previousMembers);
+              clearMemberAwaitingBackendSync(toSave.memberId);
+              const msg = err?.apiError === 'cross-branch-write-forbidden'
+                ? 'Branch transfer was rejected. Only the owner can move members between branches you manage.'
+                : 'Could not save member changes to the server. Please try again.';
+              setToast(msg);
+              setTimeout(() => setToast(''), 3200);
             });
           }
         }

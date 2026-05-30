@@ -3,6 +3,7 @@ import {
   resolveReadBranchScope,
   staffBranchBlocksAllRows,
   branchScopeAllowsMember,
+  branchScopeAllowsMemberTransfer,
   filterMembersForBranchScope,
   filterRowsForStaffWrite,
   assertStaffHasBranchForWrite,
@@ -46,6 +47,36 @@ describe('resolveReadBranchScope', () => {
     const s = resolveReadBranchScope({ userId: 'deep' });
     expect(s.staffNoBranch).toBe(true);
     expect(staffBranchBlocksAllRows(s)).toBe(true);
+  });
+});
+
+describe('branchScopeAllowsMemberTransfer', () => {
+  const ownerScoped = resolveReadBranchScope({
+    userId: 'owner',
+    roles: ['owner'],
+    staffRole: 'master_owner',
+    activeBranchId: BRANCH_A,
+    gymCodeId: BRANCH_A,
+  });
+
+  it('master owner may transfer across branches while active branch is set', () => {
+    expect(branchScopeAllowsMemberTransfer(ownerScoped, BRANCH_A, BRANCH_B)).toBe(true);
+  });
+
+  it('single-branch staff cannot transfer to another branch', () => {
+    const staffScope = resolveReadBranchScope({ userId: 'deep', gymCodeId: BRANCH_A });
+    expect(branchScopeAllowsMemberTransfer(staffScope, BRANCH_A, BRANCH_B)).toBe(false);
+  });
+
+  it('multi-branch staff may transfer between assigned branches', () => {
+    const multiScope = resolveReadBranchScope({
+      userId: 'admin',
+      gymCodeId: BRANCH_A,
+      activeBranchId: BRANCH_A,
+      allowedBranchIds: [BRANCH_A, BRANCH_B],
+    });
+    expect(branchScopeAllowsMemberTransfer(multiScope, BRANCH_A, BRANCH_B)).toBe(true);
+    expect(branchScopeAllowsMemberTransfer(multiScope, BRANCH_A, 'uuid-other')).toBe(false);
   });
 });
 

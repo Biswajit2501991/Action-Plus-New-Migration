@@ -1,6 +1,7 @@
 import { authHasGlobalBranchRead, filterRowsByBranch } from './branchFilter.js';
 import {
   resolveActiveBranchId,
+  resolveAllowedBranchIds,
   resolveReadBranchIds,
 } from './tenant/scopedAuth.js';
 
@@ -12,25 +13,41 @@ import {
 export function resolveReadBranchScope(auth) {
   if (!auth) return null;
   const readIds = resolveReadBranchIds(auth);
+  const allAllowed = resolveAllowedBranchIds(auth);
+  const allAllowedBranchIds = allAllowed === null ? null : [...new Set(allAllowed)];
   if (authHasGlobalBranchRead(auth)) {
     if (readIds === null) {
-      return { isOwner: true, gymCodeId: null, allowedBranchIds: null, staffNoBranch: false };
+      return {
+        isOwner: true,
+        gymCodeId: null,
+        allowedBranchIds: null,
+        allAllowedBranchIds,
+        staffNoBranch: false,
+      };
     }
     return {
       isOwner: true,
       gymCodeId: readIds[0],
       allowedBranchIds: readIds,
+      allAllowedBranchIds,
       staffNoBranch: false,
     };
   }
   if (!readIds?.length) {
-    return { isOwner: false, gymCodeId: null, allowedBranchIds: [], staffNoBranch: true };
+    return {
+      isOwner: false,
+      gymCodeId: null,
+      allowedBranchIds: [],
+      allAllowedBranchIds: allAllowedBranchIds || [],
+      staffNoBranch: true,
+    };
   }
   const gymCodeId = readIds[0];
   return {
     isOwner: false,
     gymCodeId,
     allowedBranchIds: readIds,
+    allAllowedBranchIds: allAllowedBranchIds || readIds,
     staffNoBranch: false,
   };
 }
@@ -43,6 +60,22 @@ export function branchScopeRestrictsToGymCode(branchScope) {
 /** @param {ReturnType<typeof resolveReadBranchScope>|null} branchScope */
 export function staffBranchBlocksAllRows(branchScope) {
   return Boolean(branchScope && !branchScope.isOwner && branchScope.staffNoBranch);
+}
+
+/**
+ * Whether a member may be reassigned from one branch to another.
+ * Master owner: always. Multi-branch staff/admin: both branches must be in JWT scope.
+ */
+export function branchScopeAllowsMemberTransfer(branchScope, fromBranchId, toBranchId) {
+  if (!branchScope) return true;
+  if (branchScope.isOwner) return true;
+  const from = String(fromBranchId || '').trim();
+  const to = String(toBranchId || '').trim();
+  if (!to || to === from) return true;
+  const allowed = branchScope.allAllowedBranchIds;
+  if (!Array.isArray(allowed) || !allowed.length) return false;
+  const set = new Set(allowed.map((id) => String(id).trim()).filter(Boolean));
+  return set.has(from) && set.has(to);
 }
 
 /** @param {ReturnType<typeof resolveReadBranchScope>|null} branchScope */

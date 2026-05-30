@@ -23,7 +23,7 @@ import {
   visitorRowToApp,
 } from './mappers.js';
 import { invalidateStaffAccessCache } from '../../auth/accessControl.js';
-import { branchScopeAllowsMember } from '../../auth/branchScope.js';
+import { branchScopeAllowsMember, branchScopeAllowsMemberTransfer } from '../../auth/branchScope.js';
 import { hashPassword } from '../../auth/passwords.js';
 import { syncGymRowsByExternalId, syncMemberChildRows } from './collectionSync.js';
 import { bulkUpsertMemberRows, membersBulkUpsertReady } from './membersWrite.js';
@@ -387,7 +387,7 @@ async function updateMemberFields(memberCode, patch, branchScope = null) {
     throw err;
   }
 
-  if (branchScope?.gymCodeId) {
+  if (branchScope?.gymCodeId && !branchScope.isOwner) {
     const existingCode = String(existingRow.assigned_gym_code_id || '');
     if (existingCode !== String(branchScope.gymCodeId)) {
       // Staff cannot read or mutate rows outside their branch. We surface 404 (not 403)
@@ -398,7 +398,7 @@ async function updateMemberFields(memberCode, patch, branchScope = null) {
     }
     if (Object.prototype.hasOwnProperty.call(patch, 'assignedGymCodeId')) {
       const want = String(patch.assignedGymCodeId || '').trim();
-      if (want && want !== String(branchScope.gymCodeId)) {
+      if (want && !branchScopeAllowsMemberTransfer(branchScope, existingCode, want)) {
         const err = new Error('cross-branch-write-forbidden');
         err.status = 403;
         err.detail = { memberCode: code, requested: want, allowed: branchScope.gymCodeId };
