@@ -224,7 +224,7 @@ router.patch('/active-branch', async (req, res) => {
 
 router.post('/admin-set-password', async (req, res) => {
   if (!useSupabase()) return res.status(503).json({ error: 'auth-requires-supabase' });
-  const auth = resolvePasswordResetDecisionAuth(req, res);
+  const auth = await resolvePasswordResetDecisionAuth(req, res);
   if (!auth) return;
   const staffId = (req.body?.staffId || req.body?.id || '').trim();
   const newPassword = req.body?.newPassword || req.body?.password || '';
@@ -246,7 +246,7 @@ router.post('/admin-set-password', async (req, res) => {
 
 router.post('/reject-password-reset', async (req, res) => {
   if (!useSupabase()) return res.status(503).json({ error: 'auth-requires-supabase' });
-  const auth = resolvePasswordResetDecisionAuth(req, res);
+  const auth = await resolvePasswordResetDecisionAuth(req, res);
   if (!auth) return;
   const staffId = (req.body?.staffId || req.body?.id || '').trim();
   if (!staffId || staffId.toLowerCase() === 'owner') {
