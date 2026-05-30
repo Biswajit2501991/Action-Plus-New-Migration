@@ -60,7 +60,7 @@ function buildProdHtml(html, inlineFullMatch) {
     )
     .replace(
       /<script\s+type="module"\s+src="\.\/src\/runtime\/registerApgModules\.js"><\/script>/i,
-      `<script type="module" src="/src/runtime/registerApgModules.js?v=${buildTag}"></script>`,
+      `<script>window.__APG_ESM_CACHE_BUST='${buildTag}';</script>\n  <script type="module" src="/src/runtime/registerApgModules.js?v=${buildTag}"></script>`,
     );
   // Root-absolute asset URLs so /index.html and /dist-legacy/index.html both work.
   return withBundle

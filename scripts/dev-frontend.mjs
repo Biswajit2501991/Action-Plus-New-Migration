@@ -261,12 +261,7 @@ function staticCacheControlForPath(reqPath, ext) {
   if (reqPath === '/index.html' || reqPath === '/') {
     return 'no-cache, must-revalidate';
   }
-  if (
-    reqPath.startsWith('/src/runtime/')
-    || reqPath.startsWith('/src/features/members/')
-    || reqPath.startsWith('/src/features/passwordReset/')
-    || reqPath.startsWith('/src/components/passwordReset/')
-  ) {
+  if (reqPath.startsWith('/src/')) {
     return 'no-cache, must-revalidate';
   }
   if (reqPath === '/app.bundle.js' || reqPath.startsWith('/modules/')) {

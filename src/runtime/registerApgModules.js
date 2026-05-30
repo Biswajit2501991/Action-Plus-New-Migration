@@ -120,14 +120,8 @@ import {
 } from '../features/passwordReset/passwordResetUserPatch.js';
 import PasswordResetNotificationCard from '../components/passwordReset/PasswordResetNotificationCard.js';
 import { sumMonthlyCollectedRevenue } from '../features/finance/monthlyRevenue.js';
-import {
-  uploadMemberPhotoApi,
-  deleteMemberPhotoApi,
-  batchFetchMemberPhotoUrls,
-  syncAllMemberPhotoUrls,
-  memberIdsNeedingPhotoUrlsAll,
-  memberPhotoStorageEnabled as memberPhotoStorageEnabledApi,
-} from '../features/members/memberPhotoApi.js';
+/** Bump when memberPhotoApi exports change — separate URL bypasses stale bare-path module cache. */
+import * as memberPhotoApiInitial from '../features/members/memberPhotoApi.js?v=5';
 import {
   resolveMemberAvatarSrc,
   mergeMemberPhotoFields,
@@ -138,6 +132,36 @@ import {
   invalidateMemberPhotoCache,
   applyBatchPhotoUrls,
 } from '../features/members/photoUrlCache.js';
+
+function memberPhotoApiHasSyncExports(api) {
+  return typeof api?.syncAllMemberPhotoUrls === 'function'
+    && typeof api?.memberIdsNeedingPhotoUrlsAll === 'function';
+}
+
+async function resolveMemberPhotoApi() {
+  if (memberPhotoApiHasSyncExports(memberPhotoApiInitial)) return memberPhotoApiInitial;
+  const bust = typeof window.__APG_ESM_CACHE_BUST === 'string'
+    ? window.__APG_ESM_CACHE_BUST
+    : String(Date.now());
+  try {
+    const mod = await import(`../features/members/memberPhotoApi.js?v=${bust}`);
+    if (memberPhotoApiHasSyncExports(mod)) return mod;
+  } catch (err) {
+    emitTelemetry('warn', 'member-photo-api-reload', 'Failed to reload memberPhotoApi after stale cache', {
+      error: String(err?.message || err),
+    });
+  }
+  return memberPhotoApiInitial;
+}
+
+function registerMemberPhotoModules(api) {
+  window.__APG_MODULES.memberPhotoStorageEnabled = api.memberPhotoStorageEnabled;
+  window.__APG_MODULES.uploadMemberPhotoApi = api.uploadMemberPhotoApi;
+  window.__APG_MODULES.deleteMemberPhotoApi = api.deleteMemberPhotoApi;
+  window.__APG_MODULES.batchFetchMemberPhotoUrls = api.batchFetchMemberPhotoUrls;
+  window.__APG_MODULES.syncAllMemberPhotoUrls = api.syncAllMemberPhotoUrls;
+  window.__APG_MODULES.memberIdsNeedingPhotoUrlsAll = api.memberIdsNeedingPhotoUrlsAll;
+}
 
 function emitTelemetry(level, code, message, meta = {}) {
   const payload = {
@@ -312,27 +336,26 @@ window.__APG_MODULES.patchUserAfterPasswordResetReject = patchUserAfterPasswordR
 window.__APG_MODULES.patchUserAfterPasswordResetRequest = patchUserAfterPasswordResetRequest;
 window.__APG_MODULES.PasswordResetNotificationCard = PasswordResetNotificationCard;
 window.__APG_MODULES.sumMonthlyCollectedRevenue = sumMonthlyCollectedRevenue;
-window.__APG_MODULES.memberPhotoStorageEnabled = memberPhotoStorageEnabledApi;
-window.__APG_MODULES.uploadMemberPhotoApi = uploadMemberPhotoApi;
-window.__APG_MODULES.deleteMemberPhotoApi = deleteMemberPhotoApi;
-window.__APG_MODULES.batchFetchMemberPhotoUrls = batchFetchMemberPhotoUrls;
-window.__APG_MODULES.syncAllMemberPhotoUrls = syncAllMemberPhotoUrls;
-window.__APG_MODULES.memberIdsNeedingPhotoUrlsAll = memberIdsNeedingPhotoUrlsAll;
 window.__APG_MODULES.resolveMemberAvatarSrc = resolveMemberAvatarSrc;
 window.__APG_MODULES.mergeMemberPhotoFields = mergeMemberPhotoFields;
 window.__APG_MODULES.getCachedMemberPhotoUrl = getCachedMemberPhotoUrl;
 window.__APG_MODULES.setCachedMemberPhotoUrl = setCachedMemberPhotoUrl;
 window.__APG_MODULES.invalidateMemberPhotoCache = invalidateMemberPhotoCache;
 window.__APG_MODULES.applyBatchPhotoUrls = applyBatchPhotoUrls;
-// Core modules are registered — unblock app mount before LeaveTracker async load finishes.
-if (typeof window.__APG_RESOLVE_MODULES === 'function') {
-  window.__APG_RESOLVE_MODULES();
-}
 // Legacy alias used in parts of index.html (typo: trailing underscores).
 window.__APG_MODULES__ = window.__APG_MODULES;
 
 async function register() {
   emitTelemetry('info', 'init', 'Module registration started');
+  const memberPhotoApi = await resolveMemberPhotoApi();
+  registerMemberPhotoModules(memberPhotoApi);
+  if (!memberPhotoApiHasSyncExports(memberPhotoApi)) {
+    emitTelemetry('warn', 'member-photo-api-partial', 'memberPhotoApi loaded without photo sync exports (stale cache?)');
+  }
+  // Core modules are registered — unblock app mount before LeaveTracker async load finishes.
+  if (typeof window.__APG_RESOLVE_MODULES === 'function') {
+    window.__APG_RESOLVE_MODULES();
+  }
   window.__APG_MODULES.LeaveTrackerPageModule = await loadLeaveTrackerModuleWithRetry(3);
   emitTelemetry('info', 'ready', 'Module registration completed');
 }
