@@ -7,6 +7,7 @@ import { fileURLToPath } from 'node:url';
 import { loadEnvFromFile } from './load-env-file.mjs';
 import { securityHeaders } from './security-headers.mjs';
 import { resolveAuthSessionTiming } from '../src/shared/authSessionTiming.js';
+import { parseAuthCookieMode } from '../src/shared/authCookieMode.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -69,6 +70,7 @@ const authSessionTiming = resolveAuthSessionTiming(
   readBackendJwtExpiresIn(),
   process.env.APG_AUTH_SESSION_IDLE_MS,
 );
+const authCookieMode = parseAuthCookieMode(process.env.APG_AUTH_COOKIE_MODE);
 
 let supervisorChild = null;
 let supervisorChildOwned = false;
@@ -399,6 +401,7 @@ const server = http.createServer((req, res) => {
       AUTH_SESSION_TTL_MS: authSessionTiming.ttlMs,
       AUTH_SESSION_IDLE_MS: authSessionTiming.idleMs,
       JWT_EXPIRES_IN: authSessionTiming.jwtExpiresIn,
+      AUTH_COOKIE_MODE: authCookieMode,
     };
     res.writeHead(200, {
       'Content-Type': 'application/javascript; charset=utf-8',

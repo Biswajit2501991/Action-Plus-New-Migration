@@ -87,6 +87,9 @@ import { isLoopbackRequest } from './middleware/isLoopbackRequest.js';
 assertSecurityEnvAtStartup();
 
 const app = express();
+if (env.NODE_ENV === 'production') {
+  app.set('trust proxy', 1);
+}
 app.set('trust proxy', true);
 
 function requireSettingsLookupAdd(req, res, next) {
@@ -117,7 +120,7 @@ app.use((req, res, next) => {
   res.setHeader('Access-Control-Allow-Methods', 'GET,POST,PUT,PATCH,DELETE,OPTIONS');
   res.setHeader(
     'Access-Control-Allow-Headers',
-    'Content-Type, Authorization, x-apg-process-token, X-APG-Process-Token, x-apg-user-id, x-apg-sandbox-id, x-apg-test-profile',
+    'Content-Type, Authorization, x-apg-process-token, X-APG-Process-Token, x-apg-user-id, x-apg-sandbox-id, x-apg-test-profile, x-apg-legacy-auth, X-APG-Legacy-Auth',
   );
   res.setHeader('X-Content-Type-Options', 'nosniff');
   if (req.method === 'OPTIONS') return res.status(204).end();

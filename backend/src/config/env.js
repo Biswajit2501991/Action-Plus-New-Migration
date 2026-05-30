@@ -1,5 +1,6 @@
 import dotenv from 'dotenv';
 import { DEFAULT_JWT_EXPIRES_IN } from '../../../src/shared/authSessionTiming.js';
+import { parseAuthCookieMode } from '../../../src/shared/authCookieMode.js';
 import { parseCorsOrigins } from './cors.js';
 
 dotenv.config();
@@ -18,6 +19,8 @@ export const env = {
   PORT: Number(process.env.PORT || process.env.BACKEND_PORT || 4000),
   JWT_SECRET: process.env.JWT_SECRET || 'change-me',
   JWT_EXPIRES_IN: process.env.JWT_EXPIRES_IN || DEFAULT_JWT_EXPIRES_IN,
+  /** V-002 Phase 2B–2D: HttpOnly JWT cookie instead of localStorage Bearer token. */
+  AUTH_COOKIE_MODE: parseAuthCookieMode(process.env.APG_AUTH_COOKIE_MODE),
   DATABASE_PATH: process.env.DATABASE_PATH || './data/app.db',
   DATA_BACKEND: process.env.DATA_BACKEND || '',
   SUPABASE_URL: process.env.SUPABASE_URL || '',

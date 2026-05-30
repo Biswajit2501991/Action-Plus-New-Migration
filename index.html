@@ -2462,6 +2462,8 @@ Phone: +91-7047157510`;
       gymCodesPanelOpen: 'apg.settings.gymCodesOpen',
     };
     const AUTH_SESSION_KEY = 'apg.auth.session';
+    const AUTH_COOKIE_MODE = Boolean(window.__APG_ENV__?.AUTH_COOKIE_MODE);
+    const authFetchCredentials = () => (AUTH_COOKIE_MODE ? 'include' : 'same-origin');
     // Aligned with backend JWT_EXPIRES_IN via app.env.js (default 2h) and v2 auth-storage.
     const AUTH_SESSION_TTL_MS = Number(window.__APG_ENV__?.AUTH_SESSION_TTL_MS) || (2 * 60 * 60 * 1000);
     const AUTH_SESSION_IDLE_MS = Number(window.__APG_ENV__?.AUTH_SESSION_IDLE_MS) || (90 * 60 * 1000);
@@ -2661,8 +2663,15 @@ Phone: +91-7047157510`;
       }
     };
     const readAuthToken = () => {
+      if (AUTH_COOKIE_MODE) return '';
       const parsed = readAuthSession();
       return parsed?.token ? String(parsed.token) : '';
+    };
+    const hasBackendAuth = () => {
+      const parsed = readAuthSession();
+      if (!parsed?.userId || isAuthSessionExpired(parsed)) return false;
+      if (AUTH_COOKIE_MODE) return true;
+      return Boolean(parsed?.token);
     };
     const purgeAuthSessionStorage = () => {
       try { localStorage.removeItem(AUTH_SESSION_KEY); } catch {}
@@ -2687,11 +2696,13 @@ Phone: +91-7047157510`;
       if (!userId) return;
       const now = Date.now();
       const existing = readAuthSession();
-      const nextToken = token ? String(token) : (existing?.token ? String(existing.token) : '');
+      const nextToken = AUTH_COOKIE_MODE
+        ? ''
+        : (token ? String(token) : (existing?.token ? String(existing.token) : ''));
       try {
         localStorage.setItem(AUTH_SESSION_KEY, JSON.stringify({
           userId: String(userId),
-          token: nextToken,
+          ...(nextToken ? { token: nextToken } : {}),
           expiresAt: now + AUTH_SESSION_TTL_MS,
           lastActivityAt: now,
         }));
@@ -2770,13 +2781,16 @@ Phone: +91-7047157510`;
     };
     const revalidateAuthSessionFromServer = async () => {
       const parsed = readAuthSession();
-      if (!parsed?.token || isAuthSessionExpired(parsed)) return null;
+      if (!parsed?.userId) return null;
+      if (!AUTH_COOKIE_MODE && (!parsed?.token || isAuthSessionExpired(parsed))) return null;
+      if (AUTH_COOKIE_MODE && isAuthSessionExpired(parsed)) return null;
       const t0 = typeof performance !== 'undefined' ? performance.now() : 0;
       const controller = new AbortController();
       const timer = setTimeout(() => controller.abort(), AUTH_ME_TIMEOUT_MS);
       try {
         const me = await fetch(`${getBackendApiBaseUrl()}/auth/me`, {
-          headers: { Authorization: `Bearer ${parsed.token}`, 'Content-Type': 'application/json' },
+          ...(AUTH_COOKIE_MODE ? {} : { headers: { Authorization: `Bearer ${parsed.token}`, 'Content-Type': 'application/json' } }),
+          credentials: authFetchCredentials(),
           cache: 'no-store',
           signal: controller.signal,
         });
@@ -2786,7 +2800,7 @@ Phone: +91-7047157510`;
         }
         const data = await me.json();
         const uid = data?.user?.id || data?.userId || parsed.userId;
-        touchAuthSession(uid, data?.token || parsed.token);
+        touchAuthSession(uid, data?.token || parsed.token || '');
         apgLoadTimingRecord('auth', 'GET /auth/me', performance.now() - t0, {
           status: me.status,
           ok: true,
@@ -3090,6 +3104,7 @@ Phone: +91-7047157510`;
         : {};
       const authToken = readAuthToken();
       const res = await fetch(`${getBackendApiBaseUrl()}${path}`, {
+        credentials: authFetchCredentials(),
         headers: {
           'Content-Type': 'application/json',
           ...(authToken ? { Authorization: `Bearer ${authToken}` } : {}),
@@ -3101,7 +3116,7 @@ Phone: +91-7047157510`;
         ...init,
       });
       if (res.status === 401) {
-        if (attempt === 0 && authToken) {
+        if (attempt === 0 && (authToken || AUTH_COOKIE_MODE)) {
           const revived = await revalidateAuthSessionFromServer();
           if (revived) return backendJson(path, init, 1);
         }
@@ -4280,7 +4295,7 @@ Phone: +91-7047157510`;
       }, [user?.id, dataSyncMode, refreshGymCodes]);
       // Self-heal stale sessions that only kept a single gymCodeId (no multi-branch arrays).
       React.useEffect(() => {
-        if (!user?.id || dataSyncMode !== 'backend' || !readAuthToken()) return;
+        if (!user?.id || dataSyncMode !== 'backend' || !hasBackendAuth()) return;
         if (normalizeBranchIdList(user).length > 1) return;
         let cancelled = false;
         (async () => {
@@ -4294,7 +4309,7 @@ Phone: +91-7047157510`;
         return () => { cancelled = true; };
       }, [user?.id, dataSyncMode, user?.assignedBranchIds, user?.allowedBranchIds, user?.gymCodeId]);
       const pullStaffAttendance = React.useCallback(async (range) => {
-        if (dataSyncMode !== 'backend' || !readAuthToken()) return;
+        if (dataSyncMode !== 'backend' || !hasBackendAuth()) return;
         const r = range || staffAttendanceDefaultRange();
         const startDate = String(r.startDate || '').slice(0, 10);
         const endDate = String(r.endDate || '').slice(0, 10);
@@ -4541,7 +4556,7 @@ Phone: +91-7047157510`;
         };
       }, []);
       React.useEffect(() => {
-        if (!user?.id || dataSyncMode !== 'backend' || !readAuthToken()) return;
+        if (!user?.id || dataSyncMode !== 'backend' || !hasBackendAuth()) return;
         let alive = true;
         (async () => {
           try {
@@ -4601,8 +4616,8 @@ Phone: +91-7047157510`;
           setRealtimeConnected(false);
           return;
         }
-        const streamToken = readAuthToken();
-        if (!streamToken) {
+        const streamToken = AUTH_COOKIE_MODE ? '' : readAuthToken();
+        if (!hasBackendAuth()) {
           setRealtimeConnected(false);
           return;
         }
@@ -4612,8 +4627,10 @@ Phone: +91-7047157510`;
         const connect = () => {
           if (!alive) return;
           try {
-            const streamUrl = `${getBackendApiBaseUrl()}/realtime/stream?token=${encodeURIComponent(streamToken)}`;
-            es = new EventSource(streamUrl);
+            const streamUrl = AUTH_COOKIE_MODE
+              ? `${getBackendApiBaseUrl()}/realtime/stream`
+              : `${getBackendApiBaseUrl()}/realtime/stream?token=${encodeURIComponent(streamToken)}`;
+            es = new EventSource(streamUrl, AUTH_COOKIE_MODE ? { withCredentials: true } : undefined);
             es.onopen = () => {
               if (alive) setRealtimeConnected(true);
             };
@@ -5939,7 +5956,7 @@ Phone: +91-7047157510`;
       }, [holdActivationPrompt, quickFieldEdit, editMember, members, addOpen, visitorFormOpen, visitorEdit, historyState.canUndo, undoHistory]);
 
       const pushAttendancePunch = async (punchType, authUser, nowIso) => {
-        if (dataSyncMode !== 'backend' || !readAuthToken() || !authUser?.id) return;
+        if (dataSyncMode !== 'backend' || !hasBackendAuth() || !authUser?.id) return;
         try {
           const result = await backendJson('/attendance/punch', {
             method: 'POST',
@@ -5959,7 +5976,7 @@ Phone: +91-7047157510`;
         } catch {}
       };
       const pushAttendanceRecords = async (records) => {
-        if (dataSyncMode !== 'backend' || !readAuthToken() || !Array.isArray(records) || records.length === 0) return;
+        if (dataSyncMode !== 'backend' || !hasBackendAuth() || !Array.isArray(records) || records.length === 0) return;
         try {
           await backendJson('/attendance/records', {
             method: 'PUT',
@@ -6104,7 +6121,7 @@ Phone: +91-7047157510`;
           setActiveTab('Dashboard');
           setDashMode('summary');
           logEvent('auth.login', 'user', id, null, { id }, sessionUser.name || id);
-          if (dataSyncMode === 'backend' && token) {
+          if (dataSyncMode === 'backend' && (token || AUTH_COOKIE_MODE)) {
             hydrateFromBackend({
               authUser: loginUser,
               replaceBranchData: Boolean(loginUser.activeBranchId || loginUser.gymCodeId),
@@ -6120,6 +6137,7 @@ Phone: +91-7047157510`;
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify({ identifier: raw, password: pw }),
+              credentials: authFetchCredentials(),
               cache: 'no-store',
               signal: controller.signal,
             });
@@ -6370,7 +6388,7 @@ Phone: +91-7047157510`;
           return;
         }
         const tAuth = performance.now();
-        const useBackendAuth = parsed.token && (syncMode === 'backend' || syncMode === 'checking');
+        const useBackendAuth = (parsed.token || AUTH_COOKIE_MODE) && (syncMode === 'backend' || syncMode === 'checking');
         if (useBackendAuth) {
           const data = await revalidateAuthSessionFromServer();
           if (!stillCurrent()) return;
@@ -6479,7 +6497,7 @@ Phone: +91-7047157510`;
             setUser(null);
             return;
           }
-          if (dataSyncMode === 'backend' && parsed?.token) {
+          if (dataSyncMode === 'backend' && (parsed?.token || AUTH_COOKIE_MODE)) {
             const data = await revalidateAuthSessionFromServer();
             if (data?.user && !data.user.blocked) {
               const rec = prepareStaffUser(data.user);
@@ -7456,7 +7474,7 @@ Please pay by: ${formattedLastDate}`;
         }
         setPaymentDeleteBusy(true);
         const membersBefore = members;
-        const useBackendApi = Boolean(readAuthToken()) && dataSyncMode !== 'local';
+        const useBackendApi = hasBackendAuth() && dataSyncMode !== 'local';
         try {
           if (useBackendApi) {
             const result = await backendJson(
@@ -8138,6 +8156,9 @@ Please pay by: ${formattedLastDate}`;
           pushAttendancePunch('logout', user, nowIso);
         }
         clearAuthSession();
+        if (AUTH_COOKIE_MODE && dataSyncMode === 'backend') {
+          fetch(`${getBackendApiBaseUrl()}/auth/logout`, { method: 'POST', credentials: 'include' }).catch(() => {});
+        }
         setBackendHydrated(false);
         hydrateCompletedAtRef.current = 0;
         clearQueuedSnapshots().catch(() => {});

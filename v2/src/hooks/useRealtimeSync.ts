@@ -1,6 +1,7 @@
 import { useEffect } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
-import { readAuthToken } from '@/lib/auth-storage';
+import { hasBackendAuthSession } from '@/lib/auth-storage';
+import { authCookieModeFromWindow } from '@/lib/auth-cookie-mode';
 import { visitorsQueryKey } from '@/hooks/useVisitors';
 
 const API_BASE = (import.meta.env.VITE_API_BASE_URL || '/api').replace(/\/$/, '');
@@ -13,11 +14,23 @@ export function useRealtimeSync(enabled: boolean) {
 
   useEffect(() => {
     if (!enabled) return;
-    const token = readAuthToken();
-    if (!token) return;
+    if (!hasBackendAuthSession()) return;
 
-    const url = `${API_BASE}/realtime/stream?token=${encodeURIComponent(token)}`;
-    const es = new EventSource(url);
+    const cookieMode = authCookieModeFromWindow();
+    const url = cookieMode
+      ? `${API_BASE}/realtime/stream`
+      : `${API_BASE}/realtime/stream?token=${encodeURIComponent(
+          (() => {
+            try {
+              const raw = localStorage.getItem('apg.auth.session');
+              const parsed = raw ? JSON.parse(raw) : null;
+              return parsed?.token || '';
+            } catch {
+              return '';
+            }
+          })(),
+        )}`;
+    const es = new EventSource(url, cookieMode ? { withCredentials: true } : undefined);
 
     es.onmessage = (ev) => {
       try {

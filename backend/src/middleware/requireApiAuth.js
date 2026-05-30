@@ -1,5 +1,5 @@
 import { env } from '../config/env.js';
-import { verifyAuthToken } from './requireAuth.js';
+import { verifyAuthToken, readAuthToken } from './requireAuth.js';
 import { isLoopbackRequest } from './isLoopbackRequest.js';
 
 /** Paths under /api that do not require JWT (relative to /api mount). */
@@ -8,16 +8,8 @@ const PUBLIC_PATHS = new Set([
   '/v1/health',
 ]);
 
-function readBearerToken(req) {
-  const auth = req.headers.authorization || '';
-  if (auth.startsWith('Bearer ')) return auth.slice(7).trim();
-  const q = req.query?.token;
-  if (q) return String(q).trim();
-  return '';
-}
-
 /**
- * Attach JWT from Authorization header or ?token= (for EventSource).
+ * Attach JWT from Authorization header, ?token= (legacy SSE), or HttpOnly cookie.
  */
 export function requireApiAuth(req, res, next) {
   if (req.method === 'OPTIONS') return next();
@@ -31,7 +23,7 @@ export function requireApiAuth(req, res, next) {
     } else {
       const controlToken = String(env.PROCESS_CONTROL_TOKEN || '');
       const fromHeader = String(req.headers['x-apg-process-token'] || '');
-      const bearer = readBearerToken(req);
+      const bearer = readAuthToken(req);
       if (controlToken && (fromHeader === controlToken || bearer === controlToken)) {
         req.auth = {
           userId: 'process-control',
@@ -45,7 +37,7 @@ export function requireApiAuth(req, res, next) {
     }
   }
 
-  const token = readBearerToken(req);
+  const token = readAuthToken(req);
   if (token && !req.headers.authorization) {
     req.headers.authorization = `Bearer ${token}`;
   }

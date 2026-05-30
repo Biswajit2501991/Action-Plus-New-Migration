@@ -7,7 +7,8 @@ import {
   useState,
   type ReactNode,
 } from 'react';
-import { apiFetch } from '@/api/client';
+import { apiFetch, logoutApi } from '@/api/client';
+import { authCookieModeFromWindow } from '@/lib/auth-cookie-mode';
 import {
   clearAuthSession,
   readAuthSession,
@@ -40,7 +41,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const refreshMe = useCallback(async (signal?: AbortSignal) => {
     const current = readAuthSession();
-    if (!current?.token) {
+    if (!current?.userId) {
+      setUser(null);
+      setSession(null);
+      return;
+    }
+    if (!authCookieModeFromWindow() && !current?.token) {
       setUser(null);
       setSession(null);
       return;
@@ -73,7 +79,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, [refreshMe]);
 
   const login = useCallback(async (identifier: string, password: string) => {
-    const result = await apiFetch<{ token: string; user: AppUser }>(
+    const result = await apiFetch<{ token?: string; user: AppUser }>(
       '/auth/login',
       {
         method: 'POST',
@@ -81,12 +87,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       },
       { skipAuth: true },
     );
-    writeAuthSession(result.user.id, result.token);
+    writeAuthSession(result.user.id, result.token || '');
     setSession(readAuthSession());
     setUser(result.user);
   }, []);
 
   const logout = useCallback(() => {
+    void logoutApi();
     clearAuthSession();
     setSession(null);
     setUser(null);

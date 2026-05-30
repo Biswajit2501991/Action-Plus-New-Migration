@@ -1,4 +1,5 @@
 import { clearAuthSession, readAuthToken } from '@/lib/auth-storage';
+import { authCookieModeFromWindow, authFetchCredentials } from '@/lib/auth-cookie-mode';
 
 const API_BASE = (import.meta.env.VITE_API_BASE_URL || '/api').replace(/\/$/, '');
 
@@ -50,6 +51,7 @@ export async function apiFetch<T>(
   init: RequestInit = {},
   options: ApiFetchOptions = {},
 ): Promise<T> {
+  const cookieMode = authCookieModeFromWindow();
   const token = options.skipAuth ? '' : readAuthToken();
   const headers: Record<string, string> = {
     'Content-Type': 'application/json',
@@ -57,12 +59,16 @@ export async function apiFetch<T>(
   };
   if (token) headers.Authorization = `Bearer ${token}`;
 
-  const res = await fetch(`${API_BASE}${path}`, { ...init, headers });
+  const res = await fetch(`${API_BASE}${path}`, {
+    ...init,
+    headers,
+    credentials: authFetchCredentials(),
+  });
 
   if (res.status === 401) {
     const body = await readErrorBody(res);
-    const hadAuth = Boolean(token);
-    if (hadAuth && token === readAuthToken()) {
+    const hadAuth = Boolean(token || cookieMode);
+    if (hadAuth) {
       clearAuthSession();
     }
     throw new ApiError(401, messageFor401(body, hadAuth));
@@ -77,4 +83,13 @@ export async function apiFetch<T>(
 
   if (res.status === 204) return undefined as T;
   return res.json() as Promise<T>;
+}
+
+export async function logoutApi(): Promise<void> {
+  if (!authCookieModeFromWindow()) return;
+  try {
+    await fetch(`${API_BASE}/auth/logout`, { method: 'POST', credentials: 'include' });
+  } catch {
+    // ignore network errors during logout
+  }
 }

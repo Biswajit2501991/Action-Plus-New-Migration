@@ -1,8 +1,10 @@
+import { authCookieModeFromWindow } from '@/lib/auth-cookie-mode';
+
 export const AUTH_SESSION_KEY = 'apg.auth.session';
 
 export type AuthSession = {
   userId: string;
-  token: string;
+  token?: string;
   expiresAt: number;
 };
 
@@ -14,7 +16,8 @@ export function readAuthSession(): AuthSession | null {
     const raw = localStorage.getItem(AUTH_SESSION_KEY);
     if (!raw) return null;
     const parsed = JSON.parse(raw) as AuthSession;
-    if (!parsed?.token || !parsed?.userId) return null;
+    if (!parsed?.userId) return null;
+    if (!authCookieModeFromWindow() && !parsed?.token) return null;
     if (parsed.expiresAt && parsed.expiresAt < Date.now()) {
       clearAuthSession();
       return null;
@@ -26,11 +29,12 @@ export function readAuthSession(): AuthSession | null {
 }
 
 export function writeAuthSession(userId: string, token: string): void {
+  const cookieMode = authCookieModeFromWindow();
   const session: AuthSession = {
     userId: String(userId),
-    token: String(token),
     expiresAt: Date.now() + SESSION_TTL_MS,
   };
+  if (!cookieMode && token) session.token = String(token);
   localStorage.setItem(AUTH_SESSION_KEY, JSON.stringify(session));
 }
 
@@ -52,9 +56,15 @@ export function clearAuthSession(): void {
 declare global {
   interface Window {
     __APG_SYNC_CONTEXT__?: Record<string, unknown>;
+    __APG_ENV__?: { AUTH_COOKIE_MODE?: boolean };
   }
 }
 
+export function hasBackendAuthSession(): boolean {
+  return Boolean(readAuthSession()?.userId);
+}
+
 export function readAuthToken(): string {
+  if (authCookieModeFromWindow()) return '';
   return readAuthSession()?.token || '';
 }

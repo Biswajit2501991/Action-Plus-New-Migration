@@ -11,12 +11,18 @@ import {
   signStaffToken,
   verifyStaffToken,
 } from '../auth/staffAuth.js';
+import {
+  clearAccessTokenCookie,
+  isAuthCookieModeEnabled,
+  setAccessTokenCookie,
+  wantsLegacyAuthResponse,
+} from '../auth/sessionCookies.js';
 import { resolvePasswordResetDecisionAuth } from '../auth/passwordReset/passwordResetAuth.js';
 import {
   approveStaffPasswordReset,
   rejectStaffPasswordReset,
 } from '../auth/passwordReset/passwordResetRequestService.js';
-import { readBearerToken } from '../middleware/requireAuth.js';
+import { readAuthToken } from '../middleware/requireAuth.js';
 import {
   clearLoginFailures,
   loginRateLimit,
@@ -25,7 +31,19 @@ import {
 } from '../middleware/loginRateLimit.js';
 
 function tokenFromReq(req) {
-  return readBearerToken(req);
+  return readAuthToken(req);
+}
+
+function shouldReturnTokenInBody(req) {
+  return !isAuthCookieModeEnabled() || wantsLegacyAuthResponse(req);
+}
+
+function attachRotatedToken(req, res, token) {
+  if (!token) return;
+  if (isAuthCookieModeEnabled() && !wantsLegacyAuthResponse(req)) {
+    setAccessTokenCookie(res, token);
+    return;
+  }
 }
 
 const router = Router();
@@ -47,11 +65,50 @@ router.post('/login', loginRateLimit, async (req, res) => {
       return res.status(code).json({ error: result.error });
     }
     clearLoginFailures(req);
+    const legacyBody = shouldReturnTokenInBody(req);
+    if (isAuthCookieModeEnabled() && !legacyBody) {
+      setAccessTokenCookie(res, result.token);
+      return res.json({ user: result.user });
+    }
+    if (isAuthCookieModeEnabled() && legacyBody) {
+      setAccessTokenCookie(res, result.token);
+    }
     return res.json({ token: result.token, user: result.user });
   } catch (error) {
     recordFailedLogin(req);
     console.error('[auth/login]', error?.message || error);
     return res.status(500).json({ error: 'login-failed', message: String(error?.message || error) });
+  }
+});
+
+router.post('/logout', (req, res) => {
+  clearAccessTokenCookie(res);
+  return res.json({ ok: true });
+});
+
+router.post('/refresh', async (req, res) => {
+  if (!useSupabase()) return res.status(503).json({ error: 'auth-requires-supabase' });
+  if (!isAuthCookieModeEnabled()) {
+    return res.status(404).json({ error: 'auth-cookie-mode-disabled' });
+  }
+  const token = tokenFromReq(req);
+  const claims = verifyStaffToken(token);
+  if (!claims?.userId) return res.status(401).json({ error: 'unauthorized' });
+  try {
+    const profile = await resolveAuthBranchProfile(claims.userId, claims);
+    if (!profile.user || profile.user.blocked) {
+      clearAccessTokenCookie(res);
+      return res.status(401).json({ error: 'invalid-token' });
+    }
+    const nextToken = signStaffToken(claims.userId, profile.row.gym_id, {
+      ...(profile.tokenCtx || {}),
+      activeBranchId: profile.activeBranchId,
+    });
+    setAccessTokenCookie(res, nextToken);
+    const legacyBody = shouldReturnTokenInBody(req);
+    return res.json(legacyBody ? { ok: true, token: nextToken } : { ok: true });
+  } catch (error) {
+    return res.status(500).json({ error: 'refresh-failed', message: String(error?.message || error) });
   }
 });
 
@@ -82,7 +139,9 @@ router.get('/me', async (req, res) => {
         ...(profile.tokenCtx || {}),
         activeBranchId: profile.activeBranchId,
       });
+      attachRotatedToken(req, res, nextToken);
     }
+    const legacyBody = shouldReturnTokenInBody(req);
     return res.json({
       userId: user.id,
       gymId: claims.gymId || null,
@@ -90,7 +149,7 @@ router.get('/me', async (req, res) => {
       activeBranchId: profile.activeBranchId,
       allowedBranchIds: profile.allowedBranchIds,
       staffRole: user.staffRole || claims.staffRole || 'staff',
-      ...(nextToken ? { token: nextToken } : {}),
+      ...(legacyBody && nextToken ? { token: nextToken } : {}),
       user: {
         ...user,
         gymCodeId: profile.gymCodeId,
@@ -148,9 +207,11 @@ router.patch('/active-branch', async (req, res) => {
     const tokenCtx = profile.tokenCtx || await buildStaffTokenContext(profile.row);
     const nextCtx = { ...tokenCtx, activeBranchId: branchId };
     const token = signStaffToken(claims.userId, profile.row.gym_id, nextCtx);
+    attachRotatedToken(req, res, token);
+    const legacyBody = shouldReturnTokenInBody(req);
     return res.json({
       ok: true,
-      token,
+      ...(legacyBody ? { token } : {}),
       gymCodeId: branchId,
       activeBranchId: branchId,
       allowedBranchIds: allowed.length ? allowed : tokenCtx.allowedBranchIds,

@@ -1,4 +1,5 @@
 import { verifyStaffToken } from '../staffAuth.js';
+import { readAuthToken } from '../../middleware/requireAuth.js';
 import { engineCanManageStaff } from '../tenant/scopedAuthorizationEngine.js';
 
 /**
@@ -6,8 +7,7 @@ import { engineCanManageStaff } from '../tenant/scopedAuthorizationEngine.js';
  * Master owner and branch owners with staff-management rights.
  */
 export function resolvePasswordResetDecisionAuth(req, res) {
-  const authHeader = req.headers.authorization || '';
-  const token = authHeader.startsWith('Bearer ') ? authHeader.slice(7).trim() : '';
+  const token = readAuthToken(req);
   const claims = verifyStaffToken(token);
   if (!claims?.userId) {
     res.status(401).json({ error: 'unauthorized' });
