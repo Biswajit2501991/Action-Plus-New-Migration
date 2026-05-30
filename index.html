@@ -3656,6 +3656,8 @@ Phone: +91-7047157510`;
     };
     const applyAuthBranchContextToUser = (prev, data) => {
       if (!prev || !data?.user) return prev;
+      const syncFn = window.__APG_MODULES?.syncActiveBranchFromAuthPayload;
+      if (typeof syncFn === 'function') syncFn(prev.id, data);
       const branch = branchIdsFromAuthPayload(data);
       const prepared = prepareStaffUser(data.user);
       const mergedAssigned = mergeAssignedBranchIds(prev, { assignedBranchIds: branch.assignedBranchIds });
@@ -3664,7 +3666,7 @@ Phone: +91-7047157510`;
         { assignedBranchIds: branch.allowedBranchIds },
       );
       const photo = pickUserPhoto(prev, prepared) || prepared.photo || prev.photo || null;
-      return {
+      const merged = {
         ...prev,
         ...prepared,
         name: prepared.name || prev.name,
@@ -3675,6 +3677,9 @@ Phone: +91-7047157510`;
         assignedBranchIds: mergedAssigned,
         allowedBranchIds: mergedAllowed.length ? mergedAllowed : (prev.allowedBranchIds || mergedAssigned),
       };
+      const applyFn = window.__APG_MODULES?.applyAuthoritativeBranchToUser;
+      if (typeof applyFn === 'function') return applyFn(merged, []);
+      return merged;
     };
     const syncUsersRowBranchContext = (rows, authUserId, data) => {
       if (!authUserId || !data?.user) return rows;
@@ -3978,6 +3983,10 @@ Phone: +91-7047157510`;
       const sessionExpiryLabel = sessionMinutesLeft == null ? '' : `Session: ${sessionMinutesLeft}m`;
       const clearAuthSession = React.useCallback(() => {
         purgeAuthSessionStorage();
+        const resetFn = window.__APG_MODULES?.resetActiveBranchStore;
+        if (typeof resetFn === 'function') resetFn();
+        const invalidateFn = window.__APG_MODULES?.branchBrandingCache?.invalidate;
+        if (typeof invalidateFn === 'function') invalidateFn();
       }, []);
       const writeAuthSession = React.useCallback((userId, token) => {
         touchAuthSession(userId, token);
@@ -4063,6 +4072,17 @@ Phone: +91-7047157510`;
         const fn = window.__APG_MODULES?.defaultClientBranding;
         return typeof fn === 'function' ? fn() : { displayName: 'Action Plus Gym', logoUrl: './assets/action-plus-logo.png' };
       });
+      const [branchContextRev, setBranchContextRev] = React.useState(0);
+      const authoritativeActiveBranchId = React.useMemo(() => {
+        const fn = window.__APG_MODULES?.getAuthoritativeActiveBranchId;
+        if (typeof fn === 'function' && user) return String(fn(user, gymCodes) || '').trim();
+        return String(user?.activeBranchId || user?.gymCodeId || '').trim();
+      }, [user, gymCodes, branchContextRev, user?.activeBranchId, user?.gymCodeId]);
+      React.useEffect(() => {
+        const store = window.__APG_MODULES?.activeBranchStore;
+        if (!store?.subscribe) return undefined;
+        return store.subscribe(() => setBranchContextRev((n) => n + 1));
+      }, []);
       const [branchSwitching, setBranchSwitching] = React.useState(false);
       const gymCodeById = React.useMemo(() => {
         const m = new Map();
@@ -4095,36 +4115,40 @@ Phone: +91-7047157510`;
       }, [gymCodes, user?.id, user?.staffRole, user?.allowedBranchIds]);
       React.useEffect(() => {
         if (!user?.id) return;
-        const active = String(user.activeBranchId || user.gymCodeId || '').trim();
+        const active = authoritativeActiveBranchId;
         if (active) setTemplatesBranchId(active);
         else if (authIsOwnerForTemplates(user) && hqGymCodeId) setTemplatesBranchId(hqGymCodeId);
-      }, [user?.id, user?.gymCodeId, user?.activeBranchId, hqGymCodeId, authIsOwnerForTemplates]);
+      }, [user?.id, authoritativeActiveBranchId, hqGymCodeId, authIsOwnerForTemplates]);
       const refreshBranchBranding = React.useCallback(async (branchId) => {
-        const resolveLocal = (id) => {
-          const fn = window.__APG_MODULES?.resolveClientBranchBranding;
-          const row = gymCodeById.get(String(id || ''));
-          return typeof fn === 'function' ? fn(row || {}) : { displayName: 'Action Plus Gym', logoUrl: './assets/action-plus-logo.png' };
-        };
-        if (dataSyncMode !== 'backend' || typeof backendJson !== 'function') {
-          setBranchBranding(resolveLocal(branchId || user?.gymCodeId));
-          return;
+        const resolveFn = window.__APG_MODULES?.resolveBranchBranding;
+        const target = String(
+          branchId
+          || authoritativeActiveBranchId
+          || user?.activeBranchId
+          || user?.gymCodeId
+          || '',
+        ).trim();
+        if (typeof resolveFn === 'function') {
+          const branding = await resolveFn(target, {
+            backendJson,
+            gymCodeById,
+            dataSyncMode,
+          });
+          setBranchBranding(branding);
+          return branding;
         }
-        try {
-          const target = String(branchId || user?.activeBranchId || user?.gymCodeId || '').trim();
-          const path = target
-            ? `/gym-codes/${encodeURIComponent(target)}/branding`
-            : '/branding/active';
-          const res = await backendJson(path);
-          if (res?.branding) setBranchBranding(res.branding);
-          else setBranchBranding(resolveLocal(target));
-        } catch {
-          setBranchBranding(resolveLocal(branchId || user?.gymCodeId));
-        }
-      }, [dataSyncMode, user?.gymCodeId, user?.activeBranchId, gymCodeById]);
+        const resolveLocal = window.__APG_MODULES?.resolveClientBranchBranding;
+        const row = gymCodeById.get(String(target || ''));
+        const local = typeof resolveLocal === 'function'
+          ? resolveLocal(row || {})
+          : { displayName: 'Action Plus Gym', logoUrl: './assets/action-plus-logo.png' };
+        setBranchBranding(local);
+        return local;
+      }, [dataSyncMode, user?.id, authoritativeActiveBranchId, gymCodeById]);
       React.useEffect(() => {
         if (!user?.id) return;
-        refreshBranchBranding();
-      }, [user?.id, user?.gymCodeId, user?.activeBranchId, refreshBranchBranding]);
+        refreshBranchBranding(authoritativeActiveBranchId).catch(() => {});
+      }, [user?.id, authoritativeActiveBranchId, refreshBranchBranding]);
       const fetchBranchWhatsappTemplates = React.useCallback(async (branchId) => {
         const id = String(branchId || '').trim();
         if (!id || dataSyncMode !== 'backend') return;
@@ -4354,7 +4378,14 @@ Phone: +91-7047157510`;
         const replaceBranch = typeof window.__APG_MODULES?.shouldReplaceBranchDataOnHydrate === 'function'
           ? window.__APG_MODULES.shouldReplaceBranchDataOnHydrate(hydrateOpts)
           : hydrateOpts.replaceBranchData === true;
-        const activeBranchId = String(sessionUser?.activeBranchId || sessionUser?.gymCodeId || '').trim();
+        const activeBranchId = String(
+          (typeof window.__APG_MODULES?.getAuthoritativeActiveBranchId === 'function'
+            ? window.__APG_MODULES.getAuthoritativeActiveBranchId(sessionUser, [])
+            : '')
+          || sessionUser?.activeBranchId
+          || sessionUser?.gymCodeId
+          || '',
+        ).trim();
         const tDeferred = performance.now();
         const [remoteVisitors, remoteFinance, remoteSmsEvents] = await Promise.all([
           apgTimedBackendJson('deferred', 'GET /visitors', '/visitors').catch(() => []),
@@ -4395,7 +4426,14 @@ Phone: +91-7047157510`;
         const replaceBranch = typeof window.__APG_MODULES?.shouldReplaceBranchDataOnHydrate === 'function'
           ? window.__APG_MODULES.shouldReplaceBranchDataOnHydrate(opts)
           : opts.replaceBranchData === true;
-        const activeBranchId = String(authUser?.activeBranchId || authUser?.gymCodeId || '').trim();
+        const activeBranchId = String(
+          (typeof window.__APG_MODULES?.getAuthoritativeActiveBranchId === 'function'
+            ? window.__APG_MODULES.getAuthoritativeActiveBranchId(authUser, [])
+            : '')
+          || authUser?.activeBranchId
+          || authUser?.gymCodeId
+          || '',
+        ).trim();
         const run = (async () => {
           const tHydrate = performance.now();
           apgLoadTimingRecord('hydrate', 'hydrate started', 0);
@@ -4434,13 +4472,25 @@ Phone: +91-7047157510`;
               setMembers([]);
             }
             setUser((prev) => (prev?.id ? prepareStaffUser(prev) : prev));
+            const skipAuthBranchOverwrite = Boolean(
+              opts.skipAuthBranchOverwrite
+              || replaceBranch
+              || window.__APG_MODULES?.activeBranchStore?.isSwitchLocked?.(),
+            );
             const authRefresh = await revalidateAuthSessionFromServer().catch(() => null);
             if (authRefresh?.token && authRefresh?.user?.id) {
               writeAuthSession(authRefresh.user.id, authRefresh.token);
             }
-            if (authRefresh?.user) {
+            if (authRefresh?.user && !skipAuthBranchOverwrite) {
               setUser((prev) => applyAuthBranchContextToUser(prev, authRefresh));
               setUsers((prev) => syncUsersRowBranchContext(prev, authRefresh.user.id, authRefresh));
+            } else if (authRefresh?.user) {
+              const syncFn = window.__APG_MODULES?.syncActiveBranchFromAuthPayload;
+              if (typeof syncFn === 'function') syncFn(authRefresh.user.id, authRefresh);
+              const applyFn = window.__APG_MODULES?.applyAuthoritativeBranchToUser;
+              if (typeof applyFn === 'function') {
+                setUser((prev) => applyFn(prev, gymCodes));
+              }
             }
             hydrateCompletedAtRef.current = Date.now();
             setBackendHydrated(true);
@@ -4454,7 +4504,7 @@ Phone: +91-7047157510`;
         })();
         backendHydrateInFlightRef.current = run;
         return run;
-      }, [hydrateDeferredCollections, hydrateSettingsFromBackend, user?.id]);
+      }, [hydrateDeferredCollections, hydrateSettingsFromBackend, user?.id, gymCodes]);
       const switchActiveBranch = React.useCallback(async (gymCodeId) => {
         const id = String(gymCodeId || '').trim();
         if (!id || !user || branchSwitching) return;
@@ -4464,50 +4514,39 @@ Phone: +91-7047157510`;
           setTimeout(() => setToast(''), 2800);
           return;
         }
+        const orchestrate = window.__APG_MODULES?.orchestrateBranchSwitch;
+        if (typeof orchestrate !== 'function') {
+          setToast('Branch switch is unavailable (modules not loaded).');
+          setTimeout(() => setToast(''), 2800);
+          return;
+        }
         setBranchSwitching(true);
-        let nextUser = {
-          ...user,
-          gymCodeId: id,
-          activeBranchId: id,
-          name: user.name,
-          photo: user.photo || null,
-          staffRole: user.staffRole || 'staff',
-        };
         try {
-          if (dataSyncMode === 'backend' && typeof backendJson === 'function') {
-            const out = await backendJson('/auth/active-branch', {
-              method: 'PATCH',
-              body: JSON.stringify({ gymCodeId: id }),
-            });
-            if (out?.token) writeAuthSession(user.id, out.token);
-            const nextAllowed = Array.isArray(out?.allowedBranchIds) ? out.allowedBranchIds : user.allowedBranchIds;
-            const nextAssigned = Array.isArray(out?.assignedBranchIds) ? out.assignedBranchIds : nextAllowed;
-            nextUser = {
-              ...user,
-              gymCodeId: id,
-              activeBranchId: id,
-              allowedBranchIds: nextAllowed,
-              assignedBranchIds: nextAssigned,
-              name: user.name,
-              photo: user.photo || null,
-              staffRole: user.staffRole || 'staff',
-            };
-            const prefFn = window.__APG_MODULES?.writeActiveBranchPref;
-            if (typeof prefFn === 'function') prefFn(user.id, id);
-          }
-          setUser(nextUser);
-          setTemplatesBranchId(id);
-          setBackendHydrated(false);
-          setMembers([]);
-          setVisitors([]);
-          setFinanceTransactions([]);
-          setSmsEvents([]);
-          setLogs([]);
-          await refreshBranchBranding(id);
-          await hydrateFromBackend({
-            replaceBranchData: true,
-            authUser: nextUser,
-          }).catch(() => setBackendHydrated(false));
+          const { nextUser } = await orchestrate({
+            branchId: id,
+            user,
+            gymCodes,
+            gymCodeById,
+            dataSyncMode,
+            backendJson,
+            writeAuthSession,
+            setBranchBranding,
+            cacheHandlers: {
+              setMembers,
+              setVisitors,
+              setFinanceTransactions,
+              setSmsEvents,
+              setLogs,
+              setBackendHydrated,
+              setTemplatesBranchId,
+              setWhatsappTemplatesByBranch,
+              whatsappTemplatesByBranch,
+              branchTemplateWarnShownRef,
+            },
+            hydrateFromBackend,
+          });
+          const applyFn = window.__APG_MODULES?.applyAuthoritativeBranchToUser;
+          setUser(typeof applyFn === 'function' ? applyFn(nextUser, gymCodes) : nextUser);
           setToast('Branch context updated.');
           setTimeout(() => setToast(''), 2200);
         } catch (err) {
@@ -4516,7 +4555,7 @@ Phone: +91-7047157510`;
         } finally {
           setBranchSwitching(false);
         }
-      }, [user, branchSwitching, dataSyncMode, writeAuthSession, refreshBranchBranding, hydrateFromBackend]);
+      }, [user, branchSwitching, dataSyncMode, writeAuthSession, hydrateFromBackend, gymCodes, gymCodeById]);
       // Probe backend reachability (no auth). Full data loads after login.
       React.useEffect(() => {
         let alive = true;
@@ -4988,9 +5027,15 @@ Phone: +91-7047157510`;
                   setOfflineQueueCount((c) => Math.max(0, c - 1));
                 }
               } else if (row.entity === 'visitors') {
-                await backendJson('/visitors/bulk', { method: 'PUT', body: JSON.stringify({ visitors: visitorsForBulkSync(row.payload || [], user) }) });
-                await deleteQueuedSnapshot('visitors');
-                setOfflineQueueCount((c) => Math.max(0, c - 1));
+                const queuedVisitors = visitorsForBulkSync(row.payload || [], user);
+                if (queuedVisitors.length === 0) {
+                  await deleteQueuedSnapshot('visitors');
+                  setOfflineQueueCount((c) => Math.max(0, c - 1));
+                } else {
+                  await backendJson('/visitors/bulk', { method: 'PUT', body: JSON.stringify({ visitors: queuedVisitors }) });
+                  await deleteQueuedSnapshot('visitors');
+                  setOfflineQueueCount((c) => Math.max(0, c - 1));
+                }
               } else if (row.entity === 'settings') {
                 await backendJson('/settings/bulk', { method: 'PUT', body: JSON.stringify({ settings: row.payload || {} }) });
                 await deleteQueuedSnapshot('settings');
@@ -5046,6 +5091,10 @@ Phone: +91-7047157510`;
           queueSyncSnapshot('visitors', visitors).then(() => setOfflineQueueCount((c) => c + 1)).catch(() => {});
           return;
         }
+        // Never push an empty visitor list to the server (would wipe Supabase after partial hydrate).
+        if (!Array.isArray(visitors) || visitors.length === 0) return;
+        if (skipBulkPushAfterHydrate()) return;
+        if (branchSwitching) return;
         const timer = setTimeout(() => {
           backendJson('/visitors/bulk', {
             method: 'PUT',
@@ -5053,7 +5102,7 @@ Phone: +91-7047157510`;
           }).catch(() => queueSyncSnapshot('visitors', visitors).then(() => setOfflineQueueCount((c) => c + 1)).catch(() => {}));
         }, BACKEND_BULK_DEBOUNCE_MS);
         return () => clearTimeout(timer);
-      }, [visitors, dataSyncMode, syncRuntimeReady, backendHydrated, user?.id, user?.gymCodeId]);
+      }, [visitors, dataSyncMode, syncRuntimeReady, backendHydrated, user?.id, user?.gymCodeId, branchSwitching]);
       React.useEffect(() => {
         if (!syncRuntimeReady) return;
         if (dataSyncMode === 'backend' && !backendHydrated) return;
@@ -6108,6 +6157,16 @@ Phone: +91-7047157510`;
             staffRole: rec.staffRole || sessionUser.staffRole || 'staff',
             lastLoginAt: nowIso,
           };
+          const syncFn = window.__APG_MODULES?.syncActiveBranchFromAuthPayload;
+          if (typeof syncFn === 'function') {
+            syncFn(rec.id, {
+              user: loginUser,
+              activeBranchId: loginUser.activeBranchId,
+              gymCodeId: loginUser.gymCodeId,
+              allowedBranchIds: loginUser.allowedBranchIds,
+              assignedBranchIds: loginUser.assignedBranchIds,
+            });
+          }
           setBackendHydrated(false);
           setUser(loginUser);
           setUsers((prev) => prev.map((u) => (u.id === rec.id ? {
@@ -6387,6 +6446,10 @@ Phone: +91-7047157510`;
           if (stillCurrent()) clearAuthSession();
           return;
         }
+        if ((syncMode === 'backend' || syncMode === 'checking') && !parsed?.token) {
+          if (stillCurrent()) clearAuthSession();
+          return;
+        }
         const tAuth = performance.now();
         const useBackendAuth = (parsed.token || AUTH_COOKIE_MODE) && (syncMode === 'backend' || syncMode === 'checking');
         if (useBackendAuth) {
@@ -6474,6 +6537,14 @@ Phone: +91-7047157510`;
           clearTimeout(bootstrapTimer);
         };
       }, [user?.id, dataSyncMode, clearAuthSession, restoreSessionFromStorage]);
+      React.useEffect(() => {
+        if (!user?.id || dataSyncMode !== 'backend') return;
+        if (readAuthToken()) return;
+        clearAuthSession();
+        setUser(null);
+        setToast('Session invalid. Please sign in again.');
+        setTimeout(() => setToast(''), 3200);
+      }, [user?.id, dataSyncMode, clearAuthSession]);
       React.useEffect(() => {
         if (!user?.id) return;
         const extendSession = () => {
@@ -8002,29 +8073,35 @@ Please pay by: ${formattedLastDate}`;
         }
       }, [user?.id, user?.gymCodeId, user?.activeBranchId]);
       const branchScopedMembers = React.useMemo(() => {
+        const activeUser = user && authoritativeActiveBranchId
+          ? { ...user, activeBranchId: authoritativeActiveBranchId, gymCodeId: authoritativeActiveBranchId }
+          : user;
         const filterFn = window.__APG_MODULES?.filterMembersForUser;
-        if (typeof filterFn === 'function') return filterFn(user, members);
+        if (typeof filterFn === 'function') return filterFn(activeUser, members);
         const scopeFn = window.__APG_MODULES?.activeBranchIdsForDataScope;
         const active = typeof scopeFn === 'function'
-          ? scopeFn(user)
-          : [String(user?.activeBranchId || user?.gymCodeId || '').trim()].filter(Boolean);
+          ? scopeFn(activeUser)
+          : [String(authoritativeActiveBranchId || user?.activeBranchId || user?.gymCodeId || '').trim()].filter(Boolean);
         if (active === null) return Array.isArray(members) ? members : [];
         if (!active?.length) return [];
         const set = new Set(active);
         return (Array.isArray(members) ? members : []).filter((m) => set.has(String(m?.assignedGymCodeId || '').trim()));
-      }, [user, members]);
+      }, [user, members, authoritativeActiveBranchId]);
       const branchScopedVisitors = React.useMemo(() => {
+        const activeUser = user && authoritativeActiveBranchId
+          ? { ...user, activeBranchId: authoritativeActiveBranchId, gymCodeId: authoritativeActiveBranchId }
+          : user;
         const filterFn = window.__APG_MODULES?.filterVisitorsForUser;
-        if (typeof filterFn === 'function') return filterFn(user, visitors);
+        if (typeof filterFn === 'function') return filterFn(activeUser, visitors);
         const scopeFn = window.__APG_MODULES?.activeBranchIdsForDataScope;
         const active = typeof scopeFn === 'function'
-          ? scopeFn(user)
-          : [String(user?.activeBranchId || user?.gymCodeId || '').trim()].filter(Boolean);
+          ? scopeFn(activeUser)
+          : [String(authoritativeActiveBranchId || user?.activeBranchId || user?.gymCodeId || '').trim()].filter(Boolean);
         if (active === null) return Array.isArray(visitors) ? visitors : [];
         if (!active?.length) return [];
         const set = new Set(active);
         return (Array.isArray(visitors) ? visitors : []).filter((v) => set.has(String(v?.assignedGymCodeId || '').trim()));
-      }, [user, visitors]);
+      }, [user, visitors, authoritativeActiveBranchId]);
       // Derived lists and search
       const filteredMembers = React.useMemo(() => {
         if (dashMode === 'summary') return [];
@@ -8255,7 +8332,7 @@ Please pay by: ${formattedLastDate}`;
                 user={user}
                 gymCodes={gymCodes}
                 gymCodeLabel={gymCodeLabel}
-                activeBranchId={user?.activeBranchId || user?.gymCodeId}
+                activeBranchId={authoritativeActiveBranchId}
                 onSwitch={switchActiveBranch}
                 switching={branchSwitching}
                 compact
@@ -8756,7 +8833,7 @@ Please pay by: ${formattedLastDate}`;
                       user={user}
                       gymCodes={gymCodes}
                       gymCodeLabel={gymCodeLabel}
-                      activeBranchId={user?.activeBranchId || user?.gymCodeId}
+                      activeBranchId={authoritativeActiveBranchId}
                       onSwitch={switchActiveBranch}
                       switching={branchSwitching}
                     />
