@@ -6,7 +6,8 @@ export type AuthSession = {
   expiresAt: number;
 };
 
-const SESSION_TTL_MS = 12 * 60 * 60 * 1000;
+/** Keep aligned with src/shared/authSessionTiming.js (default 2h). */
+const SESSION_TTL_MS = 2 * 60 * 60 * 1000;
 
 export function readAuthSession(): AuthSession | null {
   try {
@@ -15,7 +16,7 @@ export function readAuthSession(): AuthSession | null {
     const parsed = JSON.parse(raw) as AuthSession;
     if (!parsed?.token || !parsed?.userId) return null;
     if (parsed.expiresAt && parsed.expiresAt < Date.now()) {
-      localStorage.removeItem(AUTH_SESSION_KEY);
+      clearAuthSession();
       return null;
     }
     return parsed;
@@ -34,7 +35,24 @@ export function writeAuthSession(userId: string, token: string): void {
 }
 
 export function clearAuthSession(): void {
-  localStorage.removeItem(AUTH_SESSION_KEY);
+  try {
+    localStorage.removeItem(AUTH_SESSION_KEY);
+  } catch {
+    // ignore quota / private mode errors
+  }
+  try {
+    if (typeof window !== 'undefined' && window.__APG_SYNC_CONTEXT__) {
+      window.__APG_SYNC_CONTEXT__ = {};
+    }
+  } catch {
+    // ignore
+  }
+}
+
+declare global {
+  interface Window {
+    __APG_SYNC_CONTEXT__?: Record<string, unknown>;
+  }
 }
 
 export function readAuthToken(): string {

@@ -1,4 +1,5 @@
 import dotenv from 'dotenv';
+import { DEFAULT_JWT_EXPIRES_IN } from '../../../src/shared/authSessionTiming.js';
 import { parseCorsOrigins } from './cors.js';
 
 dotenv.config();
@@ -16,7 +17,7 @@ export const env = {
   NODE_ENV,
   PORT: Number(process.env.PORT || process.env.BACKEND_PORT || 4000),
   JWT_SECRET: process.env.JWT_SECRET || 'change-me',
-  JWT_EXPIRES_IN: process.env.JWT_EXPIRES_IN || '12h',
+  JWT_EXPIRES_IN: process.env.JWT_EXPIRES_IN || DEFAULT_JWT_EXPIRES_IN,
   DATABASE_PATH: process.env.DATABASE_PATH || './data/app.db',
   DATA_BACKEND: process.env.DATA_BACKEND || '',
   SUPABASE_URL: process.env.SUPABASE_URL || '',

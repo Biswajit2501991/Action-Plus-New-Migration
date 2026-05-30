@@ -5,6 +5,8 @@ import zlib from 'node:zlib';
 import { spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { loadEnvFromFile } from './load-env-file.mjs';
+import { securityHeaders } from './security-headers.mjs';
+import { resolveAuthSessionTiming } from '../src/shared/authSessionTiming.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -31,6 +33,41 @@ const legacyProdDir = path.resolve(rootDir, 'dist-legacy');
 const legacyProdIndex = path.join(legacyProdDir, 'index.html');
 const useLegacyProdBundle = ['1', 'true', 'yes'].includes(
   String(process.env.APG_USE_PROD_BUNDLE ?? '1').toLowerCase(),
+);
+const securityHeadersEnabled = !['0', 'false', 'no'].includes(
+  String(process.env.APG_SECURITY_HEADERS ?? '1').toLowerCase(),
+);
+const cspReportOnly = ['1', 'true', 'yes'].includes(
+  String(process.env.APG_CSP_REPORT_ONLY || '').toLowerCase(),
+);
+
+function readBackendJwtExpiresIn() {
+  if (process.env.JWT_EXPIRES_IN) return process.env.JWT_EXPIRES_IN;
+  const backendEnv = path.join(rootDir, 'backend', '.env');
+  try {
+    const raw = fs.readFileSync(backendEnv, 'utf8');
+    for (const line of raw.split(/\r?\n/)) {
+      const trimmed = line.trim();
+      if (!trimmed || trimmed.startsWith('#')) continue;
+      if (!trimmed.startsWith('JWT_EXPIRES_IN=')) continue;
+      let value = trimmed.slice('JWT_EXPIRES_IN='.length).trim();
+      if (
+        (value.startsWith('"') && value.endsWith('"')) ||
+        (value.startsWith("'") && value.endsWith("'"))
+      ) {
+        value = value.slice(1, -1);
+      }
+      return value;
+    }
+  } catch {
+    // backend/.env optional in dev
+  }
+  return undefined;
+}
+
+const authSessionTiming = resolveAuthSessionTiming(
+  readBackendJwtExpiresIn(),
+  process.env.APG_AUTH_SESSION_IDLE_MS,
 );
 
 let supervisorChild = null;
@@ -240,12 +277,20 @@ function staticCacheControlForPath(reqPath, ext) {
 function streamFile(req, res, filePath, reqPath) {
   const ext = path.extname(filePath).toLowerCase();
   const stat = fs.statSync(filePath);
+  const contentType = mimeByExt[ext] || 'application/octet-stream';
   const headers = {
-    'Content-Type': mimeByExt[ext] || 'application/octet-stream',
+    'Content-Type': contentType,
     'Cache-Control': staticCacheControlForPath(reqPath, ext),
     'Last-Modified': stat.mtime.toUTCString(),
     ETag: `W/"${stat.size}-${Math.trunc(stat.mtimeMs)}"`,
     Vary: 'Accept-Encoding',
+    ...(securityHeadersEnabled
+      ? securityHeaders({
+          contentType,
+          cspReportOnly,
+          csp: ext !== '.js',
+        })
+      : {}),
   };
 
   const inm = req.headers['if-none-match'];
@@ -327,7 +372,10 @@ function serveV2Static(req, res) {
     filePath = path.join(v2DistDir, 'index.html');
   }
   if (!fs.existsSync(filePath)) {
-    res.writeHead(404, { 'Content-Type': 'text/plain; charset=utf-8' });
+    res.writeHead(404, {
+      'Content-Type': 'text/plain; charset=utf-8',
+      ...(securityHeadersEnabled ? securityHeaders({ csp: false }) : {}),
+    });
     res.end('v2 build not found — run: npm run build:v2');
     return;
   }
@@ -348,8 +396,15 @@ const server = http.createServer((req, res) => {
         String(process.env.V2_VISITORS_ENABLED || '').toLowerCase(),
       ),
       V2_BASE_PATH: '/v2/',
+      AUTH_SESSION_TTL_MS: authSessionTiming.ttlMs,
+      AUTH_SESSION_IDLE_MS: authSessionTiming.idleMs,
+      JWT_EXPIRES_IN: authSessionTiming.jwtExpiresIn,
     };
-    res.writeHead(200, { 'Content-Type': 'application/javascript; charset=utf-8' });
+    res.writeHead(200, {
+      'Content-Type': 'application/javascript; charset=utf-8',
+      'Cache-Control': 'no-cache, must-revalidate',
+      ...(securityHeadersEnabled ? securityHeaders({ csp: false }) : {}),
+    });
     res.end(`window.__APG_ENV__ = ${JSON.stringify(payload)};`);
     return;
   }
@@ -398,7 +453,10 @@ const server = http.createServer((req, res) => {
 
   const abs = safeResolveFile(reqPath);
   if (!abs || !fs.existsSync(abs) || fs.statSync(abs).isDirectory()) {
-    res.writeHead(404, { 'Content-Type': 'text/plain; charset=utf-8' });
+    res.writeHead(404, {
+      'Content-Type': 'text/plain; charset=utf-8',
+      ...(securityHeadersEnabled ? securityHeaders({ csp: false }) : {}),
+    });
     res.end('Not found');
     return;
   }

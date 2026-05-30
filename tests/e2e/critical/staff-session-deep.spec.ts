@@ -42,7 +42,7 @@ test.describe('@critical Staff session (Deep)', () => {
     expect(sessionAfterLogin?.userId?.toLowerCase()).toBe(DEEP_ID.toLowerCase());
 
     const msUntilExpiry = Number(sessionAfterLogin?.expiresAt || 0) - Date.now();
-    // After fix: sliding TTL is 12h, not the old 15m cap.
+    // Sliding TTL is 2h (aligned with JWT_EXPIRES_IN), not the old 15m cap.
     expect(msUntilExpiry, 'session should be valid for hours, not minutes').toBeGreaterThan(60 * 60 * 1000);
 
     // Simulate the old failure mode: session blob about to expire, then user activity.

@@ -2462,10 +2462,9 @@ Phone: +91-7047157510`;
       gymCodesPanelOpen: 'apg.settings.gymCodesOpen',
     };
     const AUTH_SESSION_KEY = 'apg.auth.session';
-    // Must stay aligned with backend JWT_EXPIRES_IN (default 12h) and v2 auth-storage.
-    // A 15m client TTL was logging staff out while the JWT was still valid.
-    const AUTH_SESSION_TTL_MS = 12 * 60 * 60 * 1000;
-    const AUTH_SESSION_IDLE_MS = 8 * 60 * 60 * 1000;
+    // Aligned with backend JWT_EXPIRES_IN via app.env.js (default 2h) and v2 auth-storage.
+    const AUTH_SESSION_TTL_MS = Number(window.__APG_ENV__?.AUTH_SESSION_TTL_MS) || (2 * 60 * 60 * 1000);
+    const AUTH_SESSION_IDLE_MS = Number(window.__APG_ENV__?.AUTH_SESSION_IDLE_MS) || (90 * 60 * 1000);
     const AUTH_ME_TIMEOUT_MS = 12000;
     const AUTH_BOOTSTRAP_MAX_MS = 15000;
     const HEAVY_STORAGE_KEYS = [
@@ -2664,6 +2663,14 @@ Phone: +91-7047157510`;
     const readAuthToken = () => {
       const parsed = readAuthSession();
       return parsed?.token ? String(parsed.token) : '';
+    };
+    const purgeAuthSessionStorage = () => {
+      try { localStorage.removeItem(AUTH_SESSION_KEY); } catch {}
+      try {
+        if (typeof window !== 'undefined') {
+          window.__APG_SYNC_CONTEXT__ = {};
+        }
+      } catch {}
     };
     const authUserIdsMatch = (a, b) => String(a || '').trim().toLowerCase() === String(b || '').trim().toLowerCase();
     const isAuthSessionExpired = (parsed) => {
@@ -3099,7 +3106,7 @@ Phone: +91-7047157510`;
           if (revived) return backendJson(path, init, 1);
         }
         if (isAuthSessionExpired(readAuthSession())) {
-          try { localStorage.removeItem(AUTH_SESSION_KEY); } catch {}
+          purgeAuthSessionStorage();
         }
         const err = new Error('backend-401');
         err.status = 401;
@@ -3955,7 +3962,7 @@ Phone: +91-7047157510`;
       }, []);
       const sessionExpiryLabel = sessionMinutesLeft == null ? '' : `Session: ${sessionMinutesLeft}m`;
       const clearAuthSession = React.useCallback(() => {
-        try { localStorage.removeItem(AUTH_SESSION_KEY); } catch {}
+        purgeAuthSessionStorage();
       }, []);
       const writeAuthSession = React.useCallback((userId, token) => {
         touchAuthSession(userId, token);

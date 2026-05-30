@@ -21,7 +21,7 @@ export const test = base.extend<AuthFixtures>({
     await page.goto('/index.html');
     await page.evaluate(
       ({ token }) => {
-        const expiresAt = Date.now() + 12 * 60 * 60 * 1000;
+        const expiresAt = Date.now() + 2 * 60 * 60 * 1000;
         localStorage.setItem(
           'apg.auth.session',
           JSON.stringify({ userId: 'owner', token, expiresAt }),
