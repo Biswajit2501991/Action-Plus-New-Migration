@@ -1586,11 +1586,13 @@ async function writeVisitors(visitors, scope) {
       const row = appVisitorToRow(v, gid);
       return includeGymCode ? row : stripVisitorGymCodeColumn(row);
     });
+  // Upsert-only: never delete visitors missing from a partial browser upload (prevents mass data loss).
   await syncGymRowsByExternalId(sb, T.visitors, {
     gymId: gid,
     externalIdColumn: 'external_visitor_id',
     rows,
     onConflict: 'gym_id,external_visitor_id',
+    deleteOrphans: false,
   });
   notifyCollectionChange('visitors');
 }

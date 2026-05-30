@@ -61,4 +61,19 @@ describe('syncGymRowsByExternalId', () => {
     expect(sb._store).toHaveLength(1);
     expect(sb._store[0].external_tx_id).toBe('new');
   });
+
+  it('preserves existing rows when deleteOrphans is false and payload is empty', async () => {
+    const sb = mockSb([
+      { gym_id: 'g1', external_tx_id: 'keep-me', amount: 1 },
+    ]);
+    await syncGymRowsByExternalId(sb, 'visitors', {
+      gymId: 'g1',
+      externalIdColumn: 'external_tx_id',
+      rows: [],
+      onConflict: 'gym_id,external_tx_id',
+      deleteOrphans: false,
+    });
+    expect(sb._store).toHaveLength(1);
+    expect(sb._store[0].external_tx_id).toBe('keep-me');
+  });
 });

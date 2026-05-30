@@ -27,7 +27,8 @@ export function branchIdsForUser(user) {
 export function buildHeaderBranchSwitcherModel({ user, gymCodes = [], activeBranchId = '' }) {
   const listFn = globalThis.window?.__APG_MODULES?.switchableBranchesForUser;
   const showFn = globalThis.window?.__APG_MODULES?.shouldShowBranchSwitcher;
-  const effectiveFn = globalThis.window?.__APG_MODULES?.effectiveActiveBranchId;
+  const effectiveFn = globalThis.window?.__APG_MODULES?.getAuthoritativeActiveBranchId
+    || globalThis.window?.__APG_MODULES?.activeBranchStore?.getAuthoritativeActiveBranchId;
 
   const branchIds = branchIdsForUser(user);
   const branches = typeof listFn === 'function'

@@ -86,6 +86,20 @@ import {
   mergeMembersAfterBranchReplace,
   mergeVisitorsAfterBranchReplace,
 } from '../features/tenant/branchSwitchCoordinator.js';
+import { orchestrateBranchSwitch } from '../features/tenant/branchSwitchOrchestrator.js';
+import { branchCacheInvalidator } from '../features/tenant/branchCacheInvalidator.js';
+import {
+  activeBranchStore,
+  getAuthoritativeActiveBranchId,
+  applyAuthoritativeBranchToUser,
+  syncActiveBranchFromAuthPayload,
+  resetActiveBranchStore,
+} from '../features/branding/activeBranchStore.js';
+import {
+  branchBrandingCache,
+  resolveBranchBranding,
+  resolveBrandingForActiveUser,
+} from '../features/branding/branchBrandingCache.js';
 import { activeBranchIdsForDataScope } from '../features/tenant/branchOwnerAccess.js';
 import {
   measureAnchoredPopoverCoords,
@@ -256,6 +270,16 @@ window.__APG_MODULES.activeBranchIdsForDataScope = activeBranchIdsForDataScope;
 window.__APG_MODULES.shouldReplaceBranchDataOnHydrate = shouldReplaceBranchDataOnHydrate;
 window.__APG_MODULES.mergeMembersAfterBranchReplace = mergeMembersAfterBranchReplace;
 window.__APG_MODULES.mergeVisitorsAfterBranchReplace = mergeVisitorsAfterBranchReplace;
+window.__APG_MODULES.orchestrateBranchSwitch = orchestrateBranchSwitch;
+window.__APG_MODULES.branchCacheInvalidator = branchCacheInvalidator;
+window.__APG_MODULES.activeBranchStore = activeBranchStore;
+window.__APG_MODULES.getAuthoritativeActiveBranchId = getAuthoritativeActiveBranchId;
+window.__APG_MODULES.applyAuthoritativeBranchToUser = applyAuthoritativeBranchToUser;
+window.__APG_MODULES.syncActiveBranchFromAuthPayload = syncActiveBranchFromAuthPayload;
+window.__APG_MODULES.resetActiveBranchStore = resetActiveBranchStore;
+window.__APG_MODULES.branchBrandingCache = branchBrandingCache;
+window.__APG_MODULES.resolveBranchBranding = resolveBranchBranding;
+window.__APG_MODULES.resolveBrandingForActiveUser = resolveBrandingForActiveUser;
 window.__APG_MODULES.measureAnchoredPopoverCoords = measureAnchoredPopoverCoords;
 window.__APG_MODULES.ANCHORED_POPOVER_LAYER_CLASS = ANCHORED_POPOVER_LAYER_CLASS;
 window.__APG_MODULES.ANCHORED_POPOVER_Z_INDEX = ANCHORED_POPOVER_Z_INDEX;
