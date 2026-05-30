@@ -2673,6 +2673,11 @@ Phone: +91-7047157510`;
       if (AUTH_COOKIE_MODE) return true;
       return Boolean(parsed?.token);
     };
+    const emitAuthExpired = (detail = {}) => {
+      try {
+        window.dispatchEvent(new CustomEvent('apg-auth-expired', { detail }));
+      } catch {}
+    };
     const purgeAuthSessionStorage = () => {
       try { localStorage.removeItem(AUTH_SESSION_KEY); } catch {}
       try {
@@ -2779,11 +2784,14 @@ Phone: +91-7047157510`;
       if (!apgLoadTimingEnabled() || typeof performance === 'undefined') return;
       apgLoadTimingRecord('milestone', label, performance.now(), { sinceNav: true });
     };
-    const revalidateAuthSessionFromServer = async () => {
+    const revalidateAuthSessionFromServer = async (opts = {}) => {
       const parsed = readAuthSession();
       if (!parsed?.userId) return null;
-      if (!AUTH_COOKIE_MODE && (!parsed?.token || isAuthSessionExpired(parsed))) return null;
-      if (AUTH_COOKIE_MODE && isAuthSessionExpired(parsed)) return null;
+      const forceTry = opts.forceTry === true;
+      if (!AUTH_COOKIE_MODE) {
+        if (!parsed?.token) return null;
+        if (!forceTry && isAuthSessionExpired(parsed)) return null;
+      } else if (!forceTry && isAuthSessionExpired(parsed)) return null;
       const t0 = typeof performance !== 'undefined' ? performance.now() : 0;
       const controller = new AbortController();
       const timer = setTimeout(() => controller.abort(), AUTH_ME_TIMEOUT_MS);
@@ -2800,7 +2808,9 @@ Phone: +91-7047157510`;
         }
         const data = await me.json();
         const uid = data?.user?.id || data?.userId || parsed.userId;
-        touchAuthSession(uid, data?.token || parsed.token || '');
+        const keepToken = data?.token || parsed.token || '';
+        if (!AUTH_COOKIE_MODE && !keepToken) return null;
+        touchAuthSession(uid, keepToken);
         apgLoadTimingRecord('auth', 'GET /auth/me', performance.now() - t0, {
           status: me.status,
           ok: true,
@@ -3117,12 +3127,11 @@ Phone: +91-7047157510`;
       });
       if (res.status === 401) {
         if (attempt === 0 && (authToken || AUTH_COOKIE_MODE)) {
-          const revived = await revalidateAuthSessionFromServer();
+          const revived = await revalidateAuthSessionFromServer({ forceTry: true });
           if (revived) return backendJson(path, init, 1);
         }
-        if (isAuthSessionExpired(readAuthSession())) {
-          purgeAuthSessionStorage();
-        }
+        emitAuthExpired({ path, status: 401 });
+        purgeAuthSessionStorage();
         const err = new Error('backend-401');
         err.status = 401;
         throw err;
@@ -6133,6 +6142,12 @@ Phone: +91-7047157510`;
           }
           const nowIso = new Date().toISOString();
           writeAuthSession(rec.id, token);
+          if ((dataSyncMode === 'backend' || dataSyncMode === 'checking') && !AUTH_COOKIE_MODE && !hasBackendAuth()) {
+            clearAuthSession();
+            setToast('Login succeeded but session could not be saved. Check browser storage and try again.');
+            setTimeout(() => setToast(''), 4000);
+            return false;
+          }
           const sessionUser = prepareStaffUser(rec);
           const loginAllowed = Array.isArray(rec.allowedBranchIds) ? rec.allowedBranchIds : [];
           const loginAssigned = Array.isArray(rec.assignedBranchIds) && rec.assignedBranchIds.length
@@ -6446,7 +6461,7 @@ Phone: +91-7047157510`;
           if (stillCurrent()) clearAuthSession();
           return;
         }
-        if ((syncMode === 'backend' || syncMode === 'checking') && !parsed?.token) {
+        if ((syncMode === 'backend' || syncMode === 'checking') && !parsed?.token && !AUTH_COOKIE_MODE) {
           if (stillCurrent()) clearAuthSession();
           return;
         }
@@ -6539,15 +6554,37 @@ Phone: +91-7047157510`;
       }, [user?.id, dataSyncMode, clearAuthSession, restoreSessionFromStorage]);
       React.useEffect(() => {
         if (!user?.id || dataSyncMode !== 'backend') return;
-        if (readAuthToken()) return;
+        if (hasBackendAuth()) return;
         clearAuthSession();
         setUser(null);
         setToast('Session invalid. Please sign in again.');
         setTimeout(() => setToast(''), 3200);
       }, [user?.id, dataSyncMode, clearAuthSession]);
       React.useEffect(() => {
+        const onAuthExpired = () => {
+          if (!user?.id) return;
+          clearAuthSession();
+          setUser(null);
+          setBackendHydrated(false);
+          setToast('Session expired. Please sign in again.');
+          setTimeout(() => setToast(''), 3200);
+        };
+        window.addEventListener('apg-auth-expired', onAuthExpired);
+        return () => window.removeEventListener('apg-auth-expired', onAuthExpired);
+      }, [user?.id, clearAuthSession]);
+      React.useEffect(() => {
         if (!user?.id) return;
+        const enforceBackendAuth = () => {
+          if (dataSyncMode !== 'backend') return;
+          if (hasBackendAuth()) return;
+          clearAuthSession();
+          setUser(null);
+          setToast('Session invalid. Please sign in again.');
+          setTimeout(() => setToast(''), 3200);
+        };
         const extendSession = () => {
+          enforceBackendAuth();
+          if (!user?.id) return;
           const now = Date.now();
           let parsed = null;
           try { parsed = JSON.parse(localStorage.getItem(AUTH_SESSION_KEY) || 'null'); } catch { parsed = null; }
@@ -6568,11 +6605,12 @@ Phone: +91-7047157510`;
             setUser(null);
             return;
           }
-          if (dataSyncMode === 'backend' && (parsed?.token || AUTH_COOKIE_MODE)) {
+          if (dataSyncMode === 'backend' && hasBackendAuth()) {
             const data = await revalidateAuthSessionFromServer();
             if (data?.user && !data.user.blocked) {
               const rec = prepareStaffUser(data.user);
               if (data?.token) writeAuthSession(rec.id, data.token);
+              else if (parsed?.token) writeAuthSession(rec.id, parsed.token);
               setUser((prev) => applyAuthBranchContextToUser(prev || rec, data));
               setUsers((prev) => syncUsersRowBranchContext(prev, rec.id, data));
             }
@@ -6593,11 +6631,18 @@ Phone: +91-7047157510`;
             setUser(null);
             return;
           }
+          if (dataSyncMode === 'backend' && !hasBackendAuth()) {
+            clearAuthSession();
+            setUser(null);
+            setToast('Session invalid. Please sign in again.');
+            setTimeout(() => setToast(''), 3200);
+            return;
+          }
           if (isAuthSessionExpired(parsed)) {
             const revived = await revalidateAuthSessionFromServer();
             if (revived?.user && !revived.user.blocked) {
               const rec = prepareStaffUser(revived.user);
-              writeAuthSession(rec.id, parsed.token);
+              writeAuthSession(rec.id, revived.token || parsed?.token || readAuthToken());
               setSessionMinutesLeft(readSessionMinutesLeft());
               return;
             }
