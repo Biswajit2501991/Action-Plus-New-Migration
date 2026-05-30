@@ -7,8 +7,6 @@ import { membersBulkUpsertReady } from './supabase/membersWrite.js';
 import { visitorsHaveGymCodeColumn } from './supabase/visitorsSchema.js';
 import * as supabaseStore from './supabase/repository.js';
 import { branchScopeAllowsMemberTransfer } from '../auth/branchScope.js';
-import { enrichMemberWithPhotoUrl } from '../services/memberPhoto/MemberPhotoService.js';
-import { memberPhotoStorageEnabled } from '../services/memberPhoto/storageConstants.js';
 
 export function useSupabase() {
   if (env.DATA_BACKEND === 'supabase') return true;
@@ -60,9 +58,6 @@ export async function readMember(memberCode, branchScope = null) {
     }
   }
   if (!member) return null;
-  if (memberPhotoStorageEnabled() && useSupabase()) {
-    return enrichMemberWithPhotoUrl(member);
-  }
   return member;
 }
 

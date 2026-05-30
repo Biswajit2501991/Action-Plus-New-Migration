@@ -4125,6 +4125,8 @@ Phone: +91-7047157510`;
       }, []);
       const [branchSwitching, setBranchSwitching] = React.useState(false);
       const [photoCacheRev, setPhotoCacheRev] = React.useState(0);
+      const photoSyncSigRef = React.useRef('');
+      const photoSyncInFlightRef = React.useRef(null);
       const gymCodeById = React.useMemo(() => {
         const m = new Map();
         for (const c of gymCodes) m.set(String(c.id), c);
@@ -4509,6 +4511,15 @@ Phone: +91-7047157510`;
                 setMembers((prev) => mergeRemoteMembersWithLocal(prev, remoteMembers));
               }
               apgLoadTimingRecord('hydrate', 'merge:members (CPU)', performance.now() - tMerge, { rows: remoteMembers.length });
+              if (window.__APG_MODULES?.memberPhotoStorageEnabled?.()) {
+                queueMicrotask(() => {
+                  const syncFn = window.__APG_MODULES?.syncAllMemberPhotoUrls;
+                  if (typeof syncFn !== 'function') return;
+                  syncFn(remoteMembers, backendJson)
+                    .then(() => setPhotoCacheRev((n) => n + 1))
+                    .catch(() => {});
+                });
+              }
             } else if (replaceBranch) {
               setMembers([]);
             }
@@ -4914,7 +4925,11 @@ Phone: +91-7047157510`;
             if (res?.member?.memberId) {
               setMembers((prev) => prev.map((m) => (m.memberId === res.member.memberId ? { ...m, ...res.member } : m)));
             }
-          } catch {}
+            setPhotoCacheRev((n) => n + 1);
+          } catch {
+            setToast('Photo upload failed. Please try again.');
+            setTimeout(() => setToast(''), 2800);
+          }
           return;
         }
         backendJson(`/members/${encodeURIComponent(id)}`, {
@@ -4922,6 +4937,26 @@ Phone: +91-7047157510`;
           body: JSON.stringify({ patch: { photo: photoStr } }),
         }).catch(() => {});
       }, [dataSyncMode]);
+      const scheduleMemberPhotoSync = React.useCallback((memberList, options = {}) => {
+        if (dataSyncMode !== 'backend' || !backendHydrated) return;
+        if (!window.__APG_MODULES?.memberPhotoStorageEnabled?.()) return;
+        const needFn = window.__APG_MODULES?.memberIdsNeedingPhotoUrlsAll;
+        const syncFn = window.__APG_MODULES?.syncAllMemberPhotoUrls;
+        if (typeof needFn !== 'function' || typeof syncFn !== 'function') return;
+        const sig = needFn(memberList).join('|');
+        if (!sig) return;
+        if (photoSyncSigRef.current === sig && photoSyncInFlightRef.current) return;
+        photoSyncSigRef.current = sig;
+        photoSyncInFlightRef.current = syncFn(memberList, backendJson, options)
+          .then(() => setPhotoCacheRev((n) => n + 1))
+          .catch(() => {
+            setToast('Could not load member photos. Will retry on next sync.');
+            setTimeout(() => setToast(''), 2800);
+          })
+          .finally(() => {
+            photoSyncInFlightRef.current = null;
+          });
+      }, [dataSyncMode, backendHydrated]);
       React.useEffect(() => {
         if (dataSyncMode !== 'backend') setMemberSyncPending({});
       }, [dataSyncMode]);
@@ -5309,21 +5344,10 @@ Phone: +91-7047157510`;
           window.removeEventListener('apg-realtime', onRealtime);
         };
       }, [dataSyncMode, realtimeConnected, backendHydrated, pruneMemberAwaitingBackendSync, memberSyncPending, scheduleDebouncedPull]);
-      // Batch-fetch signed member photo URLs (Supabase Storage Option A).
+      // Sync all member photo signed URLs (parallel batches, list-order priority).
       React.useEffect(() => {
-        if (dataSyncMode !== 'backend' || !backendHydrated) return;
-        if (!window.__APG_MODULES?.memberPhotoStorageEnabled?.()) return;
-        const needFn = window.__APG_MODULES?.memberIdsNeedingPhotoUrls;
-        const batchFn = window.__APG_MODULES?.batchFetchMemberPhotoUrls;
-        if (typeof needFn !== 'function' || typeof batchFn !== 'function') return;
-        const ids = needFn(members, 50);
-        if (!ids.length) return;
-        let alive = true;
-        batchFn(ids, backendJson).then(() => {
-          if (alive) setPhotoCacheRev((n) => n + 1);
-        }).catch(() => {});
-        return () => { alive = false; };
-      }, [members, dataSyncMode, backendHydrated]);
+        scheduleMemberPhotoSync(members);
+      }, [members, scheduleMemberPhotoSync]);
       // Pull visitor updates from backend so multi-device changes appear without refresh.
       React.useEffect(() => {
         if (dataSyncMode !== 'backend' || !backendHydrated || !user?.id) return;

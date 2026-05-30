@@ -12,6 +12,7 @@ import { memberPhotosStorageReady } from './memberPhotoSchema.js';
 import {
   buildPathForMember,
   createMemberPhotoSignedUrl,
+  createMemberPhotoSignedUrlsBatch,
   deleteMemberPhotoObject,
   uploadMemberPhotoObject,
 } from './MemberPhotoStorageManager.js';
@@ -56,10 +57,31 @@ export function memberPhotoMetaFromRow(row) {
   };
 }
 
-/** Resolve display URL for one member (detail views). */
-export async function enrichMemberWithPhotoUrl(member) {
+/** Resolve photo URL from an already-loaded DB row (avoids extra query on detail GET). */
+export async function enrichMemberPhotoFromDbRow(member, dbRow) {
   if (!member || typeof member !== 'object') return member;
   if (!memberPhotoStorageEnabled()) return member;
+
+  const path = String(dbRow?.photo_path || '').trim();
+  const legacy = String(dbRow?.photo_url || '').trim();
+  const version = Number(dbRow?.photo_version ?? member.photoVersion ?? 0);
+  const hasPhoto = Boolean(path || legacy || member.hasPhoto);
+
+  if (path) {
+    const signed = await createMemberPhotoSignedUrl(path);
+    return { ...member, photo: signed || '', photoVersion: version, hasPhoto: true };
+  }
+  if (legacy) {
+    return { ...member, photo: legacy, photoVersion: version, hasPhoto: true };
+  }
+  return { ...member, photo: '', photoVersion: version, hasPhoto: false };
+}
+
+/** Resolve display URL for one member (detail views). Falls back to DB lookup when row not provided. */
+export async function enrichMemberWithPhotoUrl(member, dbRow = null) {
+  if (!member || typeof member !== 'object') return member;
+  if (!memberPhotoStorageEnabled()) return member;
+  if (dbRow) return enrichMemberPhotoFromDbRow(member, dbRow);
 
   const code = String(member.memberId || '').trim();
   if (!code) return member;
@@ -73,20 +95,7 @@ export async function enrichMemberWithPhotoUrl(member) {
     .eq('member_code', code)
     .maybeSingle();
   if (error) throw new Error(`photo enrich lookup: ${error.message}`);
-
-  const path = String(data?.photo_path || '').trim();
-  const legacy = String(data?.photo_url || '').trim();
-  const version = Number(data?.photo_version ?? member.photoVersion ?? 0);
-  const hasPhoto = Boolean(path || legacy || member.hasPhoto);
-
-  if (path) {
-    const signed = await createMemberPhotoSignedUrl(path);
-    return { ...member, photo: signed || '', photoVersion: version, hasPhoto: true };
-  }
-  if (legacy) {
-    return { ...member, photo: legacy, photoVersion: version, hasPhoto: true };
-  }
-  return { ...member, photo: '', photoVersion: version, hasPhoto: false };
+  return enrichMemberPhotoFromDbRow(member, data || {});
 }
 
 export async function assertMemberPhotoStorageReady() {
@@ -245,20 +254,38 @@ export async function batchMemberPhotoSignedUrls(auth, memberCodes, branchScope)
   const { data: rows, error } = await q;
   if (error) throw new Error(`photo batch lookup: ${error.message}`);
 
+  const storageItems = [];
   const urls = [];
+
   for (const row of rows || []) {
     const memberId = String(row.member_code || '').trim();
     const version = Number(row.photo_version || 0);
     const path = String(row.photo_path || '').trim();
-    let url = '';
     if (path) {
-      url = await createMemberPhotoSignedUrl(path) || '';
-    } else {
-      url = String(row.photo_url || '').trim();
+      storageItems.push({ memberId, version, path });
+      continue;
     }
-    if (!url) continue;
-    urls.push({ memberId, photoVersion: version, url, hasPhoto: true });
+    const legacy = String(row.photo_url || '').trim();
+    if (legacy) {
+      urls.push({ memberId, photoVersion: version, url: legacy, hasPhoto: true });
+    }
   }
+
+  if (storageItems.length) {
+    const pathList = storageItems.map((x) => x.path);
+    const signedMap = await createMemberPhotoSignedUrlsBatch(pathList);
+    for (const item of storageItems) {
+      const url = signedMap.get(item.path) || '';
+      if (!url) continue;
+      urls.push({
+        memberId: item.memberId,
+        photoVersion: item.version,
+        url,
+        hasPhoto: true,
+      });
+    }
+  }
+
   return { urls };
 }
 

@@ -263,6 +263,7 @@ function staticCacheControlForPath(reqPath, ext) {
   }
   if (
     reqPath.startsWith('/src/runtime/')
+    || reqPath.startsWith('/src/features/members/')
     || reqPath.startsWith('/src/features/passwordReset/')
     || reqPath.startsWith('/src/components/passwordReset/')
   ) {

@@ -43,21 +43,3 @@ export function applyBatchPhotoUrls(rows = []) {
     setCachedMemberPhotoUrl(memberId, row.photoVersion, row.url);
   }
 }
-
-/** Member IDs that need a batch URL fetch (hasPhoto, no valid cache). */
-export function memberIdsNeedingPhotoUrls(members = [], limit = 50) {
-  const out = [];
-  for (const m of members) {
-    if (!m?.hasPhoto) continue;
-    const id = String(m.memberId || '').trim();
-    if (!id) continue;
-    const version = Number(m.photoVersion || 0);
-    if (getCachedMemberPhotoUrl(id, version)) continue;
-    const inline = String(m.photo || '').trim();
-    if (inline.startsWith('data:')) continue;
-    if (inline.startsWith('http') && version === 0) continue;
-    out.push(id);
-    if (out.length >= limit) break;
-  }
-  return out;
-}

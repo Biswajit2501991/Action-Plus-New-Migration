@@ -1,4 +1,8 @@
-import { applyBatchPhotoUrls } from './photoUrlCache.js';
+import { applyBatchPhotoUrls, getCachedMemberPhotoUrl } from './photoUrlCache.js';
+
+/** Keep in sync with backend/src/services/memberPhoto/storageConstants.js (browser-safe copy). */
+const MEMBER_PHOTO_BATCH_MAX = 100;
+const MEMBER_PHOTO_PARALLEL_BATCHES = 2;
 
 export function memberPhotoStorageEnabled() {
   try {
@@ -6,6 +10,42 @@ export function memberPhotoStorageEnabled() {
   } catch {
     return false;
   }
+}
+
+function memberNeedsPhotoUrl(member) {
+  if (!member?.hasPhoto) return false;
+  const id = String(member.memberId || '').trim();
+  if (!id) return false;
+  const version = Number(member.photoVersion || 0);
+  if (getCachedMemberPhotoUrl(id, version)) return false;
+  const inline = String(member.photo || '').trim();
+  if (inline.startsWith('data:')) return false;
+  if (inline.startsWith('http') && version === 0) return false;
+  return true;
+}
+
+/** All member IDs needing signed URLs, preserving list order (first rows = usually visible). */
+export function memberIdsNeedingPhotoUrlsAll(members = []) {
+  const out = [];
+  for (const m of members) {
+    if (!memberNeedsPhotoUrl(m)) continue;
+    out.push(String(m.memberId).trim());
+  }
+  return out;
+}
+
+/** @deprecated use memberIdsNeedingPhotoUrlsAll with client-side chunking */
+export function memberIdsNeedingPhotoUrls(members = [], limit = MEMBER_PHOTO_BATCH_MAX) {
+  return memberIdsNeedingPhotoUrlsAll(members).slice(0, limit);
+}
+
+export function chunkMemberIds(ids, size = MEMBER_PHOTO_BATCH_MAX) {
+  const list = Array.isArray(ids) ? ids : [];
+  const chunks = [];
+  for (let i = 0; i < list.length; i += size) {
+    chunks.push(list.slice(i, i + size));
+  }
+  return chunks;
 }
 
 /**
@@ -42,4 +82,41 @@ export async function batchFetchMemberPhotoUrls(memberIds, backendJson) {
   const rows = Array.isArray(res?.urls) ? res.urls : [];
   applyBatchPhotoUrls(rows);
   return rows;
+}
+
+/**
+ * Fetch signed URLs for every member that needs one.
+ * First chunk loads immediately (top of list); remaining chunks run in parallel waves.
+ */
+export async function syncAllMemberPhotoUrls(members, backendJson, options = {}) {
+  if (!memberPhotoStorageEnabled()) return { fetched: 0, batches: 0 };
+  const priority = new Set((options.priorityIds || []).map((id) => String(id || '').trim()).filter(Boolean));
+  const needAll = memberIdsNeedingPhotoUrlsAll(members);
+  if (!needAll.length) return { fetched: 0, batches: 0 };
+
+  const sorted = [
+    ...needAll.filter((id) => priority.has(id)),
+    ...needAll.filter((id) => !priority.has(id)),
+  ];
+  const chunks = chunkMemberIds(sorted, MEMBER_PHOTO_BATCH_MAX);
+  let fetched = 0;
+  let batches = 0;
+
+  const runChunk = async (chunk) => {
+    const rows = await batchFetchMemberPhotoUrls(chunk, backendJson);
+    fetched += rows.length;
+    batches += 1;
+    return rows;
+  };
+
+  const first = chunks.shift();
+  if (first?.length) await runChunk(first);
+
+  const parallel = Math.max(1, MEMBER_PHOTO_PARALLEL_BATCHES);
+  while (chunks.length) {
+    const wave = chunks.splice(0, parallel);
+    await Promise.all(wave.filter((c) => c.length).map(runChunk));
+  }
+
+  return { fetched, batches };
 }

@@ -8,9 +8,12 @@ import {
 import {
   getCachedMemberPhotoUrl,
   setCachedMemberPhotoUrl,
-  memberIdsNeedingPhotoUrls,
   invalidateMemberPhotoCache,
 } from '../src/features/members/photoUrlCache.js';
+import {
+  memberIdsNeedingPhotoUrlsAll,
+  chunkMemberIds,
+} from '../src/features/members/memberPhotoApi.js';
 import {
   resolveMemberAvatarSrc,
   mergeMemberPhotoFields,
@@ -38,14 +41,21 @@ describe('photoUrlCache', () => {
     expect(getCachedMemberPhotoUrl('M1', 3)).toBeNull();
   });
 
-  it('memberIdsNeedingPhotoUrls skips cached members', () => {
+  it('memberIdsNeedingPhotoUrlsAll skips cached members', () => {
     setCachedMemberPhotoUrl('M2', 1, 'https://signed.example/b.jpg', 60000);
-    const ids = memberIdsNeedingPhotoUrls([
+    const ids = memberIdsNeedingPhotoUrlsAll([
       { memberId: 'M2', hasPhoto: true, photoVersion: 1 },
       { memberId: 'M3', hasPhoto: true, photoVersion: 1 },
     ]);
     expect(ids).toEqual(['M3']);
     invalidateMemberPhotoCache('M2');
+  });
+});
+
+describe('chunkMemberIds', () => {
+  it('splits ids into chunks', () => {
+    const ids = Array.from({ length: 5 }, (_, i) => `M${i}`);
+    expect(chunkMemberIds(ids, 2)).toEqual([['M0', 'M1'], ['M2', 'M3'], ['M4']]);
   });
 });
 
@@ -85,7 +95,7 @@ describe('memberPhotoStorageEnabled env', () => {
 });
 
 describe('MEMBER_PHOTO_BATCH_MAX', () => {
-  it('caps batch size at 50', () => {
-    expect(MEMBER_PHOTO_BATCH_MAX).toBe(50);
+  it('defaults batch size to 100', () => {
+    expect(MEMBER_PHOTO_BATCH_MAX).toBe(100);
   });
 });

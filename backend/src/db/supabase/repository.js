@@ -159,12 +159,18 @@ async function readMemberByCode(memberCode, branchScope = null) {
   const row = Array.isArray(rows) && rows.length ? rows[0] : null;
   if (!row) return null;
   const children = await loadMemberChildren(sb, gid, [row.id]);
-  return memberRowToApp(row, {
+  const app = memberRowToApp(row, {
     payments: children.paymentsByMember.get(row.id) || [],
     messages: children.messagesByMember.get(row.id) || [],
     attachments: children.attachmentsByMember.get(row.id) || [],
     injuryNotes: children.injuryByMember.get(row.id) || [],
   });
+  const { memberPhotoStorageEnabled } = await import('../../services/memberPhoto/storageConstants.js');
+  if (memberPhotoStorageEnabled()) {
+    const { enrichMemberPhotoFromDbRow } = await import('../../services/memberPhoto/MemberPhotoService.js');
+    return enrichMemberPhotoFromDbRow(app, row);
+  }
+  return app;
 }
 
 /**

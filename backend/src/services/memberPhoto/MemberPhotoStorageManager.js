@@ -53,11 +53,44 @@ export async function deleteMemberPhotoObject(storagePath) {
 /** @param {string} storagePath */
 export async function createMemberPhotoSignedUrl(storagePath, expiresIn = MEMBER_PHOTO_SIGNED_URL_TTL_SEC) {
   if (!storagePath) return null;
+  const map = await createMemberPhotoSignedUrlsBatch([storagePath], expiresIn);
+  return map.get(storagePath) || null;
+}
+
+/**
+ * Sign many storage paths in one Supabase Storage call (falls back to parallel singles).
+ * @param {string[]} storagePaths
+ * @returns {Promise<Map<string, string>>} path → signedUrl
+ */
+export async function createMemberPhotoSignedUrlsBatch(
+  storagePaths,
+  expiresIn = MEMBER_PHOTO_SIGNED_URL_TTL_SEC,
+) {
+  const unique = [...new Set((storagePaths || []).map((p) => String(p || '').trim()).filter(Boolean))];
+  const map = new Map();
+  if (!unique.length) return map;
+
   await ensureMemberPhotoBucket();
   const sb = getSupabase();
-  const { data, error } = await sb.storage.from(MEMBER_PHOTO_BUCKET).createSignedUrl(storagePath, expiresIn);
-  if (error) throw new Error(`signed url: ${error.message}`);
-  return data?.signedUrl || null;
+  const bucket = sb.storage.from(MEMBER_PHOTO_BUCKET);
+
+  if (typeof bucket.createSignedUrls === 'function') {
+    const { data, error } = await bucket.createSignedUrls(unique, expiresIn);
+    if (error) throw new Error(`signed urls batch: ${error.message}`);
+    for (const item of data || []) {
+      const path = String(item?.path || '').trim();
+      const url = String(item?.signedUrl || '').trim();
+      if (path && url) map.set(path, url);
+    }
+    return map;
+  }
+
+  await Promise.all(unique.map(async (path) => {
+    const { data, error } = await bucket.createSignedUrl(path, expiresIn);
+    if (error) throw new Error(`signed url: ${error.message}`);
+    if (data?.signedUrl) map.set(path, data.signedUrl);
+  }));
+  return map;
 }
 
 export function buildPathForMember(gymId, memberCode, version, mime) {

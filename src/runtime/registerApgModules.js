@@ -124,6 +124,8 @@ import {
   uploadMemberPhotoApi,
   deleteMemberPhotoApi,
   batchFetchMemberPhotoUrls,
+  syncAllMemberPhotoUrls,
+  memberIdsNeedingPhotoUrlsAll,
   memberPhotoStorageEnabled as memberPhotoStorageEnabledApi,
 } from '../features/members/memberPhotoApi.js';
 import {
@@ -135,7 +137,6 @@ import {
   setCachedMemberPhotoUrl,
   invalidateMemberPhotoCache,
   applyBatchPhotoUrls,
-  memberIdsNeedingPhotoUrls,
 } from '../features/members/photoUrlCache.js';
 
 function emitTelemetry(level, code, message, meta = {}) {
@@ -315,13 +316,14 @@ window.__APG_MODULES.memberPhotoStorageEnabled = memberPhotoStorageEnabledApi;
 window.__APG_MODULES.uploadMemberPhotoApi = uploadMemberPhotoApi;
 window.__APG_MODULES.deleteMemberPhotoApi = deleteMemberPhotoApi;
 window.__APG_MODULES.batchFetchMemberPhotoUrls = batchFetchMemberPhotoUrls;
+window.__APG_MODULES.syncAllMemberPhotoUrls = syncAllMemberPhotoUrls;
+window.__APG_MODULES.memberIdsNeedingPhotoUrlsAll = memberIdsNeedingPhotoUrlsAll;
 window.__APG_MODULES.resolveMemberAvatarSrc = resolveMemberAvatarSrc;
 window.__APG_MODULES.mergeMemberPhotoFields = mergeMemberPhotoFields;
 window.__APG_MODULES.getCachedMemberPhotoUrl = getCachedMemberPhotoUrl;
 window.__APG_MODULES.setCachedMemberPhotoUrl = setCachedMemberPhotoUrl;
 window.__APG_MODULES.invalidateMemberPhotoCache = invalidateMemberPhotoCache;
 window.__APG_MODULES.applyBatchPhotoUrls = applyBatchPhotoUrls;
-window.__APG_MODULES.memberIdsNeedingPhotoUrls = memberIdsNeedingPhotoUrls;
 // Core modules are registered — unblock app mount before LeaveTracker async load finishes.
 if (typeof window.__APG_RESOLVE_MODULES === 'function') {
   window.__APG_RESOLVE_MODULES();

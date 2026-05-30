@@ -5,7 +5,11 @@ export const MEMBER_PHOTO_MAX_BYTES = Number(process.env.MEMBER_PHOTO_MAX_BYTES 
 
 export const MEMBER_PHOTO_SIGNED_URL_TTL_SEC = Number(process.env.MEMBER_PHOTO_SIGNED_URL_TTL_SEC || 3600);
 
-export const MEMBER_PHOTO_BATCH_MAX = 50;
+/** Max member IDs per POST /members/photo-urls (Supabase createSignedUrls limit). */
+export const MEMBER_PHOTO_BATCH_MAX = Number(process.env.MEMBER_PHOTO_BATCH_MAX || 100);
+
+/** Parallel photo-url batch requests from the client. */
+export const MEMBER_PHOTO_PARALLEL_BATCHES = Number(process.env.MEMBER_PHOTO_PARALLEL_BATCHES || 2);
 
 export const MEMBER_PHOTO_ALLOWED_MIMES = new Set(['image/jpeg', 'image/png', 'image/webp']);
 
