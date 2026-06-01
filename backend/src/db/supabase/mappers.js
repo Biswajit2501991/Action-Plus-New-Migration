@@ -267,8 +267,6 @@ export function appStaffToRow(u, gymId) {
     sandbox_id: u.sandboxId || null,
     password_reset_requested_at: toTs(u.passwordResetRequestedAt),
     password_reset_approved_at: toTs(u.passwordResetApprovedAt),
-    password_reset_rejected_at: toTs(u.passwordResetRejectedAt),
-    password_reset_rejected_by: u.passwordResetRejectedBy || null,
     last_login_at: toTs(u.lastLoginAt),
     created_at: toTs(u.createdAt) || updatedAt,
     updated_at: updatedAt,

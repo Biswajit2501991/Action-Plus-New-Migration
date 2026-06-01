@@ -13,6 +13,7 @@ import {
 } from './passwordResetDecisionEngine.js';
 import { logPasswordResetAudit } from './passwordResetAuditService.js';
 import { PASSWORD_RESET_STATUS } from '../../../../src/features/passwordReset/passwordResetStatus.js';
+import { updateStaffUserRow } from '../../db/supabase/staffUsersWrite.js';
 
 export async function requestStaffPasswordResetWithAudit(identifier) {
   const row = await findStaffByIdentifier(identifier);
@@ -47,6 +48,54 @@ export async function requestStaffPasswordResetWithAudit(identifier) {
   return { ok: true, staffId: user.id, requestedAt: now };
 }
 
+/** Owner/branch admin sets staff password directly (Add/Edit Staff or reset approval). */
+export async function adminSetStaffPassword(auth, staffLoginId, newPassword) {
+  const row = await findStaffByIdentifier(staffLoginId);
+  if (!row) {
+    const err = new Error('staff-not-found');
+    err.status = 404;
+    throw err;
+  }
+  const targetUser = await getStaffAppUser(staffLoginId);
+  if (!targetUser) {
+    const err = new Error('staff-not-found');
+    err.status = 404;
+    throw err;
+  }
+  assertActorCanDecideForStaff(auth, targetUser);
+
+  const now = new Date().toISOString();
+  const wasPending = isPasswordResetPendingRow(row);
+
+  await setStaffPassword(staffLoginId, newPassword, { clearPasswordReset: true });
+
+  const sb = getSupabase();
+  await updateStaffUserRow(sb, row.id, {
+    password_reset_rejected_at: null,
+    password_reset_rejected_by: null,
+    updated_at: now,
+  });
+
+  await logPasswordResetAudit({
+    action: wasPending ? 'staff.password_reset.approved' : 'staff.password_set.admin',
+    actorId: auth.userId,
+    staffId: targetUser.id,
+    staffName: targetUser.name || targetUser.id,
+    meta: {
+      approvedAt: wasPending ? now : undefined,
+      approvedBy: wasPending ? auth.userId : undefined,
+      setAt: now,
+      setBy: auth.userId,
+    },
+  }).catch(() => {});
+
+  return {
+    ok: true,
+    staffId: targetUser.id,
+    status: wasPending ? PASSWORD_RESET_STATUS.APPROVED : 'set',
+  };
+}
+
 export async function approveStaffPasswordReset(auth, staffLoginId, newPassword) {
   const row = await findStaffByIdentifier(staffLoginId);
   if (!row) {
@@ -72,28 +121,7 @@ export async function approveStaffPasswordReset(auth, staffLoginId, newPassword)
     return { ok: true, staffId: targetUser.id, alreadyProcessed: true, status: gate.status };
   }
 
-  const now = new Date().toISOString();
-  await setStaffPassword(staffLoginId, newPassword, { clearPasswordReset: true });
-
-  const sb = getSupabase();
-  await sb
-    .from(T.staff_users)
-    .update({
-      password_reset_rejected_at: null,
-      password_reset_rejected_by: null,
-      updated_at: now,
-    })
-    .eq('id', row.id);
-
-  await logPasswordResetAudit({
-    action: 'staff.password_reset.approved',
-    actorId: auth.userId,
-    staffId: targetUser.id,
-    staffName: targetUser.name || targetUser.id,
-    meta: { approvedAt: now, approvedBy: auth.userId },
-  }).catch(() => {});
-
-  return { ok: true, staffId: targetUser.id, status: PASSWORD_RESET_STATUS.APPROVED };
+  return adminSetStaffPassword(auth, staffLoginId, newPassword);
 }
 
 export async function rejectStaffPasswordReset(auth, staffLoginId) {
@@ -129,34 +157,12 @@ export async function rejectStaffPasswordReset(auth, staffLoginId) {
   const sb = getSupabase();
   const now = new Date().toISOString();
   const actor = String(auth.userId || 'owner').trim();
-  let updateError = null;
-  {
-    const { error } = await sb
-      .from(T.staff_users)
-      .update({
-        password_reset_requested_at: null,
-        password_reset_rejected_at: now,
-        password_reset_rejected_by: actor,
-        updated_at: now,
-      })
-      .eq('id', row.id);
-    updateError = error;
-  }
-  if (updateError) {
-    const msg = String(updateError.message || updateError);
-    if (/password_reset_rejected/i.test(msg)) {
-      const { error: fallbackErr } = await sb
-        .from(T.staff_users)
-        .update({
-          password_reset_requested_at: null,
-          updated_at: now,
-        })
-        .eq('id', row.id);
-      if (fallbackErr) throw fallbackErr;
-    } else {
-      throw updateError;
-    }
-  }
+  await updateStaffUserRow(sb, row.id, {
+    password_reset_requested_at: null,
+    password_reset_rejected_at: now,
+    password_reset_rejected_by: actor,
+    updated_at: now,
+  });
 
   await logPasswordResetAudit({
     action: 'staff.password_reset.rejected',

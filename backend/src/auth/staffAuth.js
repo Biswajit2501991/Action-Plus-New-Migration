@@ -3,6 +3,7 @@ import { env } from '../config/env.js';
 import { T } from '../db/tables.js';
 import { getSupabase, gymId } from '../db/supabase/client.js';
 import { staffRowToApp } from '../db/supabase/mappers.js';
+import { updateStaffUserRow } from '../db/supabase/staffUsersWrite.js';
 import { ALL_SECTIONS, DEFAULT_ACCESS, normalizeAccess } from '../../../src/features/access/permissions.js';
 import { hashPassword, verifyPassword } from './passwords.js';
 import { loadAllowedBranchIdsForStaffRow, resolveStaffBranchContext } from './tenant/branchAssignments.js';
@@ -258,8 +259,7 @@ export async function setStaffPassword(staffLoginId, newPassword, options = {}) 
     patch.password_reset_rejected_at = null;
     patch.password_reset_rejected_by = null;
   }
-  const { error } = await sb.from(T.staff_users).update(patch).eq('id', row.id);
-  if (error) throw error;
+  await updateStaffUserRow(sb, row.id, patch);
   return true;
 }
 

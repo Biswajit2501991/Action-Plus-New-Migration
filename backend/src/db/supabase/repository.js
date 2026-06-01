@@ -27,6 +27,7 @@ import { branchScopeAllowsMember, branchScopeAllowsMemberTransfer } from '../../
 import { hashPassword } from '../../auth/passwords.js';
 import { syncGymRowsByExternalId, syncMemberChildRows } from './collectionSync.js';
 import { bulkUpsertMemberRows, membersBulkUpsertReady } from './membersWrite.js';
+import { updateStaffUserRow } from './staffUsersWrite.js';
 import { chunk, emptyText, fetchAll, paymentBillingDate, toDate, toTs } from './utils.js';
 import { stripVisitorGymCodeColumn, visitorsHaveGymCodeColumn } from './visitorsSchema.js';
 import { syncStaffUserAccess, syncStaffUserSections } from './staffUserSync.js';
@@ -871,8 +872,11 @@ async function writeUsers(users, scope) {
     }
     let staffPk;
     if (found) {
-      const { error } = await sb.from(T.staff_users).update(row).eq('id', found.id);
-      if (error) throw new Error(`staff update ${u.id}: ${error.message}`);
+      try {
+        await updateStaffUserRow(sb, found.id, row);
+      } catch (error) {
+        throw new Error(`staff update ${u.id}: ${error.message}`);
+      }
       staffPk = found.id;
     } else {
       const placeholderHash = await hashPassword(`apg-temp-${crypto.randomUUID()}`);

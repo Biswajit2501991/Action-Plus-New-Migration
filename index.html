@@ -12470,6 +12470,10 @@ function MobileMemberDetailView({ m, onBack, onEdit, onWelcome, onWhatsAppCall, 
       closeDisabled = false,
     }) {
       const panelRef = React.useRef(null);
+      const onCloseRef = React.useRef(onClose);
+      React.useEffect(() => {
+        onCloseRef.current = onClose;
+      }, [onClose]);
       React.useEffect(() => {
         if (!open) return undefined;
         const scrollTop = window.__APG_MODULES?.scrollEditorToTop;
@@ -12487,7 +12491,10 @@ function MobileMemberDetailView({ m, onBack, onEdit, onWelcome, onWhatsAppCall, 
         if (!open || closeDisabled) return undefined;
         const bindEsc = window.__APG_MODULES?.bindModalEscapeKey;
         const bindTrap = window.__APG_MODULES?.bindFocusTrap;
-        const unbindEsc = typeof bindEsc === 'function' ? bindEsc(onClose) : () => {};
+        const invokeClose = () => {
+          if (typeof onCloseRef.current === 'function') onCloseRef.current();
+        };
+        const unbindEsc = typeof bindEsc === 'function' ? bindEsc(invokeClose) : () => {};
         let unbindTrap = () => {};
         const frame = requestAnimationFrame(() => {
           if (panelRef.current && typeof bindTrap === 'function') {
@@ -12499,7 +12506,7 @@ function MobileMemberDetailView({ m, onBack, onEdit, onWelcome, onWhatsAppCall, 
           unbindEsc();
           unbindTrap();
         };
-      }, [open, onClose, closeDisabled]);
+      }, [open, closeDisabled]);
       if (!open) return null;
       return (
         <ModalPortal>

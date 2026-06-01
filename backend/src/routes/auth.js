@@ -19,7 +19,7 @@ import {
 } from '../auth/sessionCookies.js';
 import { resolvePasswordResetDecisionAuth } from '../auth/passwordReset/passwordResetAuth.js';
 import {
-  approveStaffPasswordReset,
+  adminSetStaffPassword,
   rejectStaffPasswordReset,
 } from '../auth/passwordReset/passwordResetRequestService.js';
 import { readAuthToken } from '../middleware/requireAuth.js';
@@ -235,7 +235,7 @@ router.post('/admin-set-password', async (req, res) => {
     return res.status(400).json({ error: 'password-too-short' });
   }
   try {
-    const result = await approveStaffPasswordReset(auth, staffId, newPassword);
+    const result = await adminSetStaffPassword(auth, staffId, newPassword);
     return res.json({ ok: true, staffId: result.staffId, status: result.status });
   } catch (error) {
     const msg = String(error?.message || error);
