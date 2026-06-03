@@ -3043,6 +3043,11 @@ Phone: +91-7047157510`;
         || f.manageExpenses,
       );
     };
+    const canFetchAuditLogs = (u) => {
+      if (!u?.id) return false;
+      if (isOwnerStaffUser(u)) return true;
+      return normalizeAccess(u?.access).logs?.viewLogs !== false;
+    };
     const canFetchSmsEvents = (u) => {
       if (!u?.id) return false;
       if (isOwnerStaffUser(u)) return true;
@@ -3383,7 +3388,7 @@ Phone: +91-7047157510`;
     /** Revenue rows for dashboard KPIs — payment history first, then optional billing-date fallback. */
     const collectMemberRevenueEntries = (
       member,
-      { todayKey = localTodayCalendarKey(), includeBillingFallback = true } = {},
+      { todayKey = localTodayCalendarKey(), includeBillingFallback = true, paymentHistoryOnly = false } = {},
     ) => {
       if (!member || typeof member !== 'object') return [];
       const history = normalizeMemberPaymentHistory(member);
@@ -3395,6 +3400,7 @@ Phone: +91-7047157510`;
           }))
           .filter((h) => h.receivedAt && Number(h.amount || 0) > 0);
       }
+      if (paymentHistoryOnly) return [];
       const messageDerived = Array.isArray(member.messageHistory)
         ? Array.from(
             member.messageHistory
@@ -3447,7 +3453,7 @@ Phone: +91-7047157510`;
     };
     const buildCollectedRevenueEntries = (members, todayKey = localTodayCalendarKey()) => {
       return (members || []).flatMap((m) =>
-        collectMemberRevenueEntries(m, { todayKey, includeBillingFallback: true }),
+        collectMemberRevenueEntries(m, { todayKey, includeBillingFallback: false, paymentHistoryOnly: true }),
       );
     };
     /**
@@ -3501,13 +3507,18 @@ Phone: +91-7047157510`;
       };
     };
     const pickMergedPaymentHistory = (localRow, remoteRow, localTs, remoteTs, syncPending) => {
+      const pickFn = window.__APG_MODULES?.pickMergedPaymentHistory;
+      if (typeof pickFn === 'function') {
+        return pickFn(localRow, remoteRow, {
+          syncPending,
+          mergeArrays: mergePaymentHistoryArrays,
+        });
+      }
       const id = String(localRow?.memberId || remoteRow?.memberId || '').trim();
       const L = Array.isArray(localRow?.paymentHistory) ? localRow.paymentHistory : [];
       const R = Array.isArray(remoteRow?.paymentHistory) ? remoteRow.paymentHistory : [];
       if (syncPending && id && syncPending[id]) return L;
       if (remoteRow?.__listSlim && R.length === 0 && L.length > 0) return L;
-      if (localTs > remoteTs) return L;
-      if (remoteTs > localTs) return R;
       return mergePaymentHistoryArrays(L, R, 120);
     };
     const pickMergedChildArray = (localArr, remoteArr, localTs, remoteTs, remoteSlim, mergeFn) => {
@@ -4467,7 +4478,10 @@ Phone: +91-7047157510`;
         if (canFetchSmsEvents(sessionUser)) {
           setSmsEvents(Array.isArray(remoteSmsEvents) ? remoteSmsEvents : []);
         }
-        if (replaceBranch) {
+        if (canFetchAuditLogs(sessionUser)) {
+          const remoteLogs = await apgTimedBackendJson('deferred', 'GET /logs', `/logs?${LOGS_LIST_QUERY}`).catch(() => []);
+          if (Array.isArray(remoteLogs) && remoteLogs.length) setLogs(remoteLogs);
+        } else if (replaceBranch) {
           const remoteLogs = await apgTimedBackendJson('deferred', 'GET /logs', `/logs?${LOGS_LIST_QUERY}`).catch(() => []);
           if (Array.isArray(remoteLogs)) setLogs(remoteLogs);
         }
@@ -5158,9 +5172,15 @@ Phone: +91-7047157510`;
                 await deleteQueuedSnapshot('settings');
                 setOfflineQueueCount((c) => Math.max(0, c - 1));
               } else if (row.entity === 'logs') {
-                await backendJson('/logs/bulk', { method: 'PUT', body: JSON.stringify({ logs: row.payload || [] }) });
-                await deleteQueuedSnapshot('logs');
-                setOfflineQueueCount((c) => Math.max(0, c - 1));
+                const queuedLogs = Array.isArray(row.payload) ? row.payload : [];
+                if (queuedLogs.length === 0) {
+                  await deleteQueuedSnapshot('logs');
+                  setOfflineQueueCount((c) => Math.max(0, c - 1));
+                } else {
+                  await backendJson('/logs/bulk', { method: 'PUT', body: JSON.stringify({ logs: queuedLogs }) });
+                  await deleteQueuedSnapshot('logs');
+                  setOfflineQueueCount((c) => Math.max(0, c - 1));
+                }
               } else if (row.entity === 'finance') {
                 await backendJson('/finance/bulk', { method: 'PUT', body: JSON.stringify({ finance: row.payload || [] }) });
                 await deleteQueuedSnapshot('finance');
@@ -5264,6 +5284,7 @@ Phone: +91-7047157510`;
           queueSyncSnapshot('logs', logs).then(() => setOfflineQueueCount((c) => c + 1)).catch(() => {});
           return;
         }
+        if (!Array.isArray(logs) || logs.length === 0) return;
         const timer = setTimeout(() => {
           backendJson('/logs/bulk', {
             method: 'PUT',
@@ -17835,7 +17856,7 @@ function PTClientsPage({ members, users, settings, updateSetting, currentUser, a
       const [actorFilter, setActorFilter] = React.useState('');
       const [actionFilter, setActionFilter] = React.useState('');
       const [entityFilter, setEntityFilter] = React.useState('');
-      const [timeRange, setTimeRange] = React.useState('24h');
+      const [timeRange, setTimeRange] = React.useState('30d');
       const [expandedId, setExpandedId] = React.useState('');
       const [page, setPage] = React.useState(1);
       const pageSize = 25;

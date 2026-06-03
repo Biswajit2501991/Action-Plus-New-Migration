@@ -1760,7 +1760,6 @@ async function writeLogs(logs, scope) {
   const incoming = sandboxFilter(Array.isArray(logs) ? logs : [], scope);
   const gymScoped = await auditLogsHasGymColumn(sb);
   if (!incoming.length) {
-    if (gymScoped) await sb.from(T.audit_logs).delete().eq('gym_id', gid);
     notifyCollectionChange('logs');
     return;
   }
@@ -1775,6 +1774,7 @@ async function writeLogs(logs, scope) {
       externalIdColumn: 'external_log_id',
       rows,
       onConflict: 'gym_id,external_log_id',
+      deleteOrphans: false,
     });
   } else {
     for (const row of rows) {

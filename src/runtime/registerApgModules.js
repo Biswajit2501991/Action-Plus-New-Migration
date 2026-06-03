@@ -120,6 +120,7 @@ import {
 } from '../features/passwordReset/passwordResetUserPatch.js';
 import PasswordResetNotificationCard from '../components/passwordReset/PasswordResetNotificationCard.js';
 import { sumMonthlyCollectedRevenue } from '../features/finance/monthlyRevenue.js';
+import { pickMergedPaymentHistory } from '../features/members/paymentHistoryMerge.js';
 /** Bump when memberPhotoApi exports change — separate URL bypasses stale bare-path module cache. */
 import * as memberPhotoApiInitial from '../features/members/memberPhotoApi.js?v=5';
 import {
@@ -336,6 +337,7 @@ window.__APG_MODULES.patchUserAfterPasswordResetReject = patchUserAfterPasswordR
 window.__APG_MODULES.patchUserAfterPasswordResetRequest = patchUserAfterPasswordResetRequest;
 window.__APG_MODULES.PasswordResetNotificationCard = PasswordResetNotificationCard;
 window.__APG_MODULES.sumMonthlyCollectedRevenue = sumMonthlyCollectedRevenue;
+window.__APG_MODULES.pickMergedPaymentHistory = pickMergedPaymentHistory;
 window.__APG_MODULES.resolveMemberAvatarSrc = resolveMemberAvatarSrc;
 window.__APG_MODULES.mergeMemberPhotoFields = mergeMemberPhotoFields;
 window.__APG_MODULES.getCachedMemberPhotoUrl = getCachedMemberPhotoUrl;

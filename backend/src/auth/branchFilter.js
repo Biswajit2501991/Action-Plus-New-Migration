@@ -179,5 +179,7 @@ export function logMatchesBranchScope(log, scope) {
     const uid = String(after.userId || before.userId || eid || '').trim();
     return uid && scope.staffLogins.has(uid);
   }
+  const actor = String(log?.actor || '').trim();
+  if (actor && scope.staffLogins.has(actor)) return true;
   return false;
 }
