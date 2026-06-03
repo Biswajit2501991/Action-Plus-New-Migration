@@ -3451,10 +3451,35 @@ Phone: +91-7047157510`;
       const fn = window.__APG_MODULES?.sumMonthlyCollectedRevenue;
       return typeof fn === 'function' ? fn(entries, monthKey) : sumMonthlyCollectedRevenueInline(entries, monthKey);
     };
+    const revenueEntryDeps = (todayKey = localTodayCalendarKey()) => ({
+      todayKey,
+      normalizeMemberPaymentHistory,
+      retentionPaymentDeadline,
+      localCalendarDateKey,
+      isoDate: iso,
+    });
     const buildCollectedRevenueEntries = (members, todayKey = localTodayCalendarKey()) => {
+      const fn = window.__APG_MODULES?.buildCollectedRevenueEntries;
+      if (typeof fn === 'function') {
+        return fn(members, revenueEntryDeps(todayKey));
+      }
       return (members || []).flatMap((m) =>
         collectMemberRevenueEntries(m, { todayKey, includeBillingFallback: false, paymentHistoryOnly: true }),
       );
+    };
+    const buildAllFinanceRevenueEntries = (members, financeTransactions, todayKey = localTodayCalendarKey()) => {
+      const fn = window.__APG_MODULES?.buildAllFinanceRevenueEntries;
+      if (typeof fn === 'function') {
+        return fn(members, financeTransactions, revenueEntryDeps(todayKey));
+      }
+      const manual = (Array.isArray(financeTransactions) ? financeTransactions : [])
+        .filter((t) => t && t.type !== 'expense')
+        .map((t) => ({
+          receivedAt: localCalendarDateKey(t.date) || String(t.date || '').trim(),
+          amount: Number(t.amount || 0),
+        }))
+        .filter((r) => r.receivedAt && Number(r.amount || 0) > 0);
+      return [...buildCollectedRevenueEntries(members, todayKey), ...manual];
     };
     /**
      * Backend GET can briefly lag behind a local PUT. Replacing React state with that payload
@@ -7591,7 +7616,14 @@ Please pay by: ${formattedLastDate}`;
         const method = String(paymentEntryModal.method || '').trim();
         const note = String(paymentEntryModal.note || '').trim();
         const actor = user?.name || user?.id || 'Staff';
-        const billingMonth = String(paidAt).slice(0, 7);
+        const monthKeyFn = window.__APG_MODULES?.paymentMonthKeyFromValue;
+        const billingMonth = typeof monthKeyFn === 'function'
+          ? monthKeyFn(paidAt)
+          : String(localCalendarDateKey(paidAt) || '').slice(0, 7);
+        const billingDateFromMonthFn = window.__APG_MODULES?.billingDateFromPaymentMonth;
+        const billingDateForRow = typeof billingDateFromMonthFn === 'function'
+          ? billingDateFromMonthFn(billingMonth)
+          : (billingMonth ? `${billingMonth}-01` : '');
         const editingId = String(paymentEntryModal.editingPaymentId || '').trim();
         const isEdit = Boolean(editingId);
         const payTs = new Date().toISOString();
@@ -7615,7 +7647,7 @@ Please pay by: ${formattedLastDate}`;
             method,
             note,
             billingMonth,
-            billingDate: `${billingMonth}-01`,
+            billingDate: billingDateForRow,
             editedBy: actor,
             editedAt: payTs,
           };
@@ -7658,7 +7690,7 @@ Please pay by: ${formattedLastDate}`;
             source: 'manual',
             note,
             billingMonth,
-            billingDate: `${billingMonth}-01`,
+            billingDate: billingDateForRow,
           };
           const row = {
             ...rowDraft,
@@ -12706,7 +12738,10 @@ function MemberDetails({ m, logs, onQuickFieldEdit, editOptions, isOwner = false
         [paymentRows]
       );
       const billingMonthLabel = (row) => {
-        const month = String(row?.billingMonth || '').trim();
+        const monthKeyFn = window.__APG_MODULES?.paymentMonthKeyFromValue;
+        const month = typeof monthKeyFn === 'function'
+          ? (monthKeyFn(row?.paidAt || row?.receivedAt || row?.date || '') || String(row?.billingMonth || '').trim())
+          : String(row?.billingMonth || '').trim();
         const mtx = month.match(/^(\d{4})-(\d{2})$/);
         if (mtx) {
           const y = Number(mtx[1]);
@@ -12714,7 +12749,7 @@ function MemberDetails({ m, logs, onQuickFieldEdit, editOptions, isOwner = false
           const mon = MONTHS[idx] || mtx[2];
           return `${mon} ${y}`;
         }
-        const d = asUTC(row?.billingDate || row?.paidAt || '');
+        const d = asUTC(row?.paidAt || row?.billingDate || '');
         if (!d) return '—';
         return `${MONTHS[d.getUTCMonth()]} ${d.getUTCFullYear()}`;
       };
@@ -19342,36 +19377,40 @@ function PTClientsPage({ members, users, settings, updateSetting, currentUser, a
       const useEstimatedExpense = settings?.financeUseEstimatedExpense !== false;
       const today = new Date();
 
-      const autoIncomeTransactions = React.useMemo(() => {
-        return (members || [])
-          .filter(m => m.billingDate)
-          .map(m => {
-            const due = retentionPaymentDeadline(m);
-            const pending = m.status === 'Active' && due && due < today;
-            return {
-              id: `auto-${m.memberId || crypto.randomUUID()}`,
-              type: 'income',
-              source: 'members',
-              memberId: m.memberId || '',
-              memberName: m.name || '',
-              date: iso(m.billingDate),
-              plan: m.plan || '',
-              method: m.paymentMethod || '',
-              amount: Number(m.amount || 0),
-              status: pending ? 'pending' : 'paid',
-              memberStatus: m.status || '',
-            };
-          })
-          .sort((a, b) => new Date(b.date || 0) - new Date(a.date || 0));
+      const paymentIncomeTransactions = React.useMemo(() => {
+        const buildPay = window.__APG_MODULES?.buildPaymentIncomeLedgerRows;
+        if (typeof buildPay === 'function') {
+          return buildPay(members, normalizeMemberPaymentHistory, localCalendarDateKey);
+        }
+        return [];
+      }, [members]);
+      const billingPendingTransactions = React.useMemo(() => {
+        const buildPending = window.__APG_MODULES?.buildBillingPendingLedgerRows;
+        if (typeof buildPending === 'function') {
+          return buildPending(members, {
+            retentionPaymentDeadline,
+            calendarDateKey: localCalendarDateKey,
+            today,
+          });
+        }
+        return [];
       }, [members, today]);
       const manualFinanceRows = React.useMemo(() => {
-        return (Array.isArray(financeTransactions) ? financeTransactions : []).map((t) => ({
+        const mapManual = window.__APG_MODULES?.mapManualFinanceLedgerRows;
+        const rows = Array.isArray(financeTransactions) ? financeTransactions : [];
+        if (typeof mapManual === 'function') {
+          return mapManual(rows).map((t) => ({
+            ...t,
+            date: localCalendarDateKey(t.date) || t.date || iso(new Date()),
+          }));
+        }
+        return rows.map((t) => ({
           id: t.id || `manual-${crypto.randomUUID()}`,
           type: t.type === 'expense' ? 'expense' : 'income',
           source: t.source || 'manual',
           memberId: t.memberId || '',
           memberName: t.memberName || (t.type === 'expense' ? (t.category || 'Expense') : ''),
-          date: t.date || iso(new Date()),
+          date: localCalendarDateKey(t.date) || t.date || iso(new Date()),
           plan: t.plan || (t.type === 'expense' ? 'Expense' : ''),
           method: t.method || 'Cash',
           amount: Number(t.amount || 0),
@@ -19382,9 +19421,9 @@ function PTClientsPage({ members, users, settings, updateSetting, currentUser, a
         }));
       }, [financeTransactions]);
       const transactions = React.useMemo(() => {
-        return [...autoIncomeTransactions, ...manualFinanceRows]
-          .sort((a, b) => new Date(b.date || 0) - new Date(a.date || 0));
-      }, [autoIncomeTransactions, manualFinanceRows]);
+        return [...paymentIncomeTransactions, ...billingPendingTransactions, ...manualFinanceRows]
+          .sort((a, b) => String(b.date || '').localeCompare(String(a.date || '')));
+      }, [paymentIncomeTransactions, billingPendingTransactions, manualFinanceRows]);
 
       const queryNeedle = React.useMemo(() => appliedQuery.toLowerCase().trim(), [appliedQuery]);
 
@@ -19405,6 +19444,10 @@ function PTClientsPage({ members, users, settings, updateSetting, currentUser, a
       }, [transactions, planFilter, methodFilter, statusFilter, typeFilter, fromDate, toDate, queryNeedle]);
 
       const financeMonthBounds = React.useMemo(() => {
+        const boundsFn = window.__APG_MODULES?.financeMonthBoundsFromKey;
+        if (typeof boundsFn === 'function') {
+          return boundsFn(financeMonth, MONTHS);
+        }
         const parts = String(financeMonth || '').split('-').map(Number);
         if (parts.length < 2 || !parts[0] || !parts[1]) {
           const n = new Date();
@@ -19448,8 +19491,8 @@ function PTClientsPage({ members, users, settings, updateSetting, currentUser, a
       }, [openExpenseSignal]);
 
       const collectedRevenueEntries = React.useMemo(
-        () => buildCollectedRevenueEntries(members, localTodayCalendarKey()),
-        [members],
+        () => buildAllFinanceRevenueEntries(members, financeTransactions, localTodayCalendarKey()),
+        [members, financeTransactions],
       );
       const incomeRows = filteredTransactions.filter((t) => t.type !== 'expense');
       const pendingRows = incomeRows.filter(t => t.status === 'pending');
@@ -19524,6 +19567,16 @@ function PTClientsPage({ members, users, settings, updateSetting, currentUser, a
       };
 
       const monthTotals = React.useMemo(() => {
+        const slotsFn = window.__APG_MODULES?.lastFourMonthTrendSlots;
+        const slots = typeof slotsFn === 'function'
+          ? slotsFn(financeMonth, MONTHS)
+          : [];
+        if (slots.length) {
+          return slots.map((slot) => ({
+            label: slot.label,
+            total: sumMonthlyCollectedRevenue(collectedRevenueEntries, slot.monthKey),
+          }));
+        }
         const months = [];
         const now = new Date();
         for (let i = 3; i >= 0; i -= 1) {
@@ -19534,7 +19587,7 @@ function PTClientsPage({ members, users, settings, updateSetting, currentUser, a
           months.push({ label, total });
         }
         return months;
-      }, [collectedRevenueEntries]);
+      }, [collectedRevenueEntries, financeMonth]);
       const highestMonth = Math.max(1, ...monthTotals.map(x => x.total));
       const hasAnyMonthData = monthTotals.some((x) => Number(x.total) > 0);
 
@@ -19885,7 +19938,7 @@ function PTClientsPage({ members, users, settings, updateSetting, currentUser, a
           <div className="grid grid-cols-1 xl:grid-cols-3 gap-4">
             {canFinanceTrend && (
             <div className={cx(cardBase, 'xl:col-span-2')} data-testid="finance-trend-card">
-              <div className="text-lg font-semibold text-slate-900 dark:text-slate-100 mb-4">Revenue Trend (Last 4 Months)</div>
+              <div className="text-lg font-semibold text-slate-900 dark:text-slate-100 mb-4">Revenue Trend (4 months ending {financeMonthBounds.label})</div>
               {hasAnyMonthData ? (
                 <div className="h-48 flex items-end gap-3" data-testid="finance-trend-chart">
                   {monthTotals.map((x) => {

@@ -120,6 +120,27 @@ import {
 } from '../features/passwordReset/passwordResetUserPatch.js';
 import PasswordResetNotificationCard from '../components/passwordReset/PasswordResetNotificationCard.js';
 import { sumMonthlyCollectedRevenue } from '../features/finance/monthlyRevenue.js';
+import {
+  buildCollectedRevenueEntries,
+  buildAllFinanceRevenueEntries,
+  buildManualIncomeRevenueEntries,
+  collectMemberRevenueEntries,
+} from '../features/finance/collectedRevenue.js';
+import {
+  buildPaymentIncomeLedgerRows,
+  buildBillingPendingLedgerRows,
+  mapManualFinanceLedgerRows,
+} from '../features/finance/financeLedger.js';
+import {
+  financeMonthBoundsFromKey,
+  lastFourMonthTrendSlots,
+  parseFinanceMonthKey,
+} from '../features/finance/financeMonthScope.js';
+import {
+  paymentMonthKeyFromValue,
+  billingDateFromPaymentMonth,
+} from '../features/finance/paymentMonthKey.js';
+import { applyPaymentHistoryBackfillToMember } from '../features/members/paymentHistoryLegacyBackfill.js';
 import { pickMergedPaymentHistory } from '../features/members/paymentHistoryMerge.js';
 /** Bump when memberPhotoApi exports change — separate URL bypasses stale bare-path module cache. */
 import * as memberPhotoApiInitial from '../features/members/memberPhotoApi.js?v=5';
@@ -337,6 +358,19 @@ window.__APG_MODULES.patchUserAfterPasswordResetReject = patchUserAfterPasswordR
 window.__APG_MODULES.patchUserAfterPasswordResetRequest = patchUserAfterPasswordResetRequest;
 window.__APG_MODULES.PasswordResetNotificationCard = PasswordResetNotificationCard;
 window.__APG_MODULES.sumMonthlyCollectedRevenue = sumMonthlyCollectedRevenue;
+window.__APG_MODULES.collectMemberRevenueEntries = collectMemberRevenueEntries;
+window.__APG_MODULES.buildCollectedRevenueEntries = buildCollectedRevenueEntries;
+window.__APG_MODULES.buildAllFinanceRevenueEntries = buildAllFinanceRevenueEntries;
+window.__APG_MODULES.buildManualIncomeRevenueEntries = buildManualIncomeRevenueEntries;
+window.__APG_MODULES.buildPaymentIncomeLedgerRows = buildPaymentIncomeLedgerRows;
+window.__APG_MODULES.buildBillingPendingLedgerRows = buildBillingPendingLedgerRows;
+window.__APG_MODULES.mapManualFinanceLedgerRows = mapManualFinanceLedgerRows;
+window.__APG_MODULES.financeMonthBoundsFromKey = financeMonthBoundsFromKey;
+window.__APG_MODULES.lastFourMonthTrendSlots = lastFourMonthTrendSlots;
+window.__APG_MODULES.parseFinanceMonthKey = parseFinanceMonthKey;
+window.__APG_MODULES.paymentMonthKeyFromValue = paymentMonthKeyFromValue;
+window.__APG_MODULES.billingDateFromPaymentMonth = billingDateFromPaymentMonth;
+window.__APG_MODULES.applyPaymentHistoryBackfillToMember = applyPaymentHistoryBackfillToMember;
 window.__APG_MODULES.pickMergedPaymentHistory = pickMergedPaymentHistory;
 window.__APG_MODULES.resolveMemberAvatarSrc = resolveMemberAvatarSrc;
 window.__APG_MODULES.mergeMemberPhotoFields = mergeMemberPhotoFields;

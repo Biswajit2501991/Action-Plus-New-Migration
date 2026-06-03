@@ -23,6 +23,8 @@
     "autostart:uninstall": "zsh scripts/uninstall-autostart-macos.sh",
     "dev:supervisor": "node scripts/apg-supervisor.mjs",
     "icon:refresh": "zsh scripts/refresh-icon-cache.sh",
+    "backfill:payments:dry": "node backend/scripts/backfill-member-payment-history.js --dry-run",
+    "backfill:payments": "node backend/scripts/backfill-member-payment-history.js",
     "test": "vitest run",
     "test:watch": "vitest",
     "test:e2e": "playwright test",

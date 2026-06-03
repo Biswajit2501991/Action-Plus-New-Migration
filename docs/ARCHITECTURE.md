@@ -272,17 +272,15 @@ When SSE is connected, settings polling is reduced to save Supabase quota.
 ### 7.1 Total Revenue (Monthly) — Dashboard & Finance
 
 ```
-members[] → buildCollectedRevenueEntries (collectMemberRevenueEntries per member)
-  Priority per member:
-    1. paymentHistory rows (paidAt/receivedAt + amount)
-    2. Else success WhatsApp in messageHistory (one row per calendar day, member.amount)
-    3. Else legacy paymentReceivedAt + member.amount
-    4. Else billingDate fallback when not pending overdue
-→ sumMonthlyCollectedRevenue(entries, YYYY-MM) — local calendar month filter
+members[] → buildCollectedRevenueEntries (paymentHistory paidAt only)
+financeTransactions[] (income) → buildManualIncomeRevenueEntries (tx date)
+→ buildAllFinanceRevenueEntries → sumMonthlyCollectedRevenue(entries, YYYY-MM)
 ```
 
-**Files:** `DashboardSummary` and `FinancePage` in `index.html`; shared sum in `src/features/finance/monthlyRevenue.js`.  
-**Note:** Headline revenue does not use `financeTransactions` or billing-date-only auto rows; pending amounts stay on Finance’s pending card via ledger rows.
+**Files:** `src/features/finance/collectedRevenue.js`, `monthlyRevenue.js`, `financeLedger.js`, `financeMonthScope.js`; wired from `index.html` via `registerApgModules.js`.  
+**Finance ledger:** paid rows from `paymentHistory` (transaction date); pending rows from overdue billing; manual rows from `finance_transactions`.  
+**Trend chart:** four months ending at the selected `financeMonth` (`lastFourMonthTrendSlots`).  
+**Backfill:** `backend/scripts/backfill-member-payment-history.js` for empty `paymentHistory` from `paymentReceivedAt` / `billingDate`.
 
 ### 7.2 Members — add, edit, payments
 
