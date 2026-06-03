@@ -89,6 +89,7 @@ import { getSupabase, gymId } from './db/supabase/client.js';
 import { resolvePtClientMemberId } from './utils/ptClientMemberId.js';
 
 import { isLoopbackRequest } from './middleware/isLoopbackRequest.js';
+import { apiFeatures, buildInfo, versionPayload } from './buildInfo.js';
 
 assertSecurityEnvAtStartup();
 
@@ -427,6 +428,8 @@ async function appendAuditLog(req, { action, entityType = '', entityId = '', bef
 async function healthPayload(extra = {}) {
   return {
     service: 'gym-backend',
+    ...buildInfo,
+    features: apiFeatures,
     env: env.NODE_ENV,
     configuredGymId: env.APG_GYM_ID || null,
     dataBackend: dataBackendLabel(),
@@ -455,6 +458,13 @@ app.get('/api/health', async (_req, res) => {
   } catch (error) {
     res.status(503).json({ ok: false, ...(await healthPayload({ error: String(error?.message || error) })) });
   }
+});
+
+app.get('/api/v1/version', (_req, res) => {
+  res.json({ ok: true, ...versionPayload() });
+});
+app.get('/api/version', (_req, res) => {
+  res.json({ ok: true, ...versionPayload() });
 });
 
 app.use('/api/auth', authRouter);

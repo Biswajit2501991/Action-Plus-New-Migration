@@ -7,10 +7,12 @@ import http from 'node:http';
 import { spawn } from 'node:child_process';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { resolveGitBuildEnv } from './resolve-git-build-env.mjs';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const rootDir = path.resolve(__dirname, '..');
+const buildEnv = resolveGitBuildEnv(rootDir);
 const backendDir = path.join(rootDir, 'backend');
 
 const PORT = Number(process.env.APG_SUPERVISOR_PORT || 4010);
@@ -107,7 +109,7 @@ function startBackend() {
   const npmCmd = process.platform === 'win32' ? 'npm.cmd' : 'npm';
   backendChild = spawn(npmCmd, ['run', 'dev'], {
     cwd: backendDir,
-    env: { ...process.env },
+    env: { ...process.env, ...buildEnv },
     stdio: 'inherit',
     shell: process.platform === 'win32',
   });

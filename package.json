@@ -15,6 +15,7 @@
     "dev:all:tunnel": "node scripts/dev-all-with-tunnel.mjs",
     "build:legacy:prod": "node scripts/build-legacy-prod-frontend.mjs",
     "prod:health": "zsh scripts/health-check-after-boot.sh",
+    "prod:verify-api": "node scripts/verify-prod-api.mjs",
     "local:health": "zsh scripts/health-check-after-boot.sh http://127.0.0.1:5501/index.html http://127.0.0.1:5501/index.html",
     "local:test": "npm test && npm run local:health",
     "health:check": "zsh scripts/health-check-after-boot.sh",

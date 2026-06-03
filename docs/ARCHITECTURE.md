@@ -300,6 +300,8 @@ Example: payment on **02-Jul-2026** with **Paid for Month = May 2026** → May s
 
 **Drill-down:** Finance collected-revenue card opens a modal listing collected income rows for the month (running total).
 
+**Build / ops checks:** `GET /api/health` and `GET /api/version` (no auth) include `version`, `buildSha`, and `features.financeSummary`. Backend tab → **Verify finance API** calls the summary route while logged in. CLI: `npm run prod:verify-api`.
+
 **Server verification (audit):** `GET /api/finance/summary?month=YYYY-MM` and `GET /api/finance/reconciliation?year=YYYY` aggregate `member_payment_history` + `finance_transactions`. When `member_paid_for_month` exists, `collectedRevenue` and `serviceRevenue` are the sum of ledger rows for **Active** members for the requested `YYYY-MM` month (`revenueBasis: member_paid_for_month_active`), plus manual finance income. Fallback uses payment history by `paid_month`. Finance page shows **Database verification** comparing server collected vs on-screen ledger. Implementation: `backend/src/services/financeSummaryService.js`, `src/features/finance/aggregateFinanceSummary.js`, `paymentCalendarMonth.js`, `derivePaidMonth.js`.
 
 **Files:** `financeLedger.js`, `financeLedgerTotals.js`, `buildFinanceLedger.js`, `buildFinanceKpis.js`, `buildMonthlyReconciliation.js`, `revenueBreakdown.js`, `expenseBreakdown.js`, `financeMonthScope.js`; legacy entry helpers in `collectedRevenue.js` / `monthlyRevenue.js`. Wired from `index.html` via `registerApgModules.js`.

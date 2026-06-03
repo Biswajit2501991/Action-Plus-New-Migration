@@ -3,6 +3,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { loadEnvFromFile, resolveEnvFilePath } from './load-env-file.mjs';
+import { resolveGitBuildEnv } from './resolve-git-build-env.mjs';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -141,6 +142,7 @@ async function ensureSecurityEnv() {
 async function main() {
   const npmCmd = process.platform === 'win32' ? 'npm.cmd' : 'npm';
   loadEnvFromFile(rootDir);
+  Object.assign(process.env, resolveGitBuildEnv(rootDir));
   console.log('[bootstrap] Checking and installing dependencies...');
   await ensureDeps();
   console.log('[bootstrap] Preparing local SQLite database...');

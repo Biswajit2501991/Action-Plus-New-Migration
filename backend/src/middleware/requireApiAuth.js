@@ -6,6 +6,8 @@ import { isLoopbackRequest } from './isLoopbackRequest.js';
 const PUBLIC_PATHS = new Set([
   '/health',
   '/v1/health',
+  '/version',
+  '/v1/version',
 ]);
 
 /**
