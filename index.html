@@ -11137,10 +11137,14 @@ function Sidebar({ user, active, onSelect, theme, setTheme, layoutMode = 'classi
             if (cancelled) return;
             const rev = Number(body?.collectedRevenue ?? body?.dbLedgerActiveSum ?? 0);
             const growth = typeof body?.revenueGrowthPct === 'number' ? body.revenueGrowthPct : null;
-            dbMonthRevenueStableRef.current = rev;
-            dbRevenueGrowthStableRef.current = growth;
-            setDbMonthRevenue(rev);
-            setDbRevenueGrowthPct(growth);
+            const ledger = Number(body?.dbLedgerActiveSum ?? 0);
+            const fallback = Number(body?.dbServiceMonthFallbackSum ?? 0);
+            if (rev > 0 || ledger > 0 || fallback > 0) {
+              dbMonthRevenueStableRef.current = rev;
+              dbRevenueGrowthStableRef.current = growth;
+              setDbMonthRevenue(rev);
+              setDbRevenueGrowthPct(growth);
+            }
           })
           .catch(() => { /* keep last good DB totals to avoid flicker */ });
         return () => { cancelled = true; };
@@ -19717,19 +19721,27 @@ function PTClientsPage({ members, users, settings, updateSetting, currentUser, a
       const reportingMonthLedger = financeKpis?.reportingMonthLedger ?? [];
       const incomeRows = reportingMonthLedger.filter((t) => t.type !== 'expense');
       const activeServerSummary = serverSummary || serverSummaryStableRef.current;
-      const revenue = (dataSyncMode === 'backend' && activeServerSummary)
-        ? Number(activeServerSummary.collectedRevenue ?? activeServerSummary.dbLedgerActiveSum ?? 0)
-        : (financeKpis?.collectedRevenue ?? 0);
-      const serviceRevenue = (dataSyncMode === 'backend' && activeServerSummary)
-        ? Number(activeServerSummary.serviceRevenue ?? activeServerSummary.collectedRevenue ?? 0)
-        : (financeKpis?.serviceRevenue ?? 0);
+      const clientCollected = financeKpis?.collectedRevenue ?? 0;
+      const clientService = financeKpis?.serviceRevenue ?? 0;
+      const serverLedgerSum = Number(activeServerSummary?.dbLedgerActiveSum ?? 0);
+      const serverFallbackSum = Number(activeServerSummary?.dbServiceMonthFallbackSum ?? 0);
+      const serverCollectedRaw = Number(activeServerSummary?.collectedRevenue ?? activeServerSummary?.dbLedgerActiveSum ?? 0);
+      const serverServiceRaw = Number(activeServerSummary?.serviceRevenue ?? activeServerSummary?.collectedRevenue ?? 0);
+      const serverRevenueReady = dataSyncMode === 'backend' && activeServerSummary
+        && (serverLedgerSum > 0 || serverFallbackSum > 0 || serverCollectedRaw > 0);
+      const revenue = serverRevenueReady
+        ? serverCollectedRaw
+        : clientCollected;
+      const serviceRevenue = serverRevenueReady
+        ? serverServiceRaw
+        : clientService;
       const expense = financeKpis?.expense ?? 0;
       const expenseSubtitle = financeKpis?.expenseSubtitle ?? '';
-      const profit = (dataSyncMode === 'backend' && activeServerSummary && activeServerSummary.profit != null)
+      const profit = (serverRevenueReady && activeServerSummary && activeServerSummary.profit != null)
         ? Number(activeServerSummary.profit)
         : (financeKpis?.profit ?? 0);
       const hasExpenseRows = financeKpis?.hasExpenseRows ?? false;
-      const revenueGrowthPct = (dataSyncMode === 'backend' && activeServerSummary && typeof activeServerSummary.revenueGrowthPct === 'number')
+      const revenueGrowthPct = (serverRevenueReady && activeServerSummary && typeof activeServerSummary.revenueGrowthPct === 'number')
         ? Number(activeServerSummary.revenueGrowthPct)
         : (financeKpis?.revenueGrowthPct ?? 0);
       const ytdCollected = financeKpis?.ytdCollected ?? 0;
@@ -19796,8 +19808,13 @@ function PTClientsPage({ members, users, settings, updateSetting, currentUser, a
             if (cancelled) return;
             const next = body && typeof body === 'object' ? body : null;
             if (next) {
-              serverSummaryStableRef.current = next;
-              setServerSummary(next);
+              const rev = Number(next.collectedRevenue ?? next.dbLedgerActiveSum ?? 0);
+              const ledger = Number(next.dbLedgerActiveSum ?? 0);
+              const fallback = Number(next.dbServiceMonthFallbackSum ?? 0);
+              if (rev > 0 || ledger > 0 || fallback > 0) {
+                serverSummaryStableRef.current = next;
+                setServerSummary(next);
+              }
             }
             setServerSummaryError('');
           })

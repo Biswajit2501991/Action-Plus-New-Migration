@@ -1845,7 +1845,7 @@ async function readFinanceSummary(branchScope, options = {}) {
       }
       ledgerRaw.push(...(data || []));
     }
-    if (ledgerAvailable) {
+    if (ledgerAvailable && ledgerRaw.length) {
       return mapPaidForMonthLedgerToPaymentRecords(ledgerRaw, memberPkToMeta);
     }
     const raw = [];
@@ -1971,7 +1971,20 @@ async function readFinanceSummary(branchScope, options = {}) {
     }
   }
   const manualIncome = Number(summary.manualIncomeCollected || 0);
-  const collectedFromLedger = ledgerActiveSum + manualIncome;
+  let collectedFromLedger = ledgerActiveSum + manualIncome;
+  let serviceFromPayments = ledgerActiveSum;
+  let revenueBasisTag = ledgerActiveSum > 0 ? 'member_paid_for_month_active' : summary.revenueBasis;
+  if (ledgerReady && ledgerActiveSum === 0) {
+    const { sumServiceRevenueFromPaymentRecords } = await import(
+      '../../../src/features/finance/aggregateFinanceSummary.js'
+    );
+    serviceRecords = await loadPaymentsForServiceMonth(monthKey);
+    serviceFromPayments = sumServiceRevenueFromPaymentRecords(serviceRecords, monthKey);
+    if (serviceFromPayments > 0) {
+      collectedFromLedger = serviceFromPayments + manualIncome;
+      revenueBasisTag = 'paid_month_payment_history_active_fallback';
+    }
+  }
   const prevLedgerSum = await (async () => {
     const prevKey = (() => {
       const [y, m] = monthKey.split('-').map(Number);
@@ -2002,13 +2015,14 @@ async function readFinanceSummary(branchScope, options = {}) {
     ...summary,
     collectedRevenue: collectedFromLedger,
     serviceRevenue: collectedFromLedger,
-    memberPaymentsCollected: ledgerActiveSum,
-    memberPaymentsService: ledgerActiveSum,
+    memberPaymentsCollected: ledgerActiveSum || serviceFromPayments,
+    memberPaymentsService: ledgerActiveSum || serviceFromPayments,
     profit: expenseProfit.profit,
     revenueGrowthPct: growthPct,
-    revenueBasis: ledgerActiveSum > 0 ? 'member_paid_for_month_active' : summary.revenueBasis,
+    revenueBasis: revenueBasisTag,
     dateBasis: ledgerActiveSum > 0 ? 'member_paid_for_month_ledger' : summary.dateBasis,
     dbLedgerActiveSum: ledgerActiveSum,
+    dbServiceMonthFallbackSum: serviceFromPayments,
     dbActiveMemberCount: activeMemberPks.length,
     dbPaymentRowsInRange: collectedRecords.length,
     dbServicePaymentRowsInMonth: serviceRecords.length,
