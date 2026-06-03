@@ -33,6 +33,7 @@ import { hashPassword } from '../../auth/passwords.js';
 import { syncGymRowsByExternalId, syncMemberChildRows } from './collectionSync.js';
 import {
   syncMemberPaidForMonthLedger,
+  memberPaidForMonthLedgerReady,
   mapPaidForMonthLedgerToPaymentRecords,
   sumActivePaidForMonthLedger,
 } from './memberPaidForMonthSync.js';
@@ -504,14 +505,26 @@ async function updateMemberFields(memberCode, patch, branchScope = null) {
   if (refErr) throw new Error(`member reload: ${refErr.message}`);
 
   const children = await loadMemberChildren(sb, gid, [refreshed.id]);
-  notifyCollectionChange('members');
-
-  return memberRowToApp(refreshed, {
+  const appMember = memberRowToApp(refreshed, {
     payments: children.paymentsByMember.get(refreshed.id) || [],
     messages: children.messagesByMember.get(refreshed.id) || [],
     attachments: children.attachmentsByMember.get(refreshed.id) || [],
     injuryNotes: children.injuryByMember.get(refreshed.id) || [],
   });
+  if (
+    Object.prototype.hasOwnProperty.call(patch, 'payMonth')
+    || Object.prototype.hasOwnProperty.call(patch, 'paymentHistory')
+  ) {
+    try {
+      await syncMemberPaidForMonthLedger(sb, { gymId: gid, memberPk: refreshed.id, member: appMember });
+    } catch (ledgerErr) {
+      const msg = String(ledgerErr?.message || ledgerErr);
+      if (!/member_paid_for_month|does not exist|42P01/i.test(msg)) throw ledgerErr;
+    }
+  }
+  notifyCollectionChange('members');
+
+  return appMember;
 }
 
 /** Whitelist of app-fields → DB columns that PATCH is allowed to touch. */
@@ -732,14 +745,7 @@ async function writeMembers(members, scope) {
         if (!/member_paid_for_month|does not exist|42P01/i.test(msg)) throw ledgerErr;
       }
     }
-    if (Object.prototype.hasOwnProperty.call(m, 'payMonth') && !Object.prototype.hasOwnProperty.call(m, 'paymentHistory')) {
-      try {
-        await syncMemberPaidForMonthLedger(sb, { gymId: gid, memberPk, member: m });
-      } catch (ledgerErr) {
-        const msg = String(ledgerErr?.message || ledgerErr);
-        if (!/member_paid_for_month|does not exist|42P01/i.test(msg)) throw ledgerErr;
-      }
-    }
+    // payMonth ledger sync runs on PATCH only — not on debounced bulk PUT (avoids N× delete/upsert timeouts).
     if (Object.prototype.hasOwnProperty.call(m, 'messageHistory')) {
       await syncMemberChildRows(sb, T.member_message_history, {
         gymId: gid,
@@ -1931,26 +1937,38 @@ async function readFinanceSummary(branchScope, options = {}) {
     err.status = 400;
     throw err;
   }
-  const collectedRecords = await loadPaymentsInRange(bounds.from, bounds.toExclusive);
-  const serviceRecords = await loadPaymentsForServiceMonth(monthKey);
-  const paymentById = new Map();
-  for (const p of [...collectedRecords, ...serviceRecords]) {
-    paymentById.set(String(p.id || ''), p);
-  }
-  const paymentRecords = [...paymentById.values()].filter((p) => p.id);
-  const summary = buildMonthSummaryFromRecords(
-    paymentRecords,
-    financeRows,
-    monthKey,
-    settings,
-    Boolean(options.includeLines),
-  );
+  const includeLines = Boolean(options.includeLines);
+  const ledgerReady = await memberPaidForMonthLedgerReady(sb);
   let ledgerActiveSum = 0;
-  try {
+  const ledgerFastPath = !includeLines && ledgerReady;
+  if (ledgerFastPath) {
     ledgerActiveSum = await sumActivePaidForMonthLedger(sb, gid, monthKey, activeMemberPks);
-  } catch (ledgerSumErr) {
-    const msg = String(ledgerSumErr?.message || ledgerSumErr);
-    if (!/member_paid_for_month|does not exist|42P01/i.test(msg)) throw ledgerSumErr;
+  }
+
+  let collectedRecords = [];
+  let serviceRecords = [];
+  let paymentRecords = [];
+  let summary;
+  if (ledgerFastPath) {
+    summary = buildMonthSummaryFromRecords([], financeRows, monthKey, settings, false);
+  } else {
+    collectedRecords = await loadPaymentsInRange(bounds.from, bounds.toExclusive);
+    serviceRecords = await loadPaymentsForServiceMonth(monthKey);
+    const paymentById = new Map();
+    for (const p of [...collectedRecords, ...serviceRecords]) {
+      paymentById.set(String(p.id || ''), p);
+    }
+    paymentRecords = [...paymentById.values()].filter((p) => p.id);
+    summary = buildMonthSummaryFromRecords(
+      paymentRecords,
+      financeRows,
+      monthKey,
+      settings,
+      includeLines,
+    );
+    if (ledgerReady) {
+      ledgerActiveSum = await sumActivePaidForMonthLedger(sb, gid, monthKey, activeMemberPks);
+    }
   }
   const manualIncome = Number(summary.manualIncomeCollected || 0);
   const collectedFromLedger = ledgerActiveSum + manualIncome;

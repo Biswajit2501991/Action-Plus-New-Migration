@@ -89,6 +89,16 @@ export async function syncMemberPaidForMonthLedger(sb, { gymId, memberPk, member
  * @param {object[]} rows
  * @param {Map<number, { member_code: string, name: string, status: string }>} memberPkToMeta
  */
+/** True when member_paid_for_month table exists (migration applied). */
+export async function memberPaidForMonthLedgerReady(sb) {
+  const { error } = await sb.from(T.member_paid_for_month).select('member_id').limit(1);
+  if (error) {
+    if (/member_paid_for_month|does not exist|42P01/i.test(error.message)) return false;
+    throw new Error(`memberPaidForMonthLedgerReady: ${error.message}`);
+  }
+  return true;
+}
+
 /** Sum amounts from member_paid_for_month for Active members in one service month. */
 export async function sumActivePaidForMonthLedger(sb, gymId, monthKey, activeMemberPks = []) {
   const key = String(monthKey || '').trim();

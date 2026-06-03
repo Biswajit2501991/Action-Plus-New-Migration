@@ -2529,6 +2529,7 @@ Phone: +91-7047157510`;
         delete out.__listSlim;
         if (!isPending) {
           delete out.paymentHistory;
+          delete out.payMonth;
           delete out.messageHistory;
           delete out.attachments;
           if (out.medicalAnswers && typeof out.medicalAnswers === 'object') {
@@ -4936,6 +4937,7 @@ Phone: +91-7047157510`;
       const hydrateCompletedAtRef = React.useRef(0);
       const usersSkipNextBulkRef = React.useRef(false);
       const financeSkipNextBulkRef = React.useRef(false);
+      const membersBulkInFlightRef = React.useRef(false);
       const visitorsSkipNextBulkRef = React.useRef(false);
       const skipPostHydratePoll = () => hydrateCompletedAtRef.current > 0
         && (Date.now() - hydrateCompletedAtRef.current) < 5000;
@@ -5254,10 +5256,14 @@ Phone: +91-7047157510`;
         if (!canBulkSyncMembers(user)) return;
         if (skipBulkPushAfterHydrate()) return;
         const timer = setTimeout(() => {
+          if (membersBulkInFlightRef.current) return;
+          membersBulkInFlightRef.current = true;
           backendJson('/members/bulk', {
             method: 'PUT',
             body: JSON.stringify({ members: membersForBulkSync(members, memberSyncPending, user) }),
-          }).catch(() => queueSyncSnapshot('members', members).then(() => setOfflineQueueCount((c) => c + 1)).catch(() => {}));
+          })
+            .catch(() => queueSyncSnapshot('members', members).then(() => setOfflineQueueCount((c) => c + 1)).catch(() => {}))
+            .finally(() => { membersBulkInFlightRef.current = false; });
         }, BACKEND_BULK_DEBOUNCE_MS);
         return () => clearTimeout(timer);
       }, [members, dataSyncMode, syncRuntimeReady, backendHydrated, memberSyncPending, user?.id, user?.gymCodeId]);
@@ -7444,7 +7450,12 @@ Please pay by: ${formattedLastDate}`;
           }
         }
         const ok = saveEdit(updated);
-        if (ok) setQuickFieldEdit(null);
+        if (ok) {
+          if (quickFieldEdit.fieldKey === 'payMonth') {
+            window.dispatchEvent(new CustomEvent('apg-finance-refresh'));
+          }
+          setQuickFieldEdit(null);
+        }
       };
 
       // Permanently remove a member from the system. This function is
@@ -7740,7 +7751,10 @@ Please pay by: ${formattedLastDate}`;
             };
             return paymentUpdatedMember;
           }));
-          if (paymentUpdatedMember) queueMicrotask(() => markMemberAwaitingBackendSync(memberId, paymentUpdatedMember));
+          if (paymentUpdatedMember) {
+            queueMicrotask(() => markMemberAwaitingBackendSync(memberId, paymentUpdatedMember));
+            window.dispatchEvent(new CustomEvent('apg-finance-refresh'));
+          }
           logEvent('member.payment.edited', 'member', memberId, beforeRow, {
             memberName: target.name || '',
             paymentId: editingId,
@@ -7777,7 +7791,10 @@ Please pay by: ${formattedLastDate}`;
             };
             return paymentUpdatedMember;
           }));
-          if (paymentUpdatedMember) queueMicrotask(() => markMemberAwaitingBackendSync(memberId, paymentUpdatedMember));
+          if (paymentUpdatedMember) {
+            queueMicrotask(() => markMemberAwaitingBackendSync(memberId, paymentUpdatedMember));
+            window.dispatchEvent(new CustomEvent('apg-finance-refresh'));
+          }
           logEvent('member.payment.added', 'member', memberId, null, {
             memberName: target.name || '',
             amount,
@@ -11110,28 +11127,41 @@ function Sidebar({ user, active, onSelect, theme, setTheme, layoutMode = 'classi
       }, [financeLedger, todayMonthKey, settings]);
       const [dbMonthRevenue, setDbMonthRevenue] = React.useState(null);
       const [dbRevenueGrowthPct, setDbRevenueGrowthPct] = React.useState(null);
-      React.useEffect(() => {
-        if (dataSyncMode !== 'backend' || !todayMonthKey) {
-          setDbMonthRevenue(null);
-          setDbRevenueGrowthPct(null);
-          return undefined;
-        }
+      const dbMonthRevenueStableRef = React.useRef(null);
+      const dbRevenueGrowthStableRef = React.useRef(null);
+      const fetchDashboardMonthRevenue = React.useCallback(() => {
+        if (dataSyncMode !== 'backend' || !todayMonthKey) return undefined;
         let cancelled = false;
         backendJson(`/finance/summary?month=${encodeURIComponent(todayMonthKey)}`)
           .then((body) => {
             if (cancelled) return;
-            setDbMonthRevenue(Number(body?.collectedRevenue ?? body?.dbLedgerActiveSum ?? 0));
-            setDbRevenueGrowthPct(typeof body?.revenueGrowthPct === 'number' ? body.revenueGrowthPct : null);
+            const rev = Number(body?.collectedRevenue ?? body?.dbLedgerActiveSum ?? 0);
+            const growth = typeof body?.revenueGrowthPct === 'number' ? body.revenueGrowthPct : null;
+            dbMonthRevenueStableRef.current = rev;
+            dbRevenueGrowthStableRef.current = growth;
+            setDbMonthRevenue(rev);
+            setDbRevenueGrowthPct(growth);
           })
-          .catch(() => {
-            if (cancelled) return;
-            setDbMonthRevenue(null);
-            setDbRevenueGrowthPct(null);
-          });
+          .catch(() => { /* keep last good DB totals to avoid flicker */ });
         return () => { cancelled = true; };
-      }, [dataSyncMode, todayMonthKey, members.length, financeTransactions.length]);
-      const monthlyRevenue = dbMonthRevenue ?? cfoKpis?.collectedRevenue ?? 0;
-      const growthRate = dbRevenueGrowthPct ?? cfoKpis?.revenueGrowthPct ?? 0;
+      }, [dataSyncMode, todayMonthKey]);
+      React.useEffect(() => {
+        if (dataSyncMode !== 'backend' || !todayMonthKey) {
+          dbMonthRevenueStableRef.current = null;
+          dbRevenueGrowthStableRef.current = null;
+          setDbMonthRevenue(null);
+          setDbRevenueGrowthPct(null);
+          return undefined;
+        }
+        return fetchDashboardMonthRevenue();
+      }, [dataSyncMode, todayMonthKey, fetchDashboardMonthRevenue]);
+      React.useEffect(() => {
+        const onRefresh = () => { fetchDashboardMonthRevenue(); };
+        window.addEventListener('apg-finance-refresh', onRefresh);
+        return () => window.removeEventListener('apg-finance-refresh', onRefresh);
+      }, [fetchDashboardMonthRevenue]);
+      const monthlyRevenue = dbMonthRevenue ?? dbMonthRevenueStableRef.current ?? cfoKpis?.collectedRevenue ?? 0;
+      const growthRate = dbRevenueGrowthPct ?? dbRevenueGrowthStableRef.current ?? cfoKpis?.revenueGrowthPct ?? 0;
       const collectedRevenueEntries = React.useMemo(
         () => buildCollectedRevenueEntries(members, todayKey),
         [members, todayKey],
@@ -19556,6 +19586,7 @@ function PTClientsPage({ members, users, settings, updateSetting, currentUser, a
       const [showExpenseLedger, setShowExpenseLedger] = React.useState(false);
       const [showRevenueDrilldown, setShowRevenueDrilldown] = React.useState(false);
       const [serverSummary, setServerSummary] = React.useState(null);
+      const serverSummaryStableRef = React.useRef(null);
       const [serverSummaryLoading, setServerSummaryLoading] = React.useState(false);
       const [serverSummaryError, setServerSummaryError] = React.useState('');
       const [expenseMonthFilter, setExpenseMonthFilter] = React.useState('');
@@ -19685,20 +19716,21 @@ function PTClientsPage({ members, users, settings, updateSetting, currentUser, a
       }, [transactions, financeMonth, settings, today]);
       const reportingMonthLedger = financeKpis?.reportingMonthLedger ?? [];
       const incomeRows = reportingMonthLedger.filter((t) => t.type !== 'expense');
-      const revenue = (dataSyncMode === 'backend' && serverSummary)
-        ? Number(serverSummary.collectedRevenue ?? serverSummary.dbLedgerActiveSum ?? 0)
+      const activeServerSummary = serverSummary || serverSummaryStableRef.current;
+      const revenue = (dataSyncMode === 'backend' && activeServerSummary)
+        ? Number(activeServerSummary.collectedRevenue ?? activeServerSummary.dbLedgerActiveSum ?? 0)
         : (financeKpis?.collectedRevenue ?? 0);
-      const serviceRevenue = (dataSyncMode === 'backend' && serverSummary)
-        ? Number(serverSummary.serviceRevenue ?? serverSummary.collectedRevenue ?? 0)
+      const serviceRevenue = (dataSyncMode === 'backend' && activeServerSummary)
+        ? Number(activeServerSummary.serviceRevenue ?? activeServerSummary.collectedRevenue ?? 0)
         : (financeKpis?.serviceRevenue ?? 0);
       const expense = financeKpis?.expense ?? 0;
       const expenseSubtitle = financeKpis?.expenseSubtitle ?? '';
-      const profit = (dataSyncMode === 'backend' && serverSummary && serverSummary.profit != null)
-        ? Number(serverSummary.profit)
+      const profit = (dataSyncMode === 'backend' && activeServerSummary && activeServerSummary.profit != null)
+        ? Number(activeServerSummary.profit)
         : (financeKpis?.profit ?? 0);
       const hasExpenseRows = financeKpis?.hasExpenseRows ?? false;
-      const revenueGrowthPct = (dataSyncMode === 'backend' && serverSummary && typeof serverSummary.revenueGrowthPct === 'number')
-        ? Number(serverSummary.revenueGrowthPct)
+      const revenueGrowthPct = (dataSyncMode === 'backend' && activeServerSummary && typeof activeServerSummary.revenueGrowthPct === 'number')
+        ? Number(activeServerSummary.revenueGrowthPct)
         : (financeKpis?.revenueGrowthPct ?? 0);
       const ytdCollected = financeKpis?.ytdCollected ?? 0;
       const ytdProfit = financeKpis?.ytdProfit ?? 0;
@@ -19755,35 +19787,48 @@ function PTClientsPage({ members, users, settings, updateSetting, currentUser, a
           return { ...r, runningTotal: running, typeLabel };
         });
       }, [incomeRowsCollected, membersById, settings]);
-      React.useEffect(() => {
-        if (dataSyncMode !== 'backend' || !financeMonth) {
-          setServerSummary(null);
-          setServerSummaryError('');
-          return undefined;
-        }
+      const fetchFinanceServerSummary = React.useCallback(() => {
+        if (dataSyncMode !== 'backend' || !financeMonth) return undefined;
         let cancelled = false;
         setServerSummaryLoading(true);
         backendJson(`/finance/summary?month=${encodeURIComponent(financeMonth)}`)
           .then((body) => {
             if (cancelled) return;
-            setServerSummary(body && typeof body === 'object' ? body : null);
+            const next = body && typeof body === 'object' ? body : null;
+            if (next) {
+              serverSummaryStableRef.current = next;
+              setServerSummary(next);
+            }
             setServerSummaryError('');
           })
           .catch((err) => {
             if (cancelled) return;
-            setServerSummary(null);
             setServerSummaryError(String(err?.message || err || 'Could not load server summary'));
           })
           .finally(() => {
             if (!cancelled) setServerSummaryLoading(false);
           });
         return () => { cancelled = true; };
-      }, [financeMonth, dataSyncMode, members.length, financeTransactions.length]);
+      }, [financeMonth, dataSyncMode]);
+      React.useEffect(() => {
+        if (dataSyncMode !== 'backend' || !financeMonth) {
+          serverSummaryStableRef.current = null;
+          setServerSummary(null);
+          setServerSummaryError('');
+          return undefined;
+        }
+        return fetchFinanceServerSummary();
+      }, [financeMonth, dataSyncMode, fetchFinanceServerSummary]);
+      React.useEffect(() => {
+        const onRefresh = () => { fetchFinanceServerSummary(); };
+        window.addEventListener('apg-finance-refresh', onRefresh);
+        return () => window.removeEventListener('apg-finance-refresh', onRefresh);
+      }, [fetchFinanceServerSummary]);
       const revenueVerification = React.useMemo(() => {
         const deltaFn = window.__APG_MODULES?.financeSummaryDelta;
-        if (!serverSummary || typeof deltaFn !== 'function') return null;
-        return deltaFn(serverSummary.collectedRevenue, revenue);
-      }, [serverSummary, revenue]);
+        if (!activeServerSummary || typeof deltaFn !== 'function') return null;
+        return deltaFn(activeServerSummary.collectedRevenue, revenue);
+      }, [activeServerSummary, revenue]);
       const addExpenseRow = () => {
         if (!canFinanceManageExpenses) return;
         const amount = Number(expenseDraft.amount || 0);
