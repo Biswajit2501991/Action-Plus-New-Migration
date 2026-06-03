@@ -159,6 +159,7 @@ export function appMemberToRow(m, gymId) {
 }
 
 export function paymentRowToApp(row) {
+  const paidMonth = String(row.paid_month || row.billing_month || '').trim();
   return {
     id: row.external_payment_id || String(row.id),
     paidAt: row.paid_at,
@@ -167,7 +168,8 @@ export function paymentRowToApp(row) {
     amount: Number(row.amount || 0),
     method: row.method,
     paymentMethod: row.method,
-    billingMonth: row.billing_month,
+    paidMonth,
+    billingMonth: row.billing_month || paidMonth,
     billingDate: row.billing_date,
     recordedBy: row.recorded_by,
     by: row.recorded_by,

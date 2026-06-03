@@ -3312,6 +3312,15 @@ Phone: +91-7047157510`;
           const paidAtDate = asUTC(paidAt);
           const billingDate = billingDateRaw || (paidAtDate ? iso(new Date(Date.UTC(paidAtDate.getUTCFullYear(), paidAtDate.getUTCMonth(), 1))) : '');
           const billingMonth = monthRaw || (billingDate ? String(billingDate).slice(0, 7) : (paidAtDate ? `${paidAtDate.getUTCFullYear()}-${String(paidAtDate.getUTCMonth() + 1).padStart(2, '0')}` : ''));
+          const validatePaidMonthFn = window.__APG_MODULES?.validatePaidMonthKey;
+          const paidMonth = typeof validatePaidMonthFn === 'function'
+            ? (validatePaidMonthFn(h.paidMonth)
+              || validatePaidMonthFn(h.billingMonth)
+              || validatePaidMonthFn(member?.payMonth)
+              || (window.__APG_MODULES?.paymentMonthKeyFromValue
+                ? window.__APG_MODULES.paymentMonthKeyFromValue(paidAt)
+                : ''))
+            : (String(h.paidMonth || '').trim() || billingMonth);
           const normalizedRow = {
             ...h,
             paidAt,
@@ -3321,7 +3330,8 @@ Phone: +91-7047157510`;
             source: String(h.source || 'manual').trim(),
             note: String(h.note || '').trim(),
             billingDate,
-            billingMonth,
+            billingMonth: paidMonth || billingMonth,
+            paidMonth: paidMonth || billingMonth,
           };
           return {
             ...normalizedRow,
@@ -4558,7 +4568,13 @@ Phone: +91-7047157510`;
                   ? mergeM([], remoteMembers, activeBranchId)
                   : remoteMembers);
               } else if (remoteMembers.length > 0) {
-                setMembers((prev) => mergeRemoteMembersWithLocal(prev, remoteMembers));
+                setMembers((prev) => {
+                  const merged = mergeRemoteMembersWithLocal(prev, remoteMembers);
+                  const scopeFn = window.__APG_MODULES?.scopeMembersToUserBranch;
+                  return typeof scopeFn === 'function'
+                    ? scopeFn(authUser, merged, activeBranchId)
+                    : merged;
+                });
               }
               apgLoadTimingRecord('hydrate', 'merge:members (CPU)', performance.now() - tMerge, { rows: remoteMembers.length });
               if (window.__APG_MODULES?.memberPhotoStorageEnabled?.()) {
@@ -5370,9 +5386,13 @@ Phone: +91-7047157510`;
               if (!alive || !Array.isArray(remoteMembers)) return;
               setMembers((prev) => {
                 const merged = mergeRemoteMembersWithLocal(prev, remoteMembers, memberSyncPending);
+                const scopeFn = window.__APG_MODULES?.scopeMembersToUserBranch;
+                const scoped = typeof scopeFn === 'function'
+                  ? scopeFn(user, merged, authoritativeActiveBranchId)
+                  : merged;
                 const prevSig = JSON.stringify(Array.isArray(prev) ? prev : []);
-                const nextSig = JSON.stringify(merged);
-                return prevSig === nextSig ? prev : merged;
+                const nextSig = JSON.stringify(scoped);
+                return prevSig === nextSig ? prev : scoped;
               });
               pruneMemberAwaitingBackendSync(remoteMembers);
             })
@@ -5646,6 +5666,7 @@ Phone: +91-7047157510`;
         memberName: '',
         amount: '',
         paidAt: iso(new Date()),
+        paidMonth: '',
         method: '',
         note: '',
         error: '',
@@ -7399,6 +7420,29 @@ Please pay by: ${formattedLastDate}`;
           updated.nextPaymentDate = iso(nextPay);
           updated.paymentBy = iso(addDays(nextValue, 7));
         }
+        if (quickFieldEdit.fieldKey === 'payMonth') {
+          const validatePaidMonthFn = window.__APG_MODULES?.validatePaidMonthKey;
+          const payMonthKey = typeof validatePaidMonthFn === 'function'
+            ? validatePaidMonthFn(nextValue)
+            : String(nextValue || '').trim();
+          if (!payMonthKey) {
+            setToast('Select a valid Paid for Month (month and year).');
+            return;
+          }
+          updated.payMonth = payMonthKey;
+          const hist = normalizeMemberPaymentHistory(updated);
+          if (hist.length) {
+            const latest = [...hist].sort(
+              (a, b) => parseApgTimeMs(b.paidAt) - parseApgTimeMs(a.paidAt),
+            )[0];
+            const latestId = String(latest?.id || '');
+            updated.paymentHistory = hist.map((row) => (
+              String(row.id || '') === latestId
+                ? { ...row, paidMonth: payMonthKey, billingMonth: payMonthKey }
+                : row
+            ));
+          }
+        }
         const ok = saveEdit(updated);
         if (ok) setQuickFieldEdit(null);
       };
@@ -7541,6 +7585,10 @@ Please pay by: ${formattedLastDate}`;
         fetchMemberDetail(memberId);
         paymentEntrySaveLockRef.current = false;
         setPaymentEntrySaving(false);
+        const payMonthKeyFn = window.__APG_MODULES?.payMonthKeyFromStoredValue;
+        const defaultPaidMonth = typeof payMonthKeyFn === 'function'
+          ? payMonthKeyFn(target.payMonth)
+          : String(target.payMonth || '').trim();
         setPaymentEntryModal({
           open: true,
           editingPaymentId: '',
@@ -7548,6 +7596,7 @@ Please pay by: ${formattedLastDate}`;
           memberName: target.name || target.memberId || '',
           amount: '',
           paidAt: iso(new Date()),
+          paidMonth: defaultPaidMonth,
           method: String(target.paymentMethod || ''),
           note: '',
           error: '',
@@ -7569,6 +7618,15 @@ Please pay by: ${formattedLastDate}`;
         if (!row) return false;
         paymentEntrySaveLockRef.current = false;
         setPaymentEntrySaving(false);
+        const resolvePaidMonthFn = window.__APG_MODULES?.resolvePaidMonthForPayment;
+        const validatePaidMonthFn = window.__APG_MODULES?.validatePaidMonthKey;
+        const editPaidMonth = typeof validatePaidMonthFn === 'function'
+          ? (validatePaidMonthFn(row.paidMonth)
+            || validatePaidMonthFn(row.billingMonth)
+            || (typeof resolvePaidMonthFn === 'function'
+              ? resolvePaidMonthFn({ paidMonth: row.paidMonth, paidAt: row.paidAt })
+              : ''))
+          : String(row.paidMonth || row.billingMonth || '').trim();
         setPaymentEntryModal({
           open: true,
           editingPaymentId: pId,
@@ -7576,6 +7634,7 @@ Please pay by: ${formattedLastDate}`;
           memberName: target.name || target.memberId || '',
           amount: String(row.amount ?? ''),
           paidAt: iso(row.paidAt || new Date()),
+          paidMonth: editPaidMonth,
           method: String(row.method || target.paymentMethod || ''),
           note: String(row.note || ''),
           error: '',
@@ -7616,14 +7675,7 @@ Please pay by: ${formattedLastDate}`;
         const method = String(paymentEntryModal.method || '').trim();
         const note = String(paymentEntryModal.note || '').trim();
         const actor = user?.name || user?.id || 'Staff';
-        const monthKeyFn = window.__APG_MODULES?.paymentMonthKeyFromValue;
-        const billingMonth = typeof monthKeyFn === 'function'
-          ? monthKeyFn(paidAt)
-          : String(localCalendarDateKey(paidAt) || '').slice(0, 7);
-        const billingDateFromMonthFn = window.__APG_MODULES?.billingDateFromPaymentMonth;
-        const billingDateForRow = typeof billingDateFromMonthFn === 'function'
-          ? billingDateFromMonthFn(billingMonth)
-          : (billingMonth ? `${billingMonth}-01` : '');
+        const validatePaidMonthFn = window.__APG_MODULES?.validatePaidMonthKey;
         const editingId = String(paymentEntryModal.editingPaymentId || '').trim();
         const isEdit = Boolean(editingId);
         const payTs = new Date().toISOString();
@@ -7639,6 +7691,20 @@ Please pay by: ${formattedLastDate}`;
             unlock();
             return false;
           }
+        }
+        const paidMonth = typeof validatePaidMonthFn === 'function'
+          ? validatePaidMonthFn(paymentEntryModal.paidMonth)
+          : String(paymentEntryModal.paidMonth || '').trim();
+        if (!paidMonth) {
+          setPaymentEntryModal((prev) => ({ ...prev, error: 'Select Paid for Month (month and year).' }));
+          unlock();
+          return false;
+        }
+        const billingMonth = paidMonth;
+        const billingDateForRow = isEdit && beforeRow?.billingDate
+          ? String(beforeRow.billingDate || '').trim()
+          : String(target.billingDate || '').trim();
+        if (isEdit) {
           afterRow = {
             ...beforeRow,
             paidAt,
@@ -7646,6 +7712,7 @@ Please pay by: ${formattedLastDate}`;
             amount,
             method,
             note,
+            paidMonth,
             billingMonth,
             billingDate: billingDateForRow,
             editedBy: actor,
@@ -7666,6 +7733,7 @@ Please pay by: ${formattedLastDate}`;
               .sort((a, b) => parseApgTimeMs(b) - parseApgTimeMs(a))[0] || x.paymentReceivedAt || '';
             paymentUpdatedMember = {
               ...x,
+              payMonth: paidMonth,
               paymentHistory: nextHist,
               paymentReceivedAt: latestPaid,
               updatedAt: payTs,
@@ -7689,6 +7757,7 @@ Please pay by: ${formattedLastDate}`;
             by: actor,
             source: 'manual',
             note,
+            paidMonth,
             billingMonth,
             billingDate: billingDateForRow,
           };
@@ -7701,6 +7770,7 @@ Please pay by: ${formattedLastDate}`;
             const baseHist = Array.isArray(x.paymentHistory) ? x.paymentHistory : [];
             paymentUpdatedMember = {
               ...x,
+              payMonth: paidMonth,
               paymentReceivedAt: parseApgTimeMs(paidAt) >= parseApgTimeMs(x.paymentReceivedAt) ? paidAt : (x.paymentReceivedAt || ''),
               paymentHistory: mergePaymentHistoryArrays([row], baseHist, 240),
               updatedAt: payTs,
@@ -7727,6 +7797,7 @@ Please pay by: ${formattedLastDate}`;
           memberName: '',
           amount: '',
           paidAt: iso(new Date()),
+          paidMonth: '',
           method: '',
           note: '',
           error: '',
@@ -8355,35 +8426,28 @@ Please pay by: ${formattedLastDate}`;
           });
         }
       }, [user?.id, user?.gymCodeId, user?.activeBranchId]);
-      const branchScopedMembers = React.useMemo(() => {
-        const activeUser = user && authoritativeActiveBranchId
-          ? { ...user, activeBranchId: authoritativeActiveBranchId, gymCodeId: authoritativeActiveBranchId }
-          : user;
+      const scopeMembersForDisplay = React.useCallback((rows) => {
+        const scopeFn = window.__APG_MODULES?.scopeMembersToUserBranch;
+        if (typeof scopeFn === 'function') {
+          return scopeFn(user, rows, authoritativeActiveBranchId);
+        }
         const filterFn = window.__APG_MODULES?.filterMembersForUser;
-        if (typeof filterFn === 'function') return filterFn(activeUser, members);
-        const scopeFn = window.__APG_MODULES?.activeBranchIdsForDataScope;
-        const active = typeof scopeFn === 'function'
-          ? scopeFn(activeUser)
-          : [String(authoritativeActiveBranchId || user?.activeBranchId || user?.gymCodeId || '').trim()].filter(Boolean);
-        if (active === null) return Array.isArray(members) ? members : [];
-        if (!active?.length) return [];
-        const set = new Set(active);
-        return (Array.isArray(members) ? members : []).filter((m) => set.has(String(m?.assignedGymCodeId || '').trim()));
-      }, [user, members, authoritativeActiveBranchId]);
-      const branchScopedVisitors = React.useMemo(() => {
         const activeUser = user && authoritativeActiveBranchId
           ? { ...user, activeBranchId: authoritativeActiveBranchId, gymCodeId: authoritativeActiveBranchId }
           : user;
-        const filterFn = window.__APG_MODULES?.filterVisitorsForUser;
-        if (typeof filterFn === 'function') return filterFn(activeUser, visitors);
-        const scopeFn = window.__APG_MODULES?.activeBranchIdsForDataScope;
-        const active = typeof scopeFn === 'function'
-          ? scopeFn(activeUser)
-          : [String(authoritativeActiveBranchId || user?.activeBranchId || user?.gymCodeId || '').trim()].filter(Boolean);
-        if (active === null) return Array.isArray(visitors) ? visitors : [];
-        if (!active?.length) return [];
-        const set = new Set(active);
-        return (Array.isArray(visitors) ? visitors : []).filter((v) => set.has(String(v?.assignedGymCodeId || '').trim()));
+        if (typeof filterFn === 'function') return filterFn(activeUser, rows);
+        return Array.isArray(rows) ? rows : [];
+      }, [user, authoritativeActiveBranchId]);
+      const branchScopedMembers = React.useMemo(
+        () => scopeMembersForDisplay(members),
+        [members, scopeMembersForDisplay],
+      );
+      const branchScopedVisitors = React.useMemo(() => {
+        const scopeFn = window.__APG_MODULES?.scopeVisitorsToUserBranch;
+        if (typeof scopeFn === 'function') {
+          return scopeFn(user, visitors, authoritativeActiveBranchId);
+        }
+        return Array.isArray(visitors) ? visitors : [];
       }, [user, visitors, authoritativeActiveBranchId]);
       // Derived lists and search
       const filteredMembers = React.useMemo(() => {
@@ -9175,6 +9239,9 @@ Please pay by: ${formattedLastDate}`;
               dashMode === 'summary' ? (
                 <DashboardSummary
                   members={branchScopedMembers}
+                  financeTransactions={financeTransactions}
+                  dataSyncMode={dataSyncMode}
+                  settings={settings}
                   masterPlans={Array.isArray(settings?.plans) ? settings.plans : []}
                   access={normalizeAccess(user?.access)}
                   isOwner={user?.id === 'owner'}
@@ -9512,6 +9579,7 @@ Please pay by: ${formattedLastDate}`;
                 displayTimeZone={displayTimeZone}
                 theme={theme}
                 memberSyncPending={memberSyncPending}
+                dataSyncMode={dataSyncMode}
               />
             )}
             {activeTab === 'Staff' && (
@@ -9654,6 +9722,17 @@ Please pay by: ${formattedLastDate}`;
                         required
                       />
                     </label>
+                    <label className="text-sm text-slate-700 md:col-span-2">
+                      <div className="mb-1 font-medium">Paid for Month</div>
+                      <input
+                        type="month"
+                        value={paymentEntryModal.paidMonth || ''}
+                        onChange={(e) => setPaymentEntryModal((prev) => ({ ...prev, paidMonth: e.target.value, error: '' }))}
+                        className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2"
+                        required
+                      />
+                      <div className="mt-1 text-xs text-slate-500">Staff-selected month credited in Finance (saved per member, per month in DB).</div>
+                    </label>
                     <label className="text-sm text-slate-700">
                       <div className="mb-1 font-medium">Payment Method</div>
                       <input
@@ -9693,6 +9772,7 @@ Please pay by: ${formattedLastDate}`;
                         memberName: '',
                         amount: '',
                         paidAt: iso(new Date()),
+                        paidMonth: '',
                         method: '',
                         note: '',
                         error: '',
@@ -10991,7 +11071,7 @@ function Sidebar({ user, active, onSelect, theme, setTheme, layoutMode = 'classi
     }
 
     // ---- Dashboard Summary Component ----
-    function DashboardSummary({ members, access, isOwner = false, currentUserRole = '', fineRuleConfig, onSelectStatus, onAddNew, onAddExpense, onSearch, onOpenMember, onWelcome, onOpenFilters, masterPlans = [] }) {
+    function DashboardSummary({ members, financeTransactions = [], dataSyncMode = 'local', settings = {}, access, isOwner = false, currentUserRole = '', fineRuleConfig, onSelectStatus, onAddNew, onAddExpense, onSearch, onOpenMember, onWelcome, onOpenFilters, masterPlans = [] }) {
       const counts = React.useMemo(() => {
         return {
           Active: members.filter(m => m.status === 'Active').length,
@@ -11008,19 +11088,54 @@ function Sidebar({ user, active, onSelect, theme, setTheme, layoutMode = 'classi
       const todayKey = localTodayCalendarKey();
       const todayMonthKey = String(todayKey || '').slice(0, 7);
       const todayUtc = asUTC(todayKey);
+      const financeLedger = React.useMemo(() => {
+        const buildLedger = window.__APG_MODULES?.buildFinanceLedgerRows;
+        if (typeof buildLedger === 'function') {
+          return buildLedger(members, financeTransactions, {
+            normalizeMemberPaymentHistory,
+            calendarDateKey: localCalendarDateKey,
+            retentionPaymentDeadline,
+            today,
+            includePendingBilling: false,
+          });
+        }
+        return [];
+      }, [members, financeTransactions, today]);
+      const cfoKpis = React.useMemo(() => {
+        const buildKpis = window.__APG_MODULES?.buildFinanceKpis;
+        if (typeof buildKpis === 'function') {
+          return buildKpis(financeLedger, todayMonthKey, settings, { todayMonthKey });
+        }
+        return null;
+      }, [financeLedger, todayMonthKey, settings]);
+      const [dbMonthRevenue, setDbMonthRevenue] = React.useState(null);
+      const [dbRevenueGrowthPct, setDbRevenueGrowthPct] = React.useState(null);
+      React.useEffect(() => {
+        if (dataSyncMode !== 'backend' || !todayMonthKey) {
+          setDbMonthRevenue(null);
+          setDbRevenueGrowthPct(null);
+          return undefined;
+        }
+        let cancelled = false;
+        backendJson(`/finance/summary?month=${encodeURIComponent(todayMonthKey)}`)
+          .then((body) => {
+            if (cancelled) return;
+            setDbMonthRevenue(Number(body?.collectedRevenue ?? body?.dbLedgerActiveSum ?? 0));
+            setDbRevenueGrowthPct(typeof body?.revenueGrowthPct === 'number' ? body.revenueGrowthPct : null);
+          })
+          .catch(() => {
+            if (cancelled) return;
+            setDbMonthRevenue(null);
+            setDbRevenueGrowthPct(null);
+          });
+        return () => { cancelled = true; };
+      }, [dataSyncMode, todayMonthKey, members.length, financeTransactions.length]);
+      const monthlyRevenue = dbMonthRevenue ?? cfoKpis?.collectedRevenue ?? 0;
+      const growthRate = dbRevenueGrowthPct ?? cfoKpis?.revenueGrowthPct ?? 0;
       const collectedRevenueEntries = React.useMemo(
         () => buildCollectedRevenueEntries(members, todayKey),
         [members, todayKey],
       );
-      const monthlyRevenue = sumMonthlyCollectedRevenue(collectedRevenueEntries, todayMonthKey);
-      const growthRate = React.useMemo(() => {
-        const current = sumMonthlyCollectedRevenue(collectedRevenueEntries, todayMonthKey);
-        const prevDt = todayUtc ? new Date(Date.UTC(todayUtc.getUTCFullYear(), todayUtc.getUTCMonth() - 1, 1)) : null;
-        const prevMonthKey = prevDt ? `${prevDt.getUTCFullYear()}-${String(prevDt.getUTCMonth() + 1).padStart(2, '0')}` : '';
-        const prev = sumMonthlyCollectedRevenue(collectedRevenueEntries, prevMonthKey);
-        if (!prev) return current ? 100 : 0;
-        return Math.round(((current - prev) / prev) * 100);
-      }, [collectedRevenueEntries, todayMonthKey, todayUtc]);
       const overdueList = React.useMemo(() => {
         const todayUtc = asUTC(todayKey);
         return members
@@ -11034,8 +11149,12 @@ function Sidebar({ user, active, onSelect, theme, setTheme, layoutMode = 'classi
           })
           .sort((a, b) => b.overdueDays - a.overdueDays);
       }, [members, todayKey, todayUtc]);
+      const sumCollectedMonth = window.__APG_MODULES?.sumCollectedIncomeForMonthKey;
       const allMonthTrend = React.useMemo(() => {
-        const dates = collectedRevenueEntries.map((r) => asUTC(r.receivedAt)).filter(Boolean);
+        const dates = financeLedger
+          .filter((r) => r.type !== 'expense' && String(r.status || '').toLowerCase() !== 'pending')
+          .map((r) => asUTC(r.date))
+          .filter(Boolean);
         const start = dates.length
           ? new Date(Math.min(...dates.map(d => d.getTime())))
           : new Date(today.getFullYear(), today.getMonth() - 5, 1);
@@ -11050,16 +11169,19 @@ function Sidebar({ user, active, onSelect, theme, setTheme, layoutMode = 'classi
           });
           cursor = new Date(cursor.getFullYear(), cursor.getMonth() + 1, 1);
         }
-        return labels.map(x => ({
-          label: `${x.label}-${String(x.year).slice(-2)}`,
-          total: collectedRevenueEntries.reduce((sum, r) => {
-            const rd = asUTC(r.receivedAt);
-            if (!rd) return sum;
-            if (rd.getFullYear() !== x.year || rd.getMonth() !== x.month) return sum;
-            return sum + Number(r.amount || 0);
-          }, 0),
-        }));
-      }, [collectedRevenueEntries, todayUtc]);
+        return labels.map(x => {
+          const monthKey = `${x.year}-${String(x.month + 1).padStart(2, '0')}`;
+          const total = typeof sumCollectedMonth === 'function'
+            ? sumCollectedMonth(financeLedger, monthKey)
+            : collectedRevenueEntries.reduce((sum, r) => {
+              const rd = asUTC(r.receivedAt);
+              if (!rd) return sum;
+              if (rd.getFullYear() !== x.year || rd.getMonth() !== x.month) return sum;
+              return sum + Number(r.amount || 0);
+            }, 0);
+          return { label: `${x.label}-${String(x.year).slice(-2)}`, total };
+        });
+      }, [financeLedger, collectedRevenueEntries, todayUtc]);
       const monthTrend = React.useMemo(() => allMonthTrend.slice(-6), [allMonthTrend]);
       const historicalTrend = React.useMemo(() => allMonthTrend.slice(0, -6), [allMonthTrend]);
       const maxTrend = Math.max(1, ...monthTrend.map(x => x.total));
@@ -11256,9 +11378,19 @@ function Sidebar({ user, active, onSelect, theme, setTheme, layoutMode = 'classi
               ))}
               {canViewRevenueMonthly && (
                 <div className="rounded-2xl p-5 text-left shadow border bg-emerald-50 border-emerald-200 text-emerald-800">
-                  <div className="text-sm">Total Revenue (Monthly)</div>
-                  <div className="mt-2 text-3xl font-bold">${monthlyRevenue.toLocaleString()}</div>
-                  <div className="mt-1 text-xs">Auto from member billing data</div>
+                  <div className="text-sm">Collected Revenue (This Month)</div>
+                  <div className="mt-2 text-3xl font-bold">₹{monthlyRevenue.toLocaleString('en-IN')}</div>
+                  <div className="mt-1 text-xs text-emerald-700">
+                    {dataSyncMode === 'backend' ? 'Active members · Paid for Month (DB)' : 'Client ledger'}
+                    {growthRate >= 0 ? ' · +' : ' · '}{growthRate}% vs last month
+                    {cfoKpis?.ytdCollected ? ` · YTD ₹${cfoKpis.ytdCollected.toLocaleString('en-IN')}` : ''}
+                  </div>
+                  {cfoKpis && (
+                    <div className="mt-1 text-xs text-slate-600">
+                      Profit (est.): ₹{cfoKpis.profit.toLocaleString('en-IN')}
+                      {cfoKpis.profitGrowthPct !== 0 ? ` · ${cfoKpis.profitGrowthPct >= 0 ? '+' : ''}${cfoKpis.profitGrowthPct}% vs last month` : ''}
+                    </div>
+                  )}
                 </div>
               )}
             </div>
@@ -12649,7 +12781,18 @@ function MemberDetails({ m, logs, onQuickFieldEdit, editOptions, isOwner = false
         if (val === undefined || val === null || val === '') return '—';
         return val;
       };
-      const quickEditableKeys = new Set(['name', 'mobile', 'amount', 'plan', 'status', 'billingDate', 'paymentMethod']);
+      const quickEditableKeys = new Set(['name', 'mobile', 'amount', 'plan', 'status', 'billingDate', 'paymentMethod', 'payMonth']);
+      const payMonthKeyFromMember = (member) => {
+        const fn = window.__APG_MODULES?.payMonthKeyFromStoredValue;
+        if (typeof fn === 'function') return fn(member?.payMonth);
+        const validateFn = window.__APG_MODULES?.validatePaidMonthKey;
+        return typeof validateFn === 'function' ? validateFn(member?.payMonth) : '';
+      };
+      const payMonthDisplayFromMember = (member) => {
+        const fn = window.__APG_MODULES?.formatPaidMonthDisplay;
+        if (typeof fn === 'function') return fn(member?.payMonth);
+        return normal(member?.payMonth);
+      };
       const holdMonths = elapsedHoldMonthsFromBillingDate(m);
       const holdNote = holdPolicyNote(holdMonths);
       const isHoldMember = String(m.status || '').trim().toLowerCase() === 'hold';
@@ -12703,7 +12846,14 @@ function MemberDetails({ m, logs, onQuickFieldEdit, editOptions, isOwner = false
         ...(isHoldMember ? [{ label: 'Total Hold Months', key: 'totalHoldMonths', value: `${holdMonths} Month${holdMonths === 1 ? '' : 's'}`, editable: false }] : []),
         ...(isHoldMember && holdNote ? [{ label: 'Hold Note', key: 'holdNote', value: holdNote, editable: false }] : []),
         { label: 'Payment Method', key: 'paymentMethod', value: normal(m.paymentMethod), editable: quickEditableKeys.has('paymentMethod'), type: 'select', options: editOptions?.paymentMethods || [] },
-        { label: 'Pay Month', key: 'payMonth', value: normal(m.payMonth), editable: false },
+        {
+          label: 'Paid for Month',
+          key: 'payMonth',
+          value: payMonthDisplayFromMember(m),
+          editable: Boolean(onQuickFieldEdit),
+          type: 'month',
+          rawValue: payMonthKeyFromMember(m),
+        },
       ];
       const requiredLabels = new Set([
         'Form #',
@@ -12721,7 +12871,8 @@ function MemberDetails({ m, logs, onQuickFieldEdit, editOptions, isOwner = false
         'Next Payment Date',
         'Payment By',
         'Status',
-        'Payment Method'
+        'Payment Method',
+        'Paid for Month',
       ]);
       const memberLogs = (logs || []).filter(l => l.entityId === m.memberId).slice(0, 2);
       const paymentRows = React.useMemo(() => normalizeMemberPaymentHistory(m), [m]);
@@ -12746,10 +12897,7 @@ function MemberDetails({ m, logs, onQuickFieldEdit, editOptions, isOwner = false
           : rows.reduce((sum, row) => sum + Number(row.amount || 0), 0);
       }, [paymentRows, filteredPaymentRows, paymentHistoryMonthFilter]);
       const billingMonthLabel = (row) => {
-        const monthKeyFn = window.__APG_MODULES?.paymentMonthKeyFromValue;
-        const month = typeof monthKeyFn === 'function'
-          ? (monthKeyFn(row?.paidAt || row?.receivedAt || row?.date || '') || String(row?.billingMonth || '').trim())
-          : String(row?.billingMonth || '').trim();
+        const month = String(row?.paidMonth || row?.billingMonth || '').trim();
         const mtx = month.match(/^(\d{4})-(\d{2})$/);
         if (mtx) {
           const y = Number(mtx[1]);
@@ -12757,7 +12905,18 @@ function MemberDetails({ m, logs, onQuickFieldEdit, editOptions, isOwner = false
           const mon = MONTHS[idx] || mtx[2];
           return `${mon} ${y}`;
         }
-        const d = asUTC(row?.paidAt || row?.billingDate || '');
+        const deriveFn = window.__APG_MODULES?.derivePaidMonthFromBilling;
+        const derived = typeof deriveFn === 'function'
+          ? deriveFn(row?.billingDate || '')
+          : String(localCalendarDateKey(row?.billingDate || '') || '').slice(0, 7);
+        const derivedMtx = derived.match(/^(\d{4})-(\d{2})$/);
+        if (derivedMtx) {
+          const y = Number(derivedMtx[1]);
+          const idx = Number(derivedMtx[2]) - 1;
+          const mon = MONTHS[idx] || derivedMtx[2];
+          return `${mon} ${y}`;
+        }
+        const d = asUTC(row?.billingDate || row?.paidAt || '');
         if (!d) return '—';
         return `${MONTHS[d.getUTCMonth()]} ${d.getUTCFullYear()}`;
       };
@@ -12876,7 +13035,7 @@ function MemberDetails({ m, logs, onQuickFieldEdit, editOptions, isOwner = false
                 <table className="min-w-full text-xs" data-testid="payment-history-table">
                   <thead>
                     <tr className="bg-emerald-50 text-emerald-800">
-                      <th className="px-2 py-1 text-left">Revenue Month</th>
+                      <th className="px-2 py-1 text-left">Paid for Month</th>
                       <th className="px-2 py-1 text-left">Amount</th>
                       <th className="px-2 py-1 text-left">Payment Date</th>
                       <th className="px-2 py-1 text-left">Method</th>
@@ -12946,7 +13105,7 @@ function MemberDetails({ m, logs, onQuickFieldEdit, editOptions, isOwner = false
           />
         </div>
       );
-      const compactHiddenForStaff = new Set(['formNo', 'email', 'address', 'staff', 'payMonth', 'holdDuration', 'totalHoldMonths', 'holdNote']);
+      const compactHiddenForStaff = new Set(['formNo', 'email', 'address', 'staff', 'holdDuration', 'totalHoldMonths', 'holdNote']);
       const filteredRows = rows.filter((row) => {
         if (isOwner) return true;
         if (detailsViewMode !== 'compact') return true;
@@ -14515,6 +14674,7 @@ function EditMemberModal({ member, onClose, onSave, onPhotoUploaded = null, plan
       if (!quickFieldEdit) return null;
       const isSelect = quickFieldEdit.type === 'select';
       const isDate = quickFieldEdit.type === 'date';
+      const isMonth = quickFieldEdit.type === 'month';
       const isNumber = quickFieldEdit.type === 'number';
       const isEmail = quickFieldEdit.type === 'email';
       const isTel = quickFieldEdit.type === 'tel';
@@ -14538,14 +14698,18 @@ function EditMemberModal({ member, onClose, onSave, onPhotoUploaded = null, plan
                 </select>
               ) : (
                 <input
-                  type={isDate ? 'date' : isNumber ? 'text' : isEmail ? 'email' : isTel ? 'tel' : 'text'}
+                  type={isMonth ? 'month' : isDate ? 'date' : isNumber ? 'text' : isEmail ? 'email' : isTel ? 'tel' : 'text'}
                   inputMode={isNumber || isTel ? 'numeric' : undefined}
                   value={String(value ?? '')}
                   onChange={(e) => setValue(e.target.value)}
                   className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm"
                 />
               )}
-              <div className="text-xs text-slate-500">This will update only this field for the selected member.</div>
+              <div className="text-xs text-slate-500">
+                {isMonth
+                  ? 'Updates membership Paid for Month and saves a month row in the database for Finance (Active members).'
+                  : 'This will update only this field for the selected member.'}
+              </div>
             </div>
             <div className="flex flex-col-reverse sm:flex-row justify-end gap-3 px-4 sm:px-5 py-4 border-t border-slate-200">
               <button onClick={onClose} className="rounded-xl border border-slate-300 bg-white px-4 py-2 text-sm font-medium w-full sm:w-auto">Cancel</button>
@@ -19376,7 +19540,7 @@ function PTClientsPage({ members, users, settings, updateSetting, currentUser, a
     }
 
     // ---- Finance Page ----
-    function FinancePage({ members, settings, logs, financeTransactions = [], setFinanceTransactions, updateSetting, access, openExpenseSignal = 0, displayTimeZone = 'IST', theme = 'light', memberSyncPending = {} }) {
+    function FinancePage({ members, settings, logs, financeTransactions = [], setFinanceTransactions, updateSetting, access, openExpenseSignal = 0, displayTimeZone = 'IST', theme = 'light', memberSyncPending = {}, dataSyncMode = 'local' }) {
       const [query, setQuery] = React.useState('');
       const [appliedQuery, setAppliedQuery] = React.useState('');
       const [showFilter, setShowFilter] = React.useState(false);
@@ -19390,6 +19554,10 @@ function PTClientsPage({ members, users, settings, updateSetting, currentUser, a
       const [expandedId, setExpandedId] = React.useState('');
       const [showExpenseForm, setShowExpenseForm] = React.useState(false);
       const [showExpenseLedger, setShowExpenseLedger] = React.useState(false);
+      const [showRevenueDrilldown, setShowRevenueDrilldown] = React.useState(false);
+      const [serverSummary, setServerSummary] = React.useState(null);
+      const [serverSummaryLoading, setServerSummaryLoading] = React.useState(false);
+      const [serverSummaryError, setServerSummaryError] = React.useState('');
       const [expenseMonthFilter, setExpenseMonthFilter] = React.useState('');
       const [financeMonth, setFinanceMonth] = React.useState(() => {
         const n = new Date();
@@ -19404,24 +19572,6 @@ function PTClientsPage({ members, users, settings, updateSetting, currentUser, a
       const useEstimatedExpense = settings?.financeUseEstimatedExpense !== false;
       const today = new Date();
 
-      const paymentIncomeTransactions = React.useMemo(() => {
-        const buildPay = window.__APG_MODULES?.buildPaymentIncomeLedgerRows;
-        if (typeof buildPay === 'function') {
-          return buildPay(members, normalizeMemberPaymentHistory, localCalendarDateKey);
-        }
-        return [];
-      }, [members]);
-      const billingPendingTransactions = React.useMemo(() => {
-        const buildPending = window.__APG_MODULES?.buildBillingPendingLedgerRows;
-        if (typeof buildPending === 'function') {
-          return buildPending(members, {
-            retentionPaymentDeadline,
-            calendarDateKey: localCalendarDateKey,
-            today,
-          });
-        }
-        return [];
-      }, [members, today]);
       const manualFinanceRows = React.useMemo(() => {
         const mapManual = window.__APG_MODULES?.mapManualFinanceLedgerRows;
         const rows = Array.isArray(financeTransactions) ? financeTransactions : [];
@@ -19448,9 +19598,18 @@ function PTClientsPage({ members, users, settings, updateSetting, currentUser, a
         }));
       }, [financeTransactions]);
       const transactions = React.useMemo(() => {
-        return [...paymentIncomeTransactions, ...billingPendingTransactions, ...manualFinanceRows]
-          .sort((a, b) => String(b.date || '').localeCompare(String(a.date || '')));
-      }, [paymentIncomeTransactions, billingPendingTransactions, manualFinanceRows]);
+        const buildLedger = window.__APG_MODULES?.buildFinanceLedgerRows;
+        if (typeof buildLedger === 'function') {
+          return buildLedger(members, financeTransactions, {
+            normalizeMemberPaymentHistory,
+            calendarDateKey: localCalendarDateKey,
+            retentionPaymentDeadline,
+            today,
+            includePendingBilling: false,
+          });
+        }
+        return [...manualFinanceRows].sort((a, b) => String(b.date || '').localeCompare(String(a.date || '')));
+      }, [members, financeTransactions, manualFinanceRows, today]);
 
       const queryNeedle = React.useMemo(() => appliedQuery.toLowerCase().trim(), [appliedQuery]);
 
@@ -19517,43 +19676,114 @@ function PTClientsPage({ members, users, settings, updateSetting, currentUser, a
         setShowExpenseForm(true);
       }, [openExpenseSignal]);
 
-      const reportingMonthLedger = React.useMemo(() => {
-        const filterRange = window.__APG_MODULES?.filterLedgerRowsByDateRange;
-        const list = Array.isArray(transactions) ? transactions : [];
-        if (typeof filterRange === 'function') {
-          return filterRange(list, financeMonthBounds.from, financeMonthBounds.to);
+      const financeKpis = React.useMemo(() => {
+        const buildKpis = window.__APG_MODULES?.buildFinanceKpis;
+        if (typeof buildKpis === 'function') {
+          return buildKpis(transactions, financeMonth, settings, { todayMonthKey: `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}` });
         }
-        return list.filter((t) => {
-          const d = String(t?.date || '');
-          if (financeMonthBounds.from && d < financeMonthBounds.from) return false;
-          if (financeMonthBounds.to && d > financeMonthBounds.to) return false;
-          return true;
-        });
-      }, [transactions, financeMonthBounds.from, financeMonthBounds.to]);
+        return null;
+      }, [transactions, financeMonth, settings, today]);
+      const reportingMonthLedger = financeKpis?.reportingMonthLedger ?? [];
       const incomeRows = reportingMonthLedger.filter((t) => t.type !== 'expense');
-      const pendingRows = incomeRows.filter((t) => String(t.status || '').toLowerCase() === 'pending');
-      const sumLedger = window.__APG_MODULES?.sumLedgerRowAmounts;
-      const revenue = typeof sumLedger === 'function'
-        ? sumLedger(incomeRows, { incomeOnly: true })
-        : incomeRows.reduce((sum, t) => sum + Number(t.amount || 0), 0);
-      const pendingAmount = typeof sumLedger === 'function'
-        ? sumLedger(incomeRows, { incomeOnly: true, status: 'pending' })
-        : pendingRows.reduce((sum, t) => sum + Number(t.amount || 0), 0);
-      const paidRevenue = revenue - pendingAmount;
-      const actualExpense = filteredTransactions
-        .filter((t) => t.type === 'expense')
-        .reduce((sum, t) => sum + Number(t.amount || 0), 0);
-      const estimatedExpense = Math.round(revenue * 0.26);
-      // In "Actual rows" mode with zero matching expense rows, profit would wrongly equal revenue.
-      // Fall back to the same 26% estimate until at least one expense row exists in the current filter.
-      const hasExpenseRows = actualExpense > 0;
-      const expense = useEstimatedExpense
-        ? estimatedExpense
-        : (hasExpenseRows ? actualExpense : estimatedExpense);
-      const expenseSubtitle = useEstimatedExpense
-        ? 'Estimated (26% of revenue)'
-        : (hasExpenseRows ? 'Actual expense rows' : '26% estimate (no expense rows match filter)');
-      const profit = revenue - expense;
+      const revenue = (dataSyncMode === 'backend' && serverSummary)
+        ? Number(serverSummary.collectedRevenue ?? serverSummary.dbLedgerActiveSum ?? 0)
+        : (financeKpis?.collectedRevenue ?? 0);
+      const serviceRevenue = (dataSyncMode === 'backend' && serverSummary)
+        ? Number(serverSummary.serviceRevenue ?? serverSummary.collectedRevenue ?? 0)
+        : (financeKpis?.serviceRevenue ?? 0);
+      const expense = financeKpis?.expense ?? 0;
+      const expenseSubtitle = financeKpis?.expenseSubtitle ?? '';
+      const profit = (dataSyncMode === 'backend' && serverSummary && serverSummary.profit != null)
+        ? Number(serverSummary.profit)
+        : (financeKpis?.profit ?? 0);
+      const hasExpenseRows = financeKpis?.hasExpenseRows ?? false;
+      const revenueGrowthPct = (dataSyncMode === 'backend' && serverSummary && typeof serverSummary.revenueGrowthPct === 'number')
+        ? Number(serverSummary.revenueGrowthPct)
+        : (financeKpis?.revenueGrowthPct ?? 0);
+      const ytdCollected = financeKpis?.ytdCollected ?? 0;
+      const ytdProfit = financeKpis?.ytdProfit ?? 0;
+      const prevMonthCollected = financeKpis?.prevMonthCollected ?? 0;
+      const prevMonthServiceRevenue = financeKpis?.prevMonthServiceRevenue ?? 0;
+      const serviceRevenueGrowthPct = financeKpis?.serviceRevenueGrowthPct ?? 0;
+      const ytdServiceRevenue = financeKpis?.ytdServiceRevenue ?? 0;
+      const incomeRowsCollected = financeKpis?.incomeRowsCollected ?? [];
+      const incomeRowsService = financeKpis?.incomeRowsService ?? [];
+      const membersById = React.useMemo(() => {
+        const map = new Map();
+        for (const m of members) {
+          if (m?.memberId) map.set(String(m.memberId), m);
+        }
+        return map;
+      }, [members]);
+      const revenueBreakdown = React.useMemo(() => {
+        const buildFn = window.__APG_MODULES?.buildRevenueBreakdown;
+        const ptSetFn = window.__APG_MODULES?.ptClientMemberIdSet;
+        if (typeof buildFn !== 'function') return { membership: 0, pt: 0, other: 0, total: 0 };
+        const ptIds = typeof ptSetFn === 'function' ? ptSetFn(settings) : new Set();
+        return buildFn(incomeRowsCollected, {
+          ptClientMemberIds: ptIds,
+          memberById: (id) => membersById.get(String(id)),
+        });
+      }, [incomeRowsCollected, membersById, settings]);
+      const expenseBreakdown = React.useMemo(() => {
+        const buildFn = window.__APG_MODULES?.buildExpenseBreakdown;
+        const expenseRows = reportingMonthLedger.filter((t) => t.type === 'expense');
+        return typeof buildFn === 'function'
+          ? buildFn(expenseRows)
+          : { categories: [], total: 0 };
+      }, [reportingMonthLedger]);
+      const monthlyReconciliation = React.useMemo(() => {
+        const buildFn = window.__APG_MODULES?.buildMonthlyReconciliation;
+        const year = parseInt(String(financeMonth || '').slice(0, 4), 10) || today.getFullYear();
+        if (typeof buildFn !== 'function') return [];
+        return buildFn(transactions, year, {
+          monthLabels: MONTHS,
+          useEstimatedExpense,
+        });
+      }, [transactions, financeMonth, useEstimatedExpense, today]);
+      const revenueDrilldownRows = React.useMemo(() => {
+        const classifyFn = window.__APG_MODULES?.classifyRevenueBucket;
+        const ptSetFn = window.__APG_MODULES?.ptClientMemberIdSet;
+        const ptIds = typeof ptSetFn === 'function' ? ptSetFn(settings) : new Set();
+        const ctx = { ptClientMemberIds: ptIds, memberById: (id) => membersById.get(String(id)) };
+        const rows = [...incomeRowsCollected].sort((a, b) => String(a.date || '').localeCompare(String(b.date || '')));
+        let running = 0;
+        return rows.map((r) => {
+          running += Number(r.amount || 0);
+          const bucket = typeof classifyFn === 'function' ? classifyFn(r, ctx) : 'other';
+          const typeLabel = bucket === 'pt' ? 'PT' : (bucket === 'membership' ? 'Membership' : 'Other');
+          return { ...r, runningTotal: running, typeLabel };
+        });
+      }, [incomeRowsCollected, membersById, settings]);
+      React.useEffect(() => {
+        if (dataSyncMode !== 'backend' || !financeMonth) {
+          setServerSummary(null);
+          setServerSummaryError('');
+          return undefined;
+        }
+        let cancelled = false;
+        setServerSummaryLoading(true);
+        backendJson(`/finance/summary?month=${encodeURIComponent(financeMonth)}`)
+          .then((body) => {
+            if (cancelled) return;
+            setServerSummary(body && typeof body === 'object' ? body : null);
+            setServerSummaryError('');
+          })
+          .catch((err) => {
+            if (cancelled) return;
+            setServerSummary(null);
+            setServerSummaryError(String(err?.message || err || 'Could not load server summary'));
+          })
+          .finally(() => {
+            if (!cancelled) setServerSummaryLoading(false);
+          });
+        return () => { cancelled = true; };
+      }, [financeMonth, dataSyncMode, members.length, financeTransactions.length]);
+      const revenueVerification = React.useMemo(() => {
+        const deltaFn = window.__APG_MODULES?.financeSummaryDelta;
+        if (!serverSummary || typeof deltaFn !== 'function') return null;
+        return deltaFn(serverSummary.collectedRevenue, revenue);
+      }, [serverSummary, revenue]);
       const addExpenseRow = () => {
         if (!canFinanceManageExpenses) return;
         const amount = Number(expenseDraft.amount || 0);
@@ -19614,12 +19844,15 @@ function PTClientsPage({ members, users, settings, updateSetting, currentUser, a
         const slots = typeof slotsFn === 'function'
           ? slotsFn(financeMonth, MONTHS)
           : [];
+        const sumCollectedFn = window.__APG_MODULES?.sumCollectedIncomeForMonthKey;
         const sumForMonth = (monthKey) => (
-          typeof sumMonthFn === 'function'
-            ? sumMonthFn(transactions, monthKey)
-            : (Array.isArray(transactions) ? transactions : [])
-                .filter((t) => t.type !== 'expense' && String(t.date || '').slice(0, 7) === monthKey)
-                .reduce((s, t) => s + Number(t.amount || 0), 0)
+          typeof sumCollectedFn === 'function'
+            ? sumCollectedFn(transactions, monthKey)
+            : (typeof sumMonthFn === 'function'
+              ? sumMonthFn(transactions, monthKey, { excludeStatus: 'pending' })
+              : (Array.isArray(transactions) ? transactions : [])
+                  .filter((t) => t.type !== 'expense' && String(t.status || '').toLowerCase() !== 'pending' && String(t.date || '').slice(0, 7) === monthKey)
+                  .reduce((s, t) => s + Number(t.amount || 0), 0))
         );
         if (slots.length) {
           return slots.map((slot) => ({
@@ -19749,12 +19982,11 @@ function PTClientsPage({ members, users, settings, updateSetting, currentUser, a
       const canFinanceManageExpenses = access?.finance?.manageExpenses !== false;
       const isMobile = useIsMobile();
       if (isMobile) {
-        const upcoming = incomeRows.filter((t) => t.status !== 'pending').slice(0, 5);
-        const overdue = incomeRows.filter((t) => t.status === 'pending').slice(0, 5);
+        const recorded = incomeRowsCollected.slice(0, 20);
         return (
           <div className={cx("p-4 space-y-4 bg-[#F8FAFC] text-slate-900 dark:bg-slate-950 dark:text-slate-100", forceLightClass)}>
             <div className="flex flex-wrap items-center justify-between gap-2">
-              <div className="text-xl font-semibold text-slate-900 dark:text-slate-100">Billing & Payments</div>
+              <div className="text-xl font-semibold text-slate-900 dark:text-slate-100">Finance</div>
               <label className="flex items-center gap-2 rounded-xl border border-slate-300 bg-white px-3 py-2 text-xs dark:border-slate-600 dark:bg-slate-800">
                 <span className="text-slate-600 dark:text-slate-300">Month</span>
                 <input type="month" value={financeMonth} onChange={(e) => setFinanceMonth(e.target.value)} className="bg-transparent border-0 p-0 text-slate-900 dark:text-slate-100" />
@@ -19763,51 +19995,36 @@ function PTClientsPage({ members, users, settings, updateSetting, currentUser, a
             <div className="text-xs text-slate-500 dark:text-slate-400">Reporting: {financeMonthBounds.label}</div>
             <div className="grid grid-cols-2 gap-3">
               <div className="rounded-2xl border border-blue-200 bg-blue-50 p-4 dark:border-blue-800 dark:bg-blue-950/40">
-                <div className="text-xs font-semibold text-blue-700 dark:text-blue-300">Total Revenue</div>
+                <div className="text-xs font-semibold text-blue-700 dark:text-blue-300">Collected Revenue</div>
                 <div className="mt-2 text-2xl font-bold text-blue-900 dark:text-blue-100">₹{revenue.toLocaleString('en-IN')}</div>
-                <div className="text-xs text-blue-700 dark:text-blue-300">{financeMonthBounds.label}</div>
+                <div className="text-xs text-blue-700 dark:text-blue-300">{financeMonthBounds.label} · Active · Paid for Month (DB)</div>
               </div>
-              <div className="rounded-2xl border border-rose-200 bg-rose-50 p-4 dark:border-rose-800 dark:bg-rose-950/40">
-                <div className="text-xs font-semibold text-rose-700 dark:text-rose-300">Pending Amount</div>
-                <div className="mt-2 text-2xl font-bold text-rose-900 dark:text-rose-100">₹{pendingAmount.toLocaleString('en-IN')}</div>
-                <div className="text-xs text-rose-700 dark:text-rose-300">{financeMonthBounds.label} · {pendingRows.length} pending</div>
+              <div className="rounded-2xl border border-indigo-200 bg-indigo-50 p-4 dark:border-indigo-800 dark:bg-indigo-950/40">
+                <div className="text-xs font-semibold text-indigo-700 dark:text-indigo-300">Revenue by Paid for Month (Active)</div>
+                <div className="mt-2 text-2xl font-bold text-indigo-900 dark:text-indigo-100">₹{serviceRevenue.toLocaleString('en-IN')}</div>
+                <div className="text-xs text-indigo-700 dark:text-indigo-300">{financeMonthBounds.label} · billing cycle</div>
+              </div>
+              <div className="rounded-2xl border border-emerald-200 bg-emerald-50 p-4 dark:border-emerald-800 dark:bg-emerald-950/40 col-span-2">
+                <div className="text-xs font-semibold text-emerald-700 dark:text-emerald-300">Profit</div>
+                <div className="mt-2 text-2xl font-bold text-emerald-900 dark:text-emerald-100">₹{profit.toLocaleString('en-IN')}</div>
+                <div className="text-xs text-emerald-700 dark:text-emerald-300">{financeMonthBounds.label}</div>
               </div>
             </div>
-            <div className="flex gap-2 overflow-x-auto pb-1">
-              {['All', 'Paid', 'Pending', 'Overdue'].map((x, idx) => (
-                <button key={x} className={cx('shrink-0 rounded-full px-4 py-2 text-xs font-semibold border', idx === 0 ? 'bg-blue-600 text-white border-blue-600' : 'bg-white text-slate-600 border-slate-200')}>{x}</button>
-              ))}
-            </div>
-            <div className="rounded-2xl border border-blue-100 bg-white p-3">
-              <div className="mb-2 flex items-center justify-between">
-                <div className="text-sm font-semibold text-slate-800">Upcoming Payments</div>
-              </div>
+            <div className="rounded-2xl border border-blue-100 bg-white p-3 dark:border-slate-700 dark:bg-slate-900">
+              <div className="mb-2 text-sm font-semibold text-slate-800 dark:text-slate-100">Recorded payments ({financeMonthBounds.label})</div>
               <div className="space-y-2">
-                {upcoming.map((t) => (
-                  <div key={`u-${t.id}`} className="flex items-center justify-between rounded-xl border border-slate-100 bg-slate-50 px-3 py-2">
+                {recorded.map((t) => (
+                  <div key={`r-${t.id}`} className="flex items-center justify-between rounded-xl border border-slate-100 bg-slate-50 px-3 py-2 dark:border-slate-700 dark:bg-slate-800">
                     <div className="min-w-0">
-                      <div className="truncate text-sm font-semibold text-slate-900">{t.memberName}</div>
-                      <div className="text-[11px] text-slate-500">{t.plan}</div>
+                      <div className="truncate text-sm font-semibold text-slate-900 dark:text-slate-100">{t.memberName || t.memberId || '—'}</div>
+                      <div className="text-[11px] text-slate-500">{t.date} · {t.plan || 'Payment'}</div>
                     </div>
-                    <div className="text-sm font-semibold text-slate-900">₹{Number(t.amount || 0).toLocaleString()}</div>
+                    <div className="text-sm font-semibold text-slate-900 dark:text-slate-100">₹{Number(t.amount || 0).toLocaleString('en-IN')}</div>
                   </div>
                 ))}
-              </div>
-            </div>
-            <div className="rounded-2xl border border-rose-100 bg-white p-3">
-              <div className="mb-2 flex items-center justify-between">
-                <div className="text-sm font-semibold text-rose-700">Overdue Payments</div>
-              </div>
-              <div className="space-y-2">
-                {overdue.map((t) => (
-                  <div key={`o-${t.id}`} className="flex items-center justify-between rounded-xl border border-rose-100 bg-rose-50 px-3 py-2">
-                    <div className="min-w-0">
-                      <div className="truncate text-sm font-semibold text-slate-900">{t.memberName}</div>
-                      <div className="text-[11px] text-rose-600">Overdue</div>
-                    </div>
-                    <div className="text-sm font-semibold text-rose-700">₹{Number(t.amount || 0).toLocaleString()}</div>
-                  </div>
-                ))}
+                {recorded.length === 0 && (
+                  <div className="text-xs text-slate-500 py-4 text-center">No recorded payments this month.</div>
+                )}
               </div>
             </div>
             <div className="rounded-2xl border border-slate-200 bg-white p-4">
@@ -19921,8 +20138,7 @@ function PTClientsPage({ members, users, settings, updateSetting, currentUser, a
               </select>
               <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)} className="rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900">
                 <option value="">All Payment Status</option>
-                <option value="paid">Paid</option>
-                <option value="pending">Pending</option>
+                <option value="paid">Paid (recorded)</option>
                 <option value="posted">Posted (Expense)</option>
               </select>
               <input type="date" value={fromDate} onChange={(e) => setFromDate(e.target.value)} className="rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900" />
@@ -19937,26 +20153,34 @@ function PTClientsPage({ members, users, settings, updateSetting, currentUser, a
             <div className="text-sm font-semibold text-slate-700 dark:text-slate-200">
               Reporting month: <span className="text-blue-700 dark:text-blue-300">{financeMonthBounds.label}</span>
             </div>
-            <div className="text-xs text-slate-500 dark:text-slate-400">{filteredTransactions.length} transactions in range</div>
+            <div className="text-xs text-slate-500 dark:text-slate-400">{filteredTransactions.length} recorded rows in range</div>
           </div>
           <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4">
             {canFinanceRevenue && (
-            <div className={cardBase}>
-              <div className="text-sm text-slate-500 dark:text-slate-400">Revenue</div>
+            <button
+              type="button"
+              onClick={() => setShowRevenueDrilldown(true)}
+              className={cx(cardBase, 'text-left hover:bg-emerald-50/60 transition-colors dark:hover:bg-slate-800')}
+            >
+              <div className="text-sm text-slate-500 dark:text-slate-400">Collected Revenue</div>
               <div className="mt-1 text-3xl font-bold text-emerald-700 dark:text-emerald-400">₹{revenue.toLocaleString('en-IN')}</div>
-              <div className="text-sm text-emerald-700 dark:text-emerald-300">{financeMonthBounds.label}</div>
+              <div className="text-sm text-emerald-700 dark:text-emerald-300">{financeMonthBounds.label} · Active · Paid for Month (DB)</div>
               <div className="text-xs text-slate-500 dark:text-slate-400 mt-1">
-                From Transactions by date (paid ₹{Math.max(0, paidRevenue).toLocaleString('en-IN')}
-                {pendingAmount > 0 ? ` + pending ₹${pendingAmount.toLocaleString('en-IN')}` : ''})
+                Recorded payments only · Prev ₹{prevMonthCollected.toLocaleString('en-IN')} · {revenueGrowthPct >= 0 ? '+' : ''}{revenueGrowthPct}% · YTD ₹{ytdCollected.toLocaleString('en-IN')}
               </div>
-            </div>
+              <div className="text-xs text-blue-600 dark:text-blue-300 mt-1 underline">View income rows</div>
+            </button>
             )}
-            {canFinancePendingPayments && (
-              <div className={cardBase}>
-                <div className="text-sm text-slate-500 dark:text-slate-400">Pending Payments</div>
-                <div className="mt-1 text-3xl font-bold text-amber-700 dark:text-amber-400">₹{pendingAmount.toLocaleString('en-IN')}</div>
-                <div className="text-sm text-amber-700 dark:text-amber-300">{financeMonthBounds.label} · {pendingRows.length} pending</div>
+            {canFinanceRevenue && (
+            <div className={cardBase}>
+              <div className="text-sm text-slate-500 dark:text-slate-400">Revenue by Paid for Month (Active members)</div>
+              <div className="mt-1 text-3xl font-bold text-indigo-700 dark:text-indigo-400">₹{serviceRevenue.toLocaleString('en-IN')}</div>
+              <div className="text-sm text-indigo-700 dark:text-indigo-300">{financeMonthBounds.label} · billing cycle cleared</div>
+              <div className="text-xs text-slate-500 dark:text-slate-400 mt-1">
+                Service month · Prev ₹{prevMonthServiceRevenue.toLocaleString('en-IN')} · {serviceRevenueGrowthPct >= 0 ? '+' : ''}{serviceRevenueGrowthPct}% · YTD ₹{ytdServiceRevenue.toLocaleString('en-IN')}
               </div>
+              <div className="text-xs text-slate-500 dark:text-slate-400 mt-1">{incomeRowsService.filter((r) => r.source === 'payment').length} payment rows attributed</div>
+            </div>
             )}
             {canFinanceExpenseCard && (
               <button
@@ -19973,10 +20197,179 @@ function PTClientsPage({ members, users, settings, updateSetting, currentUser, a
               <div className={cardBase}>
                 <div className="text-sm text-slate-500">Profit</div>
                 <div className={cx('mt-1 text-3xl font-bold', profit >= 0 ? 'text-emerald-700' : 'text-rose-700')}>₹{profit.toLocaleString('en-IN')}</div>
-                <div className="text-sm text-slate-600 dark:text-slate-400">{financeMonthBounds.label} · Revenue − expense{!useEstimatedExpense && !hasExpenseRows ? ' (26% until expenses logged)' : ''}</div>
+                <div className="text-sm text-slate-600 dark:text-slate-400">
+                  {financeMonthBounds.label} · Collected − expenses · YTD profit ₹{ytdProfit.toLocaleString('en-IN')}
+                  {!useEstimatedExpense && !hasExpenseRows ? ' (26% est. until expenses logged)' : ''}
+                </div>
               </div>
             )}
           </div>
+
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+            <div className={cardBase}>
+              <div className="text-lg font-semibold text-slate-900 dark:text-slate-100 mb-3">Revenue Breakdown</div>
+              <div className="grid grid-cols-3 gap-3 text-sm">
+                <div className="rounded-xl border border-emerald-200 bg-emerald-50/80 p-3 dark:border-emerald-800 dark:bg-emerald-950/30">
+                  <div className="text-xs text-emerald-800 dark:text-emerald-300">Membership</div>
+                  <div className="text-lg font-bold text-emerald-900 dark:text-emerald-100">₹{revenueBreakdown.membership.toLocaleString('en-IN')}</div>
+                </div>
+                <div className="rounded-xl border border-violet-200 bg-violet-50/80 p-3 dark:border-violet-800 dark:bg-violet-950/30">
+                  <div className="text-xs text-violet-800 dark:text-violet-300">PT</div>
+                  <div className="text-lg font-bold text-violet-900 dark:text-violet-100">₹{revenueBreakdown.pt.toLocaleString('en-IN')}</div>
+                </div>
+                <div className="rounded-xl border border-slate-200 bg-slate-50 p-3 dark:border-slate-600 dark:bg-slate-800/50">
+                  <div className="text-xs text-slate-600 dark:text-slate-300">Other</div>
+                  <div className="text-lg font-bold text-slate-900 dark:text-slate-100">₹{revenueBreakdown.other.toLocaleString('en-IN')}</div>
+                </div>
+              </div>
+            </div>
+            <div className={cardBase}>
+              <div className="text-lg font-semibold text-slate-900 dark:text-slate-100 mb-3">Expense Breakdown</div>
+              {expenseBreakdown.categories.length ? (
+                <div className="space-y-2 text-sm max-h-40 overflow-y-auto">
+                  {expenseBreakdown.categories.map((c) => (
+                    <div key={c.name} className="flex justify-between gap-2">
+                      <span className="text-slate-700 dark:text-slate-200">{c.name}</span>
+                      <span className="font-semibold text-rose-700 dark:text-rose-300">₹{c.amount.toLocaleString('en-IN')}</span>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <div className="text-sm text-slate-500">No expense rows for {financeMonthBounds.label}.</div>
+              )}
+            </div>
+          </div>
+
+          {dataSyncMode === 'backend' && (
+            <div
+              className={cx(
+                cardBase,
+                revenueVerification && !revenueVerification.matches
+                  ? 'border-amber-300 bg-amber-50/90 dark:border-amber-600 dark:bg-amber-950/30'
+                  : 'border-emerald-200 bg-emerald-50/50 dark:border-emerald-800 dark:bg-emerald-950/20',
+              )}
+              data-testid="finance-server-verification"
+            >
+              <div className="text-sm font-semibold text-slate-800 dark:text-slate-100">Database verification (Paid for Month · Active)</div>
+              {serverSummaryLoading && (
+                <div className="text-xs text-slate-500 mt-1">Loading server totals…</div>
+              )}
+              {serverSummaryError && (
+                <div className="text-xs text-rose-600 mt-1">{serverSummaryError}</div>
+              )}
+              {serverSummary && !serverSummaryLoading && (
+                <div className="mt-2 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 text-xs text-slate-600 dark:text-slate-300">
+                  <div>
+                    <span className="text-slate-500">DB Paid for Month sum (Active)</span>
+                    <div className="text-lg font-bold text-emerald-700 dark:text-emerald-300">
+                      ₹{Number(serverSummary.collectedRevenue || 0).toLocaleString('en-IN')}
+                    </div>
+                    <div>{Number(serverSummary.paymentCount || 0)} payments · {Number(serverSummary.dbPaymentRowsInRange || serverSummary.paymentCount || 0)} rows in range</div>
+                  </div>
+                  <div>
+                    <span className="text-slate-500">Screen collected (ledger)</span>
+                    <div className="text-lg font-bold text-slate-800 dark:text-slate-100">
+                      ₹{Number(revenue || 0).toLocaleString('en-IN')}
+                    </div>
+                    <div>{incomeRowsCollected.filter((r) => r.source === 'payment').length} payment rows in month</div>
+                  </div>
+                  <div>
+                    <span className="text-slate-500">Match status</span>
+                    {revenueVerification?.matches ? (
+                      <div className="text-sm font-semibold text-emerald-700 dark:text-emerald-300 mt-1">✓ Screen matches database</div>
+                    ) : (
+                      <div className="text-sm font-semibold text-amber-800 dark:text-amber-200 mt-1">
+                        Δ ₹{Math.abs(Number(revenueVerification?.delta || 0)).toLocaleString('en-IN')}
+                        {Number(revenueVerification?.delta || 0) > 0 ? ' (screen higher)' : ' (database higher)'}
+                      </div>
+                    )}
+                    <div className="mt-1 text-[11px] text-slate-500">
+                      Large gap vs ~₹95k usually means pending dues were previously counted as revenue, or payments are missing from history — run backfill.
+                    </div>
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+
+          <div className={cardBase} data-testid="finance-reconciliation-table">
+            <div className="text-lg font-semibold text-slate-900 dark:text-slate-100 mb-3">
+              Monthly Reconciliation ({String(financeMonth || '').slice(0, 4)})
+            </div>
+            <div className="overflow-x-auto">
+              <table className="min-w-full text-sm">
+                <thead>
+                  <tr className="bg-slate-100 text-slate-800 dark:bg-slate-800 dark:text-slate-200">
+                    <th className="px-3 py-2 text-left">Month</th>
+                    <th className="px-3 py-2 text-right">Income (collected)</th>
+                    <th className="px-3 py-2 text-right">Expenses</th>
+                    <th className="px-3 py-2 text-right">Profit</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {monthlyReconciliation.map((row) => (
+                    <tr
+                      key={row.monthKey}
+                      className={cx(
+                        'border-t border-slate-200 dark:border-slate-700 cursor-pointer hover:bg-blue-50/50 dark:hover:bg-slate-800',
+                        row.monthKey === financeMonth && 'bg-blue-50/80 dark:bg-blue-950/30',
+                      )}
+                      onClick={() => setFinanceMonth(row.monthKey)}
+                    >
+                      <td className="px-3 py-2 font-medium text-slate-800 dark:text-slate-100">{row.label}</td>
+                      <td className="px-3 py-2 text-right text-emerald-700 dark:text-emerald-300">₹{row.incomeCollected.toLocaleString('en-IN')}</td>
+                      <td className="px-3 py-2 text-right text-rose-700 dark:text-rose-300">₹{row.expenses.toLocaleString('en-IN')}</td>
+                      <td className={cx('px-3 py-2 text-right font-semibold', row.profit >= 0 ? 'text-emerald-700' : 'text-rose-700')}>₹{row.profit.toLocaleString('en-IN')}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          {showRevenueDrilldown && (
+            <div className="fixed inset-0 z-[80] flex items-center justify-center bg-black/50 p-4" onClick={() => setShowRevenueDrilldown(false)}>
+              <div className={cx(cardBase, 'max-w-5xl w-full max-h-[85vh] overflow-hidden flex flex-col')} onClick={(e) => e.stopPropagation()}>
+                <div className="flex items-center justify-between mb-3">
+                  <h2 className="text-lg font-semibold text-slate-900 dark:text-slate-100">Collected Income — {financeMonthBounds.label}</h2>
+                  <button type="button" onClick={() => setShowRevenueDrilldown(false)} className="rounded-full border border-slate-300 px-3 py-1 text-sm">Close</button>
+                </div>
+                <div className="overflow-auto flex-1">
+                  <table className="min-w-full text-sm">
+                    <thead>
+                      <tr className="bg-slate-100 dark:bg-slate-800">
+                        <th className="px-2 py-2 text-left">Date</th>
+                        <th className="px-2 py-2 text-left">Member</th>
+                        <th className="px-2 py-2 text-left">Type</th>
+                        <th className="px-2 py-2 text-right">Amount</th>
+                        <th className="px-2 py-2 text-left">Status</th>
+                        <th className="px-2 py-2 text-left">Method</th>
+                        <th className="px-2 py-2 text-left">ID</th>
+                        <th className="px-2 py-2 text-right">Running total</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {revenueDrilldownRows.map((r) => (
+                        <tr key={r.id} className="border-t border-slate-200 dark:border-slate-700">
+                          <td className="px-2 py-2">{r.date || '-'}</td>
+                          <td className="px-2 py-2">{r.memberName || '-'}</td>
+                          <td className="px-2 py-2">{r.typeLabel || '-'}</td>
+                          <td className="px-2 py-2 text-right">₹{Number(r.amount || 0).toLocaleString('en-IN')}</td>
+                          <td className="px-2 py-2">{r.status || '-'}</td>
+                          <td className="px-2 py-2">{r.method || '-'}</td>
+                          <td className="px-2 py-2 font-mono text-xs">{r.id || '-'}</td>
+                          <td className="px-2 py-2 text-right font-semibold">₹{r.runningTotal.toLocaleString('en-IN')}</td>
+                        </tr>
+                      ))}
+                      {revenueDrilldownRows.length === 0 && (
+                        <tr><td colSpan={8} className="px-3 py-6 text-center text-slate-500">No collected income rows this month.</td></tr>
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            </div>
+          )}
 
           <div className="grid grid-cols-1 xl:grid-cols-3 gap-4">
             {canFinanceTrend && (
@@ -20044,8 +20437,11 @@ function PTClientsPage({ members, users, settings, updateSetting, currentUser, a
 
           {canFinanceTransactions && (
           <div className={cardBase}>
-            <div className="flex items-center justify-between mb-3">
-              <h2 className="text-lg font-semibold text-slate-900 dark:text-slate-100">Transactions (Income + Expenses)</h2>
+            <div className="flex flex-wrap items-start justify-between gap-2 mb-3">
+              <div>
+                <h2 className="text-lg font-semibold text-slate-900 dark:text-slate-100">Recorded Payments &amp; Expenses</h2>
+                <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">Payment history and manual entries only — not unbilled dues</p>
+              </div>
               <div className="text-xs text-slate-500">Expand a row to see latest 10 logs</div>
             </div>
             <div className="overflow-x-auto">

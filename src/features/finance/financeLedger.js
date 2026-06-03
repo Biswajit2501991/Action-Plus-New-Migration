@@ -1,5 +1,8 @@
+import { validatePaidMonthKey } from './derivePaidMonth.js';
+
 /**
  * Finance ledger rows — income from member payments (transaction date) plus billing pending + manual rows.
+ * `date` = collection date (paidAt); `paidMonth` = service/revenue month (billing cycle cleared).
  */
 
 /**
@@ -22,6 +25,9 @@ export function buildPaymentIncomeLedgerRows(members, normalizeMemberPaymentHist
       const day = toDay(h.paidAt || h.receivedAt || h.date || h.ts || '');
       const amount = Number(h.amount || 0);
       if (!day || amount <= 0) continue;
+      const paidMonth = validatePaidMonthKey(h.paidMonth)
+        || validatePaidMonthKey(h.billingMonth)
+        || '';
       rows.push({
         id: `pay-${memberId}-${String(h.id || day)}`,
         type: 'income',
@@ -29,6 +35,8 @@ export function buildPaymentIncomeLedgerRows(members, normalizeMemberPaymentHist
         memberId,
         memberName: m.name || '',
         date: day,
+        paidMonth,
+        collectionMonth: day.slice(0, 7),
         plan: m.plan || '',
         method: String(h.method || m.paymentMethod || '').trim(),
         amount,

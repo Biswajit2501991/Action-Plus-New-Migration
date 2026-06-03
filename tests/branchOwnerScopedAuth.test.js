@@ -17,6 +17,7 @@ import {
   authIsMasterOwnerUser,
   authIsBranchOwnerUser,
   canDeleteMemberForUser,
+  memberInUserBranches,
 } from '../src/features/tenant/branchOwnerAccess.js';
 
 describe('scopedAuth', () => {
@@ -112,5 +113,22 @@ describe('client branchOwnerAccess', () => {
     expect(authIsMasterOwnerUser({ id: 'owner' })).toBe(true);
     expect(authIsBranchOwnerUser({ id: 'raja', staffRole: 'branch_owner' })).toBe(true);
     expect(authIsBranchOwnerUser({ id: 'owner' })).toBe(false);
+  });
+
+  it('legacy untagged member visible to master owner in active branch only', () => {
+    const owner = {
+      id: 'owner',
+      staffRole: 'master_owner',
+      activeBranchId: 'b1',
+      gymCodeId: 'b1',
+    };
+    expect(memberInUserBranches(owner, { assignedGymCodeId: '' })).toBe(true);
+    expect(memberInUserBranches(owner, { assignedGymCodeId: 'b2' })).toBe(false);
+  });
+
+  it('branch owner does not see legacy untagged members', () => {
+    const branchOwner = { id: 'raja', staffRole: 'branch_owner', allowedBranchIds: ['b1'] };
+    expect(memberInUserBranches(branchOwner, { assignedGymCodeId: '' })).toBe(false);
+    expect(memberInUserBranches(branchOwner, { assignedGymCodeId: 'b1' })).toBe(true);
   });
 });

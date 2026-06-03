@@ -3,6 +3,8 @@
  * Helpers coordinate cache purge and replace-mode hydration.
  */
 
+import { filterMembersForUser, filterVisitorsForUser } from '../branch/branchAccess.js';
+
 export function shouldReplaceBranchDataOnHydrate(opts = {}) {
   return opts.replaceBranchData === true || opts.branchContextReplace === true;
 }
@@ -46,4 +48,23 @@ export function mergeVisitorsAfterBranchReplace(localVisitors, remoteVisitors, a
     out.push(localRow);
   }
   return out;
+}
+
+/** Drop cross-branch rows after remote merge (polling, incremental sync). */
+export function scopeMembersToUserBranch(user, members, authoritativeBranchId = '') {
+  if (!user) return [];
+  const active = String(authoritativeBranchId || '').trim();
+  const scopedUser = active
+    ? { ...user, activeBranchId: active, gymCodeId: active }
+    : user;
+  return filterMembersForUser(scopedUser, members);
+}
+
+export function scopeVisitorsToUserBranch(user, visitors, authoritativeBranchId = '') {
+  if (!user) return [];
+  const active = String(authoritativeBranchId || '').trim();
+  const scopedUser = active
+    ? { ...user, activeBranchId: active, gymCodeId: active }
+    : user;
+  return filterVisitorsForUser(scopedUser, visitors);
 }

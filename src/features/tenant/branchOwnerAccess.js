@@ -66,7 +66,8 @@ export function memberInUserBranches(user, member) {
   if (scope === null) return true;
   if (!scope.length) return false;
   const memberBranch = String(member?.assignedGymCodeId || '').trim();
-  if (!memberBranch) return false;
+  // Legacy rows without branch tag: visible to master owner in active branch context only.
+  if (!memberBranch) return authIsMasterOwnerUser(user);
   return scope.includes(memberBranch);
 }
 

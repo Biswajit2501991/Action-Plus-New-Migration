@@ -269,24 +269,50 @@ When SSE is connected, settings polling is reduced to save Supabase quota.
 
 ## 7. Feature flows
 
-### 7.1 Total Revenue (Monthly) — Dashboard & Finance
+### 7.1 Revenue, profit & CFO KPIs — Dashboard & Finance (single ledger)
 
 ```
-members[] → buildCollectedRevenueEntries (paymentHistory paidAt only)
-financeTransactions[] (income) → buildManualIncomeRevenueEntries (tx date)
-→ buildAllFinanceRevenueEntries → sumMonthlyCollectedRevenue(entries, YYYY-MM)
+members[] + financeTransactions[]
+  → buildFinanceLedgerRows (recorded payments + manual; pending billing off by default)
+  → buildFinanceKpis(transactions, financeMonth, settings)
 ```
 
-**Files:** `src/features/finance/collectedRevenue.js`, `monthlyRevenue.js`, `financeLedger.js`, `financeMonthScope.js`; wired from `index.html` via `registerApgModules.js`.  
-**Finance ledger:** paid rows from `paymentHistory` (transaction date); pending rows from overdue billing; manual rows from `finance_transactions`.  
-**Trend chart:** four months ending at the selected `financeMonth` (`lastFourMonthTrendSlots`).  
-**Backfill:** `backend/scripts/backfill-member-payment-history.js` for empty `paymentHistory` from `paymentReceivedAt` / `billingDate`.
+**Primary KPI “Collected Revenue”** = **recorded payments by transaction date** (`paidAt` / `paid_at`). Synthetic billing-pending rows are not merged into the Finance ledger or transaction table unless `includePendingBilling: true` (not used in UI).
+
+**Dual metrics (Paid Month Revenue Tracking):**
+
+| Metric | Month key | Source field | Use |
+|--------|-----------|--------------|-----|
+| **Collected Revenue** | Payment/collection date | `paid_at` / ledger `date` | Cash flow, bank reconciliation, “money in this month” |
+| **Revenue by Paid for Month** | Staff-selected service month | `member_paid_for_month.paid_for_month` (YYYY-MM) | Service revenue for **Active** members only |
+
+Example: payment on **02-Jul-2026** with **Paid for Month = May 2026** → May service revenue ₹900; July collections ₹900.
+
+**Storage:** `member_paid_for_month` — one row per `(gym, member, paid_for_month)` with amount and status snapshot; rebuilt on member save from `paymentHistory` + membership **Paid for Month** (`members.pay_month` as YYYY-MM). Payments also keep `member_payment_history.paid_month`. Staff pick month via `type="month"` (not billing date). Finance server reads the ledger table (7+ years via payment history backfill). Migration: `supabase_member_paid_for_month.sql` (run after `supabase_member_payment_paid_month.sql`).
+
+**Profit** = collected revenue for the reporting month minus expenses from **`reportingMonthLedger`** expense rows (not search-filtered `filteredTransactions`). Settings `financeUseEstimatedExpense` (default on) applies a 26% benchmark; in “Actual rows” mode, the 26% estimate is used only when no expense rows exist for that month.
+
+**CFO cards (Dashboard & Finance):** current month collected, previous month, growth %, YTD collected (calendar year through reporting month), profit + YTD profit via `buildFinanceKpis`.
+
+**Breakdowns:** `revenueBreakdown.js` (Membership / PT / Other from row metadata + `ptClientProfiles`); `expenseBreakdown.js` (manual expense categories).
+
+**Reconciliation:** `buildMonthlyReconciliation` — 12 months for the year of `financeMonth`; row click sets `financeMonth`.
+
+**Drill-down:** Finance collected-revenue card opens a modal listing collected income rows for the month (running total).
+
+**Server verification (audit):** `GET /api/finance/summary?month=YYYY-MM` and `GET /api/finance/reconciliation?year=YYYY` aggregate `member_payment_history` + `finance_transactions`. When `member_paid_for_month` exists, `collectedRevenue` and `serviceRevenue` are the sum of ledger rows for **Active** members for the requested `YYYY-MM` month (`revenueBasis: member_paid_for_month_active`), plus manual finance income. Fallback uses payment history by `paid_month`. Finance page shows **Database verification** comparing server collected vs on-screen ledger. Implementation: `backend/src/services/financeSummaryService.js`, `src/features/finance/aggregateFinanceSummary.js`, `paymentCalendarMonth.js`, `derivePaidMonth.js`.
+
+**Files:** `financeLedger.js`, `financeLedgerTotals.js`, `buildFinanceLedger.js`, `buildFinanceKpis.js`, `buildMonthlyReconciliation.js`, `revenueBreakdown.js`, `expenseBreakdown.js`, `financeMonthScope.js`; legacy entry helpers in `collectedRevenue.js` / `monthlyRevenue.js`. Wired from `index.html` via `registerApgModules.js`.
+
+**Trend chart:** four months ending at selected `financeMonth`, totals use **collected** income only (`sumCollectedIncomeForMonthKey`).
+
+**Backfill:** `backend/scripts/backfill-member-payment-history.js` for empty `paymentHistory`. **`paid_month` on payments:** `supabase_member_payment_paid_month.sql` + `npm run backfill:paid-month`. **Month ledger:** `supabase_member_paid_for_month.sql` (includes INSERT from payment history).
 
 **Plan analytics:** `src/features/analytics/planDistribution.js` — Dashboard and Finance Plan Popularity share `buildMembershipPlanDistribution` (member counts, plan name normalization).
 
 **Payment History filter:** `src/features/members/paymentHistoryFilters.js` — month filter on `paidAt` (revenue month).
 
-**Finance Transactions data:** Built from in-memory `member.paymentHistory` (paid rows) + current overdue billing (pending) + `finance_transactions`. List hydrate loads payments back **84 months** by default (`APG_PAYMENT_HISTORY_LIST_MONTHS_BACK`). Older DB rows exist but were previously cut off at 14 months. Historical months that only existed as billing-date auto-income (pre-PR1) are not in the ledger unless backfilled to `member_payment_history`.
+**Recorded payments table:** `member.paymentHistory` (paid rows by transaction date) + manual `finance_transactions` — no billing-pending placeholders. List hydrate loads payments back **84 months** by default (`APG_PAYMENT_HISTORY_LIST_MONTHS_BACK`). Historical months need rows in `member_payment_history` (run `npm run backfill:payments` if sparse).
 
 ### 7.2 Members — add, edit, payments
 
@@ -338,7 +364,7 @@ FinancePage → financeTransactions[]
 → PUT /api/finance/bulk
 ```
 
-Dashboard revenue tile uses **members**, not `financeTransactions`.
+Dashboard CFO revenue uses the same **ledger** as Finance (`buildFinanceLedgerRows`), including manual `financeTransactions` income rows.
 
 ---
 

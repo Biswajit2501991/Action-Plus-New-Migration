@@ -402,6 +402,7 @@ async function migrateMembers(supabase, members, gymId) {
         method: emptyText(p.method || p.paymentMethod),
         billing_month: emptyText(p.billingMonth),
         billing_date: toDate(p.billingDate, { required: true }),
+        paid_month: emptyText(p.paidMonth || p.billingMonth),
         recorded_by: emptyText(p.recordedBy || p.by),
         source: emptyText(p.source),
         note: emptyText(p.note),

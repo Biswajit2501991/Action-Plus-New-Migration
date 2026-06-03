@@ -1,8 +1,10 @@
 import { describe, it, expect } from 'vitest';
 import {
   filterLedgerRowsByDateRange,
+  sumCollectedIncomeForMonthKey,
   sumLedgerIncomeForMonthKey,
   sumLedgerRowAmounts,
+  sumServiceRevenueForPaidMonthKey,
 } from '../src/features/finance/financeLedgerTotals.js';
 
 describe('financeLedgerTotals', () => {
@@ -27,5 +29,22 @@ describe('financeLedgerTotals', () => {
     const income = may.filter((t) => t.type !== 'expense');
     expect(sumLedgerRowAmounts(income, { incomeOnly: true })).toBe(3500);
     expect(sumLedgerRowAmounts(income, { incomeOnly: true, status: 'pending' })).toBe(2500);
+    expect(sumLedgerRowAmounts(income, { incomeOnly: true, excludeStatus: 'pending' })).toBe(1000);
+  });
+
+  it('sumCollectedIncomeForMonthKey excludes pending', () => {
+    expect(sumCollectedIncomeForMonthKey(rows, '2026-05')).toBe(1000);
+  });
+});
+
+describe('sumServiceRevenueForPaidMonthKey', () => {
+  it('sums by paidMonth not collection date', () => {
+    const rows = [
+      { type: 'income', date: '2026-07-02', paidMonth: '2026-05', amount: 900, status: 'paid' },
+      { type: 'income', date: '2026-05-10', paidMonth: '2026-05', amount: 100, status: 'paid' },
+      { type: 'income', date: '2026-06-01', paidMonth: '2026-06', amount: 500, status: 'paid' },
+    ];
+    expect(sumServiceRevenueForPaidMonthKey(rows, '2026-05')).toBe(1000);
+    expect(sumServiceRevenueForPaidMonthKey(rows, '2026-07')).toBe(0);
   });
 });

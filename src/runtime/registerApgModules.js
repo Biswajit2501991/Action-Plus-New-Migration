@@ -85,6 +85,8 @@ import {
   shouldReplaceBranchDataOnHydrate,
   mergeMembersAfterBranchReplace,
   mergeVisitorsAfterBranchReplace,
+  scopeMembersToUserBranch,
+  scopeVisitorsToUserBranch,
 } from '../features/tenant/branchSwitchCoordinator.js';
 import { orchestrateBranchSwitch } from '../features/tenant/branchSwitchOrchestrator.js';
 import { branchCacheInvalidator } from '../features/tenant/branchCacheInvalidator.js';
@@ -133,9 +135,29 @@ import {
 } from '../features/finance/financeLedger.js';
 import {
   filterLedgerRowsByDateRange,
+  sumCollectedIncomeForMonthKey,
   sumLedgerIncomeForMonthKey,
   sumLedgerRowAmounts,
+  sumServiceRevenueForPaidMonthKey,
 } from '../features/finance/financeLedgerTotals.js';
+import { buildFinanceLedgerRows } from '../features/finance/buildFinanceLedger.js';
+import {
+  buildFinanceKpis,
+  revenueGrowthPercent,
+  shiftFinanceMonthKey,
+  sumYtdCollectedIncome,
+} from '../features/finance/buildFinanceKpis.js';
+import {
+  buildMonthlyReconciliation,
+  buildRollingMonthlyReconciliation,
+} from '../features/finance/buildMonthlyReconciliation.js';
+import {
+  buildRevenueBreakdown,
+  classifyRevenueBucket,
+  ptClientMemberIdSet,
+} from '../features/finance/revenueBreakdown.js';
+import { buildExpenseBreakdown } from '../features/finance/expenseBreakdown.js';
+import { financeSummaryDelta } from '../features/finance/aggregateFinanceSummary.js';
 import {
   financeMonthBoundsFromKey,
   lastFourMonthTrendSlots,
@@ -145,6 +167,13 @@ import {
   paymentMonthKeyFromValue,
   billingDateFromPaymentMonth,
 } from '../features/finance/paymentMonthKey.js';
+import {
+  derivePaidMonthFromBilling,
+  resolvePaidMonthForPayment,
+  validatePaidMonthKey,
+  payMonthKeyFromStoredValue,
+  formatPaidMonthDisplay,
+} from '../features/finance/derivePaidMonth.js';
 import { applyPaymentHistoryBackfillToMember } from '../features/members/paymentHistoryLegacyBackfill.js';
 import {
   filterPaymentRowsByMonth,
@@ -350,6 +379,8 @@ window.__APG_MODULES.activeBranchIdsForDataScope = activeBranchIdsForDataScope;
 window.__APG_MODULES.shouldReplaceBranchDataOnHydrate = shouldReplaceBranchDataOnHydrate;
 window.__APG_MODULES.mergeMembersAfterBranchReplace = mergeMembersAfterBranchReplace;
 window.__APG_MODULES.mergeVisitorsAfterBranchReplace = mergeVisitorsAfterBranchReplace;
+window.__APG_MODULES.scopeMembersToUserBranch = scopeMembersToUserBranch;
+window.__APG_MODULES.scopeVisitorsToUserBranch = scopeVisitorsToUserBranch;
 window.__APG_MODULES.orchestrateBranchSwitch = orchestrateBranchSwitch;
 window.__APG_MODULES.branchCacheInvalidator = branchCacheInvalidator;
 window.__APG_MODULES.activeBranchStore = activeBranchStore;
@@ -383,11 +414,30 @@ window.__APG_MODULES.mapManualFinanceLedgerRows = mapManualFinanceLedgerRows;
 window.__APG_MODULES.sumLedgerRowAmounts = sumLedgerRowAmounts;
 window.__APG_MODULES.filterLedgerRowsByDateRange = filterLedgerRowsByDateRange;
 window.__APG_MODULES.sumLedgerIncomeForMonthKey = sumLedgerIncomeForMonthKey;
+window.__APG_MODULES.sumCollectedIncomeForMonthKey = sumCollectedIncomeForMonthKey;
+window.__APG_MODULES.sumServiceRevenueForPaidMonthKey = sumServiceRevenueForPaidMonthKey;
+window.__APG_MODULES.buildFinanceLedgerRows = buildFinanceLedgerRows;
+window.__APG_MODULES.buildFinanceKpis = buildFinanceKpis;
+window.__APG_MODULES.revenueGrowthPercent = revenueGrowthPercent;
+window.__APG_MODULES.shiftFinanceMonthKey = shiftFinanceMonthKey;
+window.__APG_MODULES.sumYtdCollectedIncome = sumYtdCollectedIncome;
+window.__APG_MODULES.buildMonthlyReconciliation = buildMonthlyReconciliation;
+window.__APG_MODULES.buildRollingMonthlyReconciliation = buildRollingMonthlyReconciliation;
+window.__APG_MODULES.buildRevenueBreakdown = buildRevenueBreakdown;
+window.__APG_MODULES.classifyRevenueBucket = classifyRevenueBucket;
+window.__APG_MODULES.ptClientMemberIdSet = ptClientMemberIdSet;
+window.__APG_MODULES.buildExpenseBreakdown = buildExpenseBreakdown;
+window.__APG_MODULES.financeSummaryDelta = financeSummaryDelta;
 window.__APG_MODULES.financeMonthBoundsFromKey = financeMonthBoundsFromKey;
 window.__APG_MODULES.lastFourMonthTrendSlots = lastFourMonthTrendSlots;
 window.__APG_MODULES.parseFinanceMonthKey = parseFinanceMonthKey;
 window.__APG_MODULES.paymentMonthKeyFromValue = paymentMonthKeyFromValue;
 window.__APG_MODULES.billingDateFromPaymentMonth = billingDateFromPaymentMonth;
+window.__APG_MODULES.derivePaidMonthFromBilling = derivePaidMonthFromBilling;
+window.__APG_MODULES.resolvePaidMonthForPayment = resolvePaidMonthForPayment;
+window.__APG_MODULES.validatePaidMonthKey = validatePaidMonthKey;
+window.__APG_MODULES.payMonthKeyFromStoredValue = payMonthKeyFromStoredValue;
+window.__APG_MODULES.formatPaidMonthDisplay = formatPaidMonthDisplay;
 window.__APG_MODULES.applyPaymentHistoryBackfillToMember = applyPaymentHistoryBackfillToMember;
 window.__APG_MODULES.buildMembershipPlanDistribution = buildMembershipPlanDistribution;
 window.__APG_MODULES.normalizePlanName = normalizePlanName;

@@ -26,7 +26,15 @@ export async function readJsonCollection(key, fallback = [], scope = null, branc
   if (branchScope?.staffNoBranch) {
     filtered = [];
   } else if (branchScope?.gymCodeId) {
-    filtered = sandboxed.filter((row) => String(row?.assignedGymCodeId || '') === String(branchScope.gymCodeId));
+    const activeId = String(branchScope.gymCodeId);
+    if (branchScope.isOwner) {
+      filtered = sandboxed.filter((row) => {
+        const bid = String(row?.assignedGymCodeId || '').trim();
+        return !bid || bid === activeId;
+      });
+    } else {
+      filtered = sandboxed.filter((row) => String(row?.assignedGymCodeId || '') === activeId);
+    }
   }
   if (key === 'apg.members' && (options.view === 'list' || options.includeChildren === false)) {
     const { slimAppMember } = await import('./supabase/mappers.js');
@@ -581,4 +589,63 @@ export async function pingDataStore() {
   }
   await kvStore.readJsonCollection('apg.members', []);
   return true;
+}
+
+/** Server-verified finance totals from payment_transaction_date (paid_at) + manual rows. */
+export async function readFinanceSummary(branchScope, options = {}) {
+  if (useSupabase()) return supabaseStore.readFinanceSummary(branchScope, options);
+
+  const {
+    buildMonthSummaryFromRecords,
+    buildYearReconciliationFromRecords,
+  } = await import('../services/financeSummaryService.js');
+  const { calendarMonthPaidAtBounds, paymentInCalendarMonth } = await import('../../src/features/finance/paymentCalendarMonth.js');
+
+  const members = await readJsonCollection('apg.members', [], null, branchScope);
+  const financeRows = await kvStore.readJsonCollection('apg.finance', []);
+  const settings = (await kvStore.readJsonValue('apg.settings', {}, null)) || {};
+
+  const paymentRecords = [];
+  for (const m of members) {
+    const hist = Array.isArray(m.paymentHistory) ? m.paymentHistory : [];
+    for (const h of hist) {
+      paymentRecords.push({
+        id: h.id,
+        memberId: m.memberId,
+        memberName: m.name || '',
+        paidAt: h.paidAt || h.receivedAt || h.date,
+        amount: Number(h.amount || 0),
+        method: h.method || h.paymentMethod || '',
+      });
+    }
+  }
+
+  if (options.year) {
+    const year = Number(options.year);
+    return {
+      year,
+      dateBasis: 'payment_transaction_date_utc_calendar',
+      totalPaymentsInYear: paymentRecords.length,
+      months: buildYearReconciliationFromRecords(paymentRecords, financeRows, year, settings),
+    };
+  }
+
+  const monthKey = String(options.month || '').trim();
+  if (!calendarMonthPaidAtBounds(monthKey)) {
+    const err = new Error('invalid_month');
+    err.status = 400;
+    throw err;
+  }
+  return {
+    ...buildMonthSummaryFromRecords(
+      paymentRecords,
+      financeRows,
+      monthKey,
+      settings,
+      Boolean(options.includeLines),
+    ),
+    dbPaymentRowsInRange: paymentRecords.filter((p) =>
+      paymentInCalendarMonth(p.paidAt, monthKey)).length,
+    scopedMemberCount: members.length,
+  };
 }

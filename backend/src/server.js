@@ -1500,6 +1500,48 @@ app.get('/api/finance', requireAccess(Access.financeRead), async (req, res) => {
   }));
 });
 
+/** SQL-verified collected revenue by payment_transaction_date (paid_at). */
+app.get('/api/finance/summary', requireAccess(Access.financeRead), async (req, res) => {
+  try {
+    const { readFinanceSummary } = await import('./db/dataStore.js');
+    const branchScope = resolveReadBranchScope(req.auth);
+    const month = String(req.query?.month || '').trim();
+    const year = req.query?.year != null ? Number(req.query.year) : 0;
+    const includeLines = req.query?.includeLines === '1' || req.query?.includeLines === 'true';
+    if (year) {
+      const body = await readFinanceSummary(branchScope, { year, includeLines });
+      return res.json(body);
+    }
+    if (!month) {
+      return res.status(400).json({ error: 'month_required', message: 'Query month=YYYY-MM or year=YYYY' });
+    }
+    const body = await readFinanceSummary(branchScope, { month, includeLines });
+    return res.json(body);
+  } catch (error) {
+    const status = Number(error?.status) || 500;
+    return res.status(status).json({
+      error: status === 400 ? 'invalid_month' : 'finance_summary_failed',
+      message: String(error?.message || error),
+    });
+  }
+});
+
+/** Alias for 12-month reconciliation from DB payments. */
+app.get('/api/finance/reconciliation', requireAccess(Access.financeRead), async (req, res) => {
+  try {
+    const { readFinanceSummary } = await import('./db/dataStore.js');
+    const branchScope = resolveReadBranchScope(req.auth);
+    const year = Number(req.query?.year) || new Date().getFullYear();
+    const body = await readFinanceSummary(branchScope, { year });
+    return res.json(body);
+  } catch (error) {
+    return res.status(500).json({
+      error: 'finance_reconciliation_failed',
+      message: String(error?.message || error),
+    });
+  }
+});
+
 app.put('/api/finance/bulk', requireAccess(Access.financeWrite), async (req, res) => {
   let incoming = Array.isArray(req.body?.finance) ? req.body.finance : [];
   if (!authIsOwner(req.auth)) {
