@@ -28,6 +28,7 @@ import { hashPassword } from '../../auth/passwords.js';
 import { syncGymRowsByExternalId, syncMemberChildRows } from './collectionSync.js';
 import { bulkUpsertMemberRows, membersBulkUpsertReady } from './membersWrite.js';
 import { updateStaffUserRow } from './staffUsersWrite.js';
+import { paymentHistoryListMonthsBack, paymentHistoryListSinceIso } from './memberPaymentsListWindow.js';
 import { chunk, emptyText, fetchAll, paymentBillingDate, toDate, toTs } from './utils.js';
 import { stripVisitorGymCodeColumn, visitorsHaveGymCodeColumn } from './visitorsSchema.js';
 import { syncStaffUserAccess, syncStaffUserSections } from './staffUserSync.js';
@@ -117,12 +118,15 @@ async function loadMemberChildren(sb, gid, memberIds) {
   return { paymentsByMember, messagesByMember, attachmentsByMember, injuryByMember };
 }
 
-/** Recent payment rows for list/dashboard pulls (avoids full child sync). */
-async function loadMemberPaymentsForList(sb, gid, memberIds, monthsBack = 14) {
+/** Payment rows for list hydrate — bounded by APG_PAYMENT_HISTORY_LIST_MONTHS_BACK (default 84). */
+async function loadMemberPaymentsForList(sb, gid, memberIds, monthsBack) {
   const paymentsByMember = new Map();
   if (!memberIds.length) return paymentsByMember;
+  const back = Number.isFinite(monthsBack) && monthsBack > 0
+    ? Math.floor(monthsBack)
+    : paymentHistoryListMonthsBack();
   const since = new Date();
-  since.setUTCMonth(since.getUTCMonth() - monthsBack);
+  since.setUTCMonth(since.getUTCMonth() - back);
   since.setUTCDate(1);
   since.setUTCHours(0, 0, 0, 0);
   const sinceIso = since.toISOString();

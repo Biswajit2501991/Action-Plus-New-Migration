@@ -286,6 +286,8 @@ financeTransactions[] (income) → buildManualIncomeRevenueEntries (tx date)
 
 **Payment History filter:** `src/features/members/paymentHistoryFilters.js` — month filter on `paidAt` (revenue month).
 
+**Finance Transactions data:** Built from in-memory `member.paymentHistory` (paid rows) + current overdue billing (pending) + `finance_transactions`. List hydrate loads payments back **84 months** by default (`APG_PAYMENT_HISTORY_LIST_MONTHS_BACK`). Older DB rows exist but were previously cut off at 14 months. Historical months that only existed as billing-date auto-income (pre-PR1) are not in the ledger unless backfilled to `member_payment_history`.
+
 ### 7.2 Members — add, edit, payments
 
 ```mermaid
