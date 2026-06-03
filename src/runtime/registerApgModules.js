@@ -132,6 +132,11 @@ import {
   mapManualFinanceLedgerRows,
 } from '../features/finance/financeLedger.js';
 import {
+  filterLedgerRowsByDateRange,
+  sumLedgerIncomeForMonthKey,
+  sumLedgerRowAmounts,
+} from '../features/finance/financeLedgerTotals.js';
+import {
   financeMonthBoundsFromKey,
   lastFourMonthTrendSlots,
   parseFinanceMonthKey,
@@ -375,6 +380,9 @@ window.__APG_MODULES.buildManualIncomeRevenueEntries = buildManualIncomeRevenueE
 window.__APG_MODULES.buildPaymentIncomeLedgerRows = buildPaymentIncomeLedgerRows;
 window.__APG_MODULES.buildBillingPendingLedgerRows = buildBillingPendingLedgerRows;
 window.__APG_MODULES.mapManualFinanceLedgerRows = mapManualFinanceLedgerRows;
+window.__APG_MODULES.sumLedgerRowAmounts = sumLedgerRowAmounts;
+window.__APG_MODULES.filterLedgerRowsByDateRange = filterLedgerRowsByDateRange;
+window.__APG_MODULES.sumLedgerIncomeForMonthKey = sumLedgerIncomeForMonthKey;
 window.__APG_MODULES.financeMonthBoundsFromKey = financeMonthBoundsFromKey;
 window.__APG_MODULES.lastFourMonthTrendSlots = lastFourMonthTrendSlots;
 window.__APG_MODULES.parseFinanceMonthKey = parseFinanceMonthKey;

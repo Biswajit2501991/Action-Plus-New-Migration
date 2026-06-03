@@ -19517,14 +19517,29 @@ function PTClientsPage({ members, users, settings, updateSetting, currentUser, a
         setShowExpenseForm(true);
       }, [openExpenseSignal]);
 
-      const collectedRevenueEntries = React.useMemo(
-        () => buildAllFinanceRevenueEntries(members, financeTransactions, localTodayCalendarKey()),
-        [members, financeTransactions],
-      );
-      const incomeRows = filteredTransactions.filter((t) => t.type !== 'expense');
-      const pendingRows = incomeRows.filter(t => t.status === 'pending');
-      const revenue = sumMonthlyCollectedRevenue(collectedRevenueEntries, financeMonth);
-      const pendingAmount = pendingRows.reduce((sum, t) => sum + Number(t.amount || 0), 0);
+      const reportingMonthLedger = React.useMemo(() => {
+        const filterRange = window.__APG_MODULES?.filterLedgerRowsByDateRange;
+        const list = Array.isArray(transactions) ? transactions : [];
+        if (typeof filterRange === 'function') {
+          return filterRange(list, financeMonthBounds.from, financeMonthBounds.to);
+        }
+        return list.filter((t) => {
+          const d = String(t?.date || '');
+          if (financeMonthBounds.from && d < financeMonthBounds.from) return false;
+          if (financeMonthBounds.to && d > financeMonthBounds.to) return false;
+          return true;
+        });
+      }, [transactions, financeMonthBounds.from, financeMonthBounds.to]);
+      const incomeRows = reportingMonthLedger.filter((t) => t.type !== 'expense');
+      const pendingRows = incomeRows.filter((t) => String(t.status || '').toLowerCase() === 'pending');
+      const sumLedger = window.__APG_MODULES?.sumLedgerRowAmounts;
+      const revenue = typeof sumLedger === 'function'
+        ? sumLedger(incomeRows, { incomeOnly: true })
+        : incomeRows.reduce((sum, t) => sum + Number(t.amount || 0), 0);
+      const pendingAmount = typeof sumLedger === 'function'
+        ? sumLedger(incomeRows, { incomeOnly: true, status: 'pending' })
+        : pendingRows.reduce((sum, t) => sum + Number(t.amount || 0), 0);
+      const paidRevenue = revenue - pendingAmount;
       const actualExpense = filteredTransactions
         .filter((t) => t.type === 'expense')
         .reduce((sum, t) => sum + Number(t.amount || 0), 0);
@@ -19595,13 +19610,21 @@ function PTClientsPage({ members, users, settings, updateSetting, currentUser, a
 
       const monthTotals = React.useMemo(() => {
         const slotsFn = window.__APG_MODULES?.lastFourMonthTrendSlots;
+        const sumMonthFn = window.__APG_MODULES?.sumLedgerIncomeForMonthKey;
         const slots = typeof slotsFn === 'function'
           ? slotsFn(financeMonth, MONTHS)
           : [];
+        const sumForMonth = (monthKey) => (
+          typeof sumMonthFn === 'function'
+            ? sumMonthFn(transactions, monthKey)
+            : (Array.isArray(transactions) ? transactions : [])
+                .filter((t) => t.type !== 'expense' && String(t.date || '').slice(0, 7) === monthKey)
+                .reduce((s, t) => s + Number(t.amount || 0), 0)
+        );
         if (slots.length) {
           return slots.map((slot) => ({
             label: slot.label,
-            total: sumMonthlyCollectedRevenue(collectedRevenueEntries, slot.monthKey),
+            total: sumForMonth(slot.monthKey),
           }));
         }
         const months = [];
@@ -19610,11 +19633,10 @@ function PTClientsPage({ members, users, settings, updateSetting, currentUser, a
           const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
           const label = MONTHS[d.getMonth()];
           const monthKey = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
-          const total = sumMonthlyCollectedRevenue(collectedRevenueEntries, monthKey);
-          months.push({ label, total });
+          months.push({ label, total: sumForMonth(monthKey) });
         }
         return months;
-      }, [collectedRevenueEntries, financeMonth]);
+      }, [transactions, financeMonth]);
       const highestMonth = Math.max(1, ...monthTotals.map(x => x.total));
       const hasAnyMonthData = monthTotals.some((x) => Number(x.total) > 0);
 
@@ -19923,6 +19945,10 @@ function PTClientsPage({ members, users, settings, updateSetting, currentUser, a
               <div className="text-sm text-slate-500 dark:text-slate-400">Revenue</div>
               <div className="mt-1 text-3xl font-bold text-emerald-700 dark:text-emerald-400">₹{revenue.toLocaleString('en-IN')}</div>
               <div className="text-sm text-emerald-700 dark:text-emerald-300">{financeMonthBounds.label}</div>
+              <div className="text-xs text-slate-500 dark:text-slate-400 mt-1">
+                From Transactions by date (paid ₹{Math.max(0, paidRevenue).toLocaleString('en-IN')}
+                {pendingAmount > 0 ? ` + pending ₹${pendingAmount.toLocaleString('en-IN')}` : ''})
+              </div>
             </div>
             )}
             {canFinancePendingPayments && (
