@@ -282,6 +282,10 @@ financeTransactions[] (income) → buildManualIncomeRevenueEntries (tx date)
 **Trend chart:** four months ending at the selected `financeMonth` (`lastFourMonthTrendSlots`).  
 **Backfill:** `backend/scripts/backfill-member-payment-history.js` for empty `paymentHistory` from `paymentReceivedAt` / `billingDate`.
 
+**Plan analytics:** `src/features/analytics/planDistribution.js` — Dashboard and Finance Plan Popularity share `buildMembershipPlanDistribution` (member counts, plan name normalization).
+
+**Payment History filter:** `src/features/members/paymentHistoryFilters.js` — month filter on `paidAt` (revenue month).
+
 ### 7.2 Members — add, edit, payments
 
 ```mermaid

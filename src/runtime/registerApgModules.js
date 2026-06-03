@@ -141,6 +141,16 @@ import {
   billingDateFromPaymentMonth,
 } from '../features/finance/paymentMonthKey.js';
 import { applyPaymentHistoryBackfillToMember } from '../features/members/paymentHistoryLegacyBackfill.js';
+import {
+  filterPaymentRowsByMonth,
+  paymentHistoryMonthOptions,
+  sumPaymentRowAmounts,
+} from '../features/members/paymentHistoryFilters.js';
+import {
+  buildMembershipPlanDistribution,
+  normalizePlanName,
+  planDistributionConicGradient,
+} from '../features/analytics/planDistribution.js';
 import { pickMergedPaymentHistory } from '../features/members/paymentHistoryMerge.js';
 /** Bump when memberPhotoApi exports change — separate URL bypasses stale bare-path module cache. */
 import * as memberPhotoApiInitial from '../features/members/memberPhotoApi.js?v=5';
@@ -371,6 +381,12 @@ window.__APG_MODULES.parseFinanceMonthKey = parseFinanceMonthKey;
 window.__APG_MODULES.paymentMonthKeyFromValue = paymentMonthKeyFromValue;
 window.__APG_MODULES.billingDateFromPaymentMonth = billingDateFromPaymentMonth;
 window.__APG_MODULES.applyPaymentHistoryBackfillToMember = applyPaymentHistoryBackfillToMember;
+window.__APG_MODULES.buildMembershipPlanDistribution = buildMembershipPlanDistribution;
+window.__APG_MODULES.normalizePlanName = normalizePlanName;
+window.__APG_MODULES.planDistributionConicGradient = planDistributionConicGradient;
+window.__APG_MODULES.filterPaymentRowsByMonth = filterPaymentRowsByMonth;
+window.__APG_MODULES.paymentHistoryMonthOptions = paymentHistoryMonthOptions;
+window.__APG_MODULES.sumPaymentRowAmounts = sumPaymentRowAmounts;
 window.__APG_MODULES.pickMergedPaymentHistory = pickMergedPaymentHistory;
 window.__APG_MODULES.resolveMemberAvatarSrc = resolveMemberAvatarSrc;
 window.__APG_MODULES.mergeMemberPhotoFields = mergeMemberPhotoFields;

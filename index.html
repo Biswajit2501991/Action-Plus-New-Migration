@@ -9175,6 +9175,7 @@ Please pay by: ${formattedLastDate}`;
               dashMode === 'summary' ? (
                 <DashboardSummary
                   members={branchScopedMembers}
+                  masterPlans={Array.isArray(settings?.plans) ? settings.plans : []}
                   access={normalizeAccess(user?.access)}
                   isOwner={user?.id === 'owner'}
                   currentUserRole={currentUserRole}
@@ -10990,7 +10991,7 @@ function Sidebar({ user, active, onSelect, theme, setTheme, layoutMode = 'classi
     }
 
     // ---- Dashboard Summary Component ----
-    function DashboardSummary({ members, access, isOwner = false, currentUserRole = '', fineRuleConfig, onSelectStatus, onAddNew, onAddExpense, onSearch, onOpenMember, onWelcome, onOpenFilters }) {
+    function DashboardSummary({ members, access, isOwner = false, currentUserRole = '', fineRuleConfig, onSelectStatus, onAddNew, onAddExpense, onSearch, onOpenMember, onWelcome, onOpenFilters, masterPlans = [] }) {
       const counts = React.useMemo(() => {
         return {
           Active: members.filter(m => m.status === 'Active').length,
@@ -11063,32 +11064,22 @@ function Sidebar({ user, active, onSelect, theme, setTheme, layoutMode = 'classi
       const historicalTrend = React.useMemo(() => allMonthTrend.slice(0, -6), [allMonthTrend]);
       const maxTrend = Math.max(1, ...monthTrend.map(x => x.total));
       const maxHistoricalTrend = Math.max(1, ...historicalTrend.map(x => x.total));
+      const planDistributionOpts = React.useMemo(() => ({
+        topN: 6,
+        palette: 'dashboard',
+        canonicalPlans: Array.isArray(masterPlans) ? masterPlans : [],
+      }), [masterPlans]);
       const planDistribution = React.useMemo(() => {
-        const countsByPlan = {};
-        members.forEach(m => {
-          const key = m.plan || 'Unknown';
-          countsByPlan[key] = (countsByPlan[key] || 0) + 1;
-        });
-        const entries = Object.entries(countsByPlan).sort((a, b) => b[1] - a[1]);
-        const total = entries.reduce((sum, [, c]) => sum + c, 0);
-        return entries.slice(0, 6).map(([name, count], idx) => ({
-          name,
-          count,
-          pct: total ? Math.round((count / total) * 100) : 0,
-          color: ['#93c5fd','#86efac','#fde68a','#fca5a5','#c4b5fd','#67e8f9'][idx % 6],
-        }));
-      }, [members]);
+        const buildFn = window.__APG_MODULES?.buildMembershipPlanDistribution;
+        if (typeof buildFn === 'function') {
+          return buildFn(members, planDistributionOpts);
+        }
+        return [];
+      }, [members, planDistributionOpts]);
       const planPie = React.useMemo(() => {
-        if (!planDistribution.length) return '#e2e8f0';
-        let start = 0;
-        const parts = planDistribution.map(p => {
-          const from = start;
-          const to = start + p.pct;
-          start = to;
-          return `${p.color} ${from}% ${to}%`;
-        });
-        if (start < 100) parts.push(`#cbd5e1 ${start}% 100%`);
-        return `conic-gradient(${parts.join(', ')})`;
+        const gradFn = window.__APG_MODULES?.planDistributionConicGradient;
+        if (typeof gradFn === 'function') return gradFn(planDistribution);
+        return '#e2e8f0';
       }, [planDistribution]);
       const tiles = [
         { key: 'Active', color: 'emerald' },
@@ -11319,7 +11310,7 @@ function Sidebar({ user, active, onSelect, theme, setTheme, layoutMode = 'classi
                     <div key={p.name} className="flex items-center gap-2">
                       <span className="inline-block h-2.5 w-2.5 rounded-full" style={{ background: p.color }} />
                       <span className="text-slate-700">{p.name}</span>
-                      <span className="text-slate-500">{p.pct}%</span>
+                      <span className="text-slate-500">{p.count} · {p.pct}%</span>
                     </div>
                   ))}
                 </div>
@@ -12634,6 +12625,7 @@ function MobileMemberDetailView({ m, onBack, onEdit, onWelcome, onWhatsAppCall, 
 function MemberDetails({ m, logs, onQuickFieldEdit, editOptions, isOwner = false, displayTimeZone = 'IST', onAddPaymentEntry = null, onDeletePaymentEntry = null, onEditPaymentEntry = null, onWelcome = null, onWelcomeMail = null, canWelcome = false, statusTemplate = { key: 'none', label: '', disabled: false, overdueDays: 0 }, uploadDoc = null, gymCodeLabel = null }) {
       const [copiedKey, setCopiedKey] = React.useState('');
       const [paymentHistoryOpen, setPaymentHistoryOpen] = React.useState(true);
+      const [paymentHistoryMonthFilter, setPaymentHistoryMonthFilter] = React.useState('');
       const [detailsViewMode, setDetailsViewMode] = React.useState(() => {
         try {
           const raw = localStorage.getItem('apg.memberDetails.viewMode');
@@ -12733,10 +12725,26 @@ function MemberDetails({ m, logs, onQuickFieldEdit, editOptions, isOwner = false
       ]);
       const memberLogs = (logs || []).filter(l => l.entityId === m.memberId).slice(0, 2);
       const paymentRows = React.useMemo(() => normalizeMemberPaymentHistory(m), [m]);
-      const paymentTotal = React.useMemo(
-        () => paymentRows.reduce((sum, row) => sum + Number(row.amount || 0), 0),
-        [paymentRows]
-      );
+      const paymentMonthFilterOptions = React.useMemo(() => {
+        const optsFn = window.__APG_MODULES?.paymentHistoryMonthOptions;
+        return typeof optsFn === 'function' ? optsFn(paymentRows) : [];
+      }, [paymentRows]);
+      const filteredPaymentRows = React.useMemo(() => {
+        const filterFn = window.__APG_MODULES?.filterPaymentRowsByMonth;
+        if (typeof filterFn === 'function') {
+          return filterFn(paymentRows, paymentHistoryMonthFilter);
+        }
+        return paymentRows;
+      }, [paymentRows, paymentHistoryMonthFilter]);
+      const paymentTotal = React.useMemo(() => {
+        const sumFn = window.__APG_MODULES?.sumPaymentRowAmounts;
+        const rows = paymentHistoryMonthFilter && typeof window.__APG_MODULES?.filterPaymentRowsByMonth === 'function'
+          ? filteredPaymentRows
+          : paymentRows;
+        return typeof sumFn === 'function'
+          ? sumFn(rows)
+          : rows.reduce((sum, row) => sum + Number(row.amount || 0), 0);
+      }, [paymentRows, filteredPaymentRows, paymentHistoryMonthFilter]);
       const billingMonthLabel = (row) => {
         const monthKeyFn = window.__APG_MODULES?.paymentMonthKeyFromValue;
         const month = typeof monthKeyFn === 'function'
@@ -12820,8 +12828,25 @@ function MemberDetails({ m, logs, onQuickFieldEdit, editOptions, isOwner = false
           <div className="flex items-center justify-between gap-1.5">
             <div className="text-xs font-semibold text-emerald-800">Payment History (Month-wise)</div>
             <div className="flex items-center gap-1.5 flex-wrap justify-end">
+              {paymentMonthFilterOptions.length > 0 && (
+                <label className="flex items-center gap-1 text-[11px] text-emerald-800">
+                  <span>Month</span>
+                  <select
+                    value={paymentHistoryMonthFilter}
+                    onChange={(e) => setPaymentHistoryMonthFilter(e.target.value)}
+                    className="rounded border border-emerald-300 bg-white px-1.5 py-0.5 text-[11px]"
+                    data-testid="payment-history-month-filter"
+                  >
+                    <option value="">All</option>
+                    {paymentMonthFilterOptions.map((mk) => (
+                      <option key={mk} value={mk}>{mk}</option>
+                    ))}
+                  </select>
+                </label>
+              )}
               <span className="text-[11px] font-semibold text-emerald-700">
                 Total Paid: ₹{Number(paymentTotal || 0).toLocaleString()}
+                {paymentHistoryMonthFilter ? ` (${paymentHistoryMonthFilter})` : ''}
               </span>
               {onAddPaymentEntry && (
                 <button
@@ -12842,14 +12867,16 @@ function MemberDetails({ m, logs, onQuickFieldEdit, editOptions, isOwner = false
             </div>
           </div>
           {paymentHistoryOpen && (
-            paymentRows.length === 0 ? (
-              <div className="text-xs text-slate-500">No payment records yet.</div>
+            filteredPaymentRows.length === 0 ? (
+              <div className="text-xs text-slate-500">
+                {paymentRows.length === 0 ? 'No payment records yet.' : 'No payments for the selected month.'}
+              </div>
             ) : (
               <div className="overflow-x-auto rounded-lg border border-emerald-200 bg-white">
                 <table className="min-w-full text-xs" data-testid="payment-history-table">
                   <thead>
                     <tr className="bg-emerald-50 text-emerald-800">
-                      <th className="px-2 py-1 text-left">Billing Month</th>
+                      <th className="px-2 py-1 text-left">Revenue Month</th>
                       <th className="px-2 py-1 text-left">Amount</th>
                       <th className="px-2 py-1 text-left">Payment Date</th>
                       <th className="px-2 py-1 text-left">Method</th>
@@ -12861,7 +12888,7 @@ function MemberDetails({ m, logs, onQuickFieldEdit, editOptions, isOwner = false
                     </tr>
                   </thead>
                   <tbody>
-                    {paymentRows.map((row) => (
+                    {filteredPaymentRows.map((row) => (
                       <tr key={row.id} className="border-t border-emerald-100">
                         <td className="px-2 py-1 whitespace-nowrap">{billingMonthLabel(row)}</td>
                         <td className="px-2 py-1 whitespace-nowrap">₹{Number(row.amount || 0).toLocaleString()}</td>
@@ -19592,31 +19619,21 @@ function PTClientsPage({ members, users, settings, updateSetting, currentUser, a
       const hasAnyMonthData = monthTotals.some((x) => Number(x.total) > 0);
 
       const planBreakup = React.useMemo(() => {
-        const counts = {};
-        filteredTransactions.forEach(t => {
-          const key = t.plan || 'Unassigned';
-          counts[key] = (counts[key] || 0) + 1;
-        });
-        const entries = Object.entries(counts).sort((a, b) => b[1] - a[1]);
-        const total = entries.reduce((sum, [, c]) => sum + c, 0);
-        return entries.slice(0, 4).map(([name, count], idx) => ({
-          name,
-          pct: total ? Math.round((count / total) * 100) : 0,
-          color: ['#2563eb', '#16a34a', '#eab308', '#7c3aed'][idx % 4],
-        }));
-      }, [filteredTransactions]);
+        const buildFn = window.__APG_MODULES?.buildMembershipPlanDistribution;
+        if (typeof buildFn === 'function') {
+          return buildFn(members, {
+            topN: 6,
+            palette: 'finance',
+            canonicalPlans: Array.isArray(settings?.plans) ? settings.plans : [],
+          });
+        }
+        return [];
+      }, [members, settings?.plans]);
 
       const pieBackground = React.useMemo(() => {
-        if (!planBreakup.length) return '#e2e8f0';
-        let start = 0;
-        const segments = planBreakup.map(seg => {
-          const from = start;
-          const to = start + seg.pct;
-          start = to;
-          return `${seg.color} ${from}% ${to}%`;
-        });
-        if (start < 100) segments.push(`#cbd5e1 ${start}% 100%`);
-        return `conic-gradient(${segments.join(', ')})`;
+        const gradFn = window.__APG_MODULES?.planDistributionConicGradient;
+        if (typeof gradFn === 'function') return gradFn(planBreakup);
+        return '#e2e8f0';
       }, [planBreakup]);
 
       const pageSize = 10;
@@ -19980,18 +19997,19 @@ function PTClientsPage({ members, users, settings, updateSetting, currentUser, a
             )}
             {canFinancePlan && (
             <div className={cardBase}>
-              <div className="text-lg font-semibold text-slate-900 dark:text-slate-100 mb-4">Plan Popularity</div>
+              <div className="text-lg font-semibold text-slate-900 dark:text-slate-100 mb-1">Plan Popularity</div>
+              <div className="text-xs text-slate-500 dark:text-slate-400 mb-4">Membership by plan (all members, matches Dashboard)</div>
               <div className="flex items-center gap-4">
                 <div className="h-36 w-36 rounded-full border border-slate-200 shrink-0" style={{ background: pieBackground }} />
                 <div className="space-y-2 text-sm">
                   {planBreakup.map(seg => (
                     <div key={seg.name} className="flex items-center gap-2">
                       <span className="inline-block h-2.5 w-2.5 rounded-full" style={{ background: seg.color }} />
-                      <span className="text-slate-700">{seg.name}</span>
-                      <span className="text-slate-500">{seg.pct}%</span>
+                      <span className="text-slate-700 dark:text-slate-200">{seg.name}</span>
+                      <span className="text-slate-500">{seg.count} · {seg.pct}%</span>
                     </div>
                   ))}
-                  {planBreakup.length === 0 && <div className="text-slate-500">No data for selected filters.</div>}
+                  {planBreakup.length === 0 && <div className="text-slate-500">No members in scope.</div>}
                 </div>
               </div>
             </div>
