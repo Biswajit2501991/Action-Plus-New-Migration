@@ -36,6 +36,9 @@ import {
   memberPaidForMonthLedgerReady,
   mapPaidForMonthLedgerToPaymentRecords,
   sumActivePaidForMonthLedger,
+  sumPaidForMonthLedger,
+  patchMemberPaidForMonthAmount,
+  readMemberPaidForMonthLedgerRow,
 } from './memberPaidForMonthSync.js';
 import { bulkUpsertMemberRows, membersBulkUpsertReady } from './membersWrite.js';
 import { updateStaffUserRow } from './staffUsersWrite.js';
@@ -248,6 +251,17 @@ export async function deleteMemberPayment(memberCode, paymentId, branchScope = n
     rows: payRows,
     onConflict: 'gym_id,member_id,external_payment_id',
   });
+
+  try {
+    await syncMemberPaidForMonthLedger(sb, {
+      gymId: gid,
+      memberPk: memberRow.id,
+      member: { memberId: code, paymentHistory: after },
+    });
+  } catch (ledgerErr) {
+    const msg = String(ledgerErr?.message || ledgerErr);
+    if (!/member_paid_for_month|does not exist|42P01/i.test(msg)) throw ledgerErr;
+  }
 
   notifyCollectionChange('members');
   const refreshed = await readMemberByCode(code, branchScope);
@@ -563,16 +577,24 @@ const MEMBER_PATCH_KEY_MAP = {
   assignedGymCodeId: 'assigned_gym_code_id',
 };
 
-async function deleteMemberChildren(sb, memberIds) {
+async function safeDeleteByMemberIds(sb, table, memberIds) {
   if (!memberIds.length) return;
   for (const idChunk of chunk(memberIds, 100)) {
-    await Promise.all([
-      sb.from(T.member_payment_history).delete().in('member_id', idChunk),
-      sb.from(T.member_message_history).delete().in('member_id', idChunk),
-      sb.from(T.member_attachments).delete().in('member_id', idChunk),
-      sb.from(T.member_injury_notes).delete().in('member_id', idChunk),
-    ]);
+    const { error } = await sb.from(table).delete().in('member_id', idChunk);
+    if (error && !/does not exist|42P01|relation.*does not exist/i.test(String(error.message || ''))) {
+      throw new Error(`${table} delete: ${error.message}`);
+    }
   }
+}
+
+async function deleteMemberChildren(sb, memberIds) {
+  if (!memberIds.length) return;
+  await safeDeleteByMemberIds(sb, T.member_payment_history, memberIds);
+  await safeDeleteByMemberIds(sb, T.member_message_history, memberIds);
+  await safeDeleteByMemberIds(sb, T.member_attachments, memberIds);
+  await safeDeleteByMemberIds(sb, T.member_injury_notes, memberIds);
+  await safeDeleteByMemberIds(sb, T.member_paid_for_month, memberIds);
+  await safeDeleteByMemberIds(sb, T.pt_client_profiles, memberIds);
 }
 
 function paymentHistoryLogicalKey(p) {
@@ -686,7 +708,7 @@ async function writeMembers(members, scope) {
   const memberRows = incoming
     .filter((m) => m?.memberId)
     .map((m) => {
-      const row = appMemberToRow(m, gid);
+      const row = appMemberToRow(m, gid, { partialBulkSync: true });
       if (!String(row.photo_url || '').trim()) {
         const prevPhoto = photoByCode.get(String(row.member_code));
         if (String(prevPhoto || '').trim()) row.photo_url = prevPhoto;
@@ -1731,6 +1753,76 @@ export async function deleteVisitorByExternalId(externalVisitorId, branchScope =
   return { ok: true, id: extId };
 }
 
+/**
+ * Permanent delete for one member by external member_code (branch-scoped for branch owners).
+ * Deletes ALL DB rows sharing member_code (legacy duplicate imports).
+ */
+export async function deleteMemberByExternalId(externalMemberCode, branchScope = null) {
+  const sb = getSupabase();
+  const gid = gymId();
+  const code = String(externalMemberCode || '').trim();
+  if (!code) {
+    const err = new Error('member-code-required');
+    err.status = 400;
+    throw err;
+  }
+
+  const existingRows = await fetchAll((from, to) => sb
+    .from(T.members)
+    .select('id, member_code, assigned_gym_code_id')
+    .eq('gym_id', gid)
+    .eq('member_code', code)
+    .order('updated_at', { ascending: false })
+    .range(from, to));
+  if (!existingRows.length) {
+    const err = new Error('member-not-found');
+    err.status = 404;
+    throw err;
+  }
+
+  for (const row of existingRows) {
+    if (branchScope && !branchScope.isOwner) {
+      if (!branchScopeAllowsMember(branchScope, row.assigned_gym_code_id)) {
+        const err = new Error('branch-write-forbidden');
+        err.status = 403;
+        throw err;
+      }
+    } else if (branchScope?.gymCodeId && branchScope.isOwner) {
+      const assigned = String(row.assigned_gym_code_id || '').trim();
+      if (assigned && assigned !== String(branchScope.gymCodeId)) {
+        const err = new Error('branch-write-forbidden');
+        err.status = 403;
+        throw err;
+      }
+    }
+  }
+
+  const memberPks = existingRows.map((r) => r.id).filter(Boolean);
+  await deleteMemberChildren(sb, memberPks);
+  const { error: delErr } = await sb
+    .from(T.members)
+    .delete()
+    .eq('gym_id', gid)
+    .eq('member_code', code);
+  if (delErr) throw new Error(`member delete: ${delErr.message}`);
+
+  const remaining = await fetchAll((from, to) => sb
+    .from(T.members)
+    .select('id')
+    .eq('gym_id', gid)
+    .eq('member_code', code)
+    .range(from, to));
+  if (remaining.length) {
+    const err = new Error('member-delete-not-persisted');
+    err.status = 500;
+    throw err;
+  }
+
+  notifyCollectionChange('members');
+  notifyCollectionChange('finance');
+  return { ok: true, deleted: true, id: code, rowsRemoved: memberPks.length };
+}
+
 async function readFinance(scope) {
   const sb = getSupabase();
   const gid = gymId();
@@ -1826,10 +1918,9 @@ async function readFinanceSummary(branchScope, options = {}) {
 
   const loadPaymentsForServiceMonth = async (monthKey) => {
     const ledgerRaw = [];
-    const scopePks = activeMemberPks.length ? activeMemberPks : memberPks;
-    if (!scopePks.length || !monthKey) return [];
+    if (!memberPks.length || !monthKey) return [];
     let ledgerAvailable = true;
-    for (const idChunk of chunk(scopePks, 100)) {
+    for (const idChunk of chunk(memberPks, 100)) {
       const { data, error } = await sb
         .from(T.member_paid_for_month)
         .select('member_id, member_code, paid_for_month, amount, paid_at, payment_external_id, member_status')
@@ -1849,7 +1940,7 @@ async function readFinanceSummary(branchScope, options = {}) {
       return mapPaidForMonthLedgerToPaymentRecords(ledgerRaw, memberPkToMeta);
     }
     const raw = [];
-    for (const idChunk of chunk(scopePks, 100)) {
+    for (const idChunk of chunk(memberPks, 100)) {
       const { data, error } = await sb
         .from(T.member_payment_history)
         .select('member_id, paid_at, amount, external_payment_id, method, paid_month, billing_date, billing_month')
@@ -1864,11 +1955,10 @@ async function readFinanceSummary(branchScope, options = {}) {
 
   const loadPaymentsForServiceYear = async (year) => {
     const ledgerRaw = [];
-    const scopePks = activeMemberPks.length ? activeMemberPks : memberPks;
-    if (!scopePks.length || !year) return [];
+    if (!memberPks.length || !year) return [];
     const prefix = `${year}-`;
     let ledgerAvailable = true;
-    for (const idChunk of chunk(scopePks, 100)) {
+    for (const idChunk of chunk(memberPks, 100)) {
       const { data, error } = await sb
         .from(T.member_paid_for_month)
         .select('member_id, member_code, paid_for_month, amount, paid_at, payment_external_id, member_status')
@@ -1888,7 +1978,7 @@ async function readFinanceSummary(branchScope, options = {}) {
       return mapPaidForMonthLedgerToPaymentRecords(ledgerRaw, memberPkToMeta);
     }
     const raw = [];
-    for (const idChunk of chunk(scopePks, 100)) {
+    for (const idChunk of chunk(memberPks, 100)) {
       const { data, error } = await sb
         .from(T.member_payment_history)
         .select('member_id, paid_at, amount, external_payment_id, method, paid_month, billing_date, billing_month')
@@ -1939,10 +2029,10 @@ async function readFinanceSummary(branchScope, options = {}) {
   }
   const includeLines = Boolean(options.includeLines);
   const ledgerReady = await memberPaidForMonthLedgerReady(sb);
-  let ledgerActiveSum = 0;
+  let ledgerServiceSum = 0;
   const ledgerFastPath = !includeLines && ledgerReady;
   if (ledgerFastPath) {
-    ledgerActiveSum = await sumActivePaidForMonthLedger(sb, gid, monthKey, activeMemberPks);
+    ledgerServiceSum = await sumPaidForMonthLedger(sb, gid, monthKey, memberPks);
   }
 
   let collectedRecords = [];
@@ -1950,6 +2040,7 @@ async function readFinanceSummary(branchScope, options = {}) {
   let paymentRecords = [];
   let summary;
   if (ledgerFastPath) {
+    collectedRecords = await loadPaymentsInRange(bounds.from, bounds.toExclusive);
     summary = buildMonthSummaryFromRecords([], financeRows, monthKey, settings, false);
   } else {
     collectedRecords = await loadPaymentsInRange(bounds.from, bounds.toExclusive);
@@ -1967,14 +2058,19 @@ async function readFinanceSummary(branchScope, options = {}) {
       includeLines,
     );
     if (ledgerReady) {
-      ledgerActiveSum = await sumActivePaidForMonthLedger(sb, gid, monthKey, activeMemberPks);
+      ledgerServiceSum = await sumPaidForMonthLedger(sb, gid, monthKey, memberPks);
     }
   }
   const manualIncome = Number(summary.manualIncomeCollected || 0);
-  let collectedFromLedger = ledgerActiveSum + manualIncome;
-  let serviceFromPayments = ledgerActiveSum;
-  let revenueBasisTag = ledgerActiveSum > 0 ? 'member_paid_for_month_active' : summary.revenueBasis;
-  if (ledgerReady && ledgerActiveSum === 0) {
+  const collectedPaymentSum = (collectedRecords || []).reduce(
+    (sum, p) => sum + Number(p.amount || 0),
+    0,
+  );
+  let collectedFromLedger = (ledgerFastPath ? collectedPaymentSum : Number(summary.memberPaymentsCollected || 0))
+    + manualIncome;
+  let serviceFromPayments = ledgerServiceSum;
+  let revenueBasisTag = ledgerServiceSum > 0 ? 'member_paid_for_month_ledger' : summary.revenueBasis;
+  if (ledgerReady && ledgerServiceSum === 0) {
     const { sumServiceRevenueFromPaymentRecords } = await import(
       '../../../src/features/finance/aggregateFinanceSummary.js'
     );
@@ -1994,7 +2090,7 @@ async function readFinanceSummary(branchScope, options = {}) {
     })();
     if (!prevKey) return 0;
     try {
-      return await sumActivePaidForMonthLedger(sb, gid, prevKey, activeMemberPks);
+      return await sumPaidForMonthLedger(sb, gid, prevKey, memberPks);
     } catch {
       return 0;
     }
@@ -2014,14 +2110,15 @@ async function readFinanceSummary(branchScope, options = {}) {
   return {
     ...summary,
     collectedRevenue: collectedFromLedger,
-    serviceRevenue: collectedFromLedger,
-    memberPaymentsCollected: ledgerActiveSum || serviceFromPayments,
-    memberPaymentsService: ledgerActiveSum || serviceFromPayments,
+    serviceRevenue: serviceFromPayments + manualIncome,
+    memberPaymentsCollected: collectedPaymentSum,
+    memberPaymentsService: ledgerServiceSum || serviceFromPayments,
     profit: expenseProfit.profit,
     revenueGrowthPct: growthPct,
     revenueBasis: revenueBasisTag,
-    dateBasis: ledgerActiveSum > 0 ? 'member_paid_for_month_ledger' : summary.dateBasis,
-    dbLedgerActiveSum: ledgerActiveSum,
+    dateBasis: ledgerServiceSum > 0 ? 'member_paid_for_month_ledger' : summary.dateBasis,
+    dbLedgerServiceSum: ledgerServiceSum,
+    dbLedgerActiveSum: ledgerServiceSum,
     dbServiceMonthFallbackSum: serviceFromPayments,
     dbActiveMemberCount: activeMemberPks.length,
     dbPaymentRowsInRange: collectedRecords.length,
@@ -2077,7 +2174,7 @@ async function readLogs(scope, options = {}) {
   const columns = slim ? LOG_LIST_COLUMNS : '*';
   const limit = Math.min(Math.max(Number(options.limit) || 500, 1), 2000);
   const offset = Math.max(Number(options.offset) || 0, 0);
-  const days = Math.min(Math.max(Number(options.days) || 90, 1), 365);
+  const days = Math.min(Math.max(Number(options.days) || 90, 1), 2555);
   const startIso = toTs(options.startDate);
   const endIso = toTs(options.endDate);
 
@@ -2165,7 +2262,71 @@ export async function readCollection(key, fallback = [], scope = null, branchSco
   }
 }
 
-export { updateMemberFields, readMemberByCode, assertStaffPaymentDeletesAllowed, readFinanceSummary };
+export async function overrideMemberPaidForMonthAmount(
+  memberCode,
+  monthKey,
+  newAmount,
+  branchScope,
+  { changedBy, overrideReason, confirmOverride = false } = {},
+) {
+  const sb = getSupabase();
+  const gid = gymId();
+  const code = String(memberCode || '').trim();
+  const member = await readMemberByCode(code, branchScope);
+  if (!member) {
+    const err = new Error('member-not-found');
+    err.status = 404;
+    throw err;
+  }
+  const { data: memberRow, error: rowErr } = await sb
+    .from(T.members)
+    .select('id')
+    .eq('gym_id', gid)
+    .eq('member_code', code)
+    .order('updated_at', { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  if (rowErr) throw new Error(`member pk lookup: ${rowErr.message}`);
+  if (!memberRow?.id) {
+    const err = new Error('member-not-found');
+    err.status = 404;
+    throw err;
+  }
+  const existing = await readMemberPaidForMonthLedgerRow(sb, gid, memberRow.id, monthKey);
+  const oldAmount = Number(existing?.amount || 0);
+  const amount = Number(newAmount);
+  if (existing && oldAmount !== amount && !confirmOverride) {
+    const err = new Error('amount-override-confirmation-required');
+    err.status = 409;
+    err.detail = {
+      paidForMonth: monthKey,
+      existingAmount: oldAmount,
+      requestedAmount: amount,
+    };
+    throw err;
+  }
+  const result = await patchMemberPaidForMonthAmount(sb, {
+    gymId: gid,
+    memberPk: memberRow.id,
+    memberCode: code,
+    monthKey,
+    newAmount,
+    changedBy,
+    overrideReason,
+  });
+  notifyCollectionChange('finance');
+  notifyCollectionChange('members');
+  return { ...result, memberId: code };
+}
+
+export {
+  updateMemberFields,
+  readMemberByCode,
+  assertStaffPaymentDeletesAllowed,
+  readFinanceSummary,
+  deleteMemberByExternalId,
+  overrideMemberPaidForMonthAmount,
+};
 
 export async function writeCollection(key, value, scope = null) {
   switch (key) {

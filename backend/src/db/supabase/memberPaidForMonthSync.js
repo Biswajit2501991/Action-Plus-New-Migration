@@ -99,11 +99,11 @@ export async function memberPaidForMonthLedgerReady(sb) {
   return true;
 }
 
-/** Sum amounts from member_paid_for_month for Active members in one service month. */
-export async function sumActivePaidForMonthLedger(sb, gymId, monthKey, activeMemberPks = []) {
+/** Sum ledger amounts for all scoped members in one service month (historical revenue). */
+export async function sumPaidForMonthLedger(sb, gymId, monthKey, memberPks = []) {
   const key = String(monthKey || '').trim();
   if (!/^\d{4}-\d{2}$/.test(key)) return 0;
-  const pks = (Array.isArray(activeMemberPks) ? activeMemberPks : []).filter(Boolean);
+  const pks = (Array.isArray(memberPks) ? memberPks : []).filter(Boolean);
   if (!pks.length) return 0;
   const chunkSize = 100;
   let total = 0;
@@ -117,11 +117,92 @@ export async function sumActivePaidForMonthLedger(sb, gymId, monthKey, activeMem
       .in('member_id', slice);
     if (error) {
       if (/member_paid_for_month|does not exist|42P01/i.test(error.message)) return 0;
-      throw new Error(`sumActivePaidForMonthLedger: ${error.message}`);
+      throw new Error(`sumPaidForMonthLedger: ${error.message}`);
     }
     total += (data || []).reduce((sum, row) => sum + Number(row.amount || 0), 0);
   }
   return total;
+}
+
+/** @deprecated Use sumPaidForMonthLedger — kept for callers passing active-only PK lists. */
+export async function sumActivePaidForMonthLedger(sb, gymId, monthKey, activeMemberPks = []) {
+  return sumPaidForMonthLedger(sb, gymId, monthKey, activeMemberPks);
+}
+
+/**
+ * Read one ledger row for a member + service month.
+ */
+export async function readMemberPaidForMonthLedgerRow(sb, gymId, memberPk, monthKey) {
+  const key = String(monthKey || '').trim();
+  if (!/^\d{4}-\d{2}$/.test(key)) return null;
+  const { data, error } = await sb
+    .from(T.member_paid_for_month)
+    .select('id, amount, paid_for_month, member_code, member_status')
+    .eq('gym_id', gymId)
+    .eq('member_id', memberPk)
+    .eq('paid_for_month', key)
+    .maybeSingle();
+  if (error) {
+    if (/member_paid_for_month|does not exist|42P01/i.test(error.message)) return null;
+    throw new Error(`readMemberPaidForMonthLedgerRow: ${error.message}`);
+  }
+  return data || null;
+}
+
+/**
+ * Override paid-for-month ledger amount with audit trail.
+ */
+export async function patchMemberPaidForMonthAmount(sb, {
+  gymId,
+  memberPk,
+  memberCode,
+  monthKey,
+  newAmount,
+  changedBy,
+  overrideReason,
+}) {
+  const key = String(monthKey || '').trim();
+  const amount = Number(newAmount);
+  if (!/^\d{4}-\d{2}$/.test(key) || !Number.isFinite(amount) || amount < 0) {
+    const err = new Error('invalid-paid-for-month-amount');
+    err.status = 400;
+    throw err;
+  }
+  const existing = await readMemberPaidForMonthLedgerRow(sb, gymId, memberPk, key);
+  const oldAmount = Number(existing?.amount || 0);
+  if (existing && oldAmount === amount) {
+    return { ok: true, changed: false, paidForMonth: key, amount };
+  }
+  const row = {
+    gym_id: gymId,
+    member_id: memberPk,
+    member_code: String(memberCode || '').trim(),
+    paid_for_month: key,
+    amount,
+    member_status: String(existing?.member_status || 'Active'),
+    updated_at: new Date().toISOString(),
+  };
+  const { error: upsertErr } = await sb
+    .from(T.member_paid_for_month)
+    .upsert(row, { onConflict: 'gym_id,member_id,paid_for_month' });
+  if (upsertErr) throw new Error(`member_paid_for_month override: ${upsertErr.message}`);
+
+  try {
+    await sb.from(T.member_paid_for_month_amount_audit).insert({
+      gym_id: gymId,
+      member_id: memberPk,
+      member_code: row.member_code,
+      paid_for_month: key,
+      old_amount: oldAmount,
+      new_amount: amount,
+      changed_by: changedBy || null,
+      override_reason: overrideReason || null,
+    });
+  } catch (auditErr) {
+    const msg = String(auditErr?.message || auditErr);
+    if (!/member_paid_for_month_amount_audit|does not exist|42P01/i.test(msg)) throw auditErr;
+  }
+  return { ok: true, changed: true, paidForMonth: key, oldAmount, newAmount: amount };
 }
 
 export function mapPaidForMonthLedgerToPaymentRecords(rows, memberPkToMeta) {

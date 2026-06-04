@@ -35,6 +35,7 @@ export const T = {
   staff_attendance_records: 'staff_attendance_records',
   member_payment_history: 'member_payment_history',
   member_paid_for_month: 'member_paid_for_month',
+  member_paid_for_month_amount_audit: 'member_paid_for_month_amount_audit',
   member_message_history: 'member_message_history',
   member_attachments: 'member_attachments',
   member_injury_notes: 'member_injury_notes',

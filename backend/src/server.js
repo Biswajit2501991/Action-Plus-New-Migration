@@ -46,6 +46,8 @@ import {
   addSettingsLookup,
   deleteSettingsLookup,
   deleteMemberPayment,
+  deleteMember,
+  overrideMemberPaidForMonthAmount,
   deleteVisitor,
   writeRoleTemplates,
   patchPtClientProfileValue,
@@ -64,6 +66,7 @@ import {
 } from './auth/branchScope.js';
 import { bindGymContext } from './middleware/bindGymContext.js';
 import { requireMasterOwner, requireMasterOwnerUnlessProcessControl } from './middleware/requireMasterOwner.js';
+import { requireMemberPermanentDelete } from './middleware/requireMemberDelete.js';
 import { isOwnerAuth } from './middleware/requireOwner.js';
 import { requireBranchAdmin } from './middleware/requireBranchAdmin.js';
 import { requireStaffManagementRead, requireStaffManagementWrite } from './middleware/requireStaffManagement.js';
@@ -609,6 +612,9 @@ app.get('/api/members/:memberId', requireAccess(Access.membersRead), async (req,
 
 app.put('/api/members/bulk', requireAccess(Access.membersWrite), async (req, res) => {
   const raw = Array.isArray(req.body?.members) ? req.body.members : [];
+  const deletedMemberIds = Array.isArray(req.body?.deletedMemberIds)
+    ? req.body.deletedMemberIds.map((id) => String(id || '').trim()).filter(Boolean)
+    : [];
   try {
     assertStaffHasBranchForWrite(req.auth);
   } catch (err) {
@@ -617,7 +623,33 @@ app.put('/api/members/bulk', requireAccess(Access.membersWrite), async (req, res
       detail: err.detail || null,
     });
   }
-  const incoming = filterRowsForStaffWrite(raw, req.auth);
+  const branchScope = buildBranchScope(req);
+  const deletedSet = new Set(deletedMemberIds);
+  if (deletedMemberIds.length) {
+    const { authIsBranchOwner, authIsMasterOwner } = await import('./auth/tenant/scopedAuth.js');
+    const { engineCanMasterPlatformOps } = await import('./auth/tenant/scopedAuthorizationEngine.js');
+    const canPermanentDelete = engineCanMasterPlatformOps(req.auth)
+      || authIsMasterOwner(req.auth)
+      || authIsBranchOwner(req.auth)
+      || isOwnerAuth(req.auth);
+    if (!canPermanentDelete) {
+      return res.status(403).json({ error: 'member-delete-forbidden' });
+    }
+    for (const memberCode of deletedMemberIds) {
+      try {
+        await deleteMember(memberCode, branchScope);
+      } catch (err) {
+        if (err?.status !== 404) {
+          return res.status(err?.status || 500).json({
+            error: err?.message || 'member-delete-failed',
+            memberCode,
+          });
+        }
+      }
+    }
+  }
+  const rawWithoutDeleted = raw.filter((m) => !deletedSet.has(String(m?.memberId || '').trim()));
+  const incoming = filterRowsForStaffWrite(rawWithoutDeleted, req.auth);
   try {
     assertBranchWriteAllowed(incoming, req.auth);
   } catch (err) {
@@ -677,6 +709,92 @@ app.patch('/api/members/:memberId', requireAccess(Access.membersWrite), async (r
  * Owner-only surgical payment delete. Persists to member_payment_history immediately
  * (no debounced full-members bulk). Returns 404 when the row is not found after DB sync.
  */
+async function handlePermanentMemberDelete(req, res, memberCode) {
+  const code = String(memberCode || '').trim();
+  if (!code) {
+    return res.status(400).json({ error: 'member-code-required', deleted: false });
+  }
+  try {
+    assertStaffHasBranchForWrite(req.auth);
+  } catch (err) {
+    return res.status(err.status || 403).json({
+      error: err.message,
+      detail: err.detail || null,
+    });
+  }
+  const branchScope = buildBranchScope(req);
+  try {
+    const result = await deleteMember(code, branchScope);
+    await appendAuditLog(req, {
+      action: 'member.deleted',
+      entityType: 'member',
+      entityId: code,
+      after: { memberId: code, deleted: true },
+    });
+    queueDatabaseBackup('member-delete');
+    return res.json(result);
+  } catch (err) {
+    const status = err?.status || 500;
+    return res.status(status).json({
+      error: err?.message || 'member-delete-failed',
+      deleted: false,
+      detail: err?.detail || null,
+    });
+  }
+}
+
+/** Body JSON avoids member codes with "/" breaking path-based DELETE behind proxies. */
+app.post('/api/members/permanent-delete', requireMemberPermanentDelete, async (req, res) => {
+  const memberCode = String(req.body?.memberId || req.body?.memberCode || '').trim();
+  return handlePermanentMemberDelete(req, res, memberCode);
+});
+
+app.delete('/api/members/:memberId', requireMemberPermanentDelete, async (req, res) => {
+  const memberCode = decodeURIComponent(String(req.params.memberId || '').trim());
+  return handlePermanentMemberDelete(req, res, memberCode);
+});
+
+app.patch('/api/members/:memberId/paid-for-month/:monthKey', requireAccess(Access.membersWrite), async (req, res) => {
+  const memberCode = String(req.params.memberId || '').trim();
+  const monthKey = decodeURIComponent(String(req.params.monthKey || '').trim());
+  const newAmount = Number(req.body?.amount);
+  if (!memberCode || !monthKey) {
+    return res.status(400).json({ error: 'member-code-and-month-required' });
+  }
+  const branchScope = buildBranchScope(req);
+  try {
+    const result = await overrideMemberPaidForMonthAmount(
+      memberCode,
+      monthKey,
+      newAmount,
+      branchScope,
+      {
+        changedBy: req.auth?.name || req.auth?.userId || '',
+        overrideReason: req.body?.overrideReason || null,
+        confirmOverride: Boolean(req.body?.confirmOverride),
+      },
+    );
+    if (result.changed) {
+      await appendAuditLog(req, {
+        action: 'member.paid_for_month.amount_overridden',
+        entityType: 'member',
+        entityId: memberCode,
+        before: { paidForMonth: monthKey, amount: result.oldAmount },
+        after: { paidForMonth: monthKey, amount: result.newAmount },
+      });
+    }
+    queueDatabaseBackup('paid-for-month-override');
+    return res.json(result);
+  } catch (err) {
+    const status = err?.status || 500;
+    const detail = err?.detail && typeof err.detail === 'object' ? err.detail : {};
+    return res.status(status).json({
+      error: err?.message || 'paid-for-month-override-failed',
+      ...detail,
+    });
+  }
+});
+
 app.delete('/api/members/:memberId/payments/:paymentId', requireMasterOwner, async (req, res) => {
   const memberCode = String(req.params.memberId || '').trim();
   const paymentId = decodeURIComponent(String(req.params.paymentId || '').trim());

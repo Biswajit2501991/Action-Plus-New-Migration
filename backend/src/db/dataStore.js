@@ -123,6 +123,58 @@ export async function deleteMemberPayment(memberCode, paymentId, branchScope = n
   return { ok: true, deleted: true, paymentId: pid, member: rows[idx] };
 }
 
+export async function deleteMember(externalMemberCode, branchScope = null) {
+  if (useSupabase()) return supabaseStore.deleteMemberByExternalId(externalMemberCode, branchScope);
+  const rows = await kvStore.readJsonCollection('apg.members', []);
+  const code = String(externalMemberCode || '').trim();
+  const idx = rows.findIndex((m) => String(m?.memberId || '').trim() === code);
+  if (idx === -1) {
+    const err = new Error('member-not-found');
+    err.status = 404;
+    throw err;
+  }
+  if (branchScope?.gymCodeId) {
+    const existing = String(rows[idx]?.assignedGymCodeId || '');
+    if (branchScope.isOwner) {
+      const activeId = String(branchScope.gymCodeId);
+      const bid = existing.trim();
+      if (bid && bid !== activeId) {
+        const err = new Error('branch-write-forbidden');
+        err.status = 403;
+        throw err;
+      }
+    } else if (existing !== String(branchScope.gymCodeId)) {
+      const err = new Error('branch-write-forbidden');
+      err.status = 403;
+      throw err;
+    }
+  }
+  rows.splice(idx, 1);
+  await kvStore.writeJsonCollection('apg.members', rows);
+  return { ok: true, deleted: true, id: code };
+}
+
+export async function overrideMemberPaidForMonthAmount(
+  memberCode,
+  monthKey,
+  newAmount,
+  branchScope,
+  meta = {},
+) {
+  if (useSupabase()) {
+    return supabaseStore.overrideMemberPaidForMonthAmount(
+      memberCode,
+      monthKey,
+      newAmount,
+      branchScope,
+      meta,
+    );
+  }
+  const err = new Error('paid-for-month-override-requires-supabase');
+  err.status = 501;
+  throw err;
+}
+
 export async function deleteVisitor(externalVisitorId, branchScope = null) {
   if (useSupabase()) return supabaseStore.deleteVisitorByExternalId(externalVisitorId, branchScope);
   const rows = await kvStore.readJsonCollection('apg.visitors', []);

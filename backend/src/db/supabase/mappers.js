@@ -107,7 +107,7 @@ export function slimAppMember(m) {
   };
 }
 
-export function appMemberToRow(m, gymId) {
+export function appMemberToRow(m, gymId, options = {}) {
   const updatedAt = toTs(m.updatedAt) || new Date().toISOString();
   const createdAt = toTs(m.createdAt) || updatedAt;
   const medical = m.medicalAnswers && typeof m.medicalAnswers === 'object'
@@ -116,7 +116,7 @@ export function appMemberToRow(m, gymId) {
   if (medical?.injuryNotesLog) {
     delete medical.injuryNotesLog;
   }
-  return {
+  const row = {
     gym_id: gymId,
     member_code: String(m.memberId || '').trim(),
     form_no: Number.isFinite(Number(m.formNo)) ? Number(m.formNo) : null,
@@ -156,6 +156,13 @@ export function appMemberToRow(m, gymId) {
     created_at: createdAt,
     updated_at: updatedAt,
   };
+  if (options.partialBulkSync) {
+    if (!Object.prototype.hasOwnProperty.call(m, 'payMonth')) delete row.pay_month;
+    if (!Object.prototype.hasOwnProperty.call(m, 'ackSignature')) delete row.ack_signature;
+    if (!Object.prototype.hasOwnProperty.call(m, 'parentGuardianSignature')) delete row.parent_guardian_signature;
+    if (!Object.prototype.hasOwnProperty.call(m, 'medicalAnswers')) delete row.medical_answers_json;
+  }
+  return row;
 }
 
 export function paymentRowToApp(row) {

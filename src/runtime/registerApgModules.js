@@ -39,6 +39,17 @@ import {
   clearAddMemberDraft,
 } from '../features/forms/addMemberDraft.js';
 import {
+  addMemberDeleteTombstone,
+  removeMemberDeleteTombstone,
+  isMemberDeleteTombstoned,
+  readMemberDeleteTombstones,
+  reconcileMemberDeleteTombstones,
+  tombstonedMembersStillOnServer,
+  filterMembersExcludingTombstones,
+  shouldKeepLocalOnlyMember,
+  buildMembersFromServerWithPending,
+} from '../features/members/memberDeleteTombstones.js';
+import {
   scrollEditorToTop,
   bindModalEscapeKey,
   bindFocusTrap,
@@ -333,6 +344,15 @@ window.__APG_MODULES.authIsBranchAdminUser = authIsBranchAdminUser;
 window.__APG_MODULES.allowedBranchIdsForUser = allowedBranchIdsForUser;
 window.__APG_MODULES.userCanAccessBranch = userCanAccessBranch;
 window.__APG_MODULES.canDeleteMemberForUser = canDeleteMemberForUser;
+window.__APG_MODULES.addMemberDeleteTombstone = addMemberDeleteTombstone;
+window.__APG_MODULES.removeMemberDeleteTombstone = removeMemberDeleteTombstone;
+window.__APG_MODULES.isMemberDeleteTombstoned = isMemberDeleteTombstoned;
+window.__APG_MODULES.readMemberDeleteTombstones = readMemberDeleteTombstones;
+window.__APG_MODULES.reconcileMemberDeleteTombstones = reconcileMemberDeleteTombstones;
+window.__APG_MODULES.tombstonedMembersStillOnServer = tombstonedMembersStillOnServer;
+window.__APG_MODULES.filterMembersExcludingTombstones = filterMembersExcludingTombstones;
+window.__APG_MODULES.shouldKeepLocalOnlyMember = shouldKeepLocalOnlyMember;
+window.__APG_MODULES.buildMembersFromServerWithPending = buildMembersFromServerWithPending;
 window.__APG_MODULES.staffHasBranch = staffHasBranch;
 window.__APG_MODULES.scopeMembersForBulkSync = scopeMembersForBulkSync;
 window.__APG_MODULES.scopeVisitorsForBulkSync = scopeVisitorsForBulkSync;
