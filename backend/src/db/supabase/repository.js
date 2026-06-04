@@ -33,6 +33,7 @@ import { hashPassword } from '../../auth/passwords.js';
 import { syncGymRowsByExternalId, syncMemberChildRows } from './collectionSync.js';
 import {
   syncMemberPaidForMonthLedger,
+  upsertMembershipPayMonthRow,
   memberPaidForMonthLedgerReady,
   mapPaidForMonthLedgerToPaymentRecords,
   sumActivePaidForMonthLedger,
@@ -533,7 +534,16 @@ async function updateMemberFields(memberCode, patch, branchScope = null) {
     attachments: children.attachmentsByMember.get(refreshed.id) || [],
     injuryNotes: children.injuryByMember.get(refreshed.id) || [],
   });
-  if (
+  const payMonthOnly = Object.prototype.hasOwnProperty.call(patch, 'payMonth')
+    && !Object.prototype.hasOwnProperty.call(patch, 'paymentHistory');
+  if (payMonthOnly) {
+    try {
+      await upsertMembershipPayMonthRow(sb, { gymId: gid, memberPk: refreshed.id, member: appMember });
+    } catch (ledgerErr) {
+      const msg = String(ledgerErr?.message || ledgerErr);
+      if (!/member_paid_for_month|does not exist|42P01/i.test(msg)) throw ledgerErr;
+    }
+  } else if (
     Object.prototype.hasOwnProperty.call(patch, 'payMonth')
     || Object.prototype.hasOwnProperty.call(patch, 'paymentHistory')
   ) {
@@ -1911,11 +1921,12 @@ async function readFinanceSummary(branchScope, options = {}) {
     .filter(([, meta]) => String(meta.status || '').toLowerCase() === 'active')
     .map(([pk]) => pk);
   const memberPks = [...memberPkToMeta.keys()];
+  const financeMemberPks = activeMemberPks;
 
   const loadPaymentsInRange = async (fromIso, toExclusiveIso) => {
     const raw = [];
-    if (!memberPks.length) return raw;
-    for (const idChunk of chunk(memberPks, 100)) {
+    if (!financeMemberPks.length) return raw;
+    for (const idChunk of chunk(financeMemberPks, 100)) {
       const { data, error } = await sb
         .from(T.member_payment_history)
         .select('member_id, paid_at, amount, external_payment_id, method, paid_month, billing_date, billing_month')
@@ -1931,15 +1942,16 @@ async function readFinanceSummary(branchScope, options = {}) {
 
   const loadPaymentsForServiceMonth = async (monthKey) => {
     const ledgerRaw = [];
-    if (!memberPks.length || !monthKey) return [];
+    if (!financeMemberPks.length || !monthKey) return [];
     let ledgerAvailable = true;
-    for (const idChunk of chunk(memberPks, 100)) {
+    for (const idChunk of chunk(financeMemberPks, 100)) {
       const { data, error } = await sb
         .from(T.member_paid_for_month)
         .select('member_id, member_code, paid_for_month, amount, paid_at, payment_external_id, member_status')
         .eq('gym_id', gid)
         .in('member_id', idChunk)
-        .eq('paid_for_month', monthKey);
+        .eq('paid_for_month', monthKey)
+        .eq('member_status', 'Active');
       if (error) {
         if (/member_paid_for_month|does not exist|42P01/i.test(error.message)) {
           ledgerAvailable = false;
@@ -1953,7 +1965,7 @@ async function readFinanceSummary(branchScope, options = {}) {
       return mapPaidForMonthLedgerToPaymentRecords(ledgerRaw, memberPkToMeta);
     }
     const raw = [];
-    for (const idChunk of chunk(memberPks, 100)) {
+    for (const idChunk of chunk(financeMemberPks, 100)) {
       const { data, error } = await sb
         .from(T.member_payment_history)
         .select('member_id, paid_at, amount, external_payment_id, method, paid_month, billing_date, billing_month')
@@ -1968,16 +1980,17 @@ async function readFinanceSummary(branchScope, options = {}) {
 
   const loadPaymentsForServiceYear = async (year) => {
     const ledgerRaw = [];
-    if (!memberPks.length || !year) return [];
+    if (!financeMemberPks.length || !year) return [];
     const prefix = `${year}-`;
     let ledgerAvailable = true;
-    for (const idChunk of chunk(memberPks, 100)) {
+    for (const idChunk of chunk(financeMemberPks, 100)) {
       const { data, error } = await sb
         .from(T.member_paid_for_month)
         .select('member_id, member_code, paid_for_month, amount, paid_at, payment_external_id, member_status')
         .eq('gym_id', gid)
         .in('member_id', idChunk)
-        .like('paid_for_month', `${prefix}%`);
+        .like('paid_for_month', `${prefix}%`)
+        .eq('member_status', 'Active');
       if (error) {
         if (/member_paid_for_month|does not exist|42P01/i.test(error.message)) {
           ledgerAvailable = false;
@@ -1991,7 +2004,7 @@ async function readFinanceSummary(branchScope, options = {}) {
       return mapPaidForMonthLedgerToPaymentRecords(ledgerRaw, memberPkToMeta);
     }
     const raw = [];
-    for (const idChunk of chunk(memberPks, 100)) {
+    for (const idChunk of chunk(financeMemberPks, 100)) {
       const { data, error } = await sb
         .from(T.member_payment_history)
         .select('member_id, paid_at, amount, external_payment_id, method, paid_month, billing_date, billing_month')
@@ -2045,7 +2058,7 @@ async function readFinanceSummary(branchScope, options = {}) {
   let ledgerServiceSum = 0;
   const ledgerFastPath = !includeLines && ledgerReady;
   if (ledgerFastPath) {
-    ledgerServiceSum = await sumPaidForMonthLedger(sb, gid, monthKey, memberPks);
+    ledgerServiceSum = await sumPaidForMonthLedger(sb, gid, monthKey, financeMemberPks);
   }
 
   let collectedRecords = [];
@@ -2071,7 +2084,7 @@ async function readFinanceSummary(branchScope, options = {}) {
       includeLines,
     );
     if (ledgerReady) {
-      ledgerServiceSum = await sumPaidForMonthLedger(sb, gid, monthKey, memberPks);
+      ledgerServiceSum = await sumPaidForMonthLedger(sb, gid, monthKey, financeMemberPks);
     }
   }
   const manualIncome = Number(summary.manualIncomeCollected || 0);
@@ -2082,7 +2095,7 @@ async function readFinanceSummary(branchScope, options = {}) {
   let collectedFromLedger = (ledgerFastPath ? collectedPaymentSum : Number(summary.memberPaymentsCollected || 0))
     + manualIncome;
   let serviceFromPayments = ledgerServiceSum;
-  let revenueBasisTag = ledgerServiceSum > 0 ? 'member_paid_for_month_ledger' : summary.revenueBasis;
+  let revenueBasisTag = ledgerServiceSum > 0 ? 'member_paid_for_month_active_ledger' : summary.revenueBasis;
   if (ledgerReady && ledgerServiceSum === 0) {
     const { sumServiceRevenueFromPaymentRecords } = await import(
       '../../../src/features/finance/aggregateFinanceSummary.js'
@@ -2103,7 +2116,7 @@ async function readFinanceSummary(branchScope, options = {}) {
     })();
     if (!prevKey) return 0;
     try {
-      return await sumPaidForMonthLedger(sb, gid, prevKey, memberPks);
+      return await sumPaidForMonthLedger(sb, gid, prevKey, financeMemberPks);
     } catch {
       return 0;
     }
@@ -2129,7 +2142,7 @@ async function readFinanceSummary(branchScope, options = {}) {
     profit: expenseProfit.profit,
     revenueGrowthPct: growthPct,
     revenueBasis: revenueBasisTag,
-    dateBasis: ledgerServiceSum > 0 ? 'member_paid_for_month_ledger' : summary.dateBasis,
+    dateBasis: ledgerServiceSum > 0 ? 'member_paid_for_month_active_ledger' : summary.dateBasis,
     dbLedgerServiceSum: ledgerServiceSum,
     dbLedgerActiveSum: ledgerServiceSum,
     dbServiceMonthFallbackSum: serviceFromPayments,

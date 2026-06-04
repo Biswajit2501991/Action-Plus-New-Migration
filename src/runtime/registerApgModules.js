@@ -51,6 +51,7 @@ import {
   sanitizeMembersForDisplay,
 } from '../features/members/memberDeleteTombstones.js';
 import { mergeMemberDeltaIntoList } from '../features/members/memberDeltaPull.js';
+import { confirmPaidForMonthAmountOverride } from '../features/members/paidForMonthOverrideModal.js';
 import {
   membersListFromServerHydrate,
   membersListFromServerDelta,
@@ -364,6 +365,7 @@ window.__APG_MODULES.filterMembersExcludingTombstones = filterMembersExcludingTo
 window.__APG_MODULES.shouldKeepLocalOnlyMember = shouldKeepLocalOnlyMember;
 window.__APG_MODULES.buildMembersFromServerWithPending = buildMembersFromServerWithPending;
 window.__APG_MODULES.mergeMemberDeltaIntoList = mergeMemberDeltaIntoList;
+window.__APG_MODULES.confirmPaidForMonthAmountOverride = confirmPaidForMonthAmountOverride;
 window.__APG_MODULES.sanitizeMembersForDisplay = sanitizeMembersForDisplay;
 window.__APG_MODULES.membersListFromServerHydrate = membersListFromServerHydrate;
 window.__APG_MODULES.membersListFromServerDelta = membersListFromServerDelta;

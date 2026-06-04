@@ -68,31 +68,111 @@ export function buildPaidForMonthLedgerRows(member, gymId, memberPk) {
   return [...byMonth.values()];
 }
 
-/** Replace ledger rows for one member (source of truth = payment history + payMonth). */
-export async function syncMemberPaidForMonthLedger(sb, { gymId, memberPk, member }) {
-  if (!gymId || !memberPk || !member) return;
-  const rows = buildPaidForMonthLedgerRows(member, gymId, memberPk);
-  const { error: delErr } = await sb
-    .from(T.member_paid_for_month)
-    .delete()
-    .eq('gym_id', gymId)
-    .eq('member_id', memberPk);
-  if (delErr && !isMissingDbTableError(delErr)) {
-    throw new Error(`member_paid_for_month delete: ${delErr.message}`);
+/** Months that have at least one payment row in member history (ledger amount follows payments). */
+export function paymentMonthsFromMember(member) {
+  const months = new Set();
+  const payments = Array.isArray(member?.paymentHistory) ? member.paymentHistory : [];
+  for (const p of payments) {
+    const month = validatePaidMonthKey(p.paidMonth)
+      || validatePaidMonthKey(p.billingMonth)
+      || payMonthKeyFromStoredValue(p.billingMonth);
+    if (month) months.add(month);
   }
-  if (delErr) return;
-  if (!rows.length) return;
-  const { error: insErr } = await sb
-    .from(T.member_paid_for_month)
-    .upsert(rows, { onConflict: 'gym_id,member_id,paid_for_month' });
-  if (insErr) throw new Error(`member_paid_for_month upsert: ${insErr.message}`);
+  return months;
 }
 
 /**
- * Map DB ledger rows to finance paymentRecords shape.
- * @param {object[]} rows
- * @param {Map<number, { member_code: string, name: string, status: string }>} memberPkToMeta
+ * When rebuilding ledger from payments, preserve staff overrides for months
+ * that are not payment-driven (no payment history for that month).
  */
+export function mergeComputedLedgerWithExisting(computedRows, existingRows, paymentMonths) {
+  const existingByMonth = new Map(
+    (Array.isArray(existingRows) ? existingRows : []).map((r) => [r.paid_for_month, r]),
+  );
+  return (Array.isArray(computedRows) ? computedRows : []).map((row) => {
+    const ex = existingByMonth.get(row.paid_for_month);
+    if (!ex) return row;
+    const computed = Number(row.amount || 0);
+    const existing = Number(ex.amount || 0);
+    if (paymentMonths.has(row.paid_for_month)) return row;
+    if (existing !== computed && existing > 0) {
+      return {
+        ...row,
+        amount: existing,
+        payment_external_id: ex.payment_external_id ?? row.payment_external_id,
+        paid_at: ex.paid_at ?? row.paid_at,
+      };
+    }
+    return row;
+  });
+}
+
+/** Upsert one membership pay-month row without deleting historical ledger months. */
+export async function upsertMembershipPayMonthRow(sb, { gymId, memberPk, member }) {
+  const key = payMonthKeyFromStoredValue(member?.payMonth);
+  if (!gymId || !memberPk || !key) return;
+  const existing = await readMemberPaidForMonthLedgerRow(sb, gymId, memberPk, key);
+  const status = String(member?.status || 'Active').trim() || 'Active';
+  const row = {
+    gym_id: gymId,
+    member_id: memberPk,
+    member_code: String(member?.memberId || member?.member_code || '').trim(),
+    paid_for_month: key,
+    amount: existing != null ? Number(existing.amount || 0) : Number(member?.amount || 0),
+    member_status: status,
+    payment_external_id: existing?.payment_external_id || null,
+    paid_at: existing?.paid_at || null,
+    recorded_by: member?.updatedBy || null,
+    updated_at: new Date().toISOString(),
+  };
+  const { error } = await sb
+    .from(T.member_paid_for_month)
+    .upsert(row, { onConflict: 'gym_id,member_id,paid_for_month' });
+  if (error) {
+    if (isMissingDbTableError(error)) return;
+    throw new Error(`member_paid_for_month pay-month upsert: ${error.message}`);
+  }
+}
+
+/** Merge-sync ledger: upsert computed rows, never delete historical months. */
+export async function syncMemberPaidForMonthLedger(sb, { gymId, memberPk, member }) {
+  if (!gymId || !memberPk || !member) return;
+  const computed = buildPaidForMonthLedgerRows(member, gymId, memberPk);
+  const paymentMonths = paymentMonthsFromMember(member);
+  const status = String(member?.status || 'Active').trim() || 'Active';
+
+  const { data: existing, error: readErr } = await sb
+    .from(T.member_paid_for_month)
+    .select('paid_for_month, amount, member_status, payment_external_id, paid_at')
+    .eq('gym_id', gymId)
+    .eq('member_id', memberPk);
+  if (readErr) {
+    if (isMissingDbTableError(readErr)) return;
+    throw new Error(`member_paid_for_month read: ${readErr.message}`);
+  }
+
+  const merged = mergeComputedLedgerWithExisting(computed, existing || [], paymentMonths)
+    .map((row) => ({ ...row, member_status: status }));
+
+  if (!merged.length) return;
+  const { error: insErr } = await sb
+    .from(T.member_paid_for_month)
+    .upsert(merged, { onConflict: 'gym_id,member_id,paid_for_month' });
+  if (insErr) throw new Error(`member_paid_for_month upsert: ${insErr.message}`);
+
+  const mergedKeys = new Set(merged.map((r) => r.paid_for_month));
+  for (const ex of existing || []) {
+    if (!mergedKeys.has(ex.paid_for_month)) {
+      await sb
+        .from(T.member_paid_for_month)
+        .update({ member_status: status, updated_at: new Date().toISOString() })
+        .eq('gym_id', gymId)
+        .eq('member_id', memberPk)
+        .eq('paid_for_month', ex.paid_for_month);
+    }
+  }
+}
+
 /** True when member_paid_for_month table exists (migration applied). */
 export async function memberPaidForMonthLedgerReady(sb) {
   const { error } = await sb.from(T.member_paid_for_month).select('member_id').limit(1);
@@ -103,22 +183,27 @@ export async function memberPaidForMonthLedgerReady(sb) {
   return true;
 }
 
-/** Sum ledger amounts for all scoped members in one service month (historical revenue). */
-export async function sumPaidForMonthLedger(sb, gymId, monthKey, memberPks = []) {
+/** Sum ledger amounts for scoped members in one service month (historical revenue). */
+export async function sumPaidForMonthLedger(sb, gymId, monthKey, memberPks = [], options = {}) {
   const key = String(monthKey || '').trim();
   if (!/^\d{4}-\d{2}$/.test(key)) return 0;
   const pks = (Array.isArray(memberPks) ? memberPks : []).filter(Boolean);
   if (!pks.length) return 0;
+  const activeOnly = options.activeOnly !== false;
   const chunkSize = 100;
   let total = 0;
   for (let i = 0; i < pks.length; i += chunkSize) {
     const slice = pks.slice(i, i + chunkSize);
-    const { data, error } = await sb
+    let q = sb
       .from(T.member_paid_for_month)
-      .select('amount')
+      .select('amount, member_status')
       .eq('gym_id', gymId)
       .eq('paid_for_month', key)
       .in('member_id', slice);
+    if (activeOnly) {
+      q = q.eq('member_status', 'Active');
+    }
+    const { data, error } = await q;
     if (error) {
       if (/member_paid_for_month|does not exist|42P01/i.test(error.message)) return 0;
       throw new Error(`sumPaidForMonthLedger: ${error.message}`);
@@ -128,9 +213,9 @@ export async function sumPaidForMonthLedger(sb, gymId, monthKey, memberPks = [])
   return total;
 }
 
-/** @deprecated Use sumPaidForMonthLedger — kept for callers passing active-only PK lists. */
+/** @deprecated Use sumPaidForMonthLedger with active member PK list. */
 export async function sumActivePaidForMonthLedger(sb, gymId, monthKey, activeMemberPks = []) {
-  return sumPaidForMonthLedger(sb, gymId, monthKey, activeMemberPks);
+  return sumPaidForMonthLedger(sb, gymId, monthKey, activeMemberPks, { activeOnly: true });
 }
 
 /**
@@ -141,7 +226,7 @@ export async function readMemberPaidForMonthLedgerRow(sb, gymId, memberPk, month
   if (!/^\d{4}-\d{2}$/.test(key)) return null;
   const { data, error } = await sb
     .from(T.member_paid_for_month)
-    .select('id, amount, paid_for_month, member_code, member_status')
+    .select('id, amount, paid_for_month, member_code, member_status, payment_external_id, paid_at')
     .eq('gym_id', gymId)
     .eq('member_id', memberPk)
     .eq('paid_for_month', key)

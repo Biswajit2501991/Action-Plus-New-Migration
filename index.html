@@ -3758,9 +3758,12 @@ Phone: +91-7047157510`;
               : String(remoteRow?.payMonth || '').trim();
             if (localKey && !remoteKey) return localRow.payMonth;
             if (!localKey && remoteKey) return remoteRow.payMonth;
-            return localTs >= remoteTs
-              ? (localRow?.payMonth ?? remoteRow?.payMonth)
-              : (remoteRow?.payMonth ?? localRow?.payMonth);
+            if (localKey && remoteKey) {
+              return localTs >= remoteTs
+                ? (localRow?.payMonth ?? remoteRow?.payMonth)
+                : (remoteRow?.payMonth ?? localRow?.payMonth);
+            }
+            return localRow?.payMonth || remoteRow?.payMonth || mergedCore.payMonth || '';
           })(),
         });
       });
@@ -5049,6 +5052,16 @@ Phone: +91-7047157510`;
           fn();
         }, REALTIME_PULL_DEBOUNCE_MS);
       }, []);
+      React.useEffect(() => {
+        if (dataSyncMode !== 'backend') return undefined;
+        const onRealtime = (ev) => {
+          if (ev?.detail?.collection === 'finance') {
+            window.dispatchEvent(new CustomEvent('apg-finance-refresh'));
+          }
+        };
+        window.addEventListener('apg-realtime', onRealtime);
+        return () => window.removeEventListener('apg-realtime', onRealtime);
+      }, [dataSyncMode]);
       React.useEffect(() => () => {
         Object.values(realtimePullTimersRef.current).forEach((t) => clearTimeout(t));
       }, []);
@@ -7555,6 +7568,7 @@ Please pay by: ${formattedLastDate}`;
           window.alert('Hold Duration is required when Status is Hold.');
           return false;
         }
+        markMemberAwaitingBackendSync(toSave.memberId, toSave);
         setMembers(prev => prev.map(m => {
           if (m.memberId === toSave.memberId) {
             logEvent('member.updated', 'member', m.memberId, m, toSave);
@@ -7563,7 +7577,6 @@ Please pay by: ${formattedLastDate}`;
           }
           return m;
         }));
-        queueMicrotask(() => markMemberAwaitingBackendSync(toSave.memberId, toSave));
         // Phase 2 zero-leak / save-glitch fix:
         // Fire a surgical PATCH for changed fields so a single-member edit (esp. gymCode flip)
         // is durably persisted even if the global bulk PUT debounce times out on large datasets.
@@ -7659,12 +7672,16 @@ Please pay by: ${formattedLastDate}`;
         fetchMemberDetail(m?.memberId);
         setEditMember(m);
       };
-      const persistPaidForMonthAmountOverride = async (memberId, monthKey, amount, confirmOverride = false) => {
+      const persistPaidForMonthAmountOverride = async (memberId, monthKey, amount, confirmOverride = false, overrideReason = '') => {
         const res = await backendJson(
           `/members/${encodeURIComponent(memberId)}/paid-for-month/${encodeURIComponent(monthKey)}`,
           {
             method: 'PATCH',
-            body: JSON.stringify({ amount: Number(amount), confirmOverride }),
+            body: JSON.stringify({
+              amount: Number(amount),
+              confirmOverride,
+              overrideReason: overrideReason || null,
+            }),
           },
         );
         return res;
@@ -7690,13 +7707,19 @@ Please pay by: ${formattedLastDate}`;
               } catch (err) {
                 if (err?.apiError === 'amount-override-confirmation-required') {
                   const existing = Number(err?.existingAmount ?? err?.detail?.existingAmount ?? 0);
-                  const label = monthKey;
-                  const ok = window.confirm(
-                    `Existing amount for ${label} is ₹${existing}.\nDo you want to override this amount with ₹${newAmount}?`,
-                  );
-                  if (!ok) return;
+                  const confirmFn = window.__APG_MODULES?.confirmPaidForMonthAmountOverride;
+                  const decision = typeof confirmFn === 'function'
+                    ? await confirmFn({ paidForMonth: monthKey, existingAmount: existing, newAmount })
+                    : { confirmed: window.confirm(`Override ${monthKey} from ₹${existing} to ₹${newAmount}?`), reason: '' };
+                  if (!decision?.confirmed) return;
                   try {
-                    await persistPaidForMonthAmountOverride(target.memberId, monthKey, newAmount, true);
+                    await persistPaidForMonthAmountOverride(
+                      target.memberId,
+                      monthKey,
+                      newAmount,
+                      true,
+                      decision.reason || '',
+                    );
                     logEvent('member.paid_for_month.amount_overridden', 'member', target.memberId, {
                       paidForMonth: monthKey,
                       amount: existing,
@@ -7743,6 +7766,7 @@ Please pay by: ${formattedLastDate}`;
             return;
           }
           updated.payMonth = payMonthKey;
+          markMemberAwaitingBackendSync(target.memberId, updated);
           const hist = normalizeMemberPaymentHistory(updated);
           if (hist.length) {
             const latest = [...hist].sort(
@@ -11519,16 +11543,12 @@ function Sidebar({ user, active, onSelect, theme, setTheme, layoutMode = 'classi
         backendJson(`/finance/summary?month=${encodeURIComponent(todayMonthKey)}`)
           .then((body) => {
             if (cancelled) return;
-            const rev = Number(body?.collectedRevenue ?? body?.dbLedgerActiveSum ?? 0);
+            const rev = Number(body?.collectedRevenue ?? 0);
             const growth = typeof body?.revenueGrowthPct === 'number' ? body.revenueGrowthPct : null;
-            const ledger = Number(body?.dbLedgerActiveSum ?? 0);
-            const fallback = Number(body?.dbServiceMonthFallbackSum ?? 0);
-            if (rev > 0 || ledger > 0 || fallback > 0) {
-              dbMonthRevenueStableRef.current = rev;
-              dbRevenueGrowthStableRef.current = growth;
-              setDbMonthRevenue(rev);
-              setDbRevenueGrowthPct(growth);
-            }
+            dbMonthRevenueStableRef.current = rev;
+            dbRevenueGrowthStableRef.current = growth;
+            setDbMonthRevenue(rev);
+            setDbRevenueGrowthPct(growth);
           })
           .catch(() => { /* keep last good DB totals to avoid flicker */ });
         return () => { cancelled = true; };
@@ -11548,8 +11568,13 @@ function Sidebar({ user, active, onSelect, theme, setTheme, layoutMode = 'classi
         window.addEventListener('apg-finance-refresh', onRefresh);
         return () => window.removeEventListener('apg-finance-refresh', onRefresh);
       }, [fetchDashboardMonthRevenue]);
-      const monthlyRevenue = dbMonthRevenue ?? dbMonthRevenueStableRef.current ?? cfoKpis?.collectedRevenue ?? 0;
-      const growthRate = dbRevenueGrowthPct ?? dbRevenueGrowthStableRef.current ?? cfoKpis?.revenueGrowthPct ?? 0;
+      const dashboardRevenueFromDb = dbMonthRevenue ?? dbMonthRevenueStableRef.current;
+      const monthlyRevenue = dataSyncMode === 'backend'
+        ? (dashboardRevenueFromDb != null ? dashboardRevenueFromDb : null)
+        : (cfoKpis?.collectedRevenue ?? 0);
+      const growthRate = dataSyncMode === 'backend'
+        ? (dbRevenueGrowthPct ?? dbRevenueGrowthStableRef.current ?? 0)
+        : (cfoKpis?.revenueGrowthPct ?? 0);
       const collectedRevenueEntries = React.useMemo(
         () => buildCollectedRevenueEntries(members, todayKey),
         [members, todayKey],
@@ -11797,7 +11822,9 @@ function Sidebar({ user, active, onSelect, theme, setTheme, layoutMode = 'classi
               {canViewRevenueMonthly && (
                 <div className="rounded-2xl p-5 text-left shadow border bg-emerald-50 border-emerald-200 text-emerald-800">
                   <div className="text-sm">Collected Revenue (This Month)</div>
-                  <div className="mt-2 text-3xl font-bold">₹{monthlyRevenue.toLocaleString('en-IN')}</div>
+                  <div className="mt-2 text-3xl font-bold">
+                    {monthlyRevenue == null ? '…' : `₹${Number(monthlyRevenue).toLocaleString('en-IN')}`}
+                  </div>
                   <div className="mt-1 text-xs text-emerald-700">
                     {dataSyncMode === 'backend' ? 'Active members · Paid for Month (DB)' : 'Client ledger'}
                     {growthRate >= 0 ? ' · +' : ' · '}{growthRate}% vs last month
@@ -20107,25 +20134,26 @@ function PTClientsPage({ members, users, settings, updateSetting, currentUser, a
       const activeServerSummary = serverSummary || serverSummaryStableRef.current;
       const clientCollected = financeKpis?.collectedRevenue ?? 0;
       const clientService = financeKpis?.serviceRevenue ?? 0;
-      const serverLedgerSum = Number(activeServerSummary?.dbLedgerActiveSum ?? 0);
-      const serverFallbackSum = Number(activeServerSummary?.dbServiceMonthFallbackSum ?? 0);
-      const serverCollectedRaw = Number(activeServerSummary?.collectedRevenue ?? activeServerSummary?.dbLedgerActiveSum ?? 0);
-      const serverServiceRaw = Number(activeServerSummary?.serviceRevenue ?? activeServerSummary?.collectedRevenue ?? 0);
-      const serverRevenueReady = dataSyncMode === 'backend' && activeServerSummary
-        && (serverLedgerSum > 0 || serverFallbackSum > 0 || serverCollectedRaw > 0);
-      const revenue = serverRevenueReady
-        ? serverCollectedRaw
+      const serverCollectedRaw = Number(activeServerSummary?.collectedRevenue ?? 0);
+      const serverServiceRaw = Number(activeServerSummary?.serviceRevenue ?? 0);
+      const useBackendFinanceTotals = dataSyncMode === 'backend';
+      const financeTotalsLoading = useBackendFinanceTotals && (serverSummaryLoading || !activeServerSummary);
+      const formatFinanceAmount = (value) => (
+        financeTotalsLoading ? '…' : `₹${Number(value || 0).toLocaleString('en-IN')}`
+      );
+      const revenue = useBackendFinanceTotals
+        ? (activeServerSummary ? serverCollectedRaw : 0)
         : clientCollected;
-      const serviceRevenue = serverRevenueReady
-        ? serverServiceRaw
+      const serviceRevenue = useBackendFinanceTotals
+        ? (activeServerSummary ? serverServiceRaw : 0)
         : clientService;
       const expense = financeKpis?.expense ?? 0;
       const expenseSubtitle = financeKpis?.expenseSubtitle ?? '';
-      const profit = (serverRevenueReady && activeServerSummary && activeServerSummary.profit != null)
+      const profit = useBackendFinanceTotals && activeServerSummary && activeServerSummary.profit != null
         ? Number(activeServerSummary.profit)
         : (financeKpis?.profit ?? 0);
       const hasExpenseRows = financeKpis?.hasExpenseRows ?? false;
-      const revenueGrowthPct = (serverRevenueReady && activeServerSummary && typeof activeServerSummary.revenueGrowthPct === 'number')
+      const revenueGrowthPct = useBackendFinanceTotals && activeServerSummary && typeof activeServerSummary.revenueGrowthPct === 'number'
         ? Number(activeServerSummary.revenueGrowthPct)
         : (financeKpis?.revenueGrowthPct ?? 0);
       const ytdCollected = financeKpis?.ytdCollected ?? 0;
@@ -20183,22 +20211,18 @@ function PTClientsPage({ members, users, settings, updateSetting, currentUser, a
           return { ...r, runningTotal: running, typeLabel };
         });
       }, [incomeRowsCollected, membersById, settings]);
-      const fetchFinanceServerSummary = React.useCallback(() => {
+      const fetchFinanceServerSummary = React.useCallback((opts = {}) => {
         if (dataSyncMode !== 'backend' || !financeMonth) return undefined;
         let cancelled = false;
-        setServerSummaryLoading(true);
+        const silent = Boolean(opts.silent);
+        if (!silent) setServerSummaryLoading(true);
         backendJson(`/finance/summary?month=${encodeURIComponent(financeMonth)}`)
           .then((body) => {
             if (cancelled) return;
             const next = body && typeof body === 'object' ? body : null;
             if (next) {
-              const rev = Number(next.collectedRevenue ?? next.dbLedgerActiveSum ?? 0);
-              const ledger = Number(next.dbLedgerActiveSum ?? 0);
-              const fallback = Number(next.dbServiceMonthFallbackSum ?? 0);
-              if (rev > 0 || ledger > 0 || fallback > 0) {
-                serverSummaryStableRef.current = next;
-                setServerSummary(next);
-              }
+              serverSummaryStableRef.current = next;
+              setServerSummary(next);
             }
             setServerSummaryError('');
           })
@@ -20221,7 +20245,7 @@ function PTClientsPage({ members, users, settings, updateSetting, currentUser, a
         return fetchFinanceServerSummary();
       }, [financeMonth, dataSyncMode, fetchFinanceServerSummary]);
       React.useEffect(() => {
-        const onRefresh = () => { fetchFinanceServerSummary(); };
+        const onRefresh = () => { fetchFinanceServerSummary({ silent: true }); };
         window.addEventListener('apg-finance-refresh', onRefresh);
         return () => window.removeEventListener('apg-finance-refresh', onRefresh);
       }, [fetchFinanceServerSummary]);
@@ -20442,13 +20466,13 @@ function PTClientsPage({ members, users, settings, updateSetting, currentUser, a
             <div className="grid grid-cols-2 gap-3">
               <div className="rounded-2xl border border-blue-200 bg-blue-50 p-4 dark:border-blue-800 dark:bg-blue-950/40">
                 <div className="text-xs font-semibold text-blue-700 dark:text-blue-300">Collected Revenue</div>
-                <div className="mt-2 text-2xl font-bold text-blue-900 dark:text-blue-100">₹{revenue.toLocaleString('en-IN')}</div>
-                <div className="text-xs text-blue-700 dark:text-blue-300">{financeMonthBounds.label} · Active · Paid for Month (DB)</div>
+                <div className="mt-2 text-2xl font-bold text-blue-900 dark:text-blue-100">{formatFinanceAmount(revenue)}</div>
+                <div className="text-xs text-blue-700 dark:text-blue-300">{financeMonthBounds.label} · Active · Payment date in month</div>
               </div>
               <div className="rounded-2xl border border-indigo-200 bg-indigo-50 p-4 dark:border-indigo-800 dark:bg-indigo-950/40">
                 <div className="text-xs font-semibold text-indigo-700 dark:text-indigo-300">Revenue by Paid for Month (Active)</div>
-                <div className="mt-2 text-2xl font-bold text-indigo-900 dark:text-indigo-100">₹{serviceRevenue.toLocaleString('en-IN')}</div>
-                <div className="text-xs text-indigo-700 dark:text-indigo-300">{financeMonthBounds.label} · billing cycle</div>
+                <div className="mt-2 text-2xl font-bold text-indigo-900 dark:text-indigo-100">{formatFinanceAmount(serviceRevenue)}</div>
+                <div className="text-xs text-indigo-700 dark:text-indigo-300">{financeMonthBounds.label} · Service month (ledger)</div>
               </div>
               <div className="rounded-2xl border border-emerald-200 bg-emerald-50 p-4 dark:border-emerald-800 dark:bg-emerald-950/40 col-span-2">
                 <div className="text-xs font-semibold text-emerald-700 dark:text-emerald-300">Profit</div>
@@ -20609,8 +20633,8 @@ function PTClientsPage({ members, users, settings, updateSetting, currentUser, a
               className={cx(cardBase, 'text-left hover:bg-emerald-50/60 transition-colors dark:hover:bg-slate-800')}
             >
               <div className="text-sm text-slate-500 dark:text-slate-400">Collected Revenue</div>
-              <div className="mt-1 text-3xl font-bold text-emerald-700 dark:text-emerald-400">₹{revenue.toLocaleString('en-IN')}</div>
-              <div className="text-sm text-emerald-700 dark:text-emerald-300">{financeMonthBounds.label} · Active · Paid for Month (DB)</div>
+              <div className="mt-1 text-3xl font-bold text-emerald-700 dark:text-emerald-400">{formatFinanceAmount(revenue)}</div>
+              <div className="text-sm text-emerald-700 dark:text-emerald-300">{financeMonthBounds.label} · Active · Payment received this month</div>
               <div className="text-xs text-slate-500 dark:text-slate-400 mt-1">
                 Recorded payments only · Prev ₹{prevMonthCollected.toLocaleString('en-IN')} · {revenueGrowthPct >= 0 ? '+' : ''}{revenueGrowthPct}% · YTD ₹{ytdCollected.toLocaleString('en-IN')}
               </div>
@@ -20620,8 +20644,8 @@ function PTClientsPage({ members, users, settings, updateSetting, currentUser, a
             {canFinanceRevenue && (
             <div className={cardBase}>
               <div className="text-sm text-slate-500 dark:text-slate-400">Revenue by Paid for Month (Active members)</div>
-              <div className="mt-1 text-3xl font-bold text-indigo-700 dark:text-indigo-400">₹{serviceRevenue.toLocaleString('en-IN')}</div>
-              <div className="text-sm text-indigo-700 dark:text-indigo-300">{financeMonthBounds.label} · billing cycle cleared</div>
+              <div className="mt-1 text-3xl font-bold text-indigo-700 dark:text-indigo-400">{formatFinanceAmount(serviceRevenue)}</div>
+              <div className="text-sm text-indigo-700 dark:text-indigo-300">{financeMonthBounds.label} · Paid-for-month ledger (service month)</div>
               <div className="text-xs text-slate-500 dark:text-slate-400 mt-1">
                 Service month · Prev ₹{prevMonthServiceRevenue.toLocaleString('en-IN')} · {serviceRevenueGrowthPct >= 0 ? '+' : ''}{serviceRevenueGrowthPct}% · YTD ₹{ytdServiceRevenue.toLocaleString('en-IN')}
               </div>
