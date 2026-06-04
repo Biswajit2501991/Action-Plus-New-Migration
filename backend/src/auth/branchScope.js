@@ -101,6 +101,18 @@ export function filterMembersForBranchScope(rows, branchScope) {
 }
 
 /**
+ * Filter attendance rows by branch staff logins.
+ * When scope is not limited (master owner), staffLogins is null — return all rows.
+ * @param {object[]} records
+ * @param {{ limited?: boolean, staffLogins?: Set<string>|null }} scope from loadBranchScope
+ */
+export function filterAttendanceRecordsForBranchScope(records, scope) {
+  const rows = Array.isArray(records) ? records : [];
+  if (!scope?.limited || !scope.staffLogins) return rows;
+  return rows.filter((r) => scope.staffLogins.has(String(r?.userId || '').trim()));
+}
+
+/**
  * Server-side write filter: staff may only upsert rows in their branch.
  * Untagged rows are dropped (prevents stamping another branch's legacy rows via bulk PUT).
  */

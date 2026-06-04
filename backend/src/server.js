@@ -63,6 +63,8 @@ import {
   resolveReadBranchScope,
   filterRowsForStaffWrite,
   assertStaffHasBranchForWrite,
+  staffBranchBlocksAllRows,
+  filterAttendanceRecordsForBranchScope,
 } from './auth/branchScope.js';
 import { bindGymContext } from './middleware/bindGymContext.js';
 import { requireMasterOwner, requireMasterOwnerUnlessProcessControl } from './middleware/requireMasterOwner.js';
@@ -1468,10 +1470,10 @@ app.get('/api/attendance/records', requireAccess((a) => a.attendance?.viewAttend
       });
     }
     const records = await readStaffAttendanceInRange(readSandboxScope(req), { startDate, endDate });
+    if (staffBranchBlocksAllRows(resolveReadBranchScope(req.auth))) return res.json([]);
     if (authUsesGlobalDataRead(req.auth)) return res.json(records);
-    if (!req.auth?.gymCodeId) return res.json([]);
     const scope = await loadBranchScope(getSupabase(), req.auth);
-    return res.json(records.filter((r) => scope.staffLogins?.has(String(r?.userId || '').trim())));
+    return res.json(filterAttendanceRecordsForBranchScope(records, scope));
   } catch (error) {
     return res.status(500).json({
       error: 'attendance_read_failed',

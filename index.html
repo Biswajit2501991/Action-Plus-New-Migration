@@ -4616,7 +4616,9 @@ Phone: +91-7047157510`;
             ...(prev && typeof prev === 'object' ? prev : {}),
             staffAttendance: mergeStaffAttendanceRecords(prev?.staffAttendance, rows),
           }));
-        } catch {}
+        } catch (err) {
+          console.warn('[attendance] pull failed:', err?.message || err);
+        }
       }, [dataSyncMode]);
       const hydrateSettingsFromBackend = React.useCallback(async () => {
         try {
