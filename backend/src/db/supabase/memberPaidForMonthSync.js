@@ -3,6 +3,7 @@ import {
   payMonthKeyFromStoredValue,
 } from '../../../../src/features/finance/derivePaidMonth.js';
 import { T } from '../tables.js';
+import { isMissingDbTableError } from './utils.js';
 
 /**
  * Build month-wise ledger rows from member payment history + membership default month.
@@ -76,7 +77,10 @@ export async function syncMemberPaidForMonthLedger(sb, { gymId, memberPk, member
     .delete()
     .eq('gym_id', gymId)
     .eq('member_id', memberPk);
-  if (delErr) throw new Error(`member_paid_for_month delete: ${delErr.message}`);
+  if (delErr && !isMissingDbTableError(delErr)) {
+    throw new Error(`member_paid_for_month delete: ${delErr.message}`);
+  }
+  if (delErr) return;
   if (!rows.length) return;
   const { error: insErr } = await sb
     .from(T.member_paid_for_month)

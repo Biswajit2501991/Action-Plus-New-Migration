@@ -3611,6 +3611,27 @@ Phone: +91-7047157510`;
       return (Array.isArray(list) ? list : [])
         .filter((m) => !tombstoneSet.has(String(m?.memberId || '').trim()));
     };
+    /** Incremental /members?updatedSince — update matching rows; never drop members missing from delta. */
+    const mergeMemberDeltaIntoList = (prevMembers, deltaRemote, mergePair) => {
+      const prev = Array.isArray(prevMembers) ? prevMembers : [];
+      const delta = filterMembersExcludingTombstonesInline(deltaRemote);
+      if (!delta.length) return prev;
+      const remoteById = new Map();
+      for (const m of delta) {
+        const id = String(m?.memberId || '').trim();
+        if (id) remoteById.set(id, m);
+      }
+      const merged = prev.map((localRow) => {
+        const id = String(localRow?.memberId || '').trim();
+        const remoteRow = id ? remoteById.get(id) : null;
+        if (!remoteRow) return localRow;
+        remoteById.delete(id);
+        if (typeof mergePair === 'function') return mergePair(localRow, remoteRow);
+        return { ...localRow, ...remoteRow };
+      });
+      for (const remoteRow of remoteById.values()) merged.push(remoteRow);
+      return merged;
+    };
     const applyMembersFromServerHydrate = (remoteMembers, authUser, activeBranchId, syncPending) => {
       const filteredRemote = filterMembersExcludingTombstonesInline(remoteMembers);
       const buildFn = window.__APG_MODULES?.buildMembersFromServerWithPending;
@@ -4238,7 +4259,13 @@ Phone: +91-7047157510`;
       const [members, setMembers] = React.useState(() => {
         try {
           const apiBase = window.__APG_ENV__ && window.__APG_ENV__.API_BASE_URL;
-          const usesBackend = apiBase != null && String(apiBase).trim() !== '';
+          let usesBackend = apiBase != null && String(apiBase).trim() !== '';
+          if (!usesBackend) {
+            try {
+              const p = window.location && window.location.protocol;
+              usesBackend = p === 'http:' || p === 'https:';
+            } catch {}
+          }
           if (usesBackend) return [];
           const saved = localStorage.getItem(STORAGE_KEYS.members);
           const parsed = saved ? JSON.parse(saved) : [];
@@ -4658,15 +4685,17 @@ Phone: +91-7047157510`;
             }
             if (Array.isArray(remoteMembers)) {
               const tMerge = performance.now();
+              membersSyncCursorRef.current = null;
               const reconcileTombstones = window.__APG_MODULES?.reconcileMemberDeleteTombstones;
               if (typeof reconcileTombstones === 'function') {
                 reconcileTombstones(remoteMembers);
               }
               if (replaceBranch) {
                 const mergeM = window.__APG_MODULES?.mergeMembersAfterBranchReplace;
-                setMembers(typeof mergeM === 'function'
+                const merged = typeof mergeM === 'function'
                   ? mergeM([], remoteMembers, activeBranchId)
-                  : remoteMembers);
+                  : remoteMembers;
+                setMembers(filterMembersExcludingTombstonesInline(merged));
               } else if (remoteMembers.length > 0) {
                 retryPermanentDeletesForTombstones(remoteMembers);
                 setMembers(() => applyMembersFromServerHydrate(
@@ -5035,6 +5064,7 @@ Phone: +91-7047157510`;
         });
       }, []);
       const membersSyncCursorRef = React.useRef(null);
+      const lastFullMembersPullAtRef = React.useRef(0);
       const backendHydrateInFlightRef = React.useRef(null);
       const hydrateCompletedAtRef = React.useRef(0);
       const usersSkipNextBulkRef = React.useRef(false);
@@ -5070,11 +5100,17 @@ Phone: +91-7047157510`;
         if (dataSyncMode !== 'backend') return;
         const id = String(memberId || '').trim();
         if (!id || memberDetailInFlightRef.current.has(id)) return;
+        if (readDeleteTombstonesInline().includes(id)) return;
+        const tombstoneFn = window.__APG_MODULES?.isMemberDeleteTombstoned;
+        if (typeof tombstoneFn === 'function' && tombstoneFn(id)) return;
         memberDetailInFlightRef.current.add(id);
         try {
           const detail = await backendJson(`/members/${encodeURIComponent(id)}`);
           if (!detail?.memberId) return;
-          setMembers((prev) => mergeRemoteMembersWithLocal(prev, [detail], memberSyncPending));
+          setMembers((prev) => mergeMemberDeltaIntoList(prev, [detail], (localRow, remoteRow) => {
+            const pair = mergeRemoteMembersWithLocal([localRow], [remoteRow], memberSyncPending);
+            return pair[0] || localRow;
+          }));
         } catch {} finally {
           memberDetailInFlightRef.current.delete(id);
         }
@@ -5505,7 +5541,10 @@ Phone: +91-7047157510`;
         if (dataSyncMode !== 'backend' || !backendHydrated) return;
         let alive = true;
         const pullMembers = () => {
-          const useDelta = Boolean(membersSyncCursorRef.current);
+          const now = Date.now();
+          const forceFullPull = !membersSyncCursorRef.current
+            || now - lastFullMembersPullAtRef.current > 5 * 60 * 1000;
+          const useDelta = !forceFullPull && Boolean(membersSyncCursorRef.current);
           const path = useDelta
             ? `/members?updatedSince=${encodeURIComponent(membersSyncCursorRef.current)}`
             : '/members';
@@ -5513,16 +5552,43 @@ Phone: +91-7047157510`;
             .then((remoteMembers) => {
               if (!alive || !Array.isArray(remoteMembers)) return;
               retryPermanentDeletesForTombstones(remoteMembers);
+              const deltaPull = useDelta;
+              if (!deltaPull) lastFullMembersPullAtRef.current = now;
               setMembers((prev) => {
-                const scoped = applyMembersFromServerHydrate(
-                  remoteMembers,
-                  user,
-                  authoritativeActiveBranchId,
-                  memberSyncPending,
-                );
+                let next;
+                if (deltaPull) {
+                  next = mergeMemberDeltaIntoList(prev, remoteMembers, (localRow, remoteRow) => {
+                    const pair = mergeRemoteMembersWithLocal([localRow], [remoteRow], memberSyncPending);
+                    return pair[0] || localRow;
+                  });
+                  const scopeFn = window.__APG_MODULES?.scopeMembersToUserBranch;
+                  if (typeof scopeFn === 'function') {
+                    next = scopeFn(user, next, authoritativeActiveBranchId);
+                  }
+                } else {
+                  next = applyMembersFromServerHydrate(
+                    remoteMembers,
+                    user,
+                    authoritativeActiveBranchId,
+                    memberSyncPending,
+                  );
+                }
+                if (
+                  deltaPull
+                  && Array.isArray(prev)
+                  && prev.length >= 5
+                  && Array.isArray(next)
+                  && next.length < prev.length
+                  && next.length <= Math.max(2, Math.floor(prev.length * 0.25))
+                ) {
+                  membersSyncCursorRef.current = null;
+                  lastFullMembersPullAtRef.current = 0;
+                  queueMicrotask(() => { if (alive) pullMembers(); });
+                  return prev;
+                }
                 const prevSig = JSON.stringify(Array.isArray(prev) ? prev : []);
-                const nextSig = JSON.stringify(scoped);
-                return prevSig === nextSig ? prev : scoped;
+                const nextSig = JSON.stringify(next);
+                return prevSig === nextSig ? prev : next;
               });
               pruneMemberAwaitingBackendSync(remoteMembers);
             })
@@ -7650,17 +7716,42 @@ Please pay by: ${formattedLastDate}`;
       // the deletion and updates local state/storage accordingly.
       const deleteMember = async (memberId) => {
         const code = String(memberId || '').trim();
+        if (!code) return false;
         const previousMembers = Array.isArray(members) ? members.map((m) => ({ ...m })) : [];
         const deletedRow = previousMembers.find((m) => String(m?.memberId || '').trim() === code) || null;
-        const mayDeleteFn = window.__APG_MODULES?.canDeleteMemberForUser;
-        if (typeof mayDeleteFn === 'function') {
-          if (!mayDeleteFn(user, deletedRow, membersAccess)) return;
-        } else if (!canDeleteMembers) return;
-        addDeleteTombstoneInline(code);
-        if (!pendingDeletedMemberIdsRef.current.includes(code)) {
-          pendingDeletedMemberIdsRef.current.push(code);
+        if (!canDeleteMembers) {
+          setToast('You do not have permission to delete members.');
+          setTimeout(() => setToast(''), 2800);
+          return false;
         }
-        if (hasBackendAuth()) {
+        const mayDeleteFn = window.__APG_MODULES?.canDeleteMemberForUser;
+        if (typeof mayDeleteFn === 'function' && !mayDeleteFn(user, deletedRow, membersAccess)) {
+          setToast('You cannot delete this member for the active branch.');
+          setTimeout(() => setToast(''), 3200);
+          return false;
+        }
+        const useBackendDelete = dataSyncMode === 'backend';
+        if (useBackendDelete) {
+          if (!user?.id) {
+            setToast('Not signed in. Sign in again, then delete.');
+            setTimeout(() => setToast(''), 4000);
+            return false;
+          }
+          if (typeof window !== 'undefined') {
+            window.__APG_SYNC_CONTEXT__ = {
+              userId: String(user.id),
+              testProfile: Boolean(user.testProfile),
+              sandboxId: String(user.sandboxId || ''),
+            };
+          }
+          if (!AUTH_COOKIE_MODE && !readAuthToken()) {
+            const revived = await revalidateAuthSessionFromServer({ forceTry: true }).catch(() => null);
+            if (!revived?.token && !readAuthToken()) {
+              setToast('Session expired. Sign in again, then delete.');
+              setTimeout(() => setToast(''), 4000);
+              return false;
+            }
+          }
           try {
             const delRes = await backendJson('/members/permanent-delete', {
               method: 'POST',
@@ -7676,15 +7767,17 @@ Please pay by: ${formattedLastDate}`;
               ? 'Only owners can permanently delete members.'
               : err?.apiError === 'member-delete-not-persisted'
                 ? 'Delete did not persist in the database. Please retry or contact support.'
-              : 'Could not delete member on the server. Please try again.';
+                : err?.status === 401
+                  ? 'Session expired. Sign in again, then delete.'
+                  : 'Could not delete member on the server. Please try again.';
             setToast(msg);
             setTimeout(() => setToast(''), 3200);
-            return;
+            return false;
           }
-        } else if (dataSyncMode === 'backend') {
-          setToast('Not signed in to the server — member hidden locally only. Sign in and delete again.');
-          setTimeout(() => setToast(''), 4000);
-          return;
+        }
+        addDeleteTombstoneInline(code);
+        if (!pendingDeletedMemberIdsRef.current.includes(code)) {
+          pendingDeletedMemberIdsRef.current.push(code);
         }
         clearMemberAwaitingBackendSync(code);
         const nextMembers = previousMembers.filter((m) => String(m.memberId || '').trim() !== code);
@@ -7698,6 +7791,7 @@ Please pay by: ${formattedLastDate}`;
         });
         showMemberUndoToast('Member deleted — Undo', previousMembers);
         window.dispatchEvent(new CustomEvent('apg-finance-refresh'));
+        return true;
       };
 
       // Save new member from wizard
@@ -8676,7 +8770,7 @@ Please pay by: ${formattedLastDate}`;
         return Array.isArray(rows) ? rows : [];
       }, [user, authoritativeActiveBranchId]);
       const branchScopedMembers = React.useMemo(
-        () => scopeMembersForDisplay(members),
+        () => filterMembersExcludingTombstonesInline(scopeMembersForDisplay(members)),
         [members, scopeMembersForDisplay],
       );
       const branchScopedVisitors = React.useMemo(() => {
@@ -10496,11 +10590,14 @@ Please pay by: ${formattedLastDate}`;
                     Cancel
                   </button>
                   <button
-                    onClick={() => {
-                      deleteMember(deleteCandidate.memberId);
+                    onClick={async () => {
+                      const candidate = deleteCandidate;
                       setDeleteCandidate(null);
-                      setToast(`${deleteCandidate.name} has been deleted successfully`);
-                      setTimeout(() => setToast(''), 2500);
+                      const ok = await deleteMember(candidate.memberId);
+                      if (ok) {
+                        setToast(`${candidate.name} has been deleted successfully`);
+                        setTimeout(() => setToast(''), 2500);
+                      }
                     }}
                     className="rounded-xl px-4 py-2 bg-red-600 hover:bg-red-700 text-white text-sm font-medium"
                   >

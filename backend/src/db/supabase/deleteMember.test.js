@@ -64,12 +64,42 @@ describe('deleteMemberByExternalId', () => {
           }),
         };
       }
+      const schemaCacheErr = {
+        message: "Could not find the table 'public.member_paid_for_month' in the schema cache",
+      };
       return {
         delete: () => ({
-          in: vi.fn().mockResolvedValue({ error: null }),
+          in: vi.fn().mockImplementation(async () => {
+            if (table === 'member_paid_for_month') return { error: schemaCacheErr };
+            return { error: null };
+          }),
         }),
       };
     });
+  });
+
+  it('deletes member when member_paid_for_month table is not migrated', async () => {
+    let selectCalls = 0;
+    selectRange.mockImplementation(async () => {
+      selectCalls += 1;
+      if (selectCalls === 1) {
+        return {
+          data: [{ id: 42, member_code: 'APG-1004/26', assigned_gym_code_id: 'branch-a' }],
+          error: null,
+        };
+      }
+      return { data: [], error: null };
+    });
+    deleteMemberRow.mockResolvedValue({ error: null });
+
+    const { deleteMemberByExternalId } = await import('./repository.js');
+    const result = await deleteMemberByExternalId('APG-1004/26', {
+      isOwner: true,
+      gymCodeId: 'branch-a',
+      allowedBranchIds: ['branch-a'],
+      staffNoBranch: false,
+    });
+    expect(result.deleted).toBe(true);
   });
 
   it('deletes all duplicate rows for member_code', async () => {

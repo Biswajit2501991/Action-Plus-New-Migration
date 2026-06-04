@@ -1,4 +1,5 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, beforeEach, vi } from 'vitest';
+import { addMemberDeleteTombstone } from '../src/features/members/memberDeleteTombstones.js';
 import {
   mergeMembersAfterBranchReplace,
   scopeMembersToUserBranch,
@@ -38,6 +39,26 @@ describe('scopeMembersToUserBranch', () => {
 });
 
 describe('mergeMembersAfterBranchReplace', () => {
+  beforeEach(() => {
+    const store = new Map();
+    vi.stubGlobal('localStorage', {
+      getItem: (k) => (store.has(k) ? store.get(k) : null),
+      setItem: (k, v) => store.set(k, String(v)),
+      removeItem: (k) => store.delete(k),
+    });
+  });
+
+  it('drops tombstoned members from remote and local', () => {
+    addMemberDeleteTombstone('gone');
+    const remote = [
+      { memberId: 'gone', assignedGymCodeId: BRANCH_A },
+      { memberId: 'r1', assignedGymCodeId: BRANCH_A },
+    ];
+    const local = [{ memberId: 'gone', assignedGymCodeId: BRANCH_A }];
+    const out = mergeMembersAfterBranchReplace(local, remote, BRANCH_A);
+    expect(out.map((m) => m.memberId)).toEqual(['r1']);
+  });
+
   it('keeps same-branch optimistic locals only', () => {
     const remote = [{ memberId: 'r1', assignedGymCodeId: BRANCH_A }];
     const local = [

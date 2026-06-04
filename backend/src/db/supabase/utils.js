@@ -44,6 +44,12 @@ export function financeStatusFromNumeric(n, note = '') {
   return 'paid';
 }
 
+/** PostgREST / Postgres signals when a table is absent or not yet in schema cache. */
+export function isMissingDbTableError(error) {
+  const msg = String(error?.message || error || '');
+  return /does not exist|42P01|relation.*does not exist|schema cache|could not find the table/i.test(msg);
+}
+
 export function chunk(list, size = 80) {
   const out = [];
   for (let i = 0; i < list.length; i += size) out.push(list.slice(i, i + size));

@@ -49,6 +49,7 @@ import {
   shouldKeepLocalOnlyMember,
   buildMembersFromServerWithPending,
 } from '../features/members/memberDeleteTombstones.js';
+import { mergeMemberDeltaIntoList } from '../features/members/memberDeltaPull.js';
 import {
   scrollEditorToTop,
   bindModalEscapeKey,
@@ -353,6 +354,7 @@ window.__APG_MODULES.tombstonedMembersStillOnServer = tombstonedMembersStillOnSe
 window.__APG_MODULES.filterMembersExcludingTombstones = filterMembersExcludingTombstones;
 window.__APG_MODULES.shouldKeepLocalOnlyMember = shouldKeepLocalOnlyMember;
 window.__APG_MODULES.buildMembersFromServerWithPending = buildMembersFromServerWithPending;
+window.__APG_MODULES.mergeMemberDeltaIntoList = mergeMemberDeltaIntoList;
 window.__APG_MODULES.staffHasBranch = staffHasBranch;
 window.__APG_MODULES.scopeMembersForBulkSync = scopeMembersForBulkSync;
 window.__APG_MODULES.scopeVisitorsForBulkSync = scopeVisitorsForBulkSync;

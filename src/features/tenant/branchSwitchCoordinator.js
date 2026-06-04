@@ -4,6 +4,7 @@
  */
 
 import { filterMembersForUser, filterVisitorsForUser } from '../branch/branchAccess.js';
+import { filterMembersExcludingTombstones } from '../members/memberDeleteTombstones.js';
 
 export function shouldReplaceBranchDataOnHydrate(opts = {}) {
   return opts.replaceBranchData === true || opts.branchContextReplace === true;
@@ -22,8 +23,8 @@ export function filterRowsToActiveBranch(rows, activeBranchId) {
  */
 export function mergeMembersAfterBranchReplace(localMembers, remoteMembers, activeBranchId) {
   const active = String(activeBranchId || '').trim();
-  const remotes = filterRowsToActiveBranch(remoteMembers, active);
-  const locals = filterRowsToActiveBranch(localMembers, active);
+  const remotes = filterMembersExcludingTombstones(filterRowsToActiveBranch(remoteMembers, active));
+  const locals = filterMembersExcludingTombstones(filterRowsToActiveBranch(localMembers, active));
   if (!locals.length) return remotes;
   const remoteById = new Map(remotes.map((m) => [String(m?.memberId || ''), m]));
   const out = [...remotes];

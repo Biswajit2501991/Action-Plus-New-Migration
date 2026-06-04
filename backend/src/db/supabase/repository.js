@@ -43,7 +43,15 @@ import {
 import { bulkUpsertMemberRows, membersBulkUpsertReady } from './membersWrite.js';
 import { updateStaffUserRow } from './staffUsersWrite.js';
 import { paymentHistoryListMonthsBack, paymentHistoryListSinceIso } from './memberPaymentsListWindow.js';
-import { chunk, emptyText, fetchAll, paymentBillingDate, toDate, toTs } from './utils.js';
+import {
+  chunk,
+  emptyText,
+  fetchAll,
+  isMissingDbTableError,
+  paymentBillingDate,
+  toDate,
+  toTs,
+} from './utils.js';
 import { stripVisitorGymCodeColumn, visitorsHaveGymCodeColumn } from './visitorsSchema.js';
 import { syncStaffUserAccess, syncStaffUserSections } from './staffUserSync.js';
 import {
@@ -581,7 +589,7 @@ async function safeDeleteByMemberIds(sb, table, memberIds) {
   if (!memberIds.length) return;
   for (const idChunk of chunk(memberIds, 100)) {
     const { error } = await sb.from(table).delete().in('member_id', idChunk);
-    if (error && !/does not exist|42P01|relation.*does not exist/i.test(String(error.message || ''))) {
+    if (error && !isMissingDbTableError(error)) {
       throw new Error(`${table} delete: ${error.message}`);
     }
   }
@@ -1769,7 +1777,7 @@ export async function deleteMemberByExternalId(externalMemberCode, branchScope =
 
   const existingRows = await fetchAll((from, to) => sb
     .from(T.members)
-    .select('id, member_code, assigned_gym_code_id')
+    .select('id, member_code, assigned_gym_code_id, photo_path')
     .eq('gym_id', gid)
     .eq('member_code', code)
     .order('updated_at', { ascending: false })
@@ -1798,6 +1806,11 @@ export async function deleteMemberByExternalId(externalMemberCode, branchScope =
   }
 
   const memberPks = existingRows.map((r) => r.id).filter(Boolean);
+  const { deleteMemberPhotoObject } = await import('../../services/memberPhoto/MemberPhotoStorageManager.js');
+  for (const row of existingRows) {
+    const path = String(row.photo_path || '').trim();
+    if (path) await deleteMemberPhotoObject(path).catch(() => {});
+  }
   await deleteMemberChildren(sb, memberPks);
   const { error: delErr } = await sb
     .from(T.members)
