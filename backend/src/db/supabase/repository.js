@@ -2324,8 +2324,6 @@ export {
   readMemberByCode,
   assertStaffPaymentDeletesAllowed,
   readFinanceSummary,
-  deleteMemberByExternalId,
-  overrideMemberPaidForMonthAmount,
 };
 
 export async function writeCollection(key, value, scope = null) {
