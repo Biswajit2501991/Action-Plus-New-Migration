@@ -2606,7 +2606,13 @@ Phone: +91-7047157510`;
       }
       return merged;
     };
-    const LOGS_LIST_QUERY = 'view=list&days=2555&limit=2000';
+    const LOGS_LIST_QUERY = 'view=list&days=2555&limit=5000';
+    const fetchAuditLogsFromBackend = async (baseQuery = LOGS_LIST_QUERY) => {
+      const fn = window.__APG_MODULES?.fetchAuditLogsFromBackend;
+      if (typeof fn === 'function') return fn(backendJson, baseQuery);
+      const batch = await backendJson(`/logs?${baseQuery}&offset=0`);
+      return Array.isArray(batch) ? batch : [];
+    };
     const settingsLookupArraysAllEmpty = (s) => {
       if (!s || typeof s !== 'object') return true;
       return SETTINGS_LOOKUP_KEYS.every((k) => !Array.isArray(s[k]) || s[k].length === 0);
@@ -3632,22 +3638,35 @@ Phone: +91-7047157510`;
       for (const remoteRow of remoteById.values()) merged.push(remoteRow);
       return merged;
     };
-    const applyMembersFromServerHydrate = (remoteMembers, authUser, activeBranchId, syncPending) => {
-      const filteredRemote = filterMembersExcludingTombstonesInline(remoteMembers);
-      const buildFn = window.__APG_MODULES?.buildMembersFromServerWithPending;
-      if (typeof buildFn === 'function') {
-        return buildFn(filteredRemote, [], {
+    const applyMembersFromServerHydrate = (remoteMembers, authUser, activeBranchId, syncPending, prev = []) => {
+      const hydrateFn = window.__APG_MODULES?.membersListFromServerHydrate;
+      if (typeof hydrateFn === 'function') {
+        return hydrateFn(remoteMembers, prev, {
           syncPending,
           authUser,
           activeBranchId,
           scopeFn: window.__APG_MODULES?.scopeMembersToUserBranch,
         });
       }
-      const merged = mergeRemoteMembersWithLocal([], filteredRemote, syncPending);
+      const filteredRemote = filterMembersExcludingTombstonesInline(remoteMembers);
+      const buildFn = window.__APG_MODULES?.buildMembersFromServerWithPending;
+      if (typeof buildFn === 'function') {
+        const list = buildFn(filteredRemote, prev, {
+          syncPending,
+          authUser,
+          activeBranchId,
+          scopeFn: window.__APG_MODULES?.scopeMembersToUserBranch,
+        });
+        const sanitize = window.__APG_MODULES?.sanitizeMembersForDisplay;
+        return typeof sanitize === 'function' ? sanitize(list) : filterMembersExcludingTombstonesInline(list);
+      }
+      const merged = mergeRemoteMembersWithLocal(prev, filteredRemote, syncPending);
       const scopeFn = window.__APG_MODULES?.scopeMembersToUserBranch;
-      return typeof scopeFn === 'function'
+      const scoped = typeof scopeFn === 'function'
         ? scopeFn(authUser, merged, activeBranchId)
         : merged;
+      const sanitize = window.__APG_MODULES?.sanitizeMembersForDisplay;
+      return typeof sanitize === 'function' ? sanitize(scoped) : filterMembersExcludingTombstonesInline(scoped);
     };
     const mergeRemoteMembersWithLocal = (localMembers, remoteMembers, syncPending = null) => {
       const locals = Array.isArray(localMembers) ? localMembers : [];
@@ -4277,6 +4296,28 @@ Phone: +91-7047157510`;
           return [];
         }
       });
+      /** Server sync paths only — always strips delete tombstones so logs/member flows stay isolated. */
+      const setMembersDisplay = React.useCallback((update) => {
+        setMembers((prev) => {
+          const raw = typeof update === 'function' ? update(prev) : update;
+          const list = Array.isArray(raw) ? raw : [];
+          const sanitize = window.__APG_MODULES?.sanitizeMembersForDisplay;
+          return typeof sanitize === 'function' ? sanitize(list) : filterMembersExcludingTombstonesInline(list);
+        });
+      }, []);
+      const removeDeleteTombstoneInline = (memberId) => {
+        const id = String(memberId || '').trim();
+        if (!id) return;
+        const removeFn = window.__APG_MODULES?.removeMemberDeleteTombstone;
+        if (typeof removeFn === 'function') {
+          removeFn(id);
+          return;
+        }
+        try {
+          const next = readDeleteTombstonesInline().filter((x) => x !== id);
+          localStorage.setItem('apg.members.deletedTombstones', JSON.stringify(next));
+        } catch {}
+      };
       const [visitors, setVisitors] = React.useState(() => {
         try {
           const saved = localStorage.getItem(STORAGE_KEYS.visitors);
@@ -4637,10 +4678,10 @@ Phone: +91-7047157510`;
           setSmsEvents(Array.isArray(remoteSmsEvents) ? remoteSmsEvents : []);
         }
         if (canFetchAuditLogs(sessionUser)) {
-          const remoteLogs = await apgTimedBackendJson('deferred', 'GET /logs', `/logs?${LOGS_LIST_QUERY}`).catch(() => []);
-          if (Array.isArray(remoteLogs) && remoteLogs.length) setLogs(remoteLogs);
+          const remoteLogs = await fetchAuditLogsFromBackend(LOGS_LIST_QUERY).catch(() => []);
+          if (Array.isArray(remoteLogs)) setLogs(remoteLogs);
         } else if (replaceBranch) {
-          const remoteLogs = await apgTimedBackendJson('deferred', 'GET /logs', `/logs?${LOGS_LIST_QUERY}`).catch(() => []);
+          const remoteLogs = await fetchAuditLogsFromBackend(LOGS_LIST_QUERY).catch(() => []);
           if (Array.isArray(remoteLogs)) setLogs(remoteLogs);
         }
         await pullStaffAttendance().catch(() => {});
@@ -4695,17 +4736,18 @@ Phone: +91-7047157510`;
                 const merged = typeof mergeM === 'function'
                   ? mergeM([], remoteMembers, activeBranchId)
                   : remoteMembers;
-                setMembers(filterMembersExcludingTombstonesInline(merged));
+                setMembersDisplay(merged);
               } else if (remoteMembers.length > 0) {
                 retryPermanentDeletesForTombstones(remoteMembers);
-                setMembers(() => applyMembersFromServerHydrate(
+                setMembersDisplay((prev) => applyMembersFromServerHydrate(
                   remoteMembers,
                   authUser,
                   activeBranchId,
                   memberSyncPending,
+                  prev,
                 ));
               } else {
-                setMembers(() => applyMembersFromServerHydrate([], authUser, activeBranchId, memberSyncPending));
+                setMembersDisplay((prev) => applyMembersFromServerHydrate([], authUser, activeBranchId, memberSyncPending, prev));
               }
               apgLoadTimingRecord('hydrate', 'merge:members (CPU)', performance.now() - tMerge, { rows: remoteMembers.length });
               if (window.__APG_MODULES?.memberPhotoStorageEnabled?.()) {
@@ -5091,7 +5133,7 @@ Phone: +91-7047157510`;
         return parts.reduce((acc, part) => ({ ...acc, ...(part && typeof part === 'object' ? part : {}) }), {});
       }, []);
       const pullLogsList = React.useCallback(async (query = LOGS_LIST_QUERY) => {
-        const remoteLogs = await backendJson(`/logs?${query}`).catch(() => []);
+        const remoteLogs = await fetchAuditLogsFromBackend(query).catch(() => []);
         if (Array.isArray(remoteLogs)) setLogs(remoteLogs);
         return remoteLogs;
       }, []);
@@ -5107,7 +5149,7 @@ Phone: +91-7047157510`;
         try {
           const detail = await backendJson(`/members/${encodeURIComponent(id)}`);
           if (!detail?.memberId) return;
-          setMembers((prev) => mergeMemberDeltaIntoList(prev, [detail], (localRow, remoteRow) => {
+          setMembersDisplay((prev) => mergeMemberDeltaIntoList(prev, [detail], (localRow, remoteRow) => {
             const pair = mergeRemoteMembersWithLocal([localRow], [remoteRow], memberSyncPending);
             return pair[0] || localRow;
           }));
@@ -5554,9 +5596,20 @@ Phone: +91-7047157510`;
               retryPermanentDeletesForTombstones(remoteMembers);
               const deltaPull = useDelta;
               if (!deltaPull) lastFullMembersPullAtRef.current = now;
-              setMembers((prev) => {
+              setMembersDisplay((prev) => {
                 let next;
-                if (deltaPull) {
+                const deltaFn = window.__APG_MODULES?.membersListFromServerDelta;
+                if (deltaPull && typeof deltaFn === 'function') {
+                  next = deltaFn(prev, remoteMembers, {
+                    mergePair: (localRow, remoteRow) => {
+                      const pair = mergeRemoteMembersWithLocal([localRow], [remoteRow], memberSyncPending);
+                      return pair[0] || localRow;
+                    },
+                    scopeFn: window.__APG_MODULES?.scopeMembersToUserBranch,
+                    authUser: user,
+                    activeBranchId: authoritativeActiveBranchId,
+                  });
+                } else if (deltaPull) {
                   next = mergeMemberDeltaIntoList(prev, remoteMembers, (localRow, remoteRow) => {
                     const pair = mergeRemoteMembersWithLocal([localRow], [remoteRow], memberSyncPending);
                     return pair[0] || localRow;
@@ -5571,6 +5624,7 @@ Phone: +91-7047157510`;
                     user,
                     authoritativeActiveBranchId,
                     memberSyncPending,
+                    prev,
                   );
                 }
                 if (
@@ -7730,11 +7784,20 @@ Please pay by: ${formattedLastDate}`;
           setTimeout(() => setToast(''), 3200);
           return false;
         }
+        addDeleteTombstoneInline(code);
+        if (!pendingDeletedMemberIdsRef.current.includes(code)) {
+          pendingDeletedMemberIdsRef.current.push(code);
+        }
+        setMembersDisplay((prev) => prev.filter((m) => String(m?.memberId || '').trim() !== code));
         const useBackendDelete = dataSyncMode === 'backend';
         if (useBackendDelete) {
           if (!user?.id) {
+            removeDeleteTombstoneInline(code);
+            pendingDeletedMemberIdsRef.current = pendingDeletedMemberIdsRef.current.filter((x) => x !== code);
             setToast('Not signed in. Sign in again, then delete.');
             setTimeout(() => setToast(''), 4000);
+            removeDeleteTombstoneInline(code);
+            pendingDeletedMemberIdsRef.current = pendingDeletedMemberIdsRef.current.filter((x) => x !== code);
             return false;
           }
           if (typeof window !== 'undefined') {
@@ -7749,6 +7812,8 @@ Please pay by: ${formattedLastDate}`;
             if (!revived?.token && !readAuthToken()) {
               setToast('Session expired. Sign in again, then delete.');
               setTimeout(() => setToast(''), 4000);
+              removeDeleteTombstoneInline(code);
+              pendingDeletedMemberIdsRef.current = pendingDeletedMemberIdsRef.current.filter((x) => x !== code);
               return false;
             }
           }
@@ -7772,16 +7837,14 @@ Please pay by: ${formattedLastDate}`;
                   : 'Could not delete member on the server. Please try again.';
             setToast(msg);
             setTimeout(() => setToast(''), 3200);
+            removeDeleteTombstoneInline(code);
+            pendingDeletedMemberIdsRef.current = pendingDeletedMemberIdsRef.current.filter((x) => x !== code);
             return false;
           }
         }
-        addDeleteTombstoneInline(code);
-        if (!pendingDeletedMemberIdsRef.current.includes(code)) {
-          pendingDeletedMemberIdsRef.current.push(code);
-        }
         clearMemberAwaitingBackendSync(code);
         const nextMembers = previousMembers.filter((m) => String(m.memberId || '').trim() !== code);
-        setMembers(nextMembers);
+        setMembersDisplay(nextMembers);
         try {
           localStorage.setItem(STORAGE_KEYS.members, JSON.stringify(nextMembers));
         } catch {}
@@ -9772,7 +9835,7 @@ Please pay by: ${formattedLastDate}`;
                       backendJson('/members').catch(() => []),
                       backendJson('/visitors').catch(() => []),
                       backendJson('/settings?scope=full').catch(() => ({})),
-                      backendJson('/logs?view=full&limit=5000&days=365').catch(() => []),
+                      fetchAuditLogsFromBackend(LOGS_LIST_QUERY).catch(() => []),
                       backendJson('/finance').catch(() => []),
                       backendJson('/sms-events').catch(() => []),
                     ]);
@@ -9783,7 +9846,7 @@ Please pay by: ${formattedLastDate}`;
                       }))));
                     }
                     if (Array.isArray(remoteMembers)) {
-                      setMembers(filterMembersExcludingTombstonesInline(remoteMembers));
+                      setMembersDisplay(remoteMembers);
                     }
                     if (Array.isArray(remoteVisitors)) setVisitors(remoteVisitors);
                     setMemberSyncPending({});
@@ -9865,7 +9928,9 @@ Please pay by: ${formattedLastDate}`;
                 }}
                 onRefreshLogs={async () => {
                   try {
-                    await pullLogsList('view=list&days=365&limit=1000');
+                    await pullLogsList(LOGS_LIST_QUERY);
+                    setToast('Audit logs refreshed from server.');
+                    setTimeout(() => setToast(''), 2200);
                   } catch (err) {
                     setToast(`Logs refresh failed: ${err?.message || err}`);
                     setTimeout(() => setToast(''), 2000);
@@ -18435,7 +18500,7 @@ function PTClientsPage({ members, users, settings, updateSetting, currentUser, a
       const [actorFilter, setActorFilter] = React.useState('');
       const [actionFilter, setActionFilter] = React.useState('');
       const [entityFilter, setEntityFilter] = React.useState('');
-      const [timeRange, setTimeRange] = React.useState('30d');
+      const [timeRange, setTimeRange] = React.useState('all');
       const [expandedId, setExpandedId] = React.useState('');
       const [page, setPage] = React.useState(1);
       const pageSize = 25;

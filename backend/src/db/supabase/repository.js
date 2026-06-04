@@ -2185,7 +2185,7 @@ async function readLogs(scope, options = {}) {
 
   const slim = options.view !== 'full';
   const columns = slim ? LOG_LIST_COLUMNS : '*';
-  const limit = Math.min(Math.max(Number(options.limit) || 500, 1), 2000);
+  const limit = Math.min(Math.max(Number(options.limit) || 500, 1), 5000);
   const offset = Math.max(Number(options.offset) || 0, 0);
   const days = Math.min(Math.max(Number(options.days) || 90, 1), 2555);
   const startIso = toTs(options.startDate);

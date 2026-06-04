@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest';
 import {
   authIsOwner,
   filterRowsByBranch,
+  logMatchesBranchScope,
   stampBranchOnRows,
   assertBranchWriteAllowed,
 } from '../backend/src/auth/branchFilter.js';
@@ -145,5 +146,40 @@ describe('assertBranchWriteAllowed', () => {
 
   it('empty payload is a no-op', () => {
     expect(() => assertBranchWriteAllowed([], { userId: 'deep', gymCodeId: branchA })).not.toThrow();
+  });
+});
+
+describe('logMatchesBranchScope', () => {
+  const scope = {
+    limited: true,
+    memberCodes: new Set(['APG-1']),
+    staffLogins: new Set(['staff1']),
+    visitorIds: new Set(),
+  };
+
+  it('allows gym-wide settings and backup logs for branch-scoped readers', () => {
+    expect(logMatchesBranchScope({
+      entityType: 'settings',
+      entityId: 'plans',
+      action: 'settings.updated',
+    }, scope)).toBe(true);
+    expect(logMatchesBranchScope({
+      entityType: 'backup',
+      entityId: 'local',
+      action: 'backup.exported',
+    }, scope)).toBe(true);
+  });
+
+  it('still scopes member logs to branch member codes', () => {
+    expect(logMatchesBranchScope({
+      entityType: 'member',
+      entityId: 'APG-1',
+      action: 'member.updated',
+    }, scope)).toBe(true);
+    expect(logMatchesBranchScope({
+      entityType: 'member',
+      entityId: 'APG-OTHER',
+      action: 'member.updated',
+    }, scope)).toBe(false);
   });
 });

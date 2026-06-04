@@ -179,6 +179,13 @@ export function logMatchesBranchScope(log, scope) {
     const uid = String(after.userId || before.userId || eid || '').trim();
     return uid && scope.staffLogins.has(uid);
   }
+  // Gym-wide audit rows (settings, backups, undo/redo) are not tied to a member/visitor id.
+  if (
+    et === 'settings' || et === 'backup' || et === 'finance' || et === 'history' || et === 'sms'
+    || act.startsWith('settings.') || act.startsWith('backup.') || act.startsWith('history.')
+  ) {
+    return true;
+  }
   const actor = String(log?.actor || '').trim();
   if (actor && scope.staffLogins.has(actor)) return true;
   return false;

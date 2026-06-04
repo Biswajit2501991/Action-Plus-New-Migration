@@ -1,5 +1,25 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, beforeEach, vi } from 'vitest';
+import { addMemberDeleteTombstone } from '../src/features/members/memberDeleteTombstones.js';
 import { mergeMemberDeltaIntoList } from '../src/features/members/memberDeltaPull.js';
+
+describe('mergeMemberDeltaIntoList tombstones', () => {
+  beforeEach(() => {
+    const store = new Map();
+    vi.stubGlobal('localStorage', {
+      getItem: (k) => (store.has(k) ? store.get(k) : null),
+      setItem: (k, v) => store.set(k, String(v)),
+      removeItem: (k) => store.delete(k),
+    });
+  });
+
+  it('does not re-add tombstoned member from delta payload', () => {
+    addMemberDeleteTombstone('APG-DEL');
+    const prev = [{ memberId: 'APG-KEEP', status: 'Active' }];
+    const delta = [{ memberId: 'APG-DEL', status: 'Active', updatedAt: '2026-06-04T12:00:00.000Z' }];
+    const out = mergeMemberDeltaIntoList(prev, delta);
+    expect(out.map((m) => m.memberId)).toEqual(['APG-KEEP']);
+  });
+});
 
 describe('mergeMemberDeltaIntoList', () => {
   it('keeps members not present in delta payload', () => {

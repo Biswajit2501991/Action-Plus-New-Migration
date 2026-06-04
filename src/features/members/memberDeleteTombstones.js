@@ -63,6 +63,11 @@ export function filterMembersExcludingTombstones(members, tombstones = null) {
     .filter((m) => !tombstoneSet.has(String(m?.memberId || '').trim()));
 }
 
+/** Final guard for any React state update — deleted members never render in lists. */
+export function sanitizeMembersForDisplay(members, tombstones = null) {
+  return filterMembersExcludingTombstones(members, tombstones);
+}
+
 export function tombstoneSetFromList(tombstones) {
   return new Set(Array.isArray(tombstones) ? tombstones : []);
 }

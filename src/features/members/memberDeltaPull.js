@@ -1,4 +1,7 @@
-import { filterMembersExcludingTombstones } from './memberDeleteTombstones.js';
+import {
+  filterMembersExcludingTombstones,
+  sanitizeMembersForDisplay,
+} from './memberDeleteTombstones.js';
 
 /**
  * Apply incremental GET /members?updatedSince rows onto the full in-memory list.
@@ -34,5 +37,5 @@ export function mergeMemberDeltaIntoList(prevMembers, deltaRemote, options = {})
   for (const remoteRow of remoteById.values()) {
     merged.push(remoteRow);
   }
-  return merged;
+  return sanitizeMembersForDisplay(merged);
 }

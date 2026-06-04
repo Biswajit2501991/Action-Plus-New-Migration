@@ -48,8 +48,17 @@ import {
   filterMembersExcludingTombstones,
   shouldKeepLocalOnlyMember,
   buildMembersFromServerWithPending,
+  sanitizeMembersForDisplay,
 } from '../features/members/memberDeleteTombstones.js';
 import { mergeMemberDeltaIntoList } from '../features/members/memberDeltaPull.js';
+import {
+  membersListFromServerHydrate,
+  membersListFromServerDelta,
+} from '../features/members/memberListSync.js';
+import {
+  fetchAuditLogsFromBackend,
+  DEFAULT_AUDIT_LOGS_QUERY,
+} from '../features/audit/auditLogsFetch.js';
 import {
   scrollEditorToTop,
   bindModalEscapeKey,
@@ -355,6 +364,11 @@ window.__APG_MODULES.filterMembersExcludingTombstones = filterMembersExcludingTo
 window.__APG_MODULES.shouldKeepLocalOnlyMember = shouldKeepLocalOnlyMember;
 window.__APG_MODULES.buildMembersFromServerWithPending = buildMembersFromServerWithPending;
 window.__APG_MODULES.mergeMemberDeltaIntoList = mergeMemberDeltaIntoList;
+window.__APG_MODULES.sanitizeMembersForDisplay = sanitizeMembersForDisplay;
+window.__APG_MODULES.membersListFromServerHydrate = membersListFromServerHydrate;
+window.__APG_MODULES.membersListFromServerDelta = membersListFromServerDelta;
+window.__APG_MODULES.fetchAuditLogsFromBackend = fetchAuditLogsFromBackend;
+window.__APG_MODULES.DEFAULT_AUDIT_LOGS_QUERY = DEFAULT_AUDIT_LOGS_QUERY;
 window.__APG_MODULES.staffHasBranch = staffHasBranch;
 window.__APG_MODULES.scopeMembersForBulkSync = scopeMembersForBulkSync;
 window.__APG_MODULES.scopeVisitorsForBulkSync = scopeVisitorsForBulkSync;
