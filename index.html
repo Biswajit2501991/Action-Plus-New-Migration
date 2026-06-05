@@ -7027,6 +7027,7 @@ Phone: +91-7047157510`;
           clearAuthSession();
           setUser(null);
           setBackendHydrated(false);
+          setMemberSyncPending({});
           setToast('Session expired. Please sign in again.');
           setTimeout(() => setToast(''), 3200);
         };
@@ -7582,6 +7583,7 @@ Please pay by: ${formattedLastDate}`;
         // Phase 2 zero-leak / save-glitch fix:
         // Fire a surgical PATCH for changed fields so a single-member edit (esp. gymCode flip)
         // is durably persisted even if the global bulk PUT debounce times out on large datasets.
+        let deferSuccessToastForPayMonthPatch = false;
         if (dataSyncMode === 'backend' && beforeMember) {
           const PATCH_KEYS = [
             'name','email','mobile','dob','gender','address','staff','plan','status',
@@ -7599,6 +7601,8 @@ Please pay by: ${formattedLastDate}`;
             const sb = typeof b === 'object' ? JSON.stringify(b || null) : String(b == null ? '' : b);
             if (sa !== sb) delta[key] = a == null ? null : a;
           }
+          deferSuccessToastForPayMonthPatch = Object.keys(delta).length > 0
+            && Object.prototype.hasOwnProperty.call(delta, 'payMonth');
           const photoChanged = String(toSave.photo || '').trim() !== String(beforeMember.photo || '').trim();
           if (photoStorageOn && photoChanged && String(toSave.photo || '').trim()) {
             patchMemberPhoto(toSave.memberId, toSave.photo);
@@ -7621,6 +7625,19 @@ Please pay by: ${formattedLastDate}`;
                 } else if (res?.member?.memberId) {
                   setMembers((prev) => prev.map((m) => (m.memberId === res.member.memberId ? { ...m, ...res.member } : m)));
                 }
+              } else if (res?.member?.memberId) {
+                setMembers((prev) => prev.map((m) => (
+                  m.memberId === res.member.memberId ? { ...m, ...res.member } : m
+                )));
+              }
+              if (deferSuccessToastForPayMonthPatch) {
+                const displayFn = window.__APG_MODULES?.formatPaidMonthDisplay;
+                const savedKey = res?.member?.payMonth ?? toSave.payMonth;
+                const label = typeof displayFn === 'function'
+                  ? displayFn(savedKey)
+                  : String(savedKey || '').trim();
+                setToast(label ? `Paid for Month saved (${label}).` : 'Paid for Month saved.');
+                setTimeout(() => setToast(''), 2500);
               }
             }).catch((err) => {
               setMembers(previousMembers);
@@ -7648,8 +7665,10 @@ Please pay by: ${formattedLastDate}`;
           }));
         }
         const mobileChanged = Boolean(beforeMember) && String(beforeMember.mobile || '') !== String(toSave.mobile || '');
-        setToast(mobileChanged ? 'Mobile number updated and messaging links synced.' : `${toSave.name} has been updated successfully`);
-        setTimeout(() => setToast(''), 2500);
+        if (!deferSuccessToastForPayMonthPatch) {
+          setToast(mobileChanged ? 'Mobile number updated and messaging links synced.' : `${toSave.name} has been updated successfully`);
+          setTimeout(() => setToast(''), 2500);
+        }
         rememberMemberDefaults(toSave);
         showMemberUndoToast('Member updated — Undo', previousMembers);
         // Close the modal
@@ -9005,6 +9024,7 @@ Please pay by: ${formattedLastDate}`;
         }
         setBackendHydrated(false);
         hydrateCompletedAtRef.current = 0;
+        setMemberSyncPending({});
         clearQueuedSnapshots().catch(() => {});
         try { localStorage.removeItem(STORAGE_KEYS.users); } catch {}
         logEvent('auth.logout', 'user', user?.id || '', { id: user?.id }, null, user?.name || user?.id || '');

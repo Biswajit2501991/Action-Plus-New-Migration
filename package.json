@@ -28,6 +28,8 @@
     "backfill:payments": "node backend/scripts/backfill-member-payment-history.js",
     "backfill:paid-month:dry": "node backend/scripts/backfill-paid-month.js --dry-run",
     "backfill:paid-month": "node backend/scripts/backfill-paid-month.js",
+    "backfill:members-pay-month:dry": "node backend/scripts/backfill-members-pay-month.js --dry-run",
+    "backfill:members-pay-month": "node backend/scripts/backfill-members-pay-month.js",
     "test": "vitest run",
     "test:watch": "vitest",
     "test:e2e": "playwright test",
