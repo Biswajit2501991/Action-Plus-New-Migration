@@ -8088,7 +8088,29 @@ Please pay by: ${formattedLastDate}`;
         });
         return true;
       };
-      const saveMemberPaymentEntry = () => {
+      const computePaymentEditPatch = (memberRow, mId, pId, afterRow, paidMonth, payTs) => {
+        if (!memberRow || String(memberRow.memberId || '').trim() !== String(mId).trim()) return null;
+        if (!afterRow || typeof afterRow !== 'object') return null;
+        const baseHist = Array.isArray(memberRow.paymentHistory) ? memberRow.paymentHistory : [];
+        const nextHist = baseHist.map((r) => {
+          if (paymentRowMatchesId(r, mId, pId)) {
+            return { ...r, ...afterRow, id: afterRow.id || stablePaymentHistoryRowId(afterRow, mId) };
+          }
+          return r;
+        });
+        const latestPaid = normalizeMemberPaymentHistory({ ...memberRow, paymentHistory: nextHist })
+          .map((r) => String(r.paidAt || ''))
+          .filter(Boolean)
+          .sort((a, b) => parseApgTimeMs(b) - parseApgTimeMs(a))[0] || memberRow.paymentReceivedAt || '';
+        return {
+          ...memberRow,
+          payMonth: paidMonth,
+          paymentHistory: nextHist,
+          paymentReceivedAt: latestPaid,
+          updatedAt: payTs,
+        };
+      };
+      const saveMemberPaymentEntry = async () => {
         if (paymentEntrySaveLockRef.current) return false;
         paymentEntrySaveLockRef.current = true;
         setPaymentEntrySaving(true);
@@ -8165,38 +8187,67 @@ Please pay by: ${formattedLastDate}`;
             editedBy: actor,
             editedAt: payTs,
           };
-          setMembers((prev) => prev.map((x) => {
-            if (x.memberId !== memberId) return x;
-            const baseHist = Array.isArray(x.paymentHistory) ? x.paymentHistory : [];
-            const nextHist = baseHist.map((r) => {
-              if (paymentRowMatchesId(r, memberId, editingId)) {
-                return { ...r, ...afterRow, id: afterRow.id || stablePaymentHistoryRowId(afterRow, memberId) };
+          const membersBefore = members;
+          const useBackendApi = hasBackendAuth() && dataSyncMode !== 'local';
+          try {
+            if (useBackendApi) {
+              const result = await backendJson(
+                `/members/${encodeURIComponent(memberId)}/payments/${encodeURIComponent(editingId)}`,
+                {
+                  method: 'PATCH',
+                  body: JSON.stringify({ amount, paidAt, paidMonth, method, note }),
+                },
+              );
+              if (!result?.updated) {
+                throw new Error(result?.error || 'Payment was not saved to the database.');
               }
-              return r;
+              const savedMember = result.member
+                || computePaymentEditPatch(target, memberId, editingId, afterRow, paidMonth, payTs);
+              if (!savedMember) throw new Error('Payment was not saved to the database.');
+              setMembers((prev) => prev.map((x) => (
+                String(x.memberId || '').trim() === memberId ? savedMember : x
+              )));
+              markMemberAwaitingBackendSync(memberId, savedMember);
+              window.dispatchEvent(new CustomEvent('apg-finance-refresh'));
+            } else {
+              const patched = computePaymentEditPatch(target, memberId, editingId, afterRow, paidMonth, payTs);
+              if (!patched) throw new Error('Could not update this payment in local data. Try refreshing the page.');
+              setMembers((prev) => prev.map((x) => (
+                String(x.memberId || '').trim() === memberId ? patched : x
+              )));
+              queueMicrotask(() => markMemberAwaitingBackendSync(memberId, patched));
+              window.dispatchEvent(new CustomEvent('apg-finance-refresh'));
+            }
+            logEvent('member.payment.edited', 'member', memberId, beforeRow, {
+              memberName: target.name || '',
+              paymentId: editingId,
+              ...afterRow,
             });
-            const latestPaid = normalizeMemberPaymentHistory({ ...x, paymentHistory: nextHist })
-              .map((r) => String(r.paidAt || ''))
-              .filter(Boolean)
-              .sort((a, b) => parseApgTimeMs(b) - parseApgTimeMs(a))[0] || x.paymentReceivedAt || '';
-            paymentUpdatedMember = {
-              ...x,
-              payMonth: paidMonth,
-              paymentHistory: nextHist,
-              paymentReceivedAt: latestPaid,
-              updatedAt: payTs,
-            };
-            return paymentUpdatedMember;
-          }));
-          if (paymentUpdatedMember) {
-            queueMicrotask(() => markMemberAwaitingBackendSync(memberId, paymentUpdatedMember));
-            window.dispatchEvent(new CustomEvent('apg-finance-refresh'));
+            setToast('Payment entry updated.');
+            setTimeout(() => setToast(''), 2200);
+            setPaymentEntryModal({
+              open: false,
+              editingPaymentId: '',
+              memberId: '',
+              memberName: '',
+              amount: '',
+              paidAt: iso(new Date()),
+              paidMonth: '',
+              method: '',
+              note: '',
+              error: '',
+            });
+            unlock();
+            return true;
+          } catch (err) {
+            setMembers(membersBefore);
+            const msg = String(err?.message || err || 'Unknown error');
+            setPaymentEntryModal((prev) => ({ ...prev, error: msg }));
+            setToast(`Failed to update payment: ${msg}`);
+            setTimeout(() => setToast(''), 3500);
+            unlock();
+            return false;
           }
-          logEvent('member.payment.edited', 'member', memberId, beforeRow, {
-            memberName: target.name || '',
-            paymentId: editingId,
-            ...afterRow,
-          });
-          setToast('Payment entry updated.');
         } else {
           const rowDraft = {
             paidAt,
@@ -10153,7 +10204,7 @@ Please pay by: ${formattedLastDate}`;
                     e.preventDefault();
                     e.stopPropagation();
                     if (paymentEntrySaving || paymentEntrySaveLockRef.current) return;
-                    saveMemberPaymentEntry();
+                    void saveMemberPaymentEntry();
                   }}
                 >
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-3">

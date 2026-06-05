@@ -292,6 +292,175 @@ export async function deleteMemberPayment(memberCode, paymentId, branchScope = n
   return { ok: true, deleted: true, paymentId: pid, member: refreshed };
 }
 
+/**
+ * Surgical payment-row update — upserts one member_payment_history row and resyncs ledger.
+ * Returns 404 when no row matches paymentId. Verifies read-back before returning success.
+ */
+export async function updateMemberPayment(memberCode, paymentId, patch, branchScope = null) {
+  const code = String(memberCode || '').trim();
+  const pid = String(paymentId || '').trim();
+  if (!code || !pid) {
+    const err = new Error('member-code-and-payment-id-required');
+    err.status = 400;
+    throw err;
+  }
+  if (!patch || typeof patch !== 'object') {
+    const err = new Error('patch-required');
+    err.status = 400;
+    throw err;
+  }
+
+  const amount = Number(patch.amount);
+  if (!Number.isFinite(amount) || amount <= 0) {
+    const err = new Error('invalid-amount');
+    err.status = 400;
+    throw err;
+  }
+
+  const paidAt = toTs(patch.paidAt || patch.paid_at);
+  if (!paidAt) {
+    const err = new Error('invalid-paid-at');
+    err.status = 400;
+    throw err;
+  }
+
+  const paidMonth = validatePaidMonthKey(patch.paidMonth)
+    || validatePaidMonthKey(patch.paid_month);
+  if (!paidMonth) {
+    const err = new Error('invalid-paid-month');
+    err.status = 400;
+    throw err;
+  }
+
+  const method = emptyText(patch.method);
+  const note = emptyText(patch.note);
+
+  const member = await readMemberByCode(code, branchScope);
+  if (!member) {
+    const err = new Error('member-not-found');
+    err.status = 404;
+    throw err;
+  }
+
+  const before = Array.isArray(member.paymentHistory) ? member.paymentHistory : [];
+  const beforeIdx = before.findIndex((p) => paymentRowMatchesId(p, code, pid));
+  if (beforeIdx === -1) {
+    const err = new Error('payment-not-found');
+    err.status = 404;
+    throw err;
+  }
+
+  const beforeRow = before[beforeIdx];
+  const billingDateForRow = String(beforeRow.billingDate || '').trim()
+    || paymentBillingDate(beforeRow);
+  const editedAt = new Date().toISOString();
+  const afterRow = {
+    ...beforeRow,
+    paidAt,
+    receivedAt: paidAt,
+    amount,
+    method,
+    note,
+    paidMonth,
+    billingMonth: paidMonth,
+    billingDate: billingDateForRow,
+    editedBy: emptyText(patch.editedBy || beforeRow.editedBy),
+    editedAt,
+  };
+  const after = before.map((p, i) => (i === beforeIdx ? afterRow : p));
+
+  const sb = getSupabase();
+  const gid = gymId();
+  const { data: memberRow, error: rowErr } = await sb
+    .from(T.members)
+    .select('id')
+    .eq('gym_id', gid)
+    .eq('member_code', code)
+    .order('updated_at', { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  if (rowErr) throw new Error(`member pk lookup: ${rowErr.message}`);
+  if (!memberRow?.id) {
+    const err = new Error('member-not-found');
+    err.status = 404;
+    throw err;
+  }
+
+  const memberForChildRows = {
+    memberId: code,
+    payMonth: paidMonth,
+    paymentHistory: after,
+  };
+  const { payRows } = buildMemberChildRows(memberForChildRows, gid, memberRow.id);
+  await syncMemberChildRows(sb, T.member_payment_history, {
+    gymId: gid,
+    memberId: memberRow.id,
+    externalIdColumn: 'external_payment_id',
+    rows: payRows,
+    onConflict: 'gym_id,member_id,external_payment_id',
+  });
+
+  try {
+    await syncMemberPaidForMonthLedger(sb, {
+      gymId: gid,
+      memberPk: memberRow.id,
+      member: memberForChildRows,
+    });
+  } catch (ledgerErr) {
+    const msg = String(ledgerErr?.message || ledgerErr);
+    if (!/member_paid_for_month|does not exist|42P01/i.test(msg)) throw ledgerErr;
+  }
+
+  const { error: memberUpdErr } = await sb
+    .from(T.members)
+    .update({
+      pay_month: emptyText(paidMonth),
+      updated_at: editedAt,
+    })
+    .eq('id', memberRow.id);
+  if (memberUpdErr) throw new Error(`member pay_month update: ${memberUpdErr.message}`);
+
+  notifyCollectionChange('members');
+  const refreshed = await readMemberByCode(code, branchScope);
+  const updatedPayment = (refreshed?.paymentHistory || []).find((p) => paymentRowMatchesId(p, code, pid));
+  if (!updatedPayment) {
+    const err = new Error('payment-update-not-persisted');
+    err.status = 500;
+    throw err;
+  }
+
+  const persistedAmount = Number(updatedPayment.amount || 0);
+  const persistedPaidMonth = validatePaidMonthKey(updatedPayment.paidMonth)
+    || validatePaidMonthKey(updatedPayment.billingMonth);
+  const persistedPaidAt = toTs(updatedPayment.paidAt || updatedPayment.receivedAt);
+  const amountOk = Math.abs(persistedAmount - amount) < 0.01;
+  const monthOk = persistedPaidMonth === paidMonth;
+  const dateOk = persistedPaidAt && paidAt
+    && String(persistedPaidAt).slice(0, 10) === String(paidAt).slice(0, 10);
+  if (!amountOk || !monthOk || !dateOk) {
+    const err = new Error('payment-update-not-persisted');
+    err.status = 500;
+    err.detail = {
+      expected: { amount, paidMonth, paidAt: String(paidAt).slice(0, 10) },
+      persisted: {
+        amount: persistedAmount,
+        paidMonth: persistedPaidMonth,
+        paidAt: persistedPaidAt ? String(persistedPaidAt).slice(0, 10) : null,
+      },
+    };
+    throw err;
+  }
+
+  return {
+    ok: true,
+    updated: true,
+    paymentId: pid,
+    payment: updatedPayment,
+    member: refreshed,
+    before: beforeRow,
+  };
+}
+
 async function readMembers(scope, branchScope = null, options = {}) {
   if (branchScope?.staffNoBranch) {
     return [];

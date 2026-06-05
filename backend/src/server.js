@@ -46,6 +46,7 @@ import {
   addSettingsLookup,
   deleteSettingsLookup,
   deleteMemberPayment,
+  updateMemberPayment,
   deleteMember,
   overrideMemberPaidForMonthAmount,
   deleteVisitor,
@@ -797,6 +798,44 @@ app.patch('/api/members/:memberId/paid-for-month/:monthKey', requireAccess(Acces
     return res.status(status).json({
       error: err?.message || 'paid-for-month-override-failed',
       ...detail,
+    });
+  }
+});
+
+app.patch('/api/members/:memberId/payments/:paymentId', requireAccess(Access.membersWrite), async (req, res) => {
+  const memberCode = String(req.params.memberId || '').trim();
+  const paymentId = decodeURIComponent(String(req.params.paymentId || '').trim());
+  if (!memberCode || !paymentId) {
+    return res.status(400).json({ error: 'member-code-and-payment-id-required', updated: false });
+  }
+  const branchScope = buildBranchScope(req);
+  const patch = req.body && typeof req.body === 'object' ? req.body : {};
+  try {
+    const result = await updateMemberPayment(memberCode, paymentId, patch, branchScope);
+    await appendAuditLog(req, {
+      action: 'member.payment.edited',
+      entityType: 'member',
+      entityId: memberCode,
+      before: result.before || null,
+      after: {
+        paymentId,
+        amount: result.payment?.amount,
+        paidAt: result.payment?.paidAt,
+        paidMonth: result.payment?.paidMonth,
+        method: result.payment?.method,
+        note: result.payment?.note,
+      },
+    });
+    queueDatabaseBackup('member-payment-edit');
+    const { before, ...payload } = result;
+    return res.status(200).json(payload);
+  } catch (err) {
+    const status = err?.status || 500;
+    const updated = status === 404 ? false : undefined;
+    return res.status(status).json({
+      error: err?.message || 'payment-update-failed',
+      updated: updated ?? false,
+      detail: err?.detail || null,
     });
   }
 });

@@ -123,6 +123,82 @@ export async function deleteMemberPayment(memberCode, paymentId, branchScope = n
   return { ok: true, deleted: true, paymentId: pid, member: rows[idx] };
 }
 
+export async function updateMemberPayment(memberCode, paymentId, patch, branchScope = null) {
+  if (useSupabase()) return supabaseStore.updateMemberPayment(memberCode, paymentId, patch, branchScope);
+  const rows = await kvStore.readJsonCollection('apg.members', []);
+  const code = String(memberCode || '').trim();
+  const pid = String(paymentId || '').trim();
+  if (!code || !pid) {
+    const err = new Error('member-code-and-payment-id-required');
+    err.status = 400;
+    throw err;
+  }
+  if (!patch || typeof patch !== 'object') {
+    const err = new Error('patch-required');
+    err.status = 400;
+    throw err;
+  }
+  const amount = Number(patch.amount);
+  if (!Number.isFinite(amount) || amount <= 0) {
+    const err = new Error('invalid-amount');
+    err.status = 400;
+    throw err;
+  }
+  const paidAt = String(patch.paidAt || patch.paid_at || '').trim();
+  if (!paidAt) {
+    const err = new Error('invalid-paid-at');
+    err.status = 400;
+    throw err;
+  }
+  const paidMonth = String(patch.paidMonth || patch.paid_month || '').trim();
+  if (!paidMonth) {
+    const err = new Error('invalid-paid-month');
+    err.status = 400;
+    throw err;
+  }
+  const idx = rows.findIndex((m) => String(m?.memberId || '').trim() === code);
+  if (idx === -1) {
+    const err = new Error('member-not-found');
+    err.status = 404;
+    throw err;
+  }
+  const hist = Array.isArray(rows[idx].paymentHistory) ? rows[idx].paymentHistory : [];
+  const payIdx = hist.findIndex((p) => String(p?.id || '') === pid);
+  if (payIdx === -1) {
+    const err = new Error('payment-not-found');
+    err.status = 404;
+    throw err;
+  }
+  const beforeRow = hist[payIdx];
+  const afterRow = {
+    ...beforeRow,
+    paidAt,
+    receivedAt: paidAt,
+    amount,
+    method: patch.method != null ? String(patch.method) : beforeRow.method,
+    note: patch.note != null ? String(patch.note) : beforeRow.note,
+    paidMonth,
+    billingMonth: paidMonth,
+    editedAt: new Date().toISOString(),
+  };
+  const after = hist.map((p, i) => (i === payIdx ? afterRow : p));
+  rows[idx] = {
+    ...rows[idx],
+    payMonth: paidMonth,
+    paymentHistory: after,
+    updatedAt: new Date().toISOString(),
+  };
+  await kvStore.writeJsonCollection('apg.members', rows);
+  return {
+    ok: true,
+    updated: true,
+    paymentId: pid,
+    payment: afterRow,
+    member: rows[idx],
+    before: beforeRow,
+  };
+}
+
 export async function deleteMember(externalMemberCode, branchScope = null) {
   if (useSupabase()) return supabaseStore.deleteMemberByExternalId(externalMemberCode, branchScope);
   const rows = await kvStore.readJsonCollection('apg.members', []);
