@@ -268,7 +268,8 @@
     }
     @media (prefers-reduced-motion: reduce) {
       .apg-pt-workout-date-attention,
-      .apg-filter-btn-active {
+      .apg-filter-btn-active,
+      .apg-pt-calendar-collapsed-attention {
         animation: none;
       }
       .apg-pt-workout-date-attention {
@@ -279,6 +280,30 @@
         outline: 2px solid rgb(59, 130, 246);
         outline-offset: 2px;
       }
+      .apg-pt-calendar-collapsed-attention {
+        outline: 2px solid rgb(16, 185, 129);
+        outline-offset: 2px;
+      }
+    }
+
+    /* Collapsed PT calendar — draw attention when hidden (UI only) */
+    @keyframes apgPtCalendarCollapsedPulse {
+      0%, 100% {
+        box-shadow: 0 0 0 0 rgba(16, 185, 129, 0.32);
+        border-color: rgb(110, 231, 183);
+      }
+      50% {
+        box-shadow: 0 0 0 5px rgba(16, 185, 129, 0.12);
+        border-color: rgb(52, 211, 153);
+      }
+    }
+    .apg-pt-calendar-collapsed-attention {
+      border-color: rgb(52, 211, 153) !important;
+      animation: apgPtCalendarCollapsedPulse 2.6s ease-in-out infinite;
+    }
+    body[data-apg-layout="luxury"] .apg-pt-calendar-collapsed-attention {
+      border-color: var(--lux-emerald-strong) !important;
+      box-shadow: 0 0 0 1px rgba(110, 231, 183, 0.25);
     }
 
     /* ===================================================================== */
@@ -1132,9 +1157,9 @@
     });
   </script>
   <script src="/app.env.js"></script>
-  <script>window.__APG_ESM_CACHE_BUST='1780651991736';</script>
-  <script type="module" src="/src/runtime/registerApgModules.js?v=1780651991736"></script>
+  <script>window.__APG_ESM_CACHE_BUST='1780660297188';</script>
+  <script type="module" src="/src/runtime/registerApgModules.js?v=1780660297188"></script>
   <!-- Application Code. Babel will compile this JSX on the fly. -->
-  <script src="/dist-legacy/app.bundle.js?v=1780651991736"></script>
+  <script src="/dist-legacy/app.bundle.js?v=1780660297188"></script>
 </body>
 </html>

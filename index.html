@@ -270,7 +270,8 @@
     }
     @media (prefers-reduced-motion: reduce) {
       .apg-pt-workout-date-attention,
-      .apg-filter-btn-active {
+      .apg-filter-btn-active,
+      .apg-pt-calendar-collapsed-attention {
         animation: none;
       }
       .apg-pt-workout-date-attention {
@@ -281,6 +282,30 @@
         outline: 2px solid rgb(59, 130, 246);
         outline-offset: 2px;
       }
+      .apg-pt-calendar-collapsed-attention {
+        outline: 2px solid rgb(16, 185, 129);
+        outline-offset: 2px;
+      }
+    }
+
+    /* Collapsed PT calendar — draw attention when hidden (UI only) */
+    @keyframes apgPtCalendarCollapsedPulse {
+      0%, 100% {
+        box-shadow: 0 0 0 0 rgba(16, 185, 129, 0.32);
+        border-color: rgb(110, 231, 183);
+      }
+      50% {
+        box-shadow: 0 0 0 5px rgba(16, 185, 129, 0.12);
+        border-color: rgb(52, 211, 153);
+      }
+    }
+    .apg-pt-calendar-collapsed-attention {
+      border-color: rgb(52, 211, 153) !important;
+      animation: apgPtCalendarCollapsedPulse 2.6s ease-in-out infinite;
+    }
+    body[data-apg-layout="luxury"] .apg-pt-calendar-collapsed-attention {
+      border-color: var(--lux-emerald-strong) !important;
+      box-shadow: 0 0 0 1px rgba(110, 231, 183, 0.25);
     }
 
     /* ===================================================================== */
@@ -2617,7 +2642,7 @@ Phone: +91-7047157510`;
       if (!remote.length) return prev;
       return remote;
     };
-    /** Merge PT profiles: union focusByDate per date key; other fields by updatedAt. */
+    /** Merge PT profiles: focusByDate from newer updatedAt snapshot (deletions must not resurrect). */
     const mergePtClientProfiles = (prev, remote) => {
       const out = { ...(prev && typeof prev === 'object' ? prev : {}) };
       if (!remote || typeof remote !== 'object') return out;
@@ -2626,10 +2651,12 @@ Phone: +91-7047157510`;
         const localProfile = out[memberId] && typeof out[memberId] === 'object' ? out[memberId] : {};
         const localTs = Date.parse(localProfile.updatedAt || '') || 0;
         const remoteTs = Date.parse(remoteProfile.updatedAt || '') || 0;
-        const focusByDate = { ...(localProfile.focusByDate || {}), ...(remoteProfile.focusByDate || {}) };
         const winner = remoteTs >= localTs
           ? { ...localProfile, ...remoteProfile }
           : { ...remoteProfile, ...localProfile };
+        const focusByDate = remoteTs >= localTs
+          ? { ...(remoteProfile.focusByDate || {}) }
+          : { ...(localProfile.focusByDate || {}) };
         out[memberId] = {
           ...winner,
           focusByDate,
@@ -16509,31 +16536,40 @@ function PTClientsPage({ members, users, settings, updateSetting, currentUser, a
         Object.values(ptSaveTimersRef.current).forEach((t) => clearTimeout(t));
       }, []);
       const schedulePtProfileSave = React.useCallback((memberId, profile, mode, saveOpts = {}) => {
-        if (dataSyncMode !== 'backend' || !backendHydrated || !memberId || !profile) return;
+        const waitForBackend = saveOpts.waitForBackend === true;
+        const rejectIfWaiting = (err) => (waitForBackend ? Promise.reject(err) : Promise.resolve(null));
+        if (dataSyncMode !== 'backend' || !backendHydrated || !memberId || !profile) {
+          return rejectIfWaiting(new Error('backend_not_ready'));
+        }
         const backendJsonFn = typeof window !== 'undefined' ? window.__APG_BACKEND_JSON__ : null;
-        if (typeof backendJsonFn !== 'function') return;
+        if (typeof backendJsonFn !== 'function') {
+          return rejectIfWaiting(new Error('backend_json_unavailable'));
+        }
         if (ptSaveTimersRef.current[memberId]) clearTimeout(ptSaveTimersRef.current[memberId]);
         const delay = saveOpts.immediate ? 0 : BACKEND_BULK_DEBOUNCE_MS;
-        const runSave = () => {
-          backendJsonFn('/pt-client-profiles', {
-            method: 'PATCH',
-            body: JSON.stringify({ memberId, profile, mode }),
-          }).then((resp) => {
-            const saved = resp && resp.profile ? resp.profile : null;
-            if (!saved) return;
-            updateSetting('ptClientProfiles', (prevAll) => {
-              const base = prevAll && typeof prevAll === 'object' ? prevAll : {};
-              const local = base[memberId] && typeof base[memberId] === 'object' ? base[memberId] : {};
-              const mergedFocus = { ...(local.focusByDate || {}), ...(saved.focusByDate || {}) };
-              const localTs = Date.parse(local.updatedAt || '') || 0;
-              const savedTs = Date.parse(saved.updatedAt || '') || 0;
-              const winner = savedTs >= localTs ? { ...local, ...saved } : { ...saved, ...local };
-              return {
-                ...base,
-                [memberId]: { ...winner, focusByDate: mergedFocus, updatedAt: saved.updatedAt || local.updatedAt },
-              };
-            });
-          }).catch((err) => {
+        const runSave = () => backendJsonFn('/pt-client-profiles', {
+          method: 'PATCH',
+          body: JSON.stringify({ memberId, profile, mode }),
+        }).then((resp) => {
+          const saved = resp && resp.profile ? resp.profile : null;
+          if (!saved) throw new Error('empty_profile_response');
+          updateSetting('ptClientProfiles', (prevAll) => {
+            const base = prevAll && typeof prevAll === 'object' ? prevAll : {};
+            const local = base[memberId] && typeof base[memberId] === 'object' ? base[memberId] : {};
+            const localTs = Date.parse(local.updatedAt || '') || 0;
+            const savedTs = Date.parse(saved.updatedAt || '') || 0;
+            const winner = savedTs >= localTs ? { ...local, ...saved } : { ...saved, ...local };
+            const focusByDate = savedTs >= localTs
+              ? { ...(saved.focusByDate || {}) }
+              : { ...(local.focusByDate || {}) };
+            return {
+              ...base,
+              [memberId]: { ...winner, focusByDate, updatedAt: savedTs >= localTs ? (saved.updatedAt || local.updatedAt) : (local.updatedAt || saved.updatedAt) },
+            };
+          });
+          return saved;
+        }).catch((err) => {
+          if (!saveOpts.silentErrors) {
             const msg = String(err?.message || '');
             if (msg.includes('edit PT plans') || msg.includes('edit PT workouts')) {
               setToast(msg.replace(/^backend-403:?/i, '').trim() || 'You do not have permission to edit PT clients.');
@@ -16545,10 +16581,20 @@ function PTClientsPage({ members, users, settings, updateSetting, currentUser, a
               setToast('Could not save PT client changes. Try again or contact owner.');
             }
             setTimeout(() => setToast(''), 4000);
+          }
+          throw err;
+        });
+        if (waitForBackend) {
+          if (delay <= 0) return runSave();
+          return new Promise((resolve, reject) => {
+            ptSaveTimersRef.current[memberId] = setTimeout(() => {
+              runSave().then(resolve).catch(reject);
+            }, delay);
           });
-        };
-        if (delay <= 0) runSave();
-        else ptSaveTimersRef.current[memberId] = setTimeout(runSave, delay);
+        }
+        if (delay <= 0) { runSave().catch(() => {}); }
+        else ptSaveTimersRef.current[memberId] = setTimeout(() => { runSave().catch(() => {}); }, delay);
+        return Promise.resolve(null);
       }, [dataSyncMode, backendHydrated, updateSetting, setToast]);
       const focusOptions = Array.isArray(settings.exerciseTypes) && settings.exerciseTypes.length
         ? settings.exerciseTypes
@@ -16580,6 +16626,8 @@ function PTClientsPage({ members, users, settings, updateSetting, currentUser, a
         setClientPickerOpen(false);
       }, [selectedMemberId]);
       const [focusPage, setFocusPage] = React.useState(1);
+      const [focusScheduleDraft, setFocusScheduleDraft] = React.useState(null);
+      const [focusScheduleSaving, setFocusScheduleSaving] = React.useState(false);
       const FOCUS_PER_PAGE = 10;
       const ptAccess = normalizeAccess(access).ptClients;
       const canViewPtClients = ptAccess?.viewPtClients !== false;
@@ -16624,7 +16672,35 @@ function PTClientsPage({ members, users, settings, updateSetting, currentUser, a
         };
       }, [clientPickerOpen]);
       const profile = selectedMember ? (ptProfiles[selectedMember.memberId] || {}) : {};
-      const focusByDate = profile.focusByDate || {};
+      const savedFocusByDate = profile.focusByDate || {};
+      const workoutDateKey = iso(workoutDate || new Date());
+      const focusDraftApplies = Boolean(
+        focusScheduleDraft
+        && selectedMember
+        && focusScheduleDraft.memberId === selectedMember.memberId
+        && focusScheduleDraft.dateKey === workoutDateKey,
+      );
+      const savedFocusForDate = savedFocusByDate[workoutDateKey] || '';
+      const focusScheduleDirty = focusDraftApplies && (
+        (focusScheduleDraft.focus || '') !== savedFocusForDate
+      );
+      const displayFocusByDate = React.useMemo(() => {
+        const next = { ...savedFocusByDate };
+        if (focusDraftApplies) {
+          if (focusScheduleDraft.focus) next[workoutDateKey] = focusScheduleDraft.focus;
+          else delete next[workoutDateKey];
+        }
+        return next;
+      }, [savedFocusByDate, focusDraftApplies, focusScheduleDraft, workoutDateKey]);
+      React.useEffect(() => {
+        setFocusScheduleDraft(null);
+      }, [selectedMemberId]);
+      React.useEffect(() => {
+        setFocusScheduleDraft((prev) => {
+          if (!prev || prev.memberId !== selectedMemberId || prev.dateKey === workoutDateKey) return prev;
+          return null;
+        });
+      }, [workoutDateKey, selectedMemberId]);
       const monthDate = asUTC(workoutDate || new Date()) || asUTC(new Date());
       const monthStart = new Date(Date.UTC(monthDate.getUTCFullYear(), monthDate.getUTCMonth(), 1));
       const monthEnd = new Date(Date.UTC(monthDate.getUTCFullYear(), monthDate.getUTCMonth() + 1, 0));
@@ -16652,27 +16728,92 @@ function PTClientsPage({ members, users, settings, updateSetting, currentUser, a
         });
         if (nextProfile) schedulePtProfileSave(memberId, nextProfile, mode, saveOpts);
       };
-      const setFocusForDate = (focus) => {
-        if (!selectedMember) return;
-        const key = iso(workoutDate || new Date());
-        const nextMap = { ...(profile.focusByDate || {}) };
-        if (!focus) delete nextMap[key];
-        else nextMap[key] = focus;
-        persistProfile(selectedMember.memberId, {
+      const selectFocusDraft = (focus) => {
+        if (!selectedMember || !canEditPtWorkout) return;
+        setFocusScheduleDraft({
+          memberId: selectedMember.memberId,
+          dateKey: workoutDateKey,
+          focus: focus || null,
+        });
+      };
+      const commitFocusSchedule = async (focusValue) => {
+        if (!selectedMember || !canEditPtWorkout) return false;
+        const memberId = selectedMember.memberId;
+        const nextMap = { ...savedFocusByDate };
+        if (!focusValue) delete nextMap[workoutDateKey];
+        else nextMap[workoutDateKey] = focusValue;
+        const nextProfile = {
+          ...profile,
           focusByDate: nextMap,
-          focusArea: nextMap[key] || profile.focusArea || '',
-        }, 'workout', { immediate: true });
+          focusArea: nextMap[workoutDateKey] || profile.focusArea || '',
+          updatedAt: new Date().toISOString(),
+          updatedBy: currentUser?.name || currentUser?.id || '',
+        };
+        try {
+          if (dataSyncMode === 'backend' && backendHydrated) {
+            await schedulePtProfileSave(memberId, nextProfile, 'workout', {
+              immediate: true,
+              waitForBackend: true,
+              silentErrors: true,
+            });
+          } else {
+            updateSetting('ptClientProfiles', (prevAll) => {
+              const base = prevAll && typeof prevAll === 'object' ? prevAll : {};
+              return { ...base, [memberId]: nextProfile };
+            });
+          }
+          setFocusScheduleDraft(null);
+          return true;
+        } catch (err) {
+          const msg = String(err?.message || '');
+          if (msg.includes('edit PT plans') || msg.includes('edit PT workouts')) {
+            setToast(msg.replace(/^backend-403:?/i, '').trim() || 'You do not have permission to edit PT clients.');
+          } else if (err?.status === 403) {
+            setToast('Save blocked (403). Ask owner to refresh your PT permissions, then log out and back in.');
+          } else if (err?.status === 404) {
+            setToast('PT client member not found on server.');
+          } else {
+            setToast('Could not save workout schedule. Try again or contact owner.');
+          }
+          setTimeout(() => setToast(''), 4000);
+          return false;
+        }
+      };
+      const saveFocusSchedule = async () => {
+        if (!focusScheduleDirty || !focusDraftApplies || focusScheduleSaving) return;
+        setFocusScheduleSaving(true);
+        const ok = await commitFocusSchedule(focusScheduleDraft.focus);
+        setFocusScheduleSaving(false);
+        if (ok) {
+          setToast('Workout schedule saved successfully');
+          setTimeout(() => setToast(''), 4000);
+        }
+      };
+      const clearFocusSchedule = async () => {
+        if (!selectedMember || !canEditPtWorkout || focusScheduleSaving) return;
+        const hasSaved = Boolean(savedFocusByDate[workoutDateKey]);
+        const hasDraftSelection = focusDraftApplies && focusScheduleDraft.focus;
+        if (!hasSaved && !hasDraftSelection) return;
+        const label = workoutDateKey;
+        if (!window.confirm(`Clear workout schedule for ${label}? This removes the saved focus for this date.`)) return;
+        setFocusScheduleSaving(true);
+        const ok = await commitFocusSchedule(null);
+        setFocusScheduleSaving(false);
+        if (ok) {
+          setToast('Workout schedule cleared successfully');
+          setTimeout(() => setToast(''), 4000);
+        }
       };
       const monthEntries = Array.from({ length: daysInMonth }, (_, i) => {
         const day = i + 1;
         const dt = new Date(Date.UTC(monthDate.getUTCFullYear(), monthDate.getUTCMonth(), day));
         const key = iso(dt);
         const isSunday = dt.getUTCDay() === 0;
-        const hasFocus = Boolean((focusByDate || {})[key]);
-        return { day, key, isSunday, hasFocus, focus: (focusByDate || {})[key] || '' };
+        const hasFocus = Boolean((displayFocusByDate || {})[key]);
+        return { day, key, isSunday, hasFocus, focus: (displayFocusByDate || {})[key] || '' };
       });
       const ptDaysDone = monthEntries.filter((d) => !d.isSunday && d.hasFocus).length;
-      const selectedDateFocus = focusByDate[iso(workoutDate || new Date())] || '';
+      const selectedDateFocus = displayFocusByDate[workoutDateKey] || '';
       const addChatMessage = () => {
         if (!selectedMember || !chatDraft.trim()) return;
         const next = [{ id: crypto.randomUUID(), by: currentUser?.name || 'Staff', text: chatDraft.trim(), ts: new Date().toISOString() }, ...((profile.chat || []))].slice(0, 100);
@@ -16897,7 +17038,7 @@ function PTClientsPage({ members, users, settings, updateSetting, currentUser, a
                     </div>
                     <div className="rounded-xl border border-slate-200 dark:border-slate-600 bg-white dark:bg-slate-900/80 p-3 space-y-3">
                       <div className="text-sm font-semibold text-slate-900 dark:text-slate-100">Primary Focus Selection</div>
-                      <div className="text-xs text-slate-500 dark:text-slate-400">Select the focus for the scheduled session (10 per page).</div>
+                      <div className="text-xs text-slate-500 dark:text-slate-400">Select the focus for the scheduled session (10 per page), then click Save.</div>
                       <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
                         {focusPageItems.map((opt) => {
                           const active = selectedDateFocus === opt;
@@ -16905,10 +17046,12 @@ function PTClientsPage({ members, users, settings, updateSetting, currentUser, a
                             <button
                               key={opt}
                               type="button"
-                              onClick={() => canEditPtWorkout && setFocusForDate(opt)}
+                              onClick={() => selectFocusDraft(opt)}
+                              disabled={!canEditPtWorkout || focusScheduleSaving}
                               className={cx(
                                 'rounded-xl border px-3 py-2 text-left text-sm',
-                                active ? 'border-blue-600 bg-blue-50 text-blue-700 dark:bg-blue-900/40 dark:text-blue-200' : 'border-slate-300 bg-white text-slate-700 hover:bg-slate-50 dark:bg-slate-800 dark:border-slate-600 dark:text-slate-200 dark:hover:bg-slate-700'
+                                active ? 'border-blue-600 bg-blue-50 text-blue-700 dark:bg-blue-900/40 dark:text-blue-200' : 'border-slate-300 bg-white text-slate-700 hover:bg-slate-50 dark:bg-slate-800 dark:border-slate-600 dark:text-slate-200 dark:hover:bg-slate-700',
+                                (!canEditPtWorkout || focusScheduleSaving) && 'opacity-60 cursor-not-allowed',
                               )}
                             >
                               {opt}
@@ -16917,26 +17060,53 @@ function PTClientsPage({ members, users, settings, updateSetting, currentUser, a
                         })}
                       </div>
                       <div className="flex flex-wrap items-center gap-2 text-xs text-slate-600 dark:text-slate-300">
-                        <button onClick={() => setFocusPage((p) => Math.max(1, p - 1))} disabled={focusPage <= 1} className="rounded border border-slate-300 px-2 py-1 disabled:opacity-50">Prev</button>
+                        <button type="button" onClick={() => setFocusPage((p) => Math.max(1, p - 1))} disabled={focusPage <= 1} className="rounded border border-slate-300 px-2 py-1 disabled:opacity-50">Prev</button>
                         <span className="font-medium text-slate-700 dark:text-slate-200">Page {focusPage} of {focusPages}</span>
-                        <button onClick={() => setFocusPage((p) => Math.min(focusPages, p + 1))} disabled={focusPage >= focusPages} className="rounded border border-slate-300 px-2 py-1 disabled:opacity-50">Next &gt;</button>
-                        {canEditPtWorkout && <button onClick={() => setFocusForDate('')} className="ml-2 rounded border border-rose-300 bg-rose-50 px-2 py-1 text-rose-700">Clear for date</button>}
+                        <button type="button" onClick={() => setFocusPage((p) => Math.min(focusPages, p + 1))} disabled={focusPage >= focusPages} className="rounded border border-slate-300 px-2 py-1 disabled:opacity-50">Next &gt;</button>
+                        {canEditPtWorkout && (
+                          <>
+                            <button
+                              type="button"
+                              onClick={saveFocusSchedule}
+                              disabled={!focusScheduleDirty || focusScheduleSaving}
+                              className="ml-2 rounded border border-blue-600 bg-blue-600 px-3 py-1 font-semibold text-white disabled:opacity-50 disabled:cursor-not-allowed"
+                            >
+                              {focusScheduleSaving ? 'Saving…' : 'Save'}
+                            </button>
+                            {focusScheduleDirty && !focusScheduleSaving && (
+                              <span className="text-amber-700 dark:text-amber-300 font-medium">Unsaved changes</span>
+                            )}
+                            <button
+                              type="button"
+                              onClick={clearFocusSchedule}
+                              disabled={focusScheduleSaving || (!savedFocusForDate && !(focusDraftApplies && focusScheduleDraft.focus))}
+                              className="rounded border border-rose-300 bg-rose-50 px-2 py-1 text-rose-700 disabled:opacity-50 disabled:cursor-not-allowed"
+                            >
+                              Clear for date
+                            </button>
+                          </>
+                        )}
                       </div>
                     </div>
-                    <div>
-                      <label className="text-sm font-medium">PT Workout Notes</label>
-                      <textarea rows={4} value={profile.ptWorkoutNotes || ''} onChange={(e) => persistProfile(selectedMember.memberId, { ptWorkoutNotes: e.target.value })} disabled={!canEditPtWorkout} className="mt-1 w-full rounded-xl border border-slate-300 px-3 py-2 text-sm disabled:bg-slate-100 disabled:text-slate-500" />
-                    </div>
-                    <div className="rounded-xl border border-slate-200 bg-white p-3">
+                    <div className={cx(
+                      'rounded-xl border border-slate-200 bg-white p-3 dark:bg-slate-900/80 dark:border-slate-600',
+                      !workoutCalendarOpen && 'apg-pt-calendar-collapsed-attention',
+                    )}>
                       <button
                         type="button"
                         onClick={() => setWorkoutCalendarOpen((v) => !v)}
                         className="w-full flex flex-wrap items-center justify-between gap-2 text-left"
+                        aria-expanded={workoutCalendarOpen}
                       >
-                        <h4 className="text-sm font-semibold text-slate-900">Workout Scheduler & Calendar</h4>
+                        <h4 className="text-sm font-semibold text-slate-900 dark:text-slate-100">
+                          Workout Scheduler & Calendar
+                          {!workoutCalendarOpen && (
+                            <span className="ml-2 text-xs font-medium text-emerald-700 dark:text-emerald-300">— expand to update calendar</span>
+                          )}
+                        </h4>
                         <div className="flex items-center gap-3">
-                          <div className="text-xs text-slate-600">Total PT days this month: <span className="font-semibold">{ptDaysDone}</span></div>
-                          <span className="text-xs font-semibold text-slate-500">{workoutCalendarOpen ? 'Hide' : 'Show'}</span>
+                          <div className="text-xs text-slate-600 dark:text-slate-300">Total PT days this month: <span className="font-semibold">{ptDaysDone}</span></div>
+                          <span className="text-xs font-semibold text-slate-500 dark:text-slate-400">{workoutCalendarOpen ? 'Hide' : 'Show'}</span>
                         </div>
                       </button>
                       {workoutCalendarOpen && (
@@ -16968,6 +17138,10 @@ function PTClientsPage({ members, users, settings, updateSetting, currentUser, a
                           </div>
                         </>
                       )}
+                    </div>
+                    <div>
+                      <label className="text-sm font-medium">PT Workout Notes</label>
+                      <textarea rows={4} value={profile.ptWorkoutNotes || ''} onChange={(e) => persistProfile(selectedMember.memberId, { ptWorkoutNotes: e.target.value })} disabled={!canEditPtWorkout} className="mt-1 w-full rounded-xl border border-slate-300 px-3 py-2 text-sm disabled:bg-slate-100 disabled:text-slate-500" />
                     </div>
                   </div>
                 )}

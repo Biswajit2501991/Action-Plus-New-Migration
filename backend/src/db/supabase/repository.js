@@ -1801,6 +1801,20 @@ async function writePtProfiles(settings, gid) {
   }
 }
 
+/** Replace focusByDate when the patch includes it; spread-merge cannot express day deletions. */
+export function mergePtProfilePlanJson(prev, incomingProfile) {
+  const prevObj = prev && typeof prev === 'object' ? prev : {};
+  const incoming = incomingProfile && typeof incomingProfile === 'object' ? incomingProfile : {};
+  const mergedFocus = Object.prototype.hasOwnProperty.call(incoming, 'focusByDate')
+    ? { ...(incoming.focusByDate && typeof incoming.focusByDate === 'object' ? incoming.focusByDate : {}) }
+    : { ...(prevObj.focusByDate || {}) };
+  return {
+    ...prevObj,
+    ...incoming,
+    focusByDate: mergedFocus,
+  };
+}
+
 /** Surgical PT profile save — shared by staff PATCH and owner bulk sync paths. */
 export async function patchPtClientProfile(memberCode, incomingProfile, meta = {}) {
   const code = String(memberCode || '').trim();
@@ -1833,11 +1847,8 @@ export async function patchPtClientProfile(memberCode, incomingProfile, meta = {
 
   const prev = existingRow?.plan_json && typeof existingRow.plan_json === 'object' ? existingRow.plan_json : {};
   const nowIso = new Date().toISOString();
-  const mergedFocus = { ...(prev.focusByDate || {}), ...(incomingProfile.focusByDate || {}) };
   const merged = {
-    ...prev,
-    ...incomingProfile,
-    focusByDate: mergedFocus,
+    ...mergePtProfilePlanJson(prev, incomingProfile),
     updatedAt: nowIso,
     updatedBy: String(meta.updatedBy || incomingProfile.updatedBy || '').trim() || prev.updatedBy || '',
   };
