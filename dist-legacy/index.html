@@ -230,6 +230,57 @@
       animation: apgMobileDetailIn 220ms ease-out;
     }
 
+    /* PT workout date review — visible after switching PT client (UI only) */
+    @keyframes apgPtWorkoutDatePulse {
+      0%, 100% {
+        box-shadow: 0 0 0 0 rgba(245, 158, 11, 0.42);
+        border-color: rgb(245, 158, 11);
+      }
+      50% {
+        box-shadow: 0 0 0 4px rgba(245, 158, 11, 0.18);
+        border-color: rgb(217, 119, 6);
+      }
+    }
+    @keyframes apgFilterBtnSoftPulse {
+      0%, 100% {
+        box-shadow: 0 0 0 0 rgba(37, 99, 235, 0.38);
+      }
+      50% {
+        box-shadow: 0 0 0 6px rgba(37, 99, 235, 0.14);
+      }
+    }
+    .apg-pt-workout-date-attention {
+      border-width: 2px !important;
+      border-color: rgb(245, 158, 11) !important;
+      animation: apgPtWorkoutDatePulse 2.2s ease-in-out infinite;
+    }
+    .apg-filter-btn-active {
+      animation: apgFilterBtnSoftPulse 2.4s ease-in-out infinite;
+      border-color: rgb(59, 130, 246) !important;
+    }
+    body[data-apg-layout="luxury"] .apg-pt-workout-date-attention {
+      border-color: var(--lux-amber) !important;
+      box-shadow: 0 0 0 1px rgba(252, 211, 77, 0.35);
+    }
+    body[data-apg-layout="luxury"] .apg-filter-btn-active {
+      border-color: var(--lux-gold-rich) !important;
+      animation-name: apgFilterBtnSoftPulse;
+    }
+    @media (prefers-reduced-motion: reduce) {
+      .apg-pt-workout-date-attention,
+      .apg-filter-btn-active {
+        animation: none;
+      }
+      .apg-pt-workout-date-attention {
+        outline: 2px solid rgb(245, 158, 11);
+        outline-offset: 2px;
+      }
+      .apg-filter-btn-active {
+        outline: 2px solid rgb(59, 130, 246);
+        outline-offset: 2px;
+      }
+    }
+
     /* ===================================================================== */
     /* Phase 3 Dual-Layout Engine — Dark Luxury skin (WCAG 2.1 AA compliant) */
     /*                                                                       */
@@ -1081,9 +1132,9 @@
     });
   </script>
   <script src="/app.env.js"></script>
-  <script>window.__APG_ESM_CACHE_BUST='1780650692563';</script>
-  <script type="module" src="/src/runtime/registerApgModules.js?v=1780650692563"></script>
+  <script>window.__APG_ESM_CACHE_BUST='1780651991736';</script>
+  <script type="module" src="/src/runtime/registerApgModules.js?v=1780651991736"></script>
   <!-- Application Code. Babel will compile this JSX on the fly. -->
-  <script src="/dist-legacy/app.bundle.js?v=1780650692563"></script>
+  <script src="/dist-legacy/app.bundle.js?v=1780651991736"></script>
 </body>
 </html>

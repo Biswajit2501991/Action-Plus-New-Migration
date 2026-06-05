@@ -232,6 +232,57 @@
       animation: apgMobileDetailIn 220ms ease-out;
     }
 
+    /* PT workout date review — visible after switching PT client (UI only) */
+    @keyframes apgPtWorkoutDatePulse {
+      0%, 100% {
+        box-shadow: 0 0 0 0 rgba(245, 158, 11, 0.42);
+        border-color: rgb(245, 158, 11);
+      }
+      50% {
+        box-shadow: 0 0 0 4px rgba(245, 158, 11, 0.18);
+        border-color: rgb(217, 119, 6);
+      }
+    }
+    @keyframes apgFilterBtnSoftPulse {
+      0%, 100% {
+        box-shadow: 0 0 0 0 rgba(37, 99, 235, 0.38);
+      }
+      50% {
+        box-shadow: 0 0 0 6px rgba(37, 99, 235, 0.14);
+      }
+    }
+    .apg-pt-workout-date-attention {
+      border-width: 2px !important;
+      border-color: rgb(245, 158, 11) !important;
+      animation: apgPtWorkoutDatePulse 2.2s ease-in-out infinite;
+    }
+    .apg-filter-btn-active {
+      animation: apgFilterBtnSoftPulse 2.4s ease-in-out infinite;
+      border-color: rgb(59, 130, 246) !important;
+    }
+    body[data-apg-layout="luxury"] .apg-pt-workout-date-attention {
+      border-color: var(--lux-amber) !important;
+      box-shadow: 0 0 0 1px rgba(252, 211, 77, 0.35);
+    }
+    body[data-apg-layout="luxury"] .apg-filter-btn-active {
+      border-color: var(--lux-gold-rich) !important;
+      animation-name: apgFilterBtnSoftPulse;
+    }
+    @media (prefers-reduced-motion: reduce) {
+      .apg-pt-workout-date-attention,
+      .apg-filter-btn-active {
+        animation: none;
+      }
+      .apg-pt-workout-date-attention {
+        outline: 2px solid rgb(245, 158, 11);
+        outline-offset: 2px;
+      }
+      .apg-filter-btn-active {
+        outline: 2px solid rgb(59, 130, 246);
+        outline-offset: 2px;
+      }
+    }
+
     /* ===================================================================== */
     /* Phase 3 Dual-Layout Engine — Dark Luxury skin (WCAG 2.1 AA compliant) */
     /*                                                                       */
@@ -9752,6 +9803,7 @@ Please pay by: ${formattedLastDate}`;
                   isOwner={user?.id === 'owner'}
                   currentUserRole={currentUserRole}
                   fineRuleConfig={fineRuleConfig}
+                  anyFilterActive={anyFilterActive}
                   onOpenFilters={() => setFilterOpen(true)}
                   onSelectStatus={(s) => {
                     setDashFilter(s);
@@ -11583,7 +11635,7 @@ function Sidebar({ user, active, onSelect, theme, setTheme, layoutMode = 'classi
     }
 
     // ---- Dashboard Summary Component ----
-    function DashboardSummary({ members, financeTransactions = [], dataSyncMode = 'local', settings = {}, access, isOwner = false, currentUserRole = '', fineRuleConfig, onSelectStatus, onAddNew, onAddExpense, onSearch, onOpenMember, onWelcome, onOpenFilters, masterPlans = [] }) {
+    function DashboardSummary({ members, financeTransactions = [], dataSyncMode = 'local', settings = {}, access, isOwner = false, currentUserRole = '', fineRuleConfig, onSelectStatus, onAddNew, onAddExpense, onSearch, onOpenMember, onWelcome, onOpenFilters, masterPlans = [], anyFilterActive = false }) {
       const counts = React.useMemo(() => {
         const sanitize = window.__APG_MODULES?.sanitizeMembersForDisplay;
         const scoped = typeof sanitize === 'function' ? sanitize(members) : members;
@@ -11850,10 +11902,18 @@ function Sidebar({ user, active, onSelect, theme, setTheme, layoutMode = 'classi
               {canViewDashboardCore && (
                 <div className="flex items-center gap-2">
                   <button
+                    type="button"
                     onClick={() => onOpenFilters && onOpenFilters()}
-                    className="rounded-full px-3 py-1.5 border border-blue-300 bg-blue-50 text-blue-700 text-xs md:text-sm font-medium"
+                    className={cx(
+                      'rounded-full px-3 py-1.5 border border-blue-300 bg-blue-50 text-blue-700 text-xs md:text-sm font-medium',
+                      anyFilterActive && 'apg-filter-btn-active ring-2 ring-blue-300/70',
+                    )}
+                    aria-label={anyFilterActive ? 'Open filters (filters active)' : 'Open filters'}
                   >
                     Filter
+                    {anyFilterActive && (
+                      <span className="ml-1.5 inline-flex h-2 w-2 rounded-full bg-blue-600 align-middle" aria-hidden="true" />
+                    )}
                   </button>
                   {onAddExpense && (
                     <button onClick={onAddExpense} className="rounded-full px-4 md:px-5 py-2 border border-rose-300 bg-rose-50 text-rose-700 hover:bg-rose-100 text-xs md:text-sm font-semibold flex items-center justify-center gap-2">
@@ -14354,7 +14414,18 @@ function DashboardView({ members, memberSyncPending = {}, onEdit, onStatusChange
               <div className="flex items-center gap-2">
                 {onAddExpense && <button onClick={onAddExpense} className={cx(MEMBER_UI.buttonBase, MEMBER_UI.buttonRose)}>Add Expense</button>}
                 {onImportCsv && <button onClick={onImportCsv} className={cx(MEMBER_UI.buttonBase, MEMBER_UI.buttonEmerald)}>Import CSV</button>}
-                <button onClick={() => setFilterOpen(true)} className={cx(MEMBER_UI.buttonBase, MEMBER_UI.buttonSecondary)} aria-label="Open filters">⌕</button>
+                <button
+                  type="button"
+                  onClick={() => setFilterOpen(true)}
+                  className={cx(
+                    MEMBER_UI.buttonBase,
+                    MEMBER_UI.buttonSecondary,
+                    anyFilterActive && 'apg-filter-btn-active ring-2 ring-blue-400/60',
+                  )}
+                  aria-label={anyFilterActive ? 'Open filters (filters active)' : 'Open filters'}
+                >
+                  ⌕{anyFilterActive ? ' •' : ''}
+                </button>
               </div>
             </div>
             <div className="flex gap-2 overflow-x-auto pb-1">
@@ -14643,10 +14714,19 @@ function DashboardView({ members, memberSyncPending = {}, onEdit, onStatusChange
                               🔍
                             </button>
                           </div>
-                          <button onClick={() => setFilterOpen(true)} className={cx(MEMBER_UI.buttonBase, MEMBER_UI.buttonPrimary)}>
+                          <button
+                            type="button"
+                            onClick={() => setFilterOpen(true)}
+                            className={cx(
+                              MEMBER_UI.buttonBase,
+                              MEMBER_UI.buttonPrimary,
+                              anyFilterActive && 'apg-filter-btn-active ring-2 ring-blue-300/70',
+                            )}
+                            aria-label={anyFilterActive ? 'Open filters (filters active)' : 'Open filters'}
+                          >
                             <span>Filter</span>
                             {anyFilterActive && (
-                              <span className="ml-1 inline-block bg-blue-600 text-white text-xs font-semibold px-2 py-0.5 rounded-full">•</span>
+                              <span className="ml-1.5 inline-flex h-2 w-2 rounded-full bg-white/90 align-middle" aria-hidden="true" />
                             )}
                           </button>
                         </>
@@ -16481,7 +16561,24 @@ function PTClientsPage({ members, users, settings, updateSetting, currentUser, a
       const [sessionDraft, setSessionDraft] = React.useState({ date: iso(new Date()), time: '07:00', status: 'Scheduled', note: '' });
       const [weightDraft, setWeightDraft] = React.useState({ date: iso(new Date()), weight: '' });
       const [workoutDate, setWorkoutDate] = React.useState(iso(new Date()));
+      const [workoutDateReviewPending, setWorkoutDateReviewPending] = React.useState(false);
       const [workoutCalendarOpen, setWorkoutCalendarOpen] = React.useState(false);
+      const handleWorkoutDateChange = React.useCallback((value) => {
+        setWorkoutDate(value);
+        setWorkoutDateReviewPending(false);
+      }, []);
+      const confirmWorkoutDateReview = React.useCallback(() => {
+        setWorkoutDateReviewPending(false);
+      }, []);
+      const selectPtClient = React.useCallback((memberId) => {
+        const nextId = String(memberId || '').trim();
+        if (!nextId) return;
+        if (nextId !== String(selectedMemberId || '').trim()) {
+          setWorkoutDateReviewPending(true);
+        }
+        setSelectedMemberId(nextId);
+        setClientPickerOpen(false);
+      }, [selectedMemberId]);
       const [focusPage, setFocusPage] = React.useState(1);
       const FOCUS_PER_PAGE = 10;
       const ptAccess = normalizeAccess(access).ptClients;
@@ -16684,10 +16781,7 @@ function PTClientsPage({ members, users, settings, updateSetting, currentUser, a
                         <button
                           key={`pt-pick-${m.memberId}`}
                           type="button"
-                          onClick={() => {
-                            setSelectedMemberId(m.memberId);
-                            setClientPickerOpen(false);
-                          }}
+                          onClick={() => selectPtClient(m.memberId)}
                           className={cx('w-full flex items-center gap-3 px-3 py-3 text-left border-b border-slate-100 hover:bg-slate-50', active && 'bg-blue-50')}
                         >
                           <Avatar name={m.name} photo={m.photo} member={m} className="h-10 w-10 rounded-full" />
@@ -16751,9 +16845,47 @@ function PTClientsPage({ members, users, settings, updateSetting, currentUser, a
                       </div>
                     </div>
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                      <div>
-                        <label className="text-sm font-medium text-slate-700">Workout Date</label>
-                        <input type="date" value={workoutDate} onChange={(e) => setWorkoutDate(e.target.value)} disabled={!canEditPtWorkout} className="mt-1 w-full rounded-xl border border-slate-300 bg-white dark:bg-slate-800 dark:border-slate-600 dark:text-slate-100 px-3 py-2 text-sm text-slate-900 placeholder:text-slate-500 disabled:bg-slate-100 disabled:text-slate-500 dark:disabled:bg-slate-700" />
+                      <div className={cx(workoutDateReviewPending && 'rounded-xl border border-amber-200 bg-amber-50/60 p-2 dark:border-amber-700/50 dark:bg-amber-950/25')}>
+                        <div className="flex flex-wrap items-center justify-between gap-2">
+                          <label
+                            htmlFor="pt-workout-date-input"
+                            className={cx(
+                              'text-sm font-medium',
+                              workoutDateReviewPending ? 'text-amber-800 dark:text-amber-200' : 'text-slate-700 dark:text-slate-200',
+                            )}
+                          >
+                            Workout Date
+                            {workoutDateReviewPending && (
+                              <span className="ml-1.5 text-xs font-semibold text-amber-700 dark:text-amber-300">— Review Workout Date</span>
+                            )}
+                          </label>
+                          {workoutDateReviewPending && (
+                            <button
+                              type="button"
+                              onClick={confirmWorkoutDateReview}
+                              className="shrink-0 rounded-lg border border-amber-300 bg-white px-2.5 py-1 text-xs font-semibold text-amber-800 hover:bg-amber-100 dark:border-amber-600 dark:bg-slate-800 dark:text-amber-200 dark:hover:bg-slate-700"
+                            >
+                              Use this date
+                            </button>
+                          )}
+                        </div>
+                        <input
+                          id="pt-workout-date-input"
+                          type="date"
+                          value={workoutDate}
+                          onChange={(e) => handleWorkoutDateChange(e.target.value)}
+                          disabled={!canEditPtWorkout}
+                          aria-describedby={workoutDateReviewPending ? 'pt-workout-date-review-hint' : undefined}
+                          className={cx(
+                            'mt-1 w-full rounded-xl border border-slate-300 bg-white dark:bg-slate-800 dark:border-slate-600 dark:text-slate-100 px-3 py-2 text-sm text-slate-900 placeholder:text-slate-500 disabled:bg-slate-100 disabled:text-slate-500 dark:disabled:bg-slate-700',
+                            workoutDateReviewPending && 'apg-pt-workout-date-attention',
+                          )}
+                        />
+                        {workoutDateReviewPending && (
+                          <p id="pt-workout-date-review-hint" className="mt-1.5 text-xs font-medium text-amber-700 dark:text-amber-300" role="status">
+                            You switched PT client. Confirm this workout date still applies to the new client.
+                          </p>
+                        )}
                       </div>
                       <div>
                         <label className="text-sm font-medium text-slate-700 dark:text-slate-200">Assigned Trainer</label>
@@ -16817,7 +16949,7 @@ function PTClientsPage({ members, users, settings, updateSetting, currentUser, a
                               <button
                                 key={entry.key}
                                 type="button"
-                                onClick={() => setWorkoutDate(entry.key)}
+                                onClick={() => handleWorkoutDateChange(entry.key)}
                                 className={cx(
                                   'rounded-lg border px-2 py-2 text-xs',
                                   entry.isSunday
