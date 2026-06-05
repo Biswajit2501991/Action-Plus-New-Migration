@@ -42,6 +42,12 @@ import {
   readMemberPaidForMonthLedgerRow,
 } from './memberPaidForMonthSync.js';
 import { bulkUpsertMemberRows, membersBulkUpsertReady } from './membersWrite.js';
+import {
+  applyActiveMembersFilter,
+  filterMembersBlockedFromBulkWrite,
+  loadBlockedMemberCodes,
+  recordMemberDeleteAudit,
+} from './memberDeleteGuard.js';
 import { updateStaffUserRow } from './staffUsersWrite.js';
 import { paymentHistoryListMonthsBack, paymentHistoryListSinceIso } from './memberPaymentsListWindow.js';
 import {
@@ -178,14 +184,16 @@ async function readMemberByCode(memberCode, branchScope = null) {
   const gid = gymId();
   const code = String(memberCode || '').trim();
   if (!code) return null;
-  let q = sb.from(T.members).select('*').eq('gym_id', gid).eq('member_code', code);
+  let q = applyActiveMembersFilter(
+    sb.from(T.members).select('*').eq('gym_id', gid).eq('member_code', code),
+  );
   if (branchScope?.gymCodeId) {
     q = q.eq('assigned_gym_code_id', branchScope.gymCodeId);
   }
   const { data: rows, error } = await q.order('updated_at', { ascending: false }).limit(1);
   if (error) throw new Error(`member lookup: ${error.message}`);
   const row = Array.isArray(rows) && rows.length ? rows[0] : null;
-  if (!row) return null;
+  if (!row || row.deleted_at) return null;
   const children = await loadMemberChildren(sb, gid, [row.id]);
   const app = memberRowToApp(row, {
     payments: children.paymentsByMember.get(row.id) || [],
@@ -294,7 +302,9 @@ async function readMembers(scope, branchScope = null, options = {}) {
   const columns = slim ? MEMBER_LIST_COLUMNS : '*';
   const updatedSince = toTs(options.updatedSince);
   const memberRows = await fetchAll((from, to) => {
-    let q = sb.from(T.members).select(columns).eq('gym_id', gid);
+    let q = applyActiveMembersFilter(
+      sb.from(T.members).select(columns).eq('gym_id', gid),
+    );
     // Phase 2 zero-leak: staff see only their branch; master owner in branch context also sees legacy untagged rows.
     if (branchScope?.gymCodeId) {
       if (branchScope.isOwner) {
@@ -423,16 +433,17 @@ async function updateMemberFields(memberCode, patch, branchScope = null) {
   // We tolerate (data-anomaly) duplicate member_codes by picking the most recently
   // updated row. .maybeSingle() throws on >1 — that's correct for assertions but
   // unhelpful when the legacy snapshot has accidental dupes from old imports.
-  const { data: dupRows, error: selErr } = await sb
-    .from(T.members)
-    .select('id, gym_id, member_code, form_no, assigned_gym_code_id, updated_at')
-    .eq('gym_id', gid)
-    .eq('member_code', code)
+  const { data: dupRows, error: selErr } = await applyActiveMembersFilter(
+    sb.from(T.members)
+      .select('id, gym_id, member_code, form_no, assigned_gym_code_id, updated_at, deleted_at')
+      .eq('gym_id', gid)
+      .eq('member_code', code),
+  )
     .order('updated_at', { ascending: false })
     .limit(1);
   if (selErr) throw new Error(`member lookup: ${selErr.message}`);
   const existingRow = Array.isArray(dupRows) && dupRows.length ? dupRows[0] : null;
-  if (!existingRow) {
+  if (!existingRow || existingRow.deleted_at) {
     const err = new Error('member-not-found');
     err.status = 404;
     throw err;
@@ -713,10 +724,19 @@ function buildMemberChildRows(m, gid, memberPk) {
   return { payRows, msgRows, attRows, injuryRows };
 }
 
-async function writeMembers(members, scope) {
+async function writeMembers(members, scope, options = {}) {
   const sb = getSupabase();
   const gid = gymId();
-  const incoming = sandboxFilter(Array.isArray(members) ? members : [], scope);
+  const blockedSet = await loadBlockedMemberCodes(sb, gid, options.blockedMemberCodes || []);
+  const { allowed: writable, skipped } = filterMembersBlockedFromBulkWrite(
+    sandboxFilter(Array.isArray(members) ? members : [], scope),
+    blockedSet,
+  );
+  if (skipped.length) {
+    // eslint-disable-next-line no-console
+    console.warn(`[writeMembers] skipped ${skipped.length} blocked deleted member_code(s)`);
+  }
+  const incoming = writable;
 
   const existing = await fetchAll((from, to) => sb.from(T.members).select('id, member_code, photo_url').eq('gym_id', gid).range(from, to));
   const photoByCode = new Map((existing || []).map((r) => [String(r.member_code), r.photo_url]));
@@ -1822,19 +1842,31 @@ export async function deleteMemberByExternalId(externalMemberCode, branchScope =
     if (path) await deleteMemberPhotoObject(path).catch(() => {});
   }
   await deleteMemberChildren(sb, memberPks);
-  const { error: delErr } = await sb
+  const deletedAt = new Date().toISOString();
+  const deletedBy = String(branchScope?.actorName || branchScope?.actorId || '').trim() || null;
+  const { error: softErr } = await sb
     .from(T.members)
-    .delete()
+    .update({ deleted_at: deletedAt, deleted_by: deletedBy, updated_at: deletedAt })
     .eq('gym_id', gid)
     .eq('member_code', code);
-  if (delErr) throw new Error(`member delete: ${delErr.message}`);
+  if (softErr) throw new Error(`member soft-delete: ${softErr.message}`);
 
-  const remaining = await fetchAll((from, to) => sb
-    .from(T.members)
-    .select('id')
-    .eq('gym_id', gid)
-    .eq('member_code', code)
-    .range(from, to));
+  for (const row of existingRows) {
+    await recordMemberDeleteAudit(sb, {
+      gymId: gid,
+      memberCode: code,
+      memberPk: row.id,
+      deletedBy,
+    });
+  }
+
+  const remaining = await fetchAll((from, to) => applyActiveMembersFilter(
+    sb.from(T.members)
+      .select('id')
+      .eq('gym_id', gid)
+      .eq('member_code', code)
+      .range(from, to),
+  ));
   if (remaining.length) {
     const err = new Error('member-delete-not-persisted');
     err.status = 500;
@@ -1843,7 +1875,7 @@ export async function deleteMemberByExternalId(externalMemberCode, branchScope =
 
   notifyCollectionChange('members');
   notifyCollectionChange('finance');
-  return { ok: true, deleted: true, id: code, rowsRemoved: memberPks.length };
+  return { ok: true, deleted: true, id: code, rowsRemoved: memberPks.length, softDeleted: true };
 }
 
 async function readFinance(scope) {
@@ -1899,7 +1931,9 @@ async function readFinanceSummary(branchScope, options = {}) {
   const financeRows = await readFinance(null);
 
   const memberRows = await fetchAll((from, to) => {
-    let q = sb.from(T.members).select('id, member_code, full_name, status').eq('gym_id', gid);
+    let q = applyActiveMembersFilter(
+      sb.from(T.members).select('id, member_code, full_name, status').eq('gym_id', gid),
+    );
     if (branchScope?.gymCodeId) {
       if (branchScope.isOwner) {
         q = q.or(`assigned_gym_code_id.eq.${branchScope.gymCodeId},assigned_gym_code_id.is.null`);
@@ -2352,10 +2386,10 @@ export {
   readFinanceSummary,
 };
 
-export async function writeCollection(key, value, scope = null) {
+export async function writeCollection(key, value, scope = null, options = null) {
   switch (key) {
     case KEY_MEMBERS:
-      return writeMembers(value, scope);
+      return writeMembers(value, scope, options || {});
     case KEY_USERS:
       return writeUsers(value, scope);
     case KEY_VISITORS:

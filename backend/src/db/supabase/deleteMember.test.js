@@ -1,7 +1,8 @@
 import { describe, expect, it, vi, beforeEach } from 'vitest';
 
-const deleteMemberRow = vi.fn();
+const softDeleteUpdate = vi.fn();
 const selectRange = vi.fn();
+const auditUpsert = vi.fn();
 const fromMock = vi.fn();
 
 vi.mock('./client.js', () => ({
@@ -40,28 +41,45 @@ vi.mock('./memberPaidForMonthSync.js', () => ({
   syncMemberPaidForMonthLedger: vi.fn(),
 }));
 
+vi.mock('./memberDeleteGuard.js', async (importOriginal) => {
+  const actual = await importOriginal();
+  return {
+    ...actual,
+    recordMemberDeleteAudit: vi.fn().mockResolvedValue(undefined),
+    applyActiveMembersFilter: (q) => q,
+  };
+});
+
 describe('deleteMemberByExternalId', () => {
   beforeEach(() => {
-    deleteMemberRow.mockReset();
+    softDeleteUpdate.mockReset();
     selectRange.mockReset();
+    auditUpsert.mockReset();
     fromMock.mockReset();
     fromMock.mockImplementation((table) => {
       if (table === 'members') {
         const eqChain = () => ({
-          order: () => ({ range: selectRange }),
+          order: () => ({ range: selectRange, limit: () => selectRange }),
           range: selectRange,
+          is: () => ({ range: selectRange }),
         });
         return {
           select: () => ({
             eq: () => ({
               eq: eqChain,
+              not: () => ({ range: selectRange }),
             }),
           }),
-          delete: () => ({
+          update: () => ({
             eq: () => ({
-              eq: deleteMemberRow,
+              eq: softDeleteUpdate,
             }),
           }),
+        };
+      }
+      if (table === 'member_delete_audit') {
+        return {
+          upsert: auditUpsert,
         };
       }
       const schemaCacheErr = {
@@ -78,7 +96,7 @@ describe('deleteMemberByExternalId', () => {
     });
   });
 
-  it('deletes member when member_paid_for_month table is not migrated', async () => {
+  it('soft-deletes member when member_paid_for_month table is not migrated', async () => {
     let selectCalls = 0;
     selectRange.mockImplementation(async () => {
       selectCalls += 1;
@@ -90,7 +108,7 @@ describe('deleteMemberByExternalId', () => {
       }
       return { data: [], error: null };
     });
-    deleteMemberRow.mockResolvedValue({ error: null });
+    softDeleteUpdate.mockResolvedValue({ error: null });
 
     const { deleteMemberByExternalId } = await import('./repository.js');
     const result = await deleteMemberByExternalId('APG-1004/26', {
@@ -100,9 +118,11 @@ describe('deleteMemberByExternalId', () => {
       staffNoBranch: false,
     });
     expect(result.deleted).toBe(true);
+    expect(result.softDeleted).toBe(true);
+    expect(softDeleteUpdate).toHaveBeenCalled();
   });
 
-  it('deletes all duplicate rows for member_code', async () => {
+  it('soft-deletes all duplicate rows for member_code', async () => {
     let selectCalls = 0;
     selectRange.mockImplementation(async () => {
       selectCalls += 1;
@@ -117,7 +137,7 @@ describe('deleteMemberByExternalId', () => {
       }
       return { data: [], error: null };
     });
-    deleteMemberRow.mockResolvedValue({ error: null });
+    softDeleteUpdate.mockResolvedValue({ error: null });
 
     const { deleteMemberByExternalId } = await import('./repository.js');
     const result = await deleteMemberByExternalId('APG-1/26', {
@@ -126,8 +146,8 @@ describe('deleteMemberByExternalId', () => {
       allowedBranchIds: ['branch-a'],
       staffNoBranch: false,
     });
-    expect(result).toEqual({ ok: true, deleted: true, id: 'APG-1/26', rowsRemoved: 2 });
-    expect(deleteMemberRow).toHaveBeenCalled();
+    expect(result).toMatchObject({ ok: true, deleted: true, id: 'APG-1/26', rowsRemoved: 2, softDeleted: true });
+    expect(softDeleteUpdate).toHaveBeenCalled();
   });
 
   it('rejects delete outside active branch for branch owner context', async () => {

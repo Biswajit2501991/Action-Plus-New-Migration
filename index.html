@@ -3980,6 +3980,20 @@ Phone: +91-7047157510`;
       });
       db.close();
     };
+    /** Never queue deleted member rows — prevents offline replay resurrecting tombstoned members. */
+    const queueMembersSyncSnapshot = async (payload) => {
+      const tombstones = new Set([
+        ...readDeleteTombstonesInline(),
+        ...(window.__APG_MODULES?.readMemberDeleteTombstones?.() || []),
+      ]);
+      const list = Array.isArray(payload) ? payload : [];
+      const filtered = list.filter((m) => !tombstones.has(String(m?.memberId || '').trim()));
+      if (!filtered.length) {
+        if (list.length) await deleteQueuedSnapshot('members').catch(() => {});
+        return;
+      }
+      return queueSyncSnapshot('members', filtered);
+    };
     const getQueuedSnapshots = async () => {
       const db = await openSyncDb();
       const rows = await new Promise((resolve, reject) => {
@@ -5453,7 +5467,7 @@ Phone: +91-7047157510`;
         if (dataSyncMode === 'backend' && !backendHydrated) return;
         if (dataSyncMode !== 'backend') {
           safeSetItemJSON(STORAGE_KEYS.members, members);
-          queueSyncSnapshot('members', members).then(() => setOfflineQueueCount((c) => c + 1)).catch(() => {});
+          queueMembersSyncSnapshot(members).then(() => setOfflineQueueCount((c) => c + 1)).catch(() => {});
           return;
         }
         // Never push an empty member list to the server (would wipe Supabase after partial hydrate).
@@ -5477,7 +5491,7 @@ Phone: +91-7047157510`;
             }),
           })
             .then(() => { pendingDeletedMemberIdsRef.current = []; })
-            .catch(() => queueSyncSnapshot('members', bulkMembers).then(() => setOfflineQueueCount((c) => c + 1)).catch(() => {}))
+            .catch(() => queueMembersSyncSnapshot(bulkMembers).then(() => setOfflineQueueCount((c) => c + 1)).catch(() => {}))
             .finally(() => { membersBulkInFlightRef.current = false; });
         }, BACKEND_BULK_DEBOUNCE_MS);
         return () => clearTimeout(timer);
@@ -11520,11 +11534,14 @@ function Sidebar({ user, active, onSelect, theme, setTheme, layoutMode = 'classi
     // ---- Dashboard Summary Component ----
     function DashboardSummary({ members, financeTransactions = [], dataSyncMode = 'local', settings = {}, access, isOwner = false, currentUserRole = '', fineRuleConfig, onSelectStatus, onAddNew, onAddExpense, onSearch, onOpenMember, onWelcome, onOpenFilters, masterPlans = [] }) {
       const counts = React.useMemo(() => {
+        const sanitize = window.__APG_MODULES?.sanitizeMembersForDisplay;
+        const scoped = typeof sanitize === 'function' ? sanitize(members) : members;
+        const list = Array.isArray(scoped) ? scoped : [];
         return {
-          Active: members.filter(m => m.status === 'Active').length,
-          Hold: members.filter(m => m.status === 'Hold').length,
-          Deactivated: members.filter(m => m.status === 'Deactivated').length,
-          Cancelled: members.filter(m => m.status === 'Cancelled').length,
+          Active: list.filter(m => m.status === 'Active').length,
+          Hold: list.filter(m => m.status === 'Hold').length,
+          Deactivated: list.filter(m => m.status === 'Deactivated').length,
+          Cancelled: list.filter(m => m.status === 'Cancelled').length,
         };
       }, [members]);
       const [q, setQ] = React.useState('');
@@ -13954,7 +13971,9 @@ function DashboardView({ members, memberSyncPending = {}, onEdit, onStatusChange
       }, [filters, appliedQuickSearch]);
       // Filter members and group by status
       const grouped = React.useMemo(() => {
-        const list = applyFilters(members);
+        const sanitize = window.__APG_MODULES?.sanitizeMembersForDisplay;
+        const scoped = typeof sanitize === 'function' ? sanitize(members) : members;
+        const list = applyFilters(scoped);
         return {
           Active: sortMembers(list.filter(m => m.status === 'Active')),
           Hold: sortMembers(list.filter(m => m.status === 'Hold')),

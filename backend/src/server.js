@@ -677,7 +677,11 @@ app.put('/api/members/bulk', requireAccess(Access.membersWrite), async (req, res
   // Owner without explicit selection => stamped HQ via their JWT gymCodeId;
   // staff => stamped from their JWT gymCodeId; safe no-op for already-tagged rows.
   const stamped = stampBranchOnRows(incoming, req.auth);
-  await writeScopedCollection(req, 'apg.members', stamped);
+  const scope = readSandboxScope(req);
+  const { writeJsonCollection } = await import('./db/dataStore.js');
+  await writeJsonCollection('apg.members', stamped, scope, {
+    blockedMemberCodes: [...deletedSet],
+  });
   queueDatabaseBackup('members-bulk');
   res.json({ ok: true });
 });

@@ -253,8 +253,8 @@ export async function updateMember(memberCode, patch, branchScope = null) {
   return next;
 }
 
-export async function writeJsonCollection(key, value, scope = null) {
-  if (useSupabase()) return supabaseStore.writeCollection(key, value, scope);
+export async function writeJsonCollection(key, value, scope = null, options = null) {
+  if (useSupabase()) return supabaseStore.writeCollection(key, value, scope, options);
   if (!scope) return kvStore.writeJsonCollection(key, value);
   const allRows = await kvStore.readJsonCollection(key, []);
   const kept = allRows.filter((row) => String(row?.sandboxId || '') !== scope.sandboxId);
