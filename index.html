@@ -993,6 +993,73 @@
       padding: 0 1.125rem 1.125rem;
     }
 
+    /* Settings grouped nav — Dark Luxury skin (matches Leave Tracker / Finance cards) */
+    body[data-apg-layout="luxury"] .apg-settings-category {
+      background: var(--lux-surface-1) !important;
+      border-color: var(--lux-border) !important;
+      box-shadow:
+        0 10px 28px rgba(0, 0, 0, 0.38),
+        inset 0 1px 0 rgba(255, 255, 255, 0.04) !important;
+      backdrop-filter: blur(12px);
+      -webkit-backdrop-filter: blur(12px);
+    }
+    body[data-apg-layout="luxury"] .apg-settings-category-header:hover {
+      background: rgba(212, 175, 55, 0.08) !important;
+    }
+    body[data-apg-layout="luxury"] .apg-settings-category-title {
+      color: var(--lux-text-primary) !important;
+    }
+    body[data-apg-layout="luxury"] .apg-settings-category-subtitle {
+      color: var(--lux-text-muted) !important;
+    }
+    body[data-apg-layout="luxury"] .apg-settings-category-body {
+      border-top-color: var(--lux-border) !important;
+    }
+    body[data-apg-layout="luxury"] .apg-settings-nav-item + .apg-settings-nav-item {
+      border-top-color: var(--lux-border) !important;
+    }
+    body[data-apg-layout="luxury"] .apg-settings-nav-row:hover {
+      background: rgba(212, 175, 55, 0.08) !important;
+    }
+    body[data-apg-layout="luxury"] .apg-settings-nav-title {
+      color: var(--lux-text-primary) !important;
+    }
+    body[data-apg-layout="luxury"] .apg-settings-nav-desc {
+      color: var(--lux-text-muted) !important;
+    }
+    body[data-apg-layout="luxury"] .apg-settings-nav-badge {
+      background: rgba(212, 175, 55, 0.10) !important;
+      border-color: var(--lux-border-gold) !important;
+      color: var(--lux-gold) !important;
+    }
+    body[data-apg-layout="luxury"] .apg-settings-nav-chevron {
+      color: var(--lux-text-muted) !important;
+    }
+    body[data-apg-layout="luxury"] .apg-settings-nav-icon--blue {
+      background: rgba(147, 197, 253, 0.12) !important;
+      color: var(--lux-blue) !important;
+    }
+    body[data-apg-layout="luxury"] .apg-settings-nav-icon--violet {
+      background: rgba(196, 181, 253, 0.12) !important;
+      color: var(--lux-violet) !important;
+    }
+    body[data-apg-layout="luxury"] .apg-settings-nav-icon--green {
+      background: rgba(110, 231, 183, 0.12) !important;
+      color: var(--lux-emerald) !important;
+    }
+    body[data-apg-layout="luxury"] .apg-settings-nav-icon--amber {
+      background: rgba(212, 175, 55, 0.14) !important;
+      color: var(--lux-gold) !important;
+    }
+    body[data-apg-layout="luxury"] .apg-settings-nav-panel {
+      border-top: 1px solid var(--lux-border);
+      margin-top: 0.25rem;
+      padding-top: 1rem;
+    }
+    body[data-apg-layout="luxury"] .apg-settings-page > .flex.items-center h1 {
+      color: var(--lux-text-primary) !important;
+    }
+
     /* --------------------------------------------------------------------- */
     /* Login Screen — Dark Luxury redesign (always-on, palette-locked).      */
     /* The login page renders BEFORE layoutMode is restored, so the palette  */
@@ -18681,7 +18748,7 @@ function PTClientsPage({ members, users, settings, updateSetting, currentUser, a
         );
       };
       return (
-        <div className="p-3 md:p-8 space-y-6">
+        <div className="p-3 md:p-8 space-y-6 apg-settings-page">
           {lookupError && (
             <div className="rounded-xl border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-700" data-testid="settings-lookup-error">{lookupError}</div>
           )}

@@ -88,6 +88,12 @@ describe('Settings → Gym Codes collapsible accordion', () => {
     expect(PROJECT_HTML).toMatch(/testId="settings-category-branch-system"/);
   });
 
+  it('defines Dark Luxury overrides for grouped settings navigation', () => {
+    expect(PROJECT_STYLE).toMatch(/body\[data-apg-layout="luxury"\] \.apg-settings-category/);
+    expect(PROJECT_STYLE).toMatch(/var\(--lux-surface-1\)/);
+    expect(PROJECT_HTML).toMatch(/apg-settings-page/);
+  });
+
   it('accordion CSS-spring class collapses to grid-template-rows:0fr by default and opens to 1fr', () => {
     mountStyle();
     document.body.innerHTML = `
