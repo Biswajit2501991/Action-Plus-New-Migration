@@ -868,6 +868,131 @@
       }
     }
 
+    /* Settings — grouped category navigation (UI-only IA uplift) */
+    .apg-settings-category {
+      border-radius: 1rem;
+      border: 1px solid rgb(226 232 240);
+      background: #fff;
+      box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04);
+      overflow: hidden;
+    }
+    .apg-settings-category-header {
+      width: 100%;
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 0.75rem;
+      padding: 1rem 1.125rem;
+      text-align: left;
+      background: transparent;
+      border: none;
+      cursor: pointer;
+    }
+    .apg-settings-category-header:hover {
+      background: rgb(248 250 252);
+    }
+    .apg-settings-category-title {
+      font-size: 1.0625rem;
+      font-weight: 600;
+      color: rgb(15 23 42);
+      line-height: 1.3;
+    }
+    .apg-settings-category-subtitle {
+      margin-top: 0.25rem;
+      font-size: 0.8125rem;
+      color: rgb(100 116 139);
+      line-height: 1.45;
+    }
+    .apg-settings-category-meta {
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+      flex-shrink: 0;
+      padding-top: 0.125rem;
+    }
+    .apg-settings-category-body {
+      border-top: 1px solid rgb(226 232 240);
+    }
+    .apg-settings-nav-item + .apg-settings-nav-item {
+      border-top: 1px solid rgb(241 245 249);
+    }
+    .apg-settings-nav-row {
+      width: 100%;
+      display: flex;
+      align-items: center;
+      gap: 0.875rem;
+      padding: 0.875rem 1.125rem;
+      text-align: left;
+      background: transparent;
+      border: none;
+      cursor: pointer;
+      min-height: 3.75rem;
+    }
+    .apg-settings-nav-row:hover {
+      background: rgb(248 250 252);
+    }
+    .apg-settings-nav-icon {
+      width: 2.5rem;
+      height: 2.5rem;
+      border-radius: 0.75rem;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      flex-shrink: 0;
+    }
+    .apg-settings-nav-icon svg {
+      width: 1.25rem;
+      height: 1.25rem;
+    }
+    .apg-settings-nav-icon--blue { background: rgb(239 246 255); color: rgb(37 99 235); }
+    .apg-settings-nav-icon--violet { background: rgb(245 243 255); color: rgb(124 58 237); }
+    .apg-settings-nav-icon--green { background: rgb(240 253 244); color: rgb(22 163 74); }
+    .apg-settings-nav-icon--amber { background: rgb(255 251 235); color: rgb(217 119 6); }
+    .apg-settings-nav-text {
+      flex: 1;
+      min-width: 0;
+    }
+    .apg-settings-nav-title {
+      font-size: 0.9375rem;
+      font-weight: 600;
+      color: rgb(15 23 42);
+      line-height: 1.3;
+    }
+    .apg-settings-nav-desc {
+      margin-top: 0.125rem;
+      font-size: 0.75rem;
+      color: rgb(100 116 139);
+      line-height: 1.4;
+    }
+    .apg-settings-nav-badge {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      min-width: 1.625rem;
+      height: 1.625rem;
+      padding: 0 0.375rem;
+      border-radius: 9999px;
+      border: 1px solid rgb(226 232 240);
+      background: rgb(248 250 252);
+      font-size: 0.6875rem;
+      font-weight: 600;
+      color: rgb(71 85 105);
+      flex-shrink: 0;
+    }
+    .apg-settings-nav-chevron {
+      color: rgb(148 163 184);
+      font-size: 1rem;
+      line-height: 1;
+      flex-shrink: 0;
+      transition: transform 240ms cubic-bezier(.16,1,.3,1);
+    }
+    .apg-settings-nav-chevron[data-open="true"] {
+      transform: rotate(90deg);
+    }
+    .apg-settings-nav-panel {
+      padding: 0 1.125rem 1.125rem;
+    }
+
     /* --------------------------------------------------------------------- */
     /* Login Screen — Dark Luxury redesign (always-on, palette-locked).      */
     /* The login page renders BEFORE layoutMode is restored, so the palette  */
@@ -18190,6 +18315,71 @@ function PTClientsPage({ members, users, settings, updateSetting, currentUser, a
         );
       };
 
+    const SETTINGS_LOOKUP_DESCRIPTIONS = {
+      plans: 'Create and manage membership and subscription plans.',
+      statuses: 'Manage member, payment, and operational statuses.',
+      paymentMethods: 'Configure available payment methods.',
+      expenseCategories: 'Manage expense categories and classifications.',
+      holdDurations: 'Configure hold duration options.',
+      genders: 'Manage gender options.',
+      exerciseTypes: 'Manage exercise types for PT focus.',
+    };
+    const SettingsNavIcon = ({ tone, children }) => (
+      <span className={cx('apg-settings-nav-icon', `apg-settings-nav-icon--${tone}`)} aria-hidden="true">
+        {children}
+      </span>
+    );
+    function SettingsCategorySection({ testId, title, subtitle, itemCount, isOpen, onToggle, children }) {
+      return (
+        <section className="apg-settings-category" data-testid={testId}>
+          <button type="button" className="apg-settings-category-header" onClick={onToggle} aria-expanded={isOpen}>
+            <div className="min-w-0 flex-1">
+              <div className="apg-settings-category-title">{title}</div>
+              <div className="apg-settings-category-subtitle">{subtitle}</div>
+            </div>
+            <div className="apg-settings-category-meta">
+              {itemCount > 0 && (
+                <span className="apg-settings-nav-badge">{itemCount}</span>
+              )}
+              <span className="apg-settings-nav-chevron" data-open={isOpen ? 'true' : 'false'} aria-hidden="true">›</span>
+            </div>
+          </button>
+          <div className="apg-accordion" data-open={isOpen ? 'true' : 'false'}>
+            <div className="apg-accordion-inner">
+              <div className="apg-settings-category-body">{children}</div>
+            </div>
+          </div>
+        </section>
+      );
+    }
+    function SettingsNavRow({ testId, toggleTestId, title, description, badge, iconTone, icon, isOpen, onToggle, ariaControls, children }) {
+      return (
+        <div className="apg-settings-nav-item" data-testid={testId}>
+          <button
+            type="button"
+            className="apg-settings-nav-row"
+            onClick={onToggle}
+            aria-expanded={isOpen}
+            aria-controls={ariaControls || undefined}
+            data-testid={toggleTestId || undefined}
+          >
+            <SettingsNavIcon tone={iconTone}>{icon}</SettingsNavIcon>
+            <div className="apg-settings-nav-text">
+              <div className="apg-settings-nav-title">{title}</div>
+              {description && <div className="apg-settings-nav-desc">{description}</div>}
+            </div>
+            {badge != null && badge !== '' && (
+              <span className="apg-settings-nav-badge">{badge}</span>
+            )}
+            <span className="apg-settings-nav-chevron" data-open={isOpen ? 'true' : 'false'} aria-hidden="true">›</span>
+          </button>
+          {isOpen && children && (
+            <div className="apg-settings-nav-panel">{children}</div>
+          )}
+        </div>
+      );
+    }
+
     // ---- Settings Page ----
     function SettingsPage({ settings, updateSetting, members, users = [], access, storageInfo, backendStorageInfo, dataSyncMode, offlineQueueCount = 0, canResetFreshStart = false, availableBackups = [], onExport, onImport, onResetFreshStart, onRestoreFromBackup, onDeleteBackup, onDeleteBackupsOlderThan, onKeepLatestBackups, currentUser = null, gymCodes = [], refreshGymCodes = () => {}, refreshBranchBranding = () => {}, backendJson = null, touchSettingsLookupGuard = () => {} }) {
       const [newValues, setNewValues] = React.useState({
@@ -18281,6 +18471,14 @@ function PTClientsPage({ members, users, settings, updateSetting, currentUser, a
       const [backupPage, setBackupPage] = React.useState(1);
       const [diskUsageOpen, setDiskUsageOpen] = React.useState(false);
       const [fineRuleOpen, setFineRuleOpen] = React.useState(false);
+      const [openCategory, setOpenCategory] = React.useState({
+        branchSystem: true,
+        business: true,
+        memberPt: true,
+      });
+      const toggleSettingsCategory = (key) => {
+        setOpenCategory((prev) => ({ ...prev, [key]: !prev[key] }));
+      };
       // Gym Codes (Branches) panel — collapsible state persisted across
       // sessions. Default OPEN so first-time owners see it.
       const [gymCodesPanelOpen, setGymCodesPanelOpen] = React.useState(() => {
@@ -18435,6 +18633,53 @@ function PTClientsPage({ members, users, settings, updateSetting, currentUser, a
         { key: 'genders', label: 'Genders', allowed: settingsAccess.manageGenders },
         { key: 'exerciseTypes', label: 'Exercise Types (PT Focus)', allowed: settingsAccess.managePlans },
       ].filter(x => x.allowed);
+      const businessSettingKeys = new Set(['plans', 'statuses', 'paymentMethods', 'expenseCategories']);
+      const memberPtSettingKeys = new Set(['holdDurations', 'genders', 'exerciseTypes']);
+      const businessItems = settingItems.filter((x) => businessSettingKeys.has(x.key));
+      const memberPtItems = settingItems.filter((x) => memberPtSettingKeys.has(x.key));
+      const showBranchSystemCategory = isOwnerForCodes || canViewBackendDiskUsage || settingsAccess.manageFineRule;
+      const branchSystemItemCount = (isOwnerForCodes ? 1 : 0) + (canViewBackendDiskUsage ? 1 : 0) + (settingsAccess.manageFineRule ? 1 : 0);
+      const lookupIconSvg = {
+        plans: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M12 2l2.4 7.4H22l-6 4.6 2.3 7-6.3-4.6L5.7 21l2.3-7-6-4.6h7.6z"/></svg>,
+        statuses: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M7 3h10a2 2 0 012 2v16l-7-3.5L5 21V5a2 2 0 012-2z"/></svg>,
+        paymentMethods: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="2" y="5" width="20" height="14" rx="2"/><path d="M2 10h20"/></svg>,
+        expenseCategories: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M4 7h16v12H4z"/><path d="M16 7V5a2 2 0 00-2-2h-4a2 2 0 00-2 2v2"/></svg>,
+        holdDurations: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>,
+        genders: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="8" r="4"/><path d="M4 20c0-4 3.6-7 8-7s8 3 8 7"/></svg>,
+        exerciseTypes: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M6 9h12v6H6z"/><path d="M9 9V6h6v3M9 15v3h6v-3"/></svg>,
+      };
+      const renderLookupNavItem = ({ key, label }) => {
+        const isOpen = openSettingKey === key;
+        const values = Array.isArray(settings[key]) ? settings[key] : [];
+        return (
+          <SettingsNavRow
+            key={key}
+            testId={`settings-panel-${key}`}
+            title={label}
+            description={SETTINGS_LOOKUP_DESCRIPTIONS[key] || ''}
+            badge={values.length}
+            iconTone="amber"
+            icon={lookupIconSvg[key] || lookupIconSvg.plans}
+            isOpen={isOpen}
+            onToggle={() => setOpenSettingKey((prev) => (prev === key ? '' : key))}
+          >
+            <div className="space-y-3">
+              <div className="flex flex-wrap gap-2">
+                {values.map(val => (
+                  <span key={val} className="inline-flex items-center gap-2 bg-blue-50 text-blue-700 border border-blue-200 rounded-full px-3 py-1 text-sm">
+                    {val}
+                    <button onClick={() => removeOpt(key, val)} className="text-xs text-red-500 ml-1">✕</button>
+                  </span>
+                ))}
+              </div>
+              <div className="flex items-center gap-2">
+                <input value={newValues[key] || ''} onChange={(e) => setNewValues(nv => ({ ...nv, [key]: e.target.value }))} placeholder={`Enter new ${key.slice(0,-1)}`} className="flex-1 min-w-0 rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 placeholder:text-slate-500" data-testid={`settings-input-${key}`} />
+                <button type="button" disabled={lookupBusyKey === key} onClick={() => handleAdd(key)} className="rounded-full px-4 py-2 text-sm font-medium bg-blue-600 hover:bg-blue-700 text-white disabled:opacity-50" data-testid={`settings-add-${key}`}>Add</button>
+              </div>
+            </div>
+          </SettingsNavRow>
+        );
+      };
       return (
         <div className="p-3 md:p-8 space-y-6">
           {lookupError && (
@@ -18456,28 +18701,28 @@ function PTClientsPage({ members, users, settings, updateSetting, currentUser, a
               Module Loader: {moduleDiag.text}
             </span>
           </div>
+          {showBranchSystemCategory && (
+          <SettingsCategorySection
+            testId="settings-category-branch-system"
+            title="Branch & System Settings"
+            subtitle="Configure branch management, storage, and SMS rules."
+            itemCount={branchSystemItemCount}
+            isOpen={openCategory.branchSystem}
+            onToggle={() => toggleSettingsCategory('branchSystem')}
+          >
           {isOwnerForCodes && (
-            <div className="rounded-3xl bg-white border border-slate-200 p-4 shadow-sm space-y-4" data-testid="gym-codes-panel">
-              <div className="flex items-center justify-between gap-3">
-                <button
-                  type="button"
-                  onClick={() => setGymCodesPanelOpen((v) => !v)}
-                  aria-expanded={gymCodesPanelOpen}
-                  aria-controls="gym-codes-panel-body"
-                  data-testid="gym-codes-toggle"
-                  className="flex flex-1 items-center justify-between gap-3 text-left rounded-xl px-1 py-1 -mx-1 -my-1 hover:bg-slate-50/60"
-                >
-                  <h3 className="text-lg font-semibold">Gym Codes (Branches)</h3>
-                  <span
-                    className="apg-accordion-chevron text-xs font-bold uppercase tracking-wide text-slate-500 select-none"
-                    data-open={gymCodesPanelOpen ? 'true' : 'false'}
-                    aria-hidden="true"
-                  >
-                    ▾
-                  </span>
-                </button>
-                <span className="text-xs text-slate-500 hidden md:inline">Owner only · Multi-tenant isolation</span>
-              </div>
+            <SettingsNavRow
+              testId="gym-codes-panel"
+              toggleTestId="gym-codes-toggle"
+              title="Gym Codes (Branches)"
+              description="Manage gym branches, codes, and branch-related settings."
+              badge={(gymCodes || []).length}
+              iconTone="blue"
+              icon={<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M3 21h18M5 21V7l7-4 7 4v14M9 21v-6h6v6"/></svg>}
+              isOpen={gymCodesPanelOpen}
+              onToggle={() => setGymCodesPanelOpen((v) => !v)}
+              ariaControls="gym-codes-panel-body"
+            >
               <div
                 id="gym-codes-panel-body"
                 className="apg-accordion"
@@ -18613,19 +18858,20 @@ function PTClientsPage({ members, users, settings, updateSetting, currentUser, a
               </div>
                 </div>
               </div>
-            </div>
+            </SettingsNavRow>
           )}
           {canViewBackendDiskUsage && (
-          <div className="rounded-3xl bg-white border border-slate-200 p-4 shadow-sm space-y-4">
-            <button
-              type="button"
-              onClick={() => setDiskUsageOpen((v) => !v)}
-              className="w-full flex items-center justify-between text-left"
+            <SettingsNavRow
+              testId="settings-panel-disk-usage"
+              title={dataSyncMode === 'backend' ? 'Disk Usage (Backend)' : 'Storage Diagnostics'}
+              description="Monitor backend disk usage and storage information."
+              badge=""
+              iconTone="violet"
+              icon={<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><ellipse cx="12" cy="6" rx="8" ry="3"/><path d="M4 6v6c0 1.7 3.6 3 8 3s8-1.3 8-3V6M4 12v6c0 1.7 3.6 3 8 3s8-1.3 8-3v-6"/></svg>}
+              isOpen={diskUsageOpen}
+              onToggle={() => setDiskUsageOpen((v) => !v)}
             >
-              <h3 className="text-lg font-semibold">{dataSyncMode === 'backend' ? 'Disk Usage (Backend)' : 'Storage Diagnostics'}</h3>
-              <span className="text-xs font-semibold text-slate-500">{diskUsageOpen ? 'Hide' : 'Expand'}</span>
-            </button>
-            {diskUsageOpen && (dataSyncMode === 'backend' ? (
+            {dataSyncMode === 'backend' ? (
               <div className="grid grid-cols-1 gap-3 lg:grid-cols-2">
                 <div className="rounded-2xl border border-slate-200 bg-slate-50 p-3 space-y-1">
                   <div className="text-sm text-slate-700">
@@ -18743,71 +18989,43 @@ function PTClientsPage({ members, users, settings, updateSetting, currentUser, a
                 </div>
               </div>
             ) : (
-              <>
+              <div className="space-y-3">
                 <div className="text-sm text-slate-700">
                   Approx usage: <span className="font-medium">{(Number(storageInfo?.usageBytes || 0) / (1024 * 1024)).toFixed(2)} MB</span> / 4.50 MB
                 </div>
                 <div className="text-xs text-slate-500">
                   Last error: {storageInfo?.lastError ? `${storageInfo.lastError} (${storageInfo.lastKey || 'unknown key'})` : 'None'}
                 </div>
-              </>
-            ))}
-            {diskUsageOpen && (
-            <div className={cx('pt-2 items-center gap-2', dataSyncMode === 'backend' ? 'hidden' : 'flex')}>
-              <button onClick={onExport} className="rounded-full px-3 py-2 text-sm font-medium bg-blue-600 hover:bg-blue-700 text-white">Export Data</button>
-              <button onClick={() => importRef.current && importRef.current.click()} className="rounded-xl px-3 py-2 text-sm font-medium border border-slate-300 bg-white hover:bg-slate-100">Import Data</button>
-              {dataSyncMode === 'backend' && (
-                <>
-                  <select
-                    value={selectedBackup}
-                    onChange={(e) => setSelectedBackup(e.target.value)}
-                    className="rounded-xl border border-slate-300 bg-white px-2.5 py-2 text-sm text-slate-900"
-                  >
-                    <option value="">Select backup…</option>
-                    {availableBackups.map((name) => (
-                      <option key={name} value={name}>{name}</option>
-                    ))}
-                  </select>
-                  <button
-                    onClick={() => onRestoreFromBackup && onRestoreFromBackup(selectedBackup)}
-                    disabled={!selectedBackup}
-                    className="rounded-xl px-3 py-2 text-sm font-medium border border-amber-300 bg-amber-50 text-amber-700 hover:bg-amber-100 disabled:opacity-50"
-                  >
-                    Restore Backup
-                  </button>
-                </>
-              )}
-              <input
-                ref={importRef}
-                type="file"
-                accept="application/json"
-                className="hidden"
-                onChange={(e) => {
-                  const file = e.target.files && e.target.files[0];
-                  onImport && onImport(file);
-                  e.target.value = '';
-                }}
-              />
-            </div>
+                <div className="flex flex-wrap items-center gap-2 pt-2">
+                  <button onClick={onExport} className="rounded-full px-3 py-2 text-sm font-medium bg-blue-600 hover:bg-blue-700 text-white">Export Data</button>
+                  <button onClick={() => importRef.current && importRef.current.click()} className="rounded-xl px-3 py-2 text-sm font-medium border border-slate-300 bg-white hover:bg-slate-100">Import Data</button>
+                </div>
+              </div>
             )}
-          </div>
+            <input
+              ref={importRef}
+              type="file"
+              accept="application/json"
+              className="hidden"
+              onChange={(e) => {
+                const file = e.target.files && e.target.files[0];
+                onImport && onImport(file);
+                e.target.value = '';
+              }}
+            />
+            </SettingsNavRow>
           )}
           {settingsAccess.manageFineRule && (
-          <div className="rounded-3xl bg-white border border-slate-200 p-4 shadow-sm space-y-3">
-            <button
-              type="button"
-              onClick={() => setFineRuleOpen((v) => !v)}
-              className="w-full flex items-center justify-between text-left"
+            <SettingsNavRow
+              testId="settings-panel-fine-sms"
+              title="Fine SMS Rule"
+              description="Configure fine and penalty SMS notification rules."
+              badge={settings.fineSmsEnabled !== false ? 'Enabled' : 'Disabled'}
+              iconTone="green"
+              icon={<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M21 15a4 4 0 01-4 4H8l-5 3V7a4 4 0 014-4h10a4 4 0 014 4z"/></svg>}
+              isOpen={fineRuleOpen}
+              onToggle={() => setFineRuleOpen((v) => !v)}
             >
-              <h3 className="text-lg font-semibold">Fine SMS Rule</h3>
-              <div className="flex items-center gap-2">
-                <span className="rounded-full border border-slate-200 bg-slate-50 px-2 py-0.5 text-xs font-semibold text-slate-600">
-                  {settings.fineSmsEnabled !== false ? 'Enabled' : 'Disabled'}
-                </span>
-                <span className="text-xs font-semibold text-slate-500">{fineRuleOpen ? 'Hide' : 'Expand'}</span>
-              </div>
-            </button>
-            {fineRuleOpen && (
               <div className="space-y-3">
                 <div className="flex items-center justify-between gap-2">
                   <div />
@@ -18861,49 +19079,39 @@ function PTClientsPage({ members, users, settings, updateSetting, currentUser, a
                   </div>
                 </div>
               </div>
-            )}
-          </div>
+            </SettingsNavRow>
           )}
-          {settingItems.length === 0 && (
+          </SettingsCategorySection>
+          )}
+          {businessItems.length > 0 && (
+          <SettingsCategorySection
+            testId="settings-category-business"
+            title="Business Configuration"
+            subtitle="Manage plans, statuses, payments, expenses and other business configurations."
+            itemCount={businessItems.length}
+            isOpen={openCategory.business}
+            onToggle={() => toggleSettingsCategory('business')}
+          >
+            {businessItems.map(renderLookupNavItem)}
+          </SettingsCategorySection>
+          )}
+          {memberPtItems.length > 0 && (
+          <SettingsCategorySection
+            testId="settings-category-member-pt"
+            title="Member & PT Configuration"
+            subtitle="Member management and PT configuration."
+            itemCount={memberPtItems.length}
+            isOpen={openCategory.memberPt}
+            onToggle={() => toggleSettingsCategory('memberPt')}
+          >
+            {memberPtItems.map(renderLookupNavItem)}
+          </SettingsCategorySection>
+          )}
+          {settingItems.length === 0 && !showBranchSystemCategory && (
             <div className="rounded-2xl border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800">
               You have Settings access, but no child permission is enabled for configuration lists.
             </div>
           )}
-          {settingItems.map(({ key, label }) => {
-            const isOpen = openSettingKey === key;
-            const values = Array.isArray(settings[key]) ? settings[key] : [];
-            return (
-              <div key={key} className="rounded-3xl bg-white p-4 shadow-sm space-y-3" data-testid={`settings-panel-${key}`}>
-                <button
-                  type="button"
-                  onClick={() => setOpenSettingKey((prev) => (prev === key ? '' : key))}
-                  className="w-full flex items-center justify-between text-left"
-                >
-                  <h3 className="text-lg font-semibold">{label}</h3>
-                  <div className="flex items-center gap-2">
-                    <span className="rounded-full border border-slate-200 bg-slate-50 px-2 py-0.5 text-xs font-semibold text-slate-600">{values.length}</span>
-                    <span className="text-xs font-semibold text-slate-500">{isOpen ? 'Hide' : 'Expand'}</span>
-                  </div>
-                </button>
-                {isOpen && (
-                  <>
-                    <div className="flex flex-wrap gap-2">
-                      {values.map(val => (
-                        <span key={val} className="inline-flex items-center gap-2 bg-blue-50 text-blue-700 border border-blue-200 rounded-full px-3 py-1 text-sm">
-                          {val}
-                          <button onClick={() => removeOpt(key, val)} className="text-xs text-red-500 ml-1">✕</button>
-                        </span>
-                      ))}
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <input value={newValues[key] || ''} onChange={(e) => setNewValues(nv => ({ ...nv, [key]: e.target.value }))} placeholder={`Enter new ${key.slice(0,-1)}`} className="flex-1 min-w-0 rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 placeholder:text-slate-500" data-testid={`settings-input-${key}`} />
-                      <button type="button" disabled={lookupBusyKey === key} onClick={() => handleAdd(key)} className="rounded-full px-4 py-2 text-sm font-medium bg-blue-600 hover:bg-blue-700 text-white disabled:opacity-50" data-testid={`settings-add-${key}`}>Add</button>
-                    </div>
-                  </>
-                )}
-              </div>
-            );
-          })}
         </div>
       );
     }

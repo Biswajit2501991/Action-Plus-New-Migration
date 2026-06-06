@@ -82,9 +82,10 @@ describe('Settings → Gym Codes collapsible accordion', () => {
   });
 
   it('renders the toggle button with the right ARIA contract', () => {
-    expect(PROJECT_HTML).toMatch(/data-testid="gym-codes-toggle"/);
-    expect(PROJECT_HTML).toMatch(/aria-expanded=\{gymCodesPanelOpen\}/);
-    expect(PROJECT_HTML).toMatch(/aria-controls="gym-codes-panel-body"/);
+    expect(PROJECT_HTML).toMatch(/toggleTestId="gym-codes-toggle"/);
+    expect(PROJECT_HTML).toMatch(/isOpen=\{gymCodesPanelOpen\}/);
+    expect(PROJECT_HTML).toMatch(/ariaControls="gym-codes-panel-body"/);
+    expect(PROJECT_HTML).toMatch(/testId="settings-category-branch-system"/);
   });
 
   it('accordion CSS-spring class collapses to grid-template-rows:0fr by default and opens to 1fr', () => {
