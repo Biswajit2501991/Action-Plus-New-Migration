@@ -2685,6 +2685,22 @@ Phone: +91-7047157510`;
       return merged;
     };
     const LOGS_LIST_QUERY = 'view=list&days=2555&limit=5000';
+    const mergeAuditLogs = (prev, incoming, limit = 5000) => {
+      const fn = window.__APG_MODULES?.mergeAuditLogs;
+      if (typeof fn === 'function') return fn(prev, incoming, limit);
+      const byId = new Map();
+      for (const l of (Array.isArray(prev) ? prev : [])) {
+        const id = String(l?.id || '').trim();
+        if (id) byId.set(id, l);
+      }
+      for (const l of (Array.isArray(incoming) ? incoming : [])) {
+        const id = String(l?.id || '').trim();
+        if (id) byId.set(id, l);
+      }
+      return [...byId.values()]
+        .sort((a, b) => (Date.parse(String(b?.ts || '')) || 0) - (Date.parse(String(a?.ts || '')) || 0))
+        .slice(0, limit);
+    };
     const fetchAuditLogsFromBackend = async (baseQuery = LOGS_LIST_QUERY) => {
       const fn = window.__APG_MODULES?.fetchAuditLogsFromBackend;
       if (typeof fn === 'function') return fn(backendJson, baseQuery);
@@ -4776,7 +4792,10 @@ Phone: +91-7047157510`;
         }
         if (canFetchAuditLogs(sessionUser)) {
           const remoteLogs = await fetchAuditLogsFromBackend(LOGS_LIST_QUERY).catch(() => []);
-          if (Array.isArray(remoteLogs)) setLogs(remoteLogs);
+          if (Array.isArray(remoteLogs)) {
+            if (replaceBranch) setLogs(remoteLogs);
+            else setLogs((prev) => mergeAuditLogs(prev, remoteLogs));
+          }
         } else if (replaceBranch) {
           const remoteLogs = await fetchAuditLogsFromBackend(LOGS_LIST_QUERY).catch(() => []);
           if (Array.isArray(remoteLogs)) setLogs(remoteLogs);
@@ -5241,7 +5260,7 @@ Phone: +91-7047157510`;
       }, []);
       const pullLogsList = React.useCallback(async (query = LOGS_LIST_QUERY) => {
         const remoteLogs = await fetchAuditLogsFromBackend(query).catch(() => []);
-        if (Array.isArray(remoteLogs)) setLogs(remoteLogs);
+        if (Array.isArray(remoteLogs)) setLogs((prev) => mergeAuditLogs(prev, remoteLogs));
         return remoteLogs;
       }, []);
       const memberDetailInFlightRef = React.useRef(new Set());
@@ -5517,7 +5536,9 @@ Phone: +91-7047157510`;
                   await deleteQueuedSnapshot('logs');
                   setOfflineQueueCount((c) => Math.max(0, c - 1));
                 } else {
-                  await backendJson('/logs/bulk', { method: 'PUT', body: JSON.stringify({ logs: queuedLogs }) });
+                  for (const logEntry of queuedLogs) {
+                    await backendJson('/logs', { method: 'POST', body: JSON.stringify(logEntry) });
+                  }
                   await deleteQueuedSnapshot('logs');
                   setOfflineQueueCount((c) => Math.max(0, c - 1));
                 }
@@ -5638,14 +5659,7 @@ Phone: +91-7047157510`;
           queueSyncSnapshot('logs', logs).then(() => setOfflineQueueCount((c) => c + 1)).catch(() => {});
           return;
         }
-        if (!Array.isArray(logs) || logs.length === 0) return;
-        const timer = setTimeout(() => {
-          backendJson('/logs/bulk', {
-            method: 'PUT',
-            body: JSON.stringify({ logs }),
-          }).catch(() => queueSyncSnapshot('logs', logs).then(() => setOfflineQueueCount((c) => c + 1)).catch(() => {}));
-        }, BACKEND_BULK_DEBOUNCE_MS);
-        return () => clearTimeout(timer);
+        // Backend mode: each logEvent persists via POST /api/logs (no debounced bulk PUT).
       }, [logs, dataSyncMode, syncRuntimeReady, backendHydrated]);
       React.useEffect(() => {
         if (!syncRuntimeReady) return;
@@ -6391,9 +6405,17 @@ Phone: +91-7047157510`;
         window.__APG_SANITIZE_FOR_LOG__ = sanitizeForLog;
       }
       const logEvent = (action, entityType, entityId, beforeObj, afterObj, actorOverride = '') => {
+        const branchId = String(
+          authoritativeActiveBranchId || user?.activeBranchId || user?.gymCodeId || '',
+        ).trim();
+        const branchRow = gymCodeById.get(branchId);
         const entry = {
           id: crypto.randomUUID(),
           actor: actorOverride || user?.name || 'Unknown',
+          actorId: String(user?.id || '').trim(),
+          actorRole: String(user?.staffRole || user?.role || '').trim(),
+          branchId,
+          branchName: String(branchRow?.name || branchRow?.code || '').trim(),
           action,
           entityType,
           entityId,
@@ -6401,7 +6423,18 @@ Phone: +91-7047157510`;
           after: sanitizeForLog(afterObj),
           ts: new Date().toISOString(),
         };
-        setLogs(prev => [entry, ...prev.slice(0, 199)]); // limit to 200
+        const useBackendApi = hasBackendAuth() && dataSyncMode === 'backend' && backendHydrated;
+        if (useBackendApi) {
+          void backendJson('/logs', { method: 'POST', body: JSON.stringify(entry) })
+            .then((result) => {
+              if (result?.log) {
+                setLogs((prev) => mergeAuditLogs(prev, [result.log]));
+              }
+            })
+            .catch((err) => console.warn('[apg] audit log persist failed', err?.message || err));
+          return;
+        }
+        setLogs((prev) => mergeAuditLogs(prev, [entry]));
       };
       const renderSmsTemplate = (template, member) => {
         if (!template) return '';
@@ -10156,12 +10189,25 @@ Please pay by: ${formattedLastDate}`;
                 currentUser={user}
                 access={normalizeAccess(user?.access)}
                 displayTimeZone={displayTimeZone}
-                onClearLogs={() => {
+                onClearLogs={async () => {
                   if (!(user && user.id === 'owner')) return;
                   const ok = window.confirm('Clear all logs? This cannot be undone.');
                   if (!ok) return;
-                  setLogs([]);
-                  setToast('All logs cleared.');
+                  if (hasBackendAuth() && dataSyncMode === 'backend') {
+                    try {
+                      await backendJson('/logs/cleanup', {
+                        method: 'POST',
+                        body: JSON.stringify({ startDate: '1970-01-01', endDate: '2099-12-31' }),
+                      });
+                      await pullLogsList(LOGS_LIST_QUERY);
+                      setToast('All logs cleared.');
+                    } catch {
+                      setToast('Clear logs failed');
+                    }
+                  } else {
+                    setLogs([]);
+                    setToast('All logs cleared.');
+                  }
                   setTimeout(() => setToast(''), 2000);
                 }}
                 onRefreshLogs={async () => {

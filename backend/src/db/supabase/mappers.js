@@ -15,7 +15,8 @@ export const MEMBER_LIST_COLUMNS = [
 
 /** Audit log columns for list pulls — excludes before/after JSON blobs. */
 export const LOG_LIST_COLUMNS = [
-  'id', 'external_log_id', 'actor_name', 'action', 'entity_type', 'entity_id', 'logged_at', 'gym_id',
+  'id', 'external_log_id', 'actor_name', 'actor_id', 'actor_role',
+  'branch_id', 'branch_name', 'action', 'entity_type', 'entity_id', 'logged_at', 'gym_id',
 ].join(',');
 
 export function memberRowToApp(row, children = {}, options = {}) {
@@ -334,6 +335,10 @@ export function logRowToApp(row, options = {}) {
   const base = {
     id: row.external_log_id || String(row.id),
     actor: row.actor_name,
+    actorId: row.actor_id || '',
+    actorRole: row.actor_role || '',
+    branchId: row.branch_id || '',
+    branchName: row.branch_name || '',
     action: row.action,
     entityType: row.entity_type,
     entityId: row.entity_id,
@@ -342,6 +347,7 @@ export function logRowToApp(row, options = {}) {
   if (slim) return base;
   return {
     ...base,
+    summary: row.summary || '',
     before: row.before_json,
     after: row.after_json,
   };
@@ -352,6 +358,11 @@ export function appLogToRow(l, gymId) {
     gym_id: gymId,
     external_log_id: l.id ? String(l.id) : crypto.randomUUID(),
     actor_name: String(l.actor || 'Unknown'),
+    actor_id: emptyText(l.actorId),
+    actor_role: emptyText(l.actorRole),
+    branch_id: emptyText(l.branchId),
+    branch_name: emptyText(l.branchName),
+    summary: emptyText(l.summary),
     action: String(l.action || ''),
     entity_type: String(l.entityType || ''),
     entity_id: l.entityId ? String(l.entityId) : null,

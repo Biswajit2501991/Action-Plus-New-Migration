@@ -30,8 +30,23 @@ describe('logMatchesBranchScope', () => {
   it('rejects unrelated logs without branch actor', () => {
     expect(
       logMatchesBranchScope(
-        { entityType: 'settings', entityId: 'x', action: 'settings.saved', actor: 'other' },
+        { entityType: 'member', entityId: 'OTHER-MEM', action: 'member.updated', actor: 'other' },
         scope,
+      ),
+    ).toBe(false);
+  });
+
+  it('matches logs stamped with branch_id', () => {
+    expect(
+      logMatchesBranchScope(
+        { branchId: 'branch-x', action: 'settings.saved', entityType: 'settings', entityId: 'x' },
+        { limited: true, gymCodeId: 'branch-x', memberCodes: new Set(), staffLogins: new Set(), visitorIds: new Set() },
+      ),
+    ).toBe(true);
+    expect(
+      logMatchesBranchScope(
+        { branchId: 'branch-y', action: 'settings.saved', entityType: 'settings', entityId: 'x' },
+        { limited: true, gymCodeId: 'branch-x', memberCodes: new Set(), staffLogins: new Set(), visitorIds: new Set() },
       ),
     ).toBe(false);
   });

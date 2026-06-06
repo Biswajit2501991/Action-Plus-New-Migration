@@ -2576,6 +2576,7 @@ async function writeFinance(finance, scope) {
 }
 
 let auditLogsGymScoped;
+let auditLogsBranchScoped;
 
 async function auditLogsHasGymColumn(sb) {
   if (auditLogsGymScoped !== undefined) return auditLogsGymScoped;
@@ -2584,10 +2585,28 @@ async function auditLogsHasGymColumn(sb) {
   return auditLogsGymScoped;
 }
 
-async function readLogs(scope, options = {}) {
+async function auditLogsHasBranchColumn(sb) {
+  if (auditLogsBranchScoped !== undefined) return auditLogsBranchScoped;
+  const { error } = await sb.from(T.audit_logs).select('branch_id').limit(0);
+  auditLogsBranchScoped = !(error && String(error.message || '').includes('branch_id'));
+  return auditLogsBranchScoped;
+}
+
+function applyAuditLogBranchReadFilter(q, branchScope, hasBranchCol) {
+  if (!hasBranchCol || !branchScope) return q;
+  if (branchScope.staffNoBranch) {
+    return q.eq('branch_id', '__apg_no_branch__');
+  }
+  const code = String(branchScope.gymCodeId || branchScope.allowedBranchIds?.[0] || '').trim();
+  if (!code) return q;
+  return q.or(`branch_id.eq.${code},branch_id.is.null`);
+}
+
+async function readLogs(scope, options = {}, branchScope = null) {
   const sb = getSupabase();
   const gid = gymId();
   const gymScoped = await auditLogsHasGymColumn(sb);
+  const branchColReady = await auditLogsHasBranchColumn(sb);
   const hasPaging = options.limit != null || options.offset != null || options.days != null
     || options.startDate != null || options.endDate != null || options.view != null;
 
@@ -2595,6 +2614,7 @@ async function readLogs(scope, options = {}) {
     const rows = await fetchAll((from, to) => {
       let q = sb.from(T.audit_logs).select('*').order('logged_at', { ascending: false });
       if (gymScoped) q = q.eq('gym_id', gid);
+      q = applyAuditLogBranchReadFilter(q, branchScope, branchColReady);
       return q.range(from, to);
     });
     return sandboxFilter((rows || []).map((row) => logRowToApp(row)), scope);
@@ -2610,6 +2630,7 @@ async function readLogs(scope, options = {}) {
 
   let q = sb.from(T.audit_logs).select(columns).order('logged_at', { ascending: false });
   if (gymScoped) q = q.eq('gym_id', gid);
+  q = applyAuditLogBranchReadFilter(q, branchScope, branchColReady);
   if (startIso) q = q.gte('logged_at', startIso);
   else q = q.gte('logged_at', new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString());
   if (endIso) q = q.lte('logged_at', endIso);
@@ -2682,7 +2703,7 @@ export async function readCollection(key, fallback = [], scope = null, branchSco
     case KEY_VISITORS:
       return readVisitors(scope, branchScope);
     case KEY_LOGS:
-      return readLogs(scope, options);
+      return readLogs(scope, options, branchScope);
     case KEY_FINANCE:
       return readFinance(scope);
     case KEY_SMS:
@@ -3104,30 +3125,101 @@ export async function deleteAuditLogsByIds(_scope, ids = []) {
 }
 
 /**
+ * Surgical single-row audit log create with read-back verify (mirrors payment POST).
+ */
+export async function createAuditLog(entry, branchScope = null) {
+  if (!entry || typeof entry !== 'object') {
+    const err = new Error('log-entry-required');
+    err.status = 400;
+    throw err;
+  }
+  const action = String(entry.action || '').trim();
+  if (!action) {
+    const err = new Error('action-required');
+    err.status = 400;
+    throw err;
+  }
+
+  const extId = String(entry.id || crypto.randomUUID()).trim();
+  const branchId = String(
+    entry.branchId
+    || branchScope?.gymCodeId
+    || branchScope?.allowedBranchIds?.[0]
+    || '',
+  ).trim();
+  const stamped = {
+    ...entry,
+    id: extId,
+    branchId,
+    branchName: String(entry.branchName || '').trim(),
+    actorId: String(entry.actorId || entry.actor || '').trim(),
+    actorRole: String(entry.actorRole || '').trim(),
+    ts: entry.ts || new Date().toISOString(),
+  };
+
+  const sb = getSupabase();
+  const gid = gymId();
+  const row = appLogToRow(stamped, gid);
+  const gymScoped = await auditLogsHasGymColumn(sb);
+  const branchColReady = await auditLogsHasBranchColumn(sb);
+  if (!gymScoped) delete row.gym_id;
+  if (!branchColReady) {
+    delete row.branch_id;
+    delete row.branch_name;
+    delete row.actor_id;
+    delete row.actor_role;
+    delete row.summary;
+  }
+
+  const { error: insertErr } = await sb.from(T.audit_logs).insert(row);
+  if (insertErr) {
+    const msg = String(insertErr.message || insertErr);
+    if (!/duplicate|unique|23505/i.test(msg)) {
+      const err = new Error(`audit_logs insert: ${msg}`);
+      err.status = 500;
+      throw err;
+    }
+  }
+
+  let readQuery = sb.from(T.audit_logs).select('*').eq('external_log_id', extId).limit(1);
+  if (gymScoped) readQuery = readQuery.eq('gym_id', gid);
+  const { data: readRows, error: readErr } = await readQuery;
+  if (readErr) {
+    const err = new Error(`audit_logs read-back: ${readErr.message}`);
+    err.status = 500;
+    throw err;
+  }
+  const persisted = Array.isArray(readRows) ? readRows[0] : null;
+  if (!persisted) {
+    const err = new Error('log-create-not-persisted');
+    err.status = 500;
+    throw err;
+  }
+  if (String(persisted.action || '').trim() !== action) {
+    const err = new Error('log-create-not-persisted');
+    err.status = 500;
+    throw err;
+  }
+
+  notifyCollectionChange('logs');
+  return {
+    ok: true,
+    created: !insertErr,
+    log: logRowToApp(persisted),
+  };
+}
+
+/**
  * Lightweight, single-row audit log insert. The legacy writeLogs path
  * round-trips the entire audit_logs collection through syncGymRowsByExternalId
  * — that's correct but ruinous when the only goal is "append one row".
  * This helper does exactly that and nothing more.
  */
 export async function insertAuditLogRow(_scope, entry) {
-  const sb = getSupabase();
-  const gid = gymId();
-  if (!entry || typeof entry !== 'object') return;
-  const row = appLogToRow(entry, gid);
   try {
-    const gymScoped = await auditLogsHasGymColumn(sb);
-    if (!gymScoped) delete row.gym_id;
-    const { error } = await sb.from(T.audit_logs).insert(row);
-    if (error) {
-      // Most likely a unique-id collision (we generate uuids so this is
-      // vanishingly unlikely). Don't throw — audit-log failures must never
-      // roll back the primary mutation.
-      console.error('[apg] insertAuditLogRow failed', error.message || error);
-      return;
-    }
-    notifyCollectionChange('logs');
+    await createAuditLog(entry);
   } catch (err) {
-    console.error('[apg] insertAuditLogRow exception', err?.message || err);
+    console.error('[apg] insertAuditLogRow failed', err?.message || err);
   }
 }
 

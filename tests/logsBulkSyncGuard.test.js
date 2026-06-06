@@ -1,6 +1,6 @@
 // @vitest-environment node
 //
-// Regression: audit log bulk sync must never wipe DB rows via empty PUT.
+// Regression: audit logs must persist via POST /api/logs, not debounced bulk PUT.
 
 import { describe, it, expect, beforeAll } from 'vitest';
 import fs from 'node:fs';
@@ -12,8 +12,8 @@ const REPO_ROOT = path.resolve(__dirname, '..');
 
 let html = '';
 
-function extractLogsBulkEffect(source) {
-  const marker = "backendJson('/logs/bulk'";
+function extractLogsPersistEffect(source) {
+  const marker = "STORAGE_KEYS.logs, logs";
   const idx = source.indexOf(marker);
   if (idx < 0) return '';
   const effectStart = source.lastIndexOf('React.useEffect(() => {', idx);
@@ -26,14 +26,20 @@ beforeAll(() => {
   html = fs.readFileSync(path.join(REPO_ROOT, 'index.html'), 'utf8');
 });
 
-describe('logs bulk sync guards (index.html)', () => {
-  it('blocks empty logs bulk push to backend', () => {
-    const block = extractLogsBulkEffect(html);
-    expect(block, 'logs bulk effect must exist').not.toBe('');
-    expect(block).toMatch(/if \(!Array\.isArray\(logs\) \|\| logs\.length === 0\) return;/);
+describe('logs persistence guards (index.html)', () => {
+  it('does not debounce bulk PUT for logs in backend mode', () => {
+    const block = extractLogsPersistEffect(html);
+    expect(block, 'logs persist effect must exist').not.toBe('');
+    expect(block).toMatch(/if \(dataSyncMode !== 'backend'\)/);
+    expect(block).toMatch(/POST \/api\/logs/);
+    expect(block).not.toMatch(/backendJson\('\/logs\/bulk'/);
   });
 
-  it('offline queue flush skips empty log payloads', () => {
-    expect(html).toMatch(/row\.entity === 'logs'[\s\S]*?queuedLogs\.length === 0/);
+  it('logEvent posts to /api/logs in backend mode', () => {
+    expect(html).toMatch(/backendJson\('\/logs',\s*\{\s*method:\s*'POST'/);
+  });
+
+  it('offline queue flush posts individual logs', () => {
+    expect(html).toMatch(/row\.entity === 'logs'[\s\S]*?backendJson\('\/logs',\s*\{\s*method:\s*'POST'/);
   });
 });

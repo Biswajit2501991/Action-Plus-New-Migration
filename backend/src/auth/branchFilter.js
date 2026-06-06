@@ -151,6 +151,9 @@ export async function loadBranchScope(sb, auth) {
 
 export function logMatchesBranchScope(log, scope) {
   if (!scope?.limited) return true;
+  const branchId = String(log?.branchId || log?.branch_id || '').trim();
+  const activeBranch = String(scope?.gymCodeId || '').trim();
+  if (branchId && activeBranch) return branchId === activeBranch;
   const eid = String(log?.entityId || '').trim();
   const et = String(log?.entityType || '').toLowerCase();
   const act = String(log?.action || '');

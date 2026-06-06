@@ -40,6 +40,7 @@ import {
   readWhatsappTemplates,
   writeWhatsappTemplate,
   appendAuditLogEntry,
+  createAuditLog,
   deleteLogsInRange,
   deleteLogsByIds,
   deleteStaffUsers,
@@ -76,7 +77,7 @@ import { requireBranchAdmin } from './middleware/requireBranchAdmin.js';
 import { requireStaffManagementRead, requireStaffManagementWrite } from './middleware/requireStaffManagement.js';
 import { filterUsersForAuth, sanitizeUsersBulkForAuth } from './auth/tenant/userScope.js';
 import { LOOKUP_CREATED_BY } from './auth/tenant/roles.js';
-import { authIsBranchOwner, authIsMasterOwner, authUsesGlobalDataRead } from './auth/tenant/scopedAuth.js';
+import { authIsBranchOwner, authIsMasterOwner, authUsesGlobalDataRead, authHasGlobalBranchRead, resolveActiveBranchId, resolveReadBranchIds } from './auth/tenant/scopedAuth.js';
 import { Access, getStaffAccessForUser } from './auth/accessControl.js';
 import { canReadSettingsScope } from './db/supabase/settingsBranchFilter.js';
 import { normalizeSettingsScope } from './db/supabase/settingsScope.js';
@@ -415,11 +416,16 @@ function normalizeDateRange(rawStart, rawEnd) {
  */
 async function appendAuditLog(req, { action, entityType = '', entityId = '', before = null, after = null }) {
   try {
+    const branchScope = buildBranchScope(req);
+    const branchId = resolveActiveBranchId(req.auth) || branchScope?.gymCodeId || '';
     const actorId = String(req.auth?.userId || 'system').trim() || 'system';
     const entry = {
       id: randomUUID(),
       ts: new Date().toISOString(),
       actor: actorId,
+      actorId,
+      actorRole: String(req.auth?.staffRole || req.auth?.roles?.[0] || '').trim(),
+      branchId,
       action: String(action || '').trim(),
       entityType: String(entityType || ''),
       entityId: String(entityId || ''),
@@ -1635,11 +1641,55 @@ app.get('/api/logs', requireAccess(Access.logsRead), async (req, res) => {
     startDate,
     endDate,
   } : {};
-  const logs = await readJsonCollection('apg.logs', [], scope, null, options);
+  const logs = await readJsonCollection('apg.logs', [], scope, buildBranchScope(req), options);
   if (authUsesGlobalDataRead(req.auth)) return res.json(logs);
   if (!req.auth?.gymCodeId) return res.json([]);
   const branchScope = await loadBranchScope(getSupabase(), req.auth);
   res.json(logs.filter((l) => logMatchesBranchScope(l, branchScope)));
+});
+
+app.post('/api/logs', requireAccess(Access.logsWrite), async (req, res) => {
+  const body = req.body && typeof req.body === 'object' ? req.body : {};
+  const branchScope = buildBranchScope(req);
+  const activeBranch = resolveActiveBranchId(req.auth) || branchScope?.gymCodeId || '';
+  if (!authHasGlobalBranchRead(req.auth) && !activeBranch) {
+    return res.status(403).json({ error: 'branch-scope-missing', created: false });
+  }
+  const clientBranch = String(body.branchId || activeBranch).trim();
+  if (!authHasGlobalBranchRead(req.auth)) {
+    const allowed = resolveReadBranchIds(req.auth);
+    if (clientBranch && allowed?.length && !allowed.includes(clientBranch)) {
+      return res.status(403).json({ error: 'cross-branch-write-forbidden', created: false });
+    }
+  }
+  const entry = {
+    id: String(body.id || randomUUID()).trim(),
+    ts: body.ts || new Date().toISOString(),
+    actor: String(body.actor || req.auth?.userId || 'Unknown').trim(),
+    actorId: String(body.actorId || req.auth?.userId || '').trim(),
+    actorRole: String(body.actorRole || req.auth?.staffRole || '').trim(),
+    branchId: clientBranch,
+    branchName: String(body.branchName || '').trim(),
+    action: String(body.action || '').trim(),
+    entityType: String(body.entityType || body.entity_type || '').trim(),
+    entityId: body.entityId != null ? String(body.entityId) : (body.entity_id != null ? String(body.entity_id) : ''),
+    before: body.before ?? null,
+    after: body.after ?? null,
+  };
+  if (!entry.action) {
+    return res.status(400).json({ error: 'action-required', created: false });
+  }
+  try {
+    const result = await createAuditLog(readSandboxScope(req), entry, branchScope);
+    queueDatabaseBackup('audit-log-create');
+    return res.status(result.created ? 201 : 200).json(result);
+  } catch (err) {
+    const status = err?.status || 500;
+    return res.status(status).json({
+      error: err?.message || 'log-create-failed',
+      created: false,
+    });
+  }
 });
 
 app.put('/api/logs/bulk', requireLogsBulkAccess, async (req, res) => {

@@ -49,6 +49,15 @@ export async function readJsonCollection(key, fallback = [], scope = null, branc
       });
     }
   }
+  if (key === 'apg.logs' && branchScope?.staffNoBranch) {
+    filtered = [];
+  } else if (key === 'apg.logs' && branchScope?.gymCodeId) {
+    const activeId = String(branchScope.gymCodeId);
+    filtered = filtered.filter((row) => {
+      const bid = String(row?.branchId || '').trim();
+      return !bid || bid === activeId;
+    });
+  }
   return filtered;
 }
 
@@ -616,6 +625,26 @@ export async function appendAuditLogEntry(scope, entry) {
   if (useSupabase()) return supabaseStore.insertAuditLogRow(scope, entry);
   const rows = await kvStore.readJsonCollection('apg.logs', []);
   await kvStore.writeJsonCollection('apg.logs', [entry, ...rows]);
+}
+
+/**
+ * Surgical audit log create with read-back verify (Supabase) or local append (SQLite).
+ */
+export async function createAuditLog(scope, entry, branchScope = null) {
+  if (useSupabase()) return supabaseStore.createAuditLog(entry, branchScope);
+  const id = String(entry?.id || crypto.randomUUID()).trim();
+  const branchId = String(
+    entry?.branchId || branchScope?.gymCodeId || branchScope?.allowedBranchIds?.[0] || '',
+  ).trim();
+  const stamped = {
+    ...entry,
+    id,
+    branchId,
+    ts: entry?.ts || new Date().toISOString(),
+  };
+  const rows = await kvStore.readJsonCollection('apg.logs', []);
+  await kvStore.writeJsonCollection('apg.logs', [stamped, ...rows]);
+  return { ok: true, created: true, log: stamped };
 }
 
 /**

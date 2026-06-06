@@ -17,7 +17,8 @@ export function invalidateCachesForBranchSwitch(handlers, nextBranchId) {
   // Branch-scoped hydrate replaces the in-memory list after the JWT switches.
   if (typeof handlers.setFinanceTransactions === 'function') handlers.setFinanceTransactions([]);
   if (typeof handlers.setSmsEvents === 'function') handlers.setSmsEvents([]);
-  if (typeof handlers.setLogs === 'function') handlers.setLogs([]);
+  // Never clear logs here — unsynced rows are lost before POST /api/logs runs.
+  // Branch-scoped hydrate replaces the in-memory list after the JWT switches.
   if (typeof handlers.setBackendHydrated === 'function') handlers.setBackendHydrated(false);
   if (typeof handlers.setTemplatesBranchId === 'function' && id) handlers.setTemplatesBranchId(id);
 
