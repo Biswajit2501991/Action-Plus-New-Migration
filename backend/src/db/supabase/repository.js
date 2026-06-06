@@ -64,6 +64,7 @@ import { syncStaffUserAccess, syncStaffUserSections } from './staffUserSync.js';
 import {
   paymentHistoryCanonicalDedupeKey,
   paymentRowMatchesId,
+  stablePaymentHistoryRowId,
 } from './paymentIds.js';
 import {
   applySettingsConfigJson,
@@ -290,6 +291,195 @@ export async function deleteMemberPayment(memberCode, paymentId, branchScope = n
     throw err;
   }
   return { ok: true, deleted: true, paymentId: pid, member: refreshed };
+}
+
+/**
+ * Surgical payment-row create — appends one member_payment_history row from DB-complete history.
+ * Verifies read-back before returning success (no debounced bulk sync).
+ */
+export async function createMemberPayment(memberCode, input, branchScope = null) {
+  const code = String(memberCode || '').trim();
+  if (!code) {
+    const err = new Error('member-code-required');
+    err.status = 400;
+    throw err;
+  }
+  if (!input || typeof input !== 'object') {
+    const err = new Error('payment-required');
+    err.status = 400;
+    throw err;
+  }
+
+  const amount = Number(input.amount);
+  if (!Number.isFinite(amount) || amount <= 0) {
+    const err = new Error('invalid-amount');
+    err.status = 400;
+    throw err;
+  }
+
+  const paidAt = toTs(input.paidAt || input.paid_at);
+  if (!paidAt) {
+    const err = new Error('invalid-paid-at');
+    err.status = 400;
+    throw err;
+  }
+
+  const paidMonth = validatePaidMonthKey(input.paidMonth)
+    || validatePaidMonthKey(input.paid_month);
+  if (!paidMonth) {
+    const err = new Error('invalid-paid-month');
+    err.status = 400;
+    throw err;
+  }
+
+  const method = emptyText(input.method);
+  const note = emptyText(input.note);
+  const recordedBy = emptyText(input.recordedBy || input.recorded_by || input.by);
+
+  const member = await readMemberByCode(code, branchScope);
+  if (!member) {
+    const err = new Error('member-not-found');
+    err.status = 404;
+    throw err;
+  }
+
+  const before = Array.isArray(member.paymentHistory) ? member.paymentHistory : [];
+  const billingDateForRow = String(member.billingDate || '').trim()
+    || paymentBillingDate({ paidAt, billingMonth: paidMonth });
+  const createdAt = new Date().toISOString();
+  const rowDraft = {
+    paidAt,
+    receivedAt: paidAt,
+    amount,
+    method,
+    note,
+    paidMonth,
+    billingMonth: paidMonth,
+    billingDate: billingDateForRow,
+    recordedBy,
+    by: recordedBy,
+    source: emptyText(input.source) || 'manual',
+    createdAt,
+  };
+  const paymentId = String(input.paymentId || input.id || '').trim()
+    || stablePaymentHistoryRowId(rowDraft, code)
+    || crypto.randomUUID();
+
+  if (before.some((p) => paymentRowMatchesId(p, code, paymentId))) {
+    const err = new Error('payment-already-exists');
+    err.status = 409;
+    throw err;
+  }
+
+  const newCanon = paymentHistoryCanonicalDedupeKey(rowDraft);
+  if (newCanon && before.some((p) => paymentHistoryCanonicalDedupeKey(p) === newCanon)) {
+    const err = new Error('payment-duplicate');
+    err.status = 409;
+    throw err;
+  }
+
+  const newRow = { ...rowDraft, id: paymentId };
+  const after = [...before, newRow].sort((a, b) => {
+    const ta = Date.parse(String(a?.paidAt || a?.receivedAt || '')) || 0;
+    const tb = Date.parse(String(b?.paidAt || b?.receivedAt || '')) || 0;
+    return tb - ta;
+  });
+
+  const sb = getSupabase();
+  const gid = gymId();
+  const { data: memberRow, error: rowErr } = await sb
+    .from(T.members)
+    .select('id')
+    .eq('gym_id', gid)
+    .eq('member_code', code)
+    .order('updated_at', { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  if (rowErr) throw new Error(`member pk lookup: ${rowErr.message}`);
+  if (!memberRow?.id) {
+    const err = new Error('member-not-found');
+    err.status = 404;
+    throw err;
+  }
+
+  const latestPaid = after
+    .map((r) => String(r.paidAt || r.receivedAt || ''))
+    .filter(Boolean)
+    .sort((a, b) => Date.parse(b) - Date.parse(a))[0] || paidAt;
+
+  const memberForChildRows = {
+    memberId: code,
+    payMonth: paidMonth,
+    paymentHistory: after,
+    paymentReceivedAt: latestPaid,
+  };
+  const { payRows } = buildMemberChildRows(memberForChildRows, gid, memberRow.id);
+  await syncMemberChildRows(sb, T.member_payment_history, {
+    gymId: gid,
+    memberId: memberRow.id,
+    externalIdColumn: 'external_payment_id',
+    rows: payRows,
+    onConflict: 'gym_id,member_id,external_payment_id',
+  });
+
+  try {
+    await syncMemberPaidForMonthLedger(sb, {
+      gymId: gid,
+      memberPk: memberRow.id,
+      member: memberForChildRows,
+    });
+  } catch (ledgerErr) {
+    const msg = String(ledgerErr?.message || ledgerErr);
+    if (!/member_paid_for_month|does not exist|42P01/i.test(msg)) throw ledgerErr;
+  }
+
+  const { error: memberUpdErr } = await sb
+    .from(T.members)
+    .update({
+      pay_month: emptyText(paidMonth),
+      updated_at: createdAt,
+    })
+    .eq('id', memberRow.id);
+  if (memberUpdErr) throw new Error(`member pay_month update: ${memberUpdErr.message}`);
+
+  notifyCollectionChange('members');
+  const refreshed = await readMemberByCode(code, branchScope);
+  const createdPayment = (refreshed?.paymentHistory || []).find((p) => paymentRowMatchesId(p, code, paymentId));
+  if (!createdPayment) {
+    const err = new Error('payment-create-not-persisted');
+    err.status = 500;
+    throw err;
+  }
+
+  const persistedAmount = Number(createdPayment.amount || 0);
+  const persistedPaidMonth = validatePaidMonthKey(createdPayment.paidMonth)
+    || validatePaidMonthKey(createdPayment.billingMonth);
+  const persistedPaidAt = toTs(createdPayment.paidAt || createdPayment.receivedAt);
+  const amountOk = Math.abs(persistedAmount - amount) < 0.01;
+  const monthOk = persistedPaidMonth === paidMonth;
+  const dateOk = persistedPaidAt && paidAt
+    && String(persistedPaidAt).slice(0, 10) === String(paidAt).slice(0, 10);
+  if (!amountOk || !monthOk || !dateOk) {
+    const err = new Error('payment-create-not-persisted');
+    err.status = 500;
+    err.detail = {
+      expected: { amount, paidMonth, paidAt: String(paidAt).slice(0, 10) },
+      persisted: {
+        amount: persistedAmount,
+        paidMonth: persistedPaidMonth,
+        paidAt: persistedPaidAt ? String(persistedPaidAt).slice(0, 10) : null,
+      },
+    };
+    throw err;
+  }
+
+  return {
+    ok: true,
+    created: true,
+    paymentId,
+    payment: createdPayment,
+    member: refreshed,
+  };
 }
 
 /**
