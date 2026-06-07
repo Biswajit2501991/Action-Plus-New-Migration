@@ -174,6 +174,48 @@
       border-color: #223248 !important;
       color: #e2e8f0 !important;
     }
+    @keyframes apg-member-row-flash-green {
+      0%, 100% { background-color: #ecfccb; }
+      50% { background-color: #d9f99d; }
+    }
+    @keyframes apg-member-row-flash-red {
+      0%, 100% { background-color: #fde8e8; }
+      50% { background-color: #fecaca; }
+    }
+    .apg-member-row--billing-today.apg-member-row-desktop,
+    .apg-member-row--billing-today.apg-member-row-mobile {
+      background-color: #ecfccb !important;
+      border-color: #bef264 !important;
+      animation: apg-member-row-flash-green 2.5s ease-in-out infinite;
+    }
+    .apg-member-row--fine-due.apg-member-row-desktop,
+    .apg-member-row--fine-due.apg-member-row-mobile {
+      background-color: #fde8e8 !important;
+      border-color: #f5c6c6 !important;
+      animation: apg-member-row-flash-red 2.5s ease-in-out infinite;
+    }
+    html.dark .apg-member-row--billing-today.apg-member-row-desktop,
+    html.dark .apg-member-row--billing-today.apg-member-row-mobile {
+      background-color: rgba(34, 197, 94, 0.18) !important;
+      border-color: rgba(34, 197, 94, 0.45) !important;
+      color: #e2e8f0 !important;
+      animation: apg-member-row-flash-green-dark 2.5s ease-in-out infinite;
+    }
+    html.dark .apg-member-row--fine-due.apg-member-row-desktop,
+    html.dark .apg-member-row--fine-due.apg-member-row-mobile {
+      background-color: rgba(244, 63, 94, 0.18) !important;
+      border-color: rgba(244, 63, 94, 0.45) !important;
+      color: #e2e8f0 !important;
+      animation: apg-member-row-flash-red-dark 2.5s ease-in-out infinite;
+    }
+    @keyframes apg-member-row-flash-green-dark {
+      0%, 100% { background-color: rgba(34, 197, 94, 0.18); }
+      50% { background-color: rgba(34, 197, 94, 0.30); }
+    }
+    @keyframes apg-member-row-flash-red-dark {
+      0%, 100% { background-color: rgba(244, 63, 94, 0.18); }
+      50% { background-color: rgba(244, 63, 94, 0.30); }
+    }
     html.dark .apg-dark-row-hover:hover {
       background: #16253d !important;
     }
@@ -357,6 +399,16 @@
     body[data-apg-layout="luxury"] #root,
     body[data-apg-layout="luxury"] main {
       background: transparent !important;
+    }
+    body[data-apg-layout="luxury"] .apg-member-row--billing-today.apg-member-row-desktop,
+    body[data-apg-layout="luxury"] .apg-member-row--billing-today.apg-member-row-mobile {
+      background: rgba(34, 197, 94, 0.12) !important;
+      border-color: rgba(74, 222, 128, 0.35) !important;
+    }
+    body[data-apg-layout="luxury"] .apg-member-row--fine-due.apg-member-row-desktop,
+    body[data-apg-layout="luxury"] .apg-member-row--fine-due.apg-member-row-mobile {
+      background: rgba(244, 63, 94, 0.12) !important;
+      border-color: rgba(251, 113, 133, 0.35) !important;
     }
 
     /* --------------------------------------------------------------------- */
@@ -12718,12 +12770,14 @@ function MembersList({ title, list, allMembers = [], onBack, onEdit, onStatusCha
 function MemberRow({ m, memberSyncPending = {}, expanded, onToggle, onEdit, onStatusChange, holdOptions, onDelete, canDelete, onWelcome, onWhatsAppCall, onWelcomeMail, onAddAttachment, logs, selected, onSelectToggle, selectable, onQuickFieldEdit, editOptions, isOwner, currentUserRole = '', fineRuleConfig, access = null, asOfDateKey = null, onOpenMobileDetail, canEdit = true, displayTimeZone = 'IST', isCompactTablet = false, onAddPaymentEntry = null, onDeletePaymentEntry = null, onEditPaymentEntry = null, allMembers = null, onFamilyMemberNavigate = null, onUnlinkFamilyGroup = null, gymCodeLabel = null }) {
       const refToday = referenceTodayKey(asOfDateKey);
       const pastDue = isPaymentByPastDue(m, { asOfKey: refToday });
-      const billingToday = !pastDue && localCalendarDateKey(m.billingDate) === refToday;
+      const fineSmsSent = Boolean(getLastWhatsAppSendMeta(m, 'fine')?.sentAt);
+      const fineHighlight = pastDue && !fineSmsSent;
+      const billingToday = !fineHighlight && localCalendarDateKey(m.billingDate) === refToday;
+      const rowHighlightClass = fineHighlight ? 'apg-member-row--fine-due' : (billingToday ? 'apg-member-row--billing-today' : '');
       // Determine if we can open WhatsApp welcome/payment reminder.
       // Active members with mobile number and billing date qualify.
       const canWelcome = m.mobile && String(m.mobile).trim();
       const statusTemplate = resolveMemberMessageAction(m, isOwner, fineRuleConfig, currentUserRole, refToday, access);
-      const fineHighlight = pastDue;
       const hasPrimaryMessageAction = statusTemplate.key !== 'none';
       const statusSentText = hasPrimaryMessageAction ? getSmsSentInfoText(m, statusTemplate.key, displayTimeZone) : '';
       const callInfoText = getLastWhatsAppCallText(m, displayTimeZone);
@@ -12749,7 +12803,7 @@ function MemberRow({ m, memberSyncPending = {}, expanded, onToggle, onEdit, onSt
         reader.readAsDataURL(file);
       };
       return (
-        <div className="apg-member-row-wrap py-0.5 md:py-1">
+        <div className={cx('apg-member-row-wrap py-0.5 md:py-1', rowHighlightClass)}>
           <MemberRowDesktopView
             m={m}
             selectable={selectable}
@@ -12763,6 +12817,7 @@ function MemberRow({ m, memberSyncPending = {}, expanded, onToggle, onEdit, onSt
             statusTemplate={statusTemplate}
             billingToday={billingToday}
             fineHighlight={fineHighlight}
+            rowHighlightClass={rowHighlightClass}
             statusSentText={statusSentText}
             callInfoText={callInfoText}
             canEdit={canEdit}
@@ -12778,6 +12833,7 @@ function MemberRow({ m, memberSyncPending = {}, expanded, onToggle, onEdit, onSt
             expanded={expanded}
             billingToday={billingToday}
             fineHighlight={fineHighlight}
+            rowHighlightClass={rowHighlightClass}
             onOpenMobileDetail={onOpenMobileDetail}
             syncPending={syncPending}
           />
@@ -12839,10 +12895,10 @@ function MemberRow({ m, memberSyncPending = {}, expanded, onToggle, onEdit, onSt
     }
 
     // Phase A split: desktop-specific member row presentation.
-function MemberRowDesktopView({ m, selectable, selected, onSelectToggle, onToggle, onEdit, onWelcome, onWhatsAppCall, canWelcome, statusTemplate, billingToday = false, fineHighlight = false, statusSentText, callInfoText, canEdit = true, isCompactTablet = false, syncPending = false }) {
+function MemberRowDesktopView({ m, selectable, selected, onSelectToggle, onToggle, onEdit, onWelcome, onWhatsAppCall, canWelcome, statusTemplate, billingToday = false, fineHighlight = false, rowHighlightClass = '', statusSentText, callInfoText, canEdit = true, isCompactTablet = false, syncPending = false }) {
       const isIpadLandscapeCompact = isCompactTablet && typeof window !== 'undefined' && window.innerWidth >= 1024 && window.innerWidth <= 1366;
       return (
-        <button onClick={onToggle} className={cx('apg-member-row-desktop hidden lg:grid w-full grid-cols-12 items-center gap-1.5 rounded-xl border border-slate-200/90 bg-white px-2.5 py-1.5 text-left text-slate-700 shadow-[0_1px_0_rgba(15,23,42,0.02)] transition hover:border-slate-300 hover:bg-slate-50/70 hover:shadow-[0_6px_20px_rgba(15,23,42,0.06)] text-[10px]', isCompactTablet ? 'gap-1 px-2 py-1 text-[9px]' : '')}>
+        <button onClick={onToggle} className={cx('apg-member-row-desktop hidden lg:grid w-full grid-cols-12 items-center gap-1.5 rounded-xl border border-slate-200/90 bg-white px-2.5 py-1.5 text-left text-slate-700 shadow-[0_1px_0_rgba(15,23,42,0.02)] transition hover:border-slate-300 hover:bg-slate-50/70 hover:shadow-[0_6px_20px_rgba(15,23,42,0.06)] text-[10px]', rowHighlightClass, isCompactTablet ? 'gap-1 px-2 py-1 text-[9px]' : '')}>
           <div className="col-span-1 font-medium flex items-center gap-2 min-w-0">
             {selectable && (
               <input
@@ -12867,16 +12923,14 @@ function MemberRowDesktopView({ m, selectable, selected, onSelectToggle, onToggl
           </div>
           <div className={cx(
             'col-span-2 flex items-center gap-1.5',
-            fineHighlight
-              ? 'rounded-md bg-[#F08080] px-1.5 py-0.5 text-black font-semibold animate-pulse'
-              : (billingToday ? 'rounded-md bg-lime-300 px-1.5 py-0.5 text-black font-semibold animate-pulse' : '')
+            fineHighlight ? 'font-semibold' : (billingToday ? 'font-semibold' : '')
           )}>
             <Avatar name={m.name} photo={m.photo} member={m} className="h-6 w-6" />
             <span className="truncate">{m.name}</span>
           </div>
           <div className="col-span-1 truncate">{m.plan}</div>
-          <div className={cx('col-span-1', fineHighlight ? 'rounded-md bg-[#F08080] px-1.5 py-0.5 text-black font-semibold animate-pulse' : (billingToday ? 'rounded-md bg-lime-300 px-1.5 py-0.5 text-black font-semibold animate-pulse' : ''))}>{fmt(m.billingDate)}</div>
-          <div className={cx('col-span-1', fineHighlight ? 'rounded-md bg-[#F08080] px-1.5 py-0.5 text-black font-semibold animate-pulse' : '')}>{fmt(retentionPaymentDeadline(m) || m.billingDate) || '-'}</div>
+          <div className="col-span-1">{fmt(m.billingDate)}</div>
+          <div className="col-span-1">{fmt(retentionPaymentDeadline(m) || m.billingDate) || '-'}</div>
           <div className={cx('col-span-6 pl-1.5 flex items-center gap-1.5 pr-1.5', isCompactTablet ? 'gap-1 pr-1' : '', isIpadLandscapeCompact ? 'overflow-hidden' : '')}>
             <Badge tone={toneForStatus(m.status)} className={cx('text-center flex-shrink-0 py-0.5 px-2 text-[10px] leading-tight', isCompactTablet ? 'w-20' : 'w-24', isIpadLandscapeCompact ? 'w-[72px] px-1' : '')}>{shortStatus(m.status)}</Badge>
             {canEdit && (
@@ -12929,7 +12983,7 @@ function MemberRowDesktopView({ m, selectable, selected, onSelectToggle, onToggl
     }
 
     // Phase A split: mobile-specific member row presentation.
-    function MemberRowMobileView({ m, selectable, selected, onSelectToggle, onToggle, expanded, billingToday = false, fineHighlight = false, onOpenMobileDetail, syncPending = false }) {
+    function MemberRowMobileView({ m, selectable, selected, onSelectToggle, onToggle, expanded, billingToday = false, fineHighlight = false, rowHighlightClass = '', onOpenMobileDetail, syncPending = false }) {
       return (
         <button
           onClick={() => {
@@ -12939,7 +12993,7 @@ function MemberRowDesktopView({ m, selectable, selected, onSelectToggle, onToggl
             }
             onToggle();
           }}
-          className="apg-member-row-mobile lg:hidden w-full rounded-2xl border border-slate-200 bg-white px-3.5 py-3.5 text-left text-slate-700 shadow-sm active:scale-[0.99] transition"
+          className={cx('apg-member-row-mobile lg:hidden w-full rounded-2xl border border-slate-200 bg-white px-3.5 py-3.5 text-left text-slate-700 shadow-sm active:scale-[0.99] transition', rowHighlightClass)}
         >
           <div className="flex items-start justify-between gap-2">
             <div className="min-w-0">

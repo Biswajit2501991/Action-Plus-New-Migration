@@ -172,6 +172,48 @@
       border-color: #223248 !important;
       color: #e2e8f0 !important;
     }
+    @keyframes apg-member-row-flash-green {
+      0%, 100% { background-color: #ecfccb; }
+      50% { background-color: #d9f99d; }
+    }
+    @keyframes apg-member-row-flash-red {
+      0%, 100% { background-color: #fde8e8; }
+      50% { background-color: #fecaca; }
+    }
+    .apg-member-row--billing-today.apg-member-row-desktop,
+    .apg-member-row--billing-today.apg-member-row-mobile {
+      background-color: #ecfccb !important;
+      border-color: #bef264 !important;
+      animation: apg-member-row-flash-green 2.5s ease-in-out infinite;
+    }
+    .apg-member-row--fine-due.apg-member-row-desktop,
+    .apg-member-row--fine-due.apg-member-row-mobile {
+      background-color: #fde8e8 !important;
+      border-color: #f5c6c6 !important;
+      animation: apg-member-row-flash-red 2.5s ease-in-out infinite;
+    }
+    html.dark .apg-member-row--billing-today.apg-member-row-desktop,
+    html.dark .apg-member-row--billing-today.apg-member-row-mobile {
+      background-color: rgba(34, 197, 94, 0.18) !important;
+      border-color: rgba(34, 197, 94, 0.45) !important;
+      color: #e2e8f0 !important;
+      animation: apg-member-row-flash-green-dark 2.5s ease-in-out infinite;
+    }
+    html.dark .apg-member-row--fine-due.apg-member-row-desktop,
+    html.dark .apg-member-row--fine-due.apg-member-row-mobile {
+      background-color: rgba(244, 63, 94, 0.18) !important;
+      border-color: rgba(244, 63, 94, 0.45) !important;
+      color: #e2e8f0 !important;
+      animation: apg-member-row-flash-red-dark 2.5s ease-in-out infinite;
+    }
+    @keyframes apg-member-row-flash-green-dark {
+      0%, 100% { background-color: rgba(34, 197, 94, 0.18); }
+      50% { background-color: rgba(34, 197, 94, 0.30); }
+    }
+    @keyframes apg-member-row-flash-red-dark {
+      0%, 100% { background-color: rgba(244, 63, 94, 0.18); }
+      50% { background-color: rgba(244, 63, 94, 0.30); }
+    }
     html.dark .apg-dark-row-hover:hover {
       background: #16253d !important;
     }
@@ -355,6 +397,16 @@
     body[data-apg-layout="luxury"] #root,
     body[data-apg-layout="luxury"] main {
       background: transparent !important;
+    }
+    body[data-apg-layout="luxury"] .apg-member-row--billing-today.apg-member-row-desktop,
+    body[data-apg-layout="luxury"] .apg-member-row--billing-today.apg-member-row-mobile {
+      background: rgba(34, 197, 94, 0.12) !important;
+      border-color: rgba(74, 222, 128, 0.35) !important;
+    }
+    body[data-apg-layout="luxury"] .apg-member-row--fine-due.apg-member-row-desktop,
+    body[data-apg-layout="luxury"] .apg-member-row--fine-due.apg-member-row-mobile {
+      background: rgba(244, 63, 94, 0.12) !important;
+      border-color: rgba(251, 113, 133, 0.35) !important;
     }
 
     /* --------------------------------------------------------------------- */
@@ -1349,9 +1401,9 @@
     });
   </script>
   <script src="/app.env.js"></script>
-  <script>window.__APG_ESM_CACHE_BUST='1780746883573';</script>
-  <script type="module" src="/src/runtime/registerApgModules.js?v=1780746883573"></script>
+  <script>window.__APG_ESM_CACHE_BUST='1780838626251';</script>
+  <script type="module" src="/src/runtime/registerApgModules.js?v=1780838626251"></script>
   <!-- Application Code. Babel will compile this JSX on the fly. -->
-  <script src="/dist-legacy/app.bundle.js?v=1780746883573"></script>
+  <script src="/dist-legacy/app.bundle.js?v=1780838626251"></script>
 </body>
 </html>
