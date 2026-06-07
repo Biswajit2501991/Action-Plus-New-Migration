@@ -17062,6 +17062,10 @@ function PTClientsPage({ members, users, settings, updateSetting, currentUser, a
       const [focusPage, setFocusPage] = React.useState(1);
       const [focusScheduleDraft, setFocusScheduleDraft] = React.useState(null);
       const [focusScheduleSaving, setFocusScheduleSaving] = React.useState(false);
+      const [sectionSaving, setSectionSaving] = React.useState({});
+      const [workoutNotesDraft, setWorkoutNotesDraft] = React.useState('');
+      const [workoutPlanDraft, setWorkoutPlanDraft] = React.useState('');
+      const [dietDraft, setDietDraft] = React.useState({ calories: '', protein: '', water: '', dietPlan: '' });
       const FOCUS_PER_PAGE = 10;
       const ptAccess = normalizeAccess(access).ptClients;
       const canViewPtClients = ptAccess?.viewPtClients !== false;
@@ -17106,6 +17110,22 @@ function PTClientsPage({ members, users, settings, updateSetting, currentUser, a
         };
       }, [clientPickerOpen]);
       const profile = selectedMember ? (ptProfiles[selectedMember.memberId] || {}) : {};
+      React.useEffect(() => {
+        setWorkoutNotesDraft(String(profile.ptWorkoutNotes || ''));
+        setWorkoutPlanDraft(String(profile.workoutPlan || ''));
+        setDietDraft({
+          calories: String(profile.calories || ''),
+          protein: String(profile.protein || ''),
+          water: String(profile.water || ''),
+          dietPlan: String(profile.dietPlan || ''),
+        });
+      }, [selectedMemberId, profile.ptWorkoutNotes, profile.workoutPlan, profile.calories, profile.protein, profile.water, profile.dietPlan]);
+      const workoutNotesDirty = workoutNotesDraft !== String(profile.ptWorkoutNotes || '');
+      const workoutPlanDirty = workoutPlanDraft !== String(profile.workoutPlan || '');
+      const dietDraftDirty = dietDraft.calories !== String(profile.calories || '')
+        || dietDraft.protein !== String(profile.protein || '')
+        || dietDraft.water !== String(profile.water || '')
+        || dietDraft.dietPlan !== String(profile.dietPlan || '');
       const savedFocusByDate = profile.focusByDate || {};
       const workoutDateKey = iso(workoutDate || new Date());
       const focusDraftApplies = Boolean(
@@ -17161,6 +17181,52 @@ function PTClientsPage({ members, users, settings, updateSetting, currentUser, a
           return { ...base, [memberId]: nextProfile };
         });
         if (nextProfile) schedulePtProfileSave(memberId, nextProfile, mode, saveOpts);
+      };
+      const saveProfilePatch = async (patch, mode = 'workout', sectionKey, successMessage) => {
+        if (!selectedMember || !sectionKey || sectionSaving[sectionKey]) return false;
+        if (mode === 'plan' && !canEditPtPlan) return false;
+        if (mode === 'workout' && !canEditPtWorkout) return false;
+        const memberId = selectedMember.memberId;
+        setSectionSaving((prev) => ({ ...prev, [sectionKey]: true }));
+        let nextProfile = null;
+        try {
+          updateSetting('ptClientProfiles', (prevAll) => {
+            const base = prevAll && typeof prevAll === 'object' ? prevAll : {};
+            const prevProfile = base[memberId] && typeof base[memberId] === 'object' ? base[memberId] : {};
+            nextProfile = {
+              ...prevProfile,
+              ...patch,
+              updatedAt: new Date().toISOString(),
+              updatedBy: currentUser?.name || currentUser?.id || '',
+            };
+            return { ...base, [memberId]: nextProfile };
+          });
+          if (dataSyncMode === 'backend' && backendHydrated && nextProfile) {
+            await schedulePtProfileSave(memberId, nextProfile, mode, {
+              immediate: true,
+              waitForBackend: true,
+              silentErrors: true,
+            });
+          }
+          setToast(`✓ ${successMessage}`);
+          setTimeout(() => setToast(''), 3000);
+          return true;
+        } catch (err) {
+          const msg = String(err?.message || '');
+          if (msg.includes('edit PT plans') || msg.includes('edit PT workouts')) {
+            setToast(`✕ ${msg.replace(/^backend-403:?/i, '').trim() || 'Save failed — permission denied.'}`);
+          } else if (err?.status === 403) {
+            setToast('✕ Save failed — permission denied. Log out and back in after owner updates your PT access.');
+          } else if (err?.status === 404) {
+            setToast('✕ Save failed — PT client member not found on server.');
+          } else {
+            setToast('✕ Save failed — could not save PT client changes. Try again.');
+          }
+          setTimeout(() => setToast(''), 4000);
+          return false;
+        } finally {
+          setSectionSaving((prev) => ({ ...prev, [sectionKey]: false }));
+        }
       };
       const selectFocusDraft = (focus) => {
         if (!selectedMember || !canEditPtWorkout) return;
@@ -17219,8 +17285,8 @@ function PTClientsPage({ members, users, settings, updateSetting, currentUser, a
         const ok = await commitFocusSchedule(focusScheduleDraft.focus);
         setFocusScheduleSaving(false);
         if (ok) {
-          setToast('Workout schedule saved successfully');
-          setTimeout(() => setToast(''), 4000);
+          setToast('✓ Workout schedule saved successfully');
+          setTimeout(() => setToast(''), 3000);
         }
       };
       const clearFocusSchedule = async () => {
@@ -17248,29 +17314,30 @@ function PTClientsPage({ members, users, settings, updateSetting, currentUser, a
       });
       const ptDaysDone = monthEntries.filter((d) => !d.isSunday && d.hasFocus).length;
       const selectedDateFocus = displayFocusByDate[workoutDateKey] || '';
-      const addChatMessage = () => {
-        if (!selectedMember || !chatDraft.trim()) return;
+      const addChatMessage = async () => {
+        if (!selectedMember || !chatDraft.trim() || sectionSaving.chat) return;
         const next = [{ id: crypto.randomUUID(), by: currentUser?.name || 'Staff', text: chatDraft.trim(), ts: new Date().toISOString() }, ...((profile.chat || []))].slice(0, 100);
-        persistProfile(selectedMember.memberId, { chat: next, lastChatAt: new Date().toISOString() });
-        setChatDraft('');
+        const ok = await saveProfilePatch({ chat: next, lastChatAt: new Date().toISOString() }, 'workout', 'chat', 'Trainer note saved successfully');
+        if (ok) setChatDraft('');
       };
-      const addSession = () => {
-        if (!selectedMember || !sessionDraft.date) return;
+      const addSession = async () => {
+        if (!selectedMember || !sessionDraft.date || sectionSaving.session) return;
         const next = [{ id: crypto.randomUUID(), ...sessionDraft, createdAt: new Date().toISOString() }, ...((profile.sessions || []))].slice(0, 120);
-        persistProfile(selectedMember.memberId, { sessions: next });
+        const ok = await saveProfilePatch({ sessions: next }, 'workout', 'session', 'Session saved successfully');
+        if (ok) setSessionDraft({ date: iso(new Date()), time: '07:00', status: 'Scheduled', note: '' });
       };
-      const addWeightLog = () => {
-        if (!selectedMember || !weightDraft.date || !String(weightDraft.weight).trim()) return;
+      const addWeightLog = async () => {
+        if (!selectedMember || !weightDraft.date || !String(weightDraft.weight).trim() || sectionSaving.weight) return;
         const val = Number(weightDraft.weight);
         if (Number.isNaN(val) || val <= 0) return;
         const next = [{ id: crypto.randomUUID(), date: weightDraft.date, weight: val, createdAt: new Date().toISOString() }, ...((profile.weightLogs || []))]
           .sort((a, b) => String(b.date || '').localeCompare(String(a.date || '')))
           .slice(0, 200);
-        persistProfile(selectedMember.memberId, { weightLogs: next });
-        setWeightDraft(v => ({ ...v, weight: '' }));
+        const ok = await saveProfilePatch({ weightLogs: next }, 'workout', 'weight', 'Weight saved successfully');
+        if (ok) setWeightDraft(v => ({ ...v, weight: '' }));
       };
       const addDietAttachments = async (files) => {
-        if (!canUploadDietDocuments) return;
+        if (!canUploadDietDocuments || sectionSaving.dietDocs) return;
         if (!selectedMember || !files?.length) return;
         const valid = Array.from(files).filter((file) => file.size <= MAX_IMAGE_FILE_BYTES);
         const entries = await Promise.all(valid.map(async (file) => {
@@ -17290,13 +17357,13 @@ function PTClientsPage({ members, users, settings, updateSetting, currentUser, a
           }
         }));
         const next = [...(profile.dietAttachments || []), ...entries.filter(Boolean)].slice(-60);
-        persistProfile(selectedMember.memberId, { dietAttachments: next });
+        await saveProfilePatch({ dietAttachments: next }, 'plan', 'dietDocs', 'Diet document saved successfully');
       };
-      const removeDietAttachment = (id) => {
-        if (!canUploadDietDocuments) return;
+      const removeDietAttachment = async (id) => {
+        if (!canUploadDietDocuments || sectionSaving.dietDocs) return;
         if (!selectedMember || !id) return;
         const next = (profile.dietAttachments || []).filter((item) => item.id !== id);
-        persistProfile(selectedMember.memberId, { dietAttachments: next });
+        await saveProfilePatch({ dietAttachments: next }, 'plan', 'dietDocs', 'Diet document removed');
       };
       const sessionsToday = (profile.sessions || []).filter(s => iso(s.date) === iso(new Date()));
       const weightLogs = (profile.weightLogs || []).slice().sort((a, b) => String(a.date || '').localeCompare(String(b.date || '')));
@@ -17575,22 +17642,67 @@ function PTClientsPage({ members, users, settings, updateSetting, currentUser, a
                     </div>
                     <div>
                       <label className="text-sm font-medium">PT Workout Notes</label>
-                      <textarea rows={4} value={profile.ptWorkoutNotes || ''} onChange={(e) => persistProfile(selectedMember.memberId, { ptWorkoutNotes: e.target.value })} disabled={!canEditPtWorkout} className="mt-1 w-full rounded-xl border border-slate-300 px-3 py-2 text-sm disabled:bg-slate-100 disabled:text-slate-500" />
+                      <textarea rows={4} value={workoutNotesDraft} onChange={(e) => setWorkoutNotesDraft(e.target.value)} disabled={!canEditPtWorkout || sectionSaving.workoutNotes} className="mt-1 w-full rounded-xl border border-slate-300 px-3 py-2 text-sm disabled:bg-slate-100 disabled:text-slate-500" />
+                      {canEditPtWorkout && (
+                        <div className="mt-2 flex flex-wrap items-center gap-2">
+                          <button
+                            type="button"
+                            disabled={!workoutNotesDirty || sectionSaving.workoutNotes}
+                            onClick={() => saveProfilePatch({ ptWorkoutNotes: workoutNotesDraft }, 'workout', 'workoutNotes', 'PT Workout Notes saved successfully')}
+                            className="rounded-full bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:bg-slate-300 disabled:cursor-not-allowed"
+                          >
+                            {sectionSaving.workoutNotes ? 'Saving...' : 'Save'}
+                          </button>
+                          {workoutNotesDirty && !sectionSaving.workoutNotes && (
+                            <span className="text-xs font-medium text-amber-700">Unsaved changes</span>
+                          )}
+                        </div>
+                      )}
                     </div>
                   </div>
                 )}
                 {activeSubTab === 'Workout Plan' && (
                   <div>
                     <label className="text-sm font-medium">Weekly Workout Plan</label>
-                    <textarea rows={6} value={profile.workoutPlan || ''} onChange={(e) => persistProfile(selectedMember.memberId, { workoutPlan: e.target.value }, 'plan')} disabled={!canEditPtPlan} placeholder="Day-wise split, reps, sets, progressive overload notes." className="mt-1 w-full rounded-xl border border-slate-300 px-3 py-2 text-sm disabled:bg-slate-100 disabled:text-slate-500" />
+                    <textarea rows={6} value={workoutPlanDraft} onChange={(e) => setWorkoutPlanDraft(e.target.value)} disabled={!canEditPtPlan || sectionSaving.workoutPlan} placeholder="Day-wise split, reps, sets, progressive overload notes." className="mt-1 w-full rounded-xl border border-slate-300 px-3 py-2 text-sm disabled:bg-slate-100 disabled:text-slate-500" />
+                    {canEditPtPlan && (
+                      <div className="mt-2 flex flex-wrap items-center gap-2">
+                        <button
+                          type="button"
+                          disabled={!workoutPlanDirty || sectionSaving.workoutPlan}
+                          onClick={() => saveProfilePatch({ workoutPlan: workoutPlanDraft }, 'plan', 'workoutPlan', 'Weekly Workout Plan saved successfully')}
+                          className="rounded-full bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:bg-slate-300 disabled:cursor-not-allowed"
+                        >
+                          {sectionSaving.workoutPlan ? 'Saving...' : 'Save'}
+                        </button>
+                        {workoutPlanDirty && !sectionSaving.workoutPlan && (
+                          <span className="text-xs font-medium text-amber-700">Unsaved changes</span>
+                        )}
+                      </div>
+                    )}
                   </div>
                 )}
                 {activeSubTab === 'Diet Plan' && (
                   <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-                    <div><label className="text-sm font-medium">Calories / day</label><input value={profile.calories || ''} onChange={(e) => persistProfile(selectedMember.memberId, { calories: e.target.value }, 'plan')} disabled={!canEditPtPlan} className="mt-1 w-full rounded-xl border border-slate-300 px-3 py-2 text-sm disabled:bg-slate-100 disabled:text-slate-500" /></div>
-                    <div><label className="text-sm font-medium">Protein (g)</label><input value={profile.protein || ''} onChange={(e) => persistProfile(selectedMember.memberId, { protein: e.target.value }, 'plan')} disabled={!canEditPtPlan} className="mt-1 w-full rounded-xl border border-slate-300 px-3 py-2 text-sm disabled:bg-slate-100 disabled:text-slate-500" /></div>
-                    <div><label className="text-sm font-medium">Water (L)</label><input value={profile.water || ''} onChange={(e) => persistProfile(selectedMember.memberId, { water: e.target.value }, 'plan')} disabled={!canEditPtPlan} className="mt-1 w-full rounded-xl border border-slate-300 px-3 py-2 text-sm disabled:bg-slate-100 disabled:text-slate-500" /></div>
-                    <div className="md:col-span-3"><label className="text-sm font-medium">Diet Plan Details</label><textarea rows={5} value={profile.dietPlan || ''} onChange={(e) => persistProfile(selectedMember.memberId, { dietPlan: e.target.value }, 'plan')} disabled={!canEditPtPlan} className="mt-1 w-full rounded-xl border border-slate-300 px-3 py-2 text-sm disabled:bg-slate-100 disabled:text-slate-500" /></div>
+                    <div><label className="text-sm font-medium">Calories / day</label><input value={dietDraft.calories} onChange={(e) => setDietDraft((v) => ({ ...v, calories: e.target.value }))} disabled={!canEditPtPlan || sectionSaving.dietPlan} className="mt-1 w-full rounded-xl border border-slate-300 px-3 py-2 text-sm disabled:bg-slate-100 disabled:text-slate-500" /></div>
+                    <div><label className="text-sm font-medium">Protein (g)</label><input value={dietDraft.protein} onChange={(e) => setDietDraft((v) => ({ ...v, protein: e.target.value }))} disabled={!canEditPtPlan || sectionSaving.dietPlan} className="mt-1 w-full rounded-xl border border-slate-300 px-3 py-2 text-sm disabled:bg-slate-100 disabled:text-slate-500" /></div>
+                    <div><label className="text-sm font-medium">Water (L)</label><input value={dietDraft.water} onChange={(e) => setDietDraft((v) => ({ ...v, water: e.target.value }))} disabled={!canEditPtPlan || sectionSaving.dietPlan} className="mt-1 w-full rounded-xl border border-slate-300 px-3 py-2 text-sm disabled:bg-slate-100 disabled:text-slate-500" /></div>
+                    <div className="md:col-span-3"><label className="text-sm font-medium">Diet Plan Details</label><textarea rows={5} value={dietDraft.dietPlan} onChange={(e) => setDietDraft((v) => ({ ...v, dietPlan: e.target.value }))} disabled={!canEditPtPlan || sectionSaving.dietPlan} className="mt-1 w-full rounded-xl border border-slate-300 px-3 py-2 text-sm disabled:bg-slate-100 disabled:text-slate-500" /></div>
+                    {canEditPtPlan && (
+                      <div className="md:col-span-3 flex flex-wrap items-center gap-2">
+                        <button
+                          type="button"
+                          disabled={!dietDraftDirty || sectionSaving.dietPlan}
+                          onClick={() => saveProfilePatch({ calories: dietDraft.calories, protein: dietDraft.protein, water: dietDraft.water, dietPlan: dietDraft.dietPlan }, 'plan', 'dietPlan', 'Diet Plan saved successfully')}
+                          className="rounded-full bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:bg-slate-300 disabled:cursor-not-allowed"
+                        >
+                          {sectionSaving.dietPlan ? 'Saving...' : 'Save'}
+                        </button>
+                        {dietDraftDirty && !sectionSaving.dietPlan && (
+                          <span className="text-xs font-medium text-amber-700">Unsaved changes</span>
+                        )}
+                      </div>
+                    )}
                     <div className="md:col-span-3 rounded-xl border border-slate-200 bg-slate-50 p-3 space-y-3">
                       <div className="flex flex-wrap items-center justify-between gap-2">
                         <div>
@@ -17638,8 +17750,8 @@ function PTClientsPage({ members, users, settings, updateSetting, currentUser, a
                 {activeSubTab === 'Chat Trainer' && (
                   <div className="space-y-3">
                     <div className="flex gap-2">
-                      <input value={chatDraft} onChange={(e) => setChatDraft(e.target.value)} placeholder="Enter trainer update / member concern..." className="flex-1 rounded-xl border border-slate-300 px-3 py-2 text-sm" />
-                      <button onClick={addChatMessage} disabled={!canEditPtWorkout} className="rounded-full bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:bg-slate-300 disabled:cursor-not-allowed">Save Note</button>
+                      <input value={chatDraft} onChange={(e) => setChatDraft(e.target.value)} placeholder="Enter trainer update / member concern..." disabled={sectionSaving.chat} className="flex-1 rounded-xl border border-slate-300 px-3 py-2 text-sm disabled:bg-slate-100" />
+                      <button onClick={addChatMessage} disabled={!canEditPtWorkout || !chatDraft.trim() || sectionSaving.chat} className="rounded-full bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:bg-slate-300 disabled:cursor-not-allowed">{sectionSaving.chat ? 'Saving...' : 'Save Note'}</button>
                     </div>
                     <div className="space-y-2">
                       {(profile.chat || []).slice(0, 10).map(msg => (
@@ -17659,7 +17771,7 @@ function PTClientsPage({ members, users, settings, updateSetting, currentUser, a
                       <div><label className="text-sm font-medium">Date</label><input type="date" value={sessionDraft.date} onChange={(e) => setSessionDraft(v => ({ ...v, date: e.target.value }))} disabled={!canEditPtWorkout} className="mt-1 w-full rounded-xl border border-slate-300 px-3 py-2 text-sm disabled:bg-slate-100 disabled:text-slate-500" /></div>
                       <div><label className="text-sm font-medium">Time</label><input type="time" value={sessionDraft.time} onChange={(e) => setSessionDraft(v => ({ ...v, time: e.target.value }))} disabled={!canEditPtWorkout} className="mt-1 w-full rounded-xl border border-slate-300 px-3 py-2 text-sm disabled:bg-slate-100 disabled:text-slate-500" /></div>
                       <div><label className="text-sm font-medium">Status</label><select value={sessionDraft.status} onChange={(e) => setSessionDraft(v => ({ ...v, status: e.target.value }))} disabled={!canEditPtWorkout} className="mt-1 w-full rounded-xl border border-slate-300 px-3 py-2 text-sm disabled:bg-slate-100 disabled:text-slate-500"><option>Scheduled</option><option>Completed</option><option>Missed</option></select></div>
-                      <div className="md:self-end"><button onClick={addSession} disabled={!canEditPtWorkout} className="w-full rounded-full bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:bg-slate-300 disabled:cursor-not-allowed">Add Session</button></div>
+                      <div className="md:self-end"><button onClick={addSession} disabled={!canEditPtWorkout || sectionSaving.session} className="w-full rounded-full bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:bg-slate-300 disabled:cursor-not-allowed">{sectionSaving.session ? 'Saving...' : 'Add Session'}</button></div>
                       <div className="md:col-span-4"><input value={sessionDraft.note} onChange={(e) => setSessionDraft(v => ({ ...v, note: e.target.value }))} disabled={!canEditPtWorkout} placeholder="Session note" className="w-full rounded-xl border border-slate-300 px-3 py-2 text-sm disabled:bg-slate-100 disabled:text-slate-500" /></div>
                     </div>
                     <div className="space-y-2">
@@ -17678,7 +17790,7 @@ function PTClientsPage({ members, users, settings, updateSetting, currentUser, a
                     <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
                       <div><label className="text-sm font-medium">Date</label><input type="date" value={weightDraft.date} onChange={(e) => setWeightDraft(v => ({ ...v, date: e.target.value }))} disabled={!canEditPtWorkout} className="mt-1 w-full rounded-xl border border-slate-300 px-3 py-2 text-sm disabled:bg-slate-100 disabled:text-slate-500" /></div>
                       <div><label className="text-sm font-medium">Weight (kg)</label><input value={weightDraft.weight} onChange={(e) => setWeightDraft(v => ({ ...v, weight: e.target.value }))} disabled={!canEditPtWorkout} className="mt-1 w-full rounded-xl border border-slate-300 px-3 py-2 text-sm disabled:bg-slate-100 disabled:text-slate-500" /></div>
-                      <div className="md:self-end"><button onClick={addWeightLog} disabled={!canEditPtWorkout} className="w-full rounded-full bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:bg-slate-300 disabled:cursor-not-allowed">Add Weight</button></div>
+                      <div className="md:self-end"><button onClick={addWeightLog} disabled={!canEditPtWorkout || sectionSaving.weight} className="w-full rounded-full bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:bg-slate-300 disabled:cursor-not-allowed">{sectionSaving.weight ? 'Saving...' : 'Add Weight'}</button></div>
                     </div>
                     <div className="text-sm text-slate-700">Current: <span className="font-semibold">{latestWeight == null ? 'NA' : `${latestWeight} kg`}</span> • Change: <span className="font-semibold">{weightDelta == null ? 'NA' : `${weightDelta > 0 ? '+' : ''}${weightDelta.toFixed(1)} kg`}</span></div>
                     <div className="space-y-1">
