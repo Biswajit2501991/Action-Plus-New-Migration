@@ -27,7 +27,7 @@ import {
   staffRowToApp,
   visitorRowToApp,
 } from './mappers.js';
-import { invalidateStaffAccessCache } from '../../auth/accessControl.js';
+import { leaveDaysFromDateRange } from './leaveRequestsWrite.js';
 import { branchScopeAllowsMember, branchScopeAllowsMemberTransfer } from '../../auth/branchScope.js';
 import { hashPassword } from '../../auth/passwords.js';
 import { syncGymRowsByExternalId, syncMemberChildRows } from './collectionSync.js';
@@ -1591,17 +1591,22 @@ async function readSettings(scope, options = {}) {
 }
 
 function mapLeaveRows(leaveRows) {
-  return (leaveRows || []).map((r) => ({
-    id: r.external_request_id,
-    userId: r.staff_login_id,
-    type: r.leave_type,
-    startDate: r.start_date,
-    endDate: r.end_date,
-    reason: r.reason,
-    status: r.status,
-    approvedBy: r.approved_by,
-    createdAt: r.created_at,
-  }));
+  return (leaveRows || []).map((r) => {
+    const startDate = r.start_date;
+    const endDate = r.end_date;
+    return {
+      id: r.external_request_id,
+      userId: r.staff_login_id,
+      type: r.leave_type,
+      startDate,
+      endDate,
+      days: leaveDaysFromDateRange(startDate, endDate),
+      reason: r.reason,
+      status: r.status,
+      approvedBy: r.approved_by,
+      createdAt: r.created_at,
+    };
+  });
 }
 
 async function buildPtProfilesFromRows(sb, gid, ptRowsPrefetched) {

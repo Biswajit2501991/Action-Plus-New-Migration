@@ -1,6 +1,9 @@
 import React from 'react';
 import { leaveSubmitErrorMessage } from '../features/leave/leaveSubmitError.js';
 import {
+  annualLeaveBalanceRemaining,
+  leaveDaysBetween,
+  leaveUserIdsMatch,
   mergeLeaveRequestIntoList,
   normalizeLeaveRequestFromApi,
   patchLeaveRequestStatus,
@@ -22,9 +25,34 @@ function fmt(val) {
   return `${day}/${month}/${year}`;
 }
 
-export default function LeaveTrackerPageModule({ users, settings, updateSetting, currentUser, theme = 'system', focusLeaveRequestId = '', focusLeaveUserId = '', onClearFocus }) {
-  const canApprove = currentUser?.id === 'owner' || currentUser?.id === 'manager';
-  const leaveRequests = settings?.leaveRequests || [];
+function normalizeAccessInline(access) {
+  const fn = typeof window !== 'undefined' ? window.__APG_MODULES?.normalizeAccess : null;
+  if (typeof fn === 'function') return fn(access);
+  return access && typeof access === 'object' ? access : {};
+}
+
+export default function LeaveTrackerPageModule({
+  users,
+  settings,
+  updateSetting,
+  currentUser,
+  access = {},
+  theme = 'system',
+  focusLeaveRequestId = '',
+  focusLeaveUserId = '',
+  onClearFocus,
+}) {
+  const leaveAccess = normalizeAccessInline(access).leave || {};
+  const canViewCreateLeaveRequest = leaveAccess.viewCreateLeaveRequest !== false;
+  const canViewLeaveRequests = leaveAccess.viewLeaveRequests !== false;
+  const canViewAnnualLeaveBalance = leaveAccess.viewAnnualLeaveBalance !== false;
+  const canViewLeaveHistory = leaveAccess.viewLeaveHistory !== false;
+  const canApprove = (currentUser?.id === 'owner' || currentUser?.id === 'manager') && canViewLeaveRequests;
+  const isOwnerView = currentUser?.id === 'owner' || currentUser?.id === 'manager';
+  const leaveRequests = React.useMemo(
+    () => (Array.isArray(settings?.leaveRequests) ? settings.leaveRequests : []).map((r) => normalizeLeaveRequestFromApi(r)),
+    [settings?.leaveRequests],
+  );
   const [form, setForm] = React.useState({
     userId: currentUser?.id || '',
     type: 'Casual',
@@ -34,11 +62,12 @@ export default function LeaveTrackerPageModule({ users, settings, updateSetting,
   });
   const [formError, setFormError] = React.useState('');
   const [formSuccess, setFormSuccess] = React.useState('');
+  const [submitting, setSubmitting] = React.useState(false);
   const [historyUserFilter, setHistoryUserFilter] = React.useState('');
   const staff = (users || []).filter((u) => !u.blocked);
   const filteredLeaveRequests = React.useMemo(() => {
     if (focusLeaveRequestId) return leaveRequests.filter((r) => r.id === focusLeaveRequestId);
-    if (focusLeaveUserId) return leaveRequests.filter((r) => r.userId === focusLeaveUserId);
+    if (focusLeaveUserId) return leaveRequests.filter((r) => leaveUserIdsMatch(r.userId, focusLeaveUserId));
     return leaveRequests;
   }, [leaveRequests, focusLeaveRequestId, focusLeaveUserId]);
 
@@ -46,17 +75,8 @@ export default function LeaveTrackerPageModule({ users, settings, updateSetting,
     if (!form.userId && currentUser?.id) setForm((v) => ({ ...v, userId: currentUser.id }));
   }, [currentUser, form.userId]);
 
-  const daysBetween = (a, b) => {
-    const start = new Date(a);
-    const end = new Date(b);
-    if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime()) || end < start) return 1;
-    return Math.floor((end - start) / (24 * 60 * 60 * 1000)) + 1;
-  };
-
-  // Phase 4 leave-request bug fix: route every submission through the new
-  // /api/leave-requests endpoint. The /api/settings/bulk route is owner-only,
-  // so staff submissions never reached the database before this change.
   const submitLeave = async () => {
+    if (submitting) return;
     setFormError('');
     setFormSuccess('');
     if (!form.userId || !form.startDate || !form.endDate) {
@@ -67,7 +87,8 @@ export default function LeaveTrackerPageModule({ users, settings, updateSetting,
       setFormError('End date cannot be before start date.');
       return;
     }
-    const days = daysBetween(form.startDate, form.endDate);
+    setSubmitting(true);
+    const days = leaveDaysBetween(form.startDate, form.endDate);
     const callerName = currentUser?.name || currentUser?.id || '';
     const backendJsonFn = typeof window !== 'undefined' ? window.__APG_BACKEND_JSON__ : null;
     let req = null;
@@ -83,14 +104,15 @@ export default function LeaveTrackerPageModule({ users, settings, updateSetting,
             reason: form.reason,
           }),
         });
-        req = resp && resp.request ? resp.request : null;
+        req = resp && resp.request ? normalizeLeaveRequestFromApi(resp.request) : null;
       } catch (err) {
+        setSubmitting(false);
         setFormError(leaveSubmitErrorMessage(err));
         return;
       }
     }
     if (!req) {
-      req = {
+      req = normalizeLeaveRequestFromApi({
         id: (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function')
           ? crypto.randomUUID()
           : `leave-${Date.now()}-${Math.floor(Math.random() * 1e6)}`,
@@ -99,7 +121,7 @@ export default function LeaveTrackerPageModule({ users, settings, updateSetting,
         status: 'Pending',
         createdAt: new Date().toISOString(),
         createdBy: callerName,
-      };
+      });
     }
     if (typeof updateSetting === 'function') {
       updateSetting('leaveRequests', (prev) => {
@@ -109,8 +131,9 @@ export default function LeaveTrackerPageModule({ users, settings, updateSetting,
       });
     }
     setForm((v) => ({ ...v, reason: '' }));
-    setFormSuccess('Leave request submitted.');
-    setTimeout(() => setFormSuccess(''), 2000);
+    setSubmitting(false);
+    setFormSuccess('✓ Leave request saved successfully');
+    setTimeout(() => setFormSuccess(''), 3000);
   };
 
   const updateStatus = async (id, status) => {
@@ -136,13 +159,7 @@ export default function LeaveTrackerPageModule({ users, settings, updateSetting,
     }
   };
 
-  const balanceFor = (userId) => {
-    const year = new Date().getFullYear();
-    const used = leaveRequests
-      .filter((r) => r.userId === userId && r.status === 'Approved' && new Date(r.startDate).getFullYear() === year)
-      .reduce((sum, r) => sum + Number(r.days || 0), 0);
-    return Math.max(0, 24 - used);
-  };
+  const balanceFor = (userId) => annualLeaveBalanceRemaining(leaveRequests, userId);
   const leaveHistoryRows = React.useMemo(() => {
     const cutoff = new Date();
     cutoff.setFullYear(cutoff.getFullYear() - 2);
@@ -152,9 +169,12 @@ export default function LeaveTrackerPageModule({ users, settings, updateSetting,
         const start = new Date(r.startDate);
         return !Number.isNaN(start.getTime()) && start >= cutoff;
       })
-      .filter((r) => (historyUserFilter ? r.userId === historyUserFilter : true))
+      .filter((r) => (historyUserFilter ? leaveUserIdsMatch(r.userId, historyUserFilter) : true))
       .sort((a, b) => String(b.startDate || '').localeCompare(String(a.startDate || '')));
   }, [leaveRequests, historyUserFilter]);
+  const balanceStaff = isOwnerView
+    ? staff
+    : staff.filter((s) => leaveUserIdsMatch(s.id, currentUser?.id));
   const isDarkMode = theme === 'dark';
   const openNativeDatePicker = (e) => {
     e.stopPropagation();
@@ -175,6 +195,7 @@ export default function LeaveTrackerPageModule({ users, settings, updateSetting,
         <h1 className={`text-xl md:text-2xl font-semibold ${pageTextClass}`}>Leave Tracker</h1>
         <p className={`text-sm ${mutedTextClass}`}>Leave requests, approvals, and yearly balance tracking.</p>
       </div>
+      {canViewCreateLeaveRequest && (
       <div className={cardClass}>
         <h3 className={`text-base font-semibold ${pageTextClass}`}>Create Leave Request</h3>
         {formError && <div className="rounded-xl border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-700">{formError}</div>}
@@ -184,10 +205,12 @@ export default function LeaveTrackerPageModule({ users, settings, updateSetting,
           <div><label className={`text-xs ${isDarkMode ? 'text-slate-300' : 'text-slate-500'}`}>Type</label><select value={form.type} onChange={(e) => setForm((v) => ({ ...v, type: e.target.value }))} className={`mt-1 w-full ${controlClass}`}><option>Casual</option><option>Sick</option><option>Emergency</option><option>Unpaid</option></select></div>
           <div><label className={`text-xs ${isDarkMode ? 'text-slate-300' : 'text-slate-500'}`}>Start</label><input type="date" value={form.startDate} onFocus={openNativeDatePicker} onClick={openNativeDatePicker} onChange={(e) => setForm((v) => ({ ...v, startDate: e.target.value }))} className={`mt-1 w-full ${controlClass}`} /></div>
           <div><label className={`text-xs ${isDarkMode ? 'text-slate-300' : 'text-slate-500'}`}>End</label><input type="date" value={form.endDate} onFocus={openNativeDatePicker} onClick={openNativeDatePicker} onChange={(e) => setForm((v) => ({ ...v, endDate: e.target.value }))} className={`mt-1 w-full ${controlClass}`} /></div>
-          <div className="md:self-end"><button onClick={submitLeave} className="w-full rounded-full bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700">Submit</button></div>
+          <div className="md:self-end"><button type="button" disabled={submitting} onClick={submitLeave} className={`w-full rounded-full px-4 py-2 text-sm font-medium text-white ${submitting ? 'bg-blue-400 cursor-not-allowed' : 'bg-blue-600 hover:bg-blue-700'}`}>{submitting ? 'Saving...' : 'Submit'}</button></div>
           <div className="md:col-span-5"><input value={form.reason} onChange={(e) => setForm((v) => ({ ...v, reason: e.target.value }))} placeholder="Reason for leave request" className={`w-full ${controlClass} ${isDarkMode ? 'placeholder:text-slate-400' : 'placeholder:text-slate-400'}`} /></div>
         </div>
       </div>
+      )}
+      {canViewLeaveRequests && (
       <div className={cardClass}>
         <div className="flex items-center justify-between gap-2">
           <h3 className={`text-base font-semibold ${pageTextClass}`}>Leave Requests</h3>
@@ -198,12 +221,13 @@ export default function LeaveTrackerPageModule({ users, settings, updateSetting,
           )}
         </div>
         {(filteredLeaveRequests || []).map((r) => {
-          const staffName = staff.find((s) => s.id === r.userId)?.name || r.userId;
+          const staffName = staff.find((s) => leaveUserIdsMatch(s.id, r.userId))?.name || r.userId;
+          const dayCount = Number(r.days || leaveDaysBetween(r.startDate, r.endDate));
           return (
             <div key={r.id} className={`rounded-2xl border p-3 flex flex-col lg:flex-row lg:items-center lg:justify-between gap-3 ${isDarkMode ? 'border-slate-700 bg-slate-800/50' : 'border-slate-200 bg-white'}`}>
               <div className="text-sm">
                 <div className={`font-semibold ${pageTextClass}`}>{staffName} • {r.type}</div>
-                <div className={mutedTextClass}>{fmt(r.startDate)} - {fmt(r.endDate)} ({r.days} day{Number(r.days) > 1 ? 's' : ''})</div>
+                <div className={mutedTextClass}>{fmt(r.startDate)} - {fmt(r.endDate)} ({dayCount} day{dayCount > 1 ? 's' : ''})</div>
                 <div className={mutedTextClass}>{r.reason}</div>
               </div>
               <div className="flex items-center gap-2">
@@ -224,10 +248,12 @@ export default function LeaveTrackerPageModule({ users, settings, updateSetting,
         })}
         {(!filteredLeaveRequests || filteredLeaveRequests.length === 0) && <div className={`text-sm ${mutedTextClass}`}>No leave requests found for selected filter.</div>}
       </div>
+      )}
+      {canViewAnnualLeaveBalance && (
       <div className={cardClass}>
         <h3 className={`text-base font-semibold mb-2 ${pageTextClass}`}>Annual Leave Balance</h3>
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">
-          {staff.map((s) => (
+          {balanceStaff.map((s) => (
             <div key={s.id} className={`rounded-xl border px-3 py-2 text-sm flex items-center justify-between ${isDarkMode ? 'border-slate-700 bg-slate-800' : 'border-slate-200 bg-slate-50'}`}>
               <span>{s.name}</span>
               <span className="font-semibold">{balanceFor(s.id)} days</span>
@@ -235,9 +261,12 @@ export default function LeaveTrackerPageModule({ users, settings, updateSetting,
           ))}
         </div>
       </div>
+      )}
+      {canViewLeaveHistory && (
       <div className={cardClass}>
         <div className="flex items-center justify-between gap-2 flex-wrap">
           <h3 className={`text-base font-semibold ${pageTextClass}`}>Leave History (Last 2 Years)</h3>
+          {isOwnerView && (
           <div className="flex items-center gap-2">
             <label className={`text-xs ${isDarkMode ? 'text-slate-300' : 'text-slate-500'}`}>Staff</label>
             <select value={historyUserFilter} onChange={(e) => setHistoryUserFilter(e.target.value)} className={`rounded-xl border px-2.5 py-1.5 text-xs ${isDarkMode ? 'border-slate-600 bg-slate-800 text-slate-100' : 'border-slate-300 bg-white text-slate-900'}`}>
@@ -245,6 +274,7 @@ export default function LeaveTrackerPageModule({ users, settings, updateSetting,
               {staff.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
             </select>
           </div>
+          )}
         </div>
         <div className="overflow-x-auto">
           <table className="min-w-full text-xs">
@@ -260,10 +290,10 @@ export default function LeaveTrackerPageModule({ users, settings, updateSetting,
             <tbody>
               {leaveHistoryRows.map((r) => (
                 <tr key={`hist-${r.id}`} className={isDarkMode ? 'border-t border-slate-700' : 'border-t border-slate-100'}>
-                  <td className="px-2 py-2">{staff.find((s) => s.id === r.userId)?.name || r.userId}</td>
+                  <td className="px-2 py-2">{staff.find((s) => leaveUserIdsMatch(s.id, r.userId))?.name || r.userId}</td>
                   <td className="px-2 py-2">{r.type}</td>
                   <td className="px-2 py-2">{fmt(r.startDate)} - {fmt(r.endDate)}</td>
-                  <td className="px-2 py-2">{r.days}</td>
+                  <td className="px-2 py-2">{Number(r.days || leaveDaysBetween(r.startDate, r.endDate))}</td>
                   <td className="px-2 py-2">
                     <span className="rounded-full border border-emerald-300 bg-emerald-50 px-2 py-0.5 text-[10px] font-semibold text-emerald-700">Approved</span>
                   </td>
@@ -278,6 +308,7 @@ export default function LeaveTrackerPageModule({ users, settings, updateSetting,
           </table>
         </div>
       </div>
+      )}
     </div>
   );
 }

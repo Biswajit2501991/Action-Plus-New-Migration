@@ -38,8 +38,20 @@ export function canReadSettingsScope(auth, staffAccess, settingsScope) {
 
 /**
  * @param {Map<string, string>} staffBranchByLogin lowercased login -> gym_code_id uuid
+ * @param {Map<string, string>} [loginAliasMap] lowercased alias -> canonical login
  */
-export function filterLeaveRequestsForAuth(leaveRequests, auth, staffBranchByLogin) {
+export function leaveRequestUserMatchesAuth(reqUserId, authUserId, loginAliasMap) {
+  const uid = String(reqUserId || '').trim().toLowerCase();
+  const caller = String(authUserId || '').trim().toLowerCase();
+  if (!uid || !caller) return false;
+  if (uid === caller) return true;
+  const alias = loginAliasMap && typeof loginAliasMap.get === 'function' ? loginAliasMap : null;
+  const reqLogin = alias?.get(uid) || uid;
+  const callerLogin = alias?.get(caller) || caller;
+  return reqLogin === callerLogin;
+}
+
+export function filterLeaveRequestsForAuth(leaveRequests, auth, staffBranchByLogin, loginAliasMap = null) {
   if (!Array.isArray(leaveRequests)) return [];
   if (!auth) return [];
   const readIds = resolveSettingsSensitiveBranchIds(auth);
@@ -51,8 +63,9 @@ export function filterLeaveRequestsForAuth(leaveRequests, auth, staffBranchByLog
   return leaveRequests.filter((req) => {
     const uid = String(req?.userId || '').trim().toLowerCase();
     if (!uid) return false;
-    if (!isAdmin) return uid === caller;
-    const staffBranch = staffBranchByLogin.get(uid) || '';
+    if (!isAdmin) return leaveRequestUserMatchesAuth(uid, caller, loginAliasMap);
+    const reqLogin = loginAliasMap?.get(uid) || uid;
+    const staffBranch = staffBranchByLogin.get(reqLogin) || staffBranchByLogin.get(uid) || '';
     if (!staffBranch) return false;
     return readIds.includes(staffBranch);
   });
@@ -120,6 +133,40 @@ export async function loadStaffBranchByLogin(sb, gid, fetchAll) {
 }
 
 /**
+ * Maps display names, staff codes, and login variants to canonical staff_login_id (lowercase).
+ * @param {import('@supabase/supabase-js').SupabaseClient} sb
+ * @param {string} gid
+ * @param {Function} fetchAll
+ */
+export async function loadStaffLoginAliasMap(sb, gid, fetchAll) {
+  const map = new Map();
+  const staffRows = await fetchAll((from, to) =>
+    sb.from(T.staff_users).select('staff_login_id, full_name, email').eq('gym_id', gid).range(from, to));
+  for (const row of staffRows || []) {
+    const canonical = String(row.staff_login_id || '').trim().toLowerCase();
+    if (!canonical) continue;
+    const aliases = [
+      row.staff_login_id,
+      row.full_name,
+      row.email ? String(row.email).split('@')[0] : '',
+    ].map((x) => String(x || '').trim().toLowerCase()).filter(Boolean);
+    for (const alias of aliases) map.set(alias, canonical);
+  }
+  const dirRows = await fetchAll((from, to) =>
+    sb.from(T.settings_staff_directory).select('staff_code, display_name').eq('gym_id', gid).range(from, to));
+  for (const row of dirRows || []) {
+    const code = String(row.staff_code || '').trim().toLowerCase();
+    const name = String(row.display_name || '').trim().toLowerCase();
+    if (code) {
+      const login = (name && map.get(name)) || map.get(code) || code;
+      map.set(code, login);
+    }
+    if (name && !map.has(name)) map.set(name, map.get(code) || name);
+  }
+  return map;
+}
+
+/**
  * @param {import('@supabase/supabase-js').SupabaseClient} sb
  * @param {string} gid
  * @param {string[]} memberCodes
@@ -163,10 +210,13 @@ export async function applySettingsBranchFilter(settings, auth, staffAccess, set
 
   if (!skipBranchFilter) {
     if (needsLeave && Array.isArray(out.leaveRequests) && out.leaveRequests.length) {
-      const staffMap = await loadStaffBranchByLogin(deps.sb, deps.gid, deps.fetchAll);
+      const [staffMap, aliasMap] = await Promise.all([
+        loadStaffBranchByLogin(deps.sb, deps.gid, deps.fetchAll),
+        loadStaffLoginAliasMap(deps.sb, deps.gid, deps.fetchAll),
+      ]);
       out = {
         ...out,
-        leaveRequests: filterLeaveRequestsForAuth(out.leaveRequests, auth, staffMap),
+        leaveRequests: filterLeaveRequestsForAuth(out.leaveRequests, auth, staffMap, aliasMap),
       };
     }
 

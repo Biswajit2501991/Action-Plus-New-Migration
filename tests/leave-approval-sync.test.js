@@ -3,6 +3,8 @@ import {
   mergeLeaveRequestIntoList,
   mergeApprovedLeaveIntoAttendance,
   normalizeLeaveRequestFromApi,
+  annualLeaveBalanceRemaining,
+  mergeLeaveRequestsFromPull,
 } from '../src/features/leave/leaveApprovalSync.js';
 import { createLeaveApprovalHandlers } from '../src/features/leave/leaveApprovalHandlers.js';
 
@@ -24,6 +26,31 @@ describe('leaveApprovalSync', () => {
     }, 'owner');
     expect(next.length).toBe(2);
     expect(next.every((r) => r.status === 'Leave')).toBe(true);
+  });
+
+  it('computes annual balance from dates when days missing', () => {
+    const leave = [{
+      id: 'a1',
+      userId: 'biswajit',
+      status: 'Approved',
+      startDate: '2026-06-01',
+      endDate: '2026-06-01',
+    }];
+    expect(annualLeaveBalanceRemaining(leave, 'Biswajit')).toBe(23);
+  });
+
+  it('mergeLeaveRequestsFromPull keeps prev when remote empty', () => {
+    const prev = [{ id: 'x', userId: 'deep', status: 'Approved', startDate: '2026-06-01', endDate: '2026-06-01' }];
+    expect(mergeLeaveRequestsFromPull(prev, [])).toEqual([expect.objectContaining({ id: 'x', days: 1 })]);
+  });
+
+  it('mergeLeaveRequestsFromPull replaces with normalized remote rows', () => {
+    const prev = [{ id: 'old', userId: 'deep', status: 'Pending' }];
+    const remote = [{ id: 'new', userId: 'deep', status: 'Approved', startDate: '2026-06-01', endDate: '2026-06-02' }];
+    const merged = mergeLeaveRequestsFromPull(prev, remote);
+    expect(merged).toHaveLength(1);
+    expect(merged[0].id).toBe('new');
+    expect(merged[0].days).toBe(2);
   });
 });
 

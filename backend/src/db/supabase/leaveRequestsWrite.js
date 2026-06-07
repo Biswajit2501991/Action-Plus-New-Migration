@@ -22,12 +22,15 @@ export function appLeaveRequestToRow(gid, appRequest) {
 
 export function leaveRowToApp(row) {
   if (!row) return null;
+  const startDate = row.start_date;
+  const endDate = row.end_date;
   return {
     id: row.external_request_id,
     userId: row.staff_login_id,
     type: row.leave_type,
-    startDate: row.start_date,
-    endDate: row.end_date,
+    startDate,
+    endDate,
+    days: leaveDaysFromDateRange(startDate, endDate),
     reason: row.reason || '',
     status: row.status,
     approvedBy: row.approved_by,

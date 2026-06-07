@@ -59,6 +59,39 @@ export function mergeLeaveRequestIntoList(list, updated) {
   return [updated, ...base];
 }
 
+/** Annual leave allowance minus approved days used in the current calendar year. */
+export function annualLeaveBalanceRemaining(leaveRequests, userId, annualAllowance = 24) {
+  const year = new Date().getFullYear();
+  const key = String(userId || '').trim().toLowerCase();
+  const used = (Array.isArray(leaveRequests) ? leaveRequests : [])
+    .filter((r) => String(r?.status || '') === 'Approved'
+      && String(r?.userId || '').trim().toLowerCase() === key
+      && new Date(r.startDate).getFullYear() === year)
+    .reduce((sum, r) => sum + Number(normalizeLeaveRequestFromApi(r).days || 0), 0);
+  return Math.max(0, annualAllowance - used);
+}
+
+/**
+ * Merge leave rows from GET /settings?scope=leave without clobbering valid cached rows
+ * when the server returns an empty slice (RBAC race / transient filter miss).
+ */
+export function mergeLeaveRequestsFromPull(prev, remote) {
+  const prevList = (Array.isArray(prev) ? prev : []).map((r) => normalizeLeaveRequestFromApi(r));
+  if (!Array.isArray(remote)) return prevList;
+  const remoteList = remote.map((r) => normalizeLeaveRequestFromApi(r));
+  if (!remoteList.length) return prevList.length ? prevList : remoteList;
+  const byId = new Map();
+  for (const r of remoteList) {
+    if (r?.id) byId.set(String(r.id), r);
+  }
+  return [...byId.values()]
+    .sort((a, b) => String(b.createdAt || '').localeCompare(String(a.createdAt || '')));
+}
+
+export function leaveUserIdsMatch(a, b) {
+  return String(a || '').trim().toLowerCase() === String(b || '').trim().toLowerCase();
+}
+
 /**
  * PATCH /api/leave-requests/:id — returns canonical request or throws.
  * @param {(path: string, init?: object) => Promise<unknown>} backendJsonFn

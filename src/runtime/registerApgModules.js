@@ -7,6 +7,9 @@ import {
   mergeLeaveRequestIntoList,
   normalizeLeaveRequestFromApi,
   mergeApprovedLeaveIntoAttendance,
+  annualLeaveBalanceRemaining,
+  mergeLeaveRequestsFromPull,
+  leaveUserIdsMatch,
 } from '../features/leave/leaveApprovalSync.js';
 import LeaveApprovalNotificationCard from '../components/leave/LeaveApprovalNotificationCard.js';
 import LeaveApprovalStatusBadge from '../components/leave/LeaveApprovalStatusBadge.js';
@@ -344,6 +347,9 @@ window.__APG_MODULES.patchLeaveRequestStatus = patchLeaveRequestStatus;
 window.__APG_MODULES.mergeLeaveRequestIntoList = mergeLeaveRequestIntoList;
 window.__APG_MODULES.normalizeLeaveRequestFromApi = normalizeLeaveRequestFromApi;
 window.__APG_MODULES.mergeApprovedLeaveIntoAttendance = mergeApprovedLeaveIntoAttendance;
+window.__APG_MODULES.annualLeaveBalanceRemaining = annualLeaveBalanceRemaining;
+window.__APG_MODULES.mergeLeaveRequestsFromPull = mergeLeaveRequestsFromPull;
+window.__APG_MODULES.leaveUserIdsMatch = leaveUserIdsMatch;
 window.__APG_MODULES.LeaveApprovalNotificationCard = LeaveApprovalNotificationCard;
 window.__APG_MODULES.LeaveApprovalStatusBadge = LeaveApprovalStatusBadge;
 window.__APG_MODULES.filterMembersForUser = filterMembersForUser;

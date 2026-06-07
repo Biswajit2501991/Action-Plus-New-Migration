@@ -2964,7 +2964,12 @@ Phone: +91-7047157510`;
       } else {
         merged.staffAttendance = Array.isArray(prev?.staffAttendance) ? prev.staffAttendance : [];
       }
-      if (Array.isArray(remote.leaveRequests)) merged.leaveRequests = remote.leaveRequests;
+      if (Array.isArray(remote.leaveRequests)) {
+        const mergeLeave = window.__APG_MODULES?.mergeLeaveRequestsFromPull;
+        merged.leaveRequests = typeof mergeLeave === 'function'
+          ? mergeLeave(prev?.leaveRequests, remote.leaveRequests)
+          : remote.leaveRequests;
+      }
       if (remote.ptClientProfiles && typeof remote.ptClientProfiles === 'object') {
         merged.ptClientProfiles = mergePtClientProfiles(prev?.ptClientProfiles, remote.ptClientProfiles);
       }

@@ -5,6 +5,7 @@ import {
   filterRoleTemplatesForAuth,
   canReadSettingsScope,
   stripSensitiveSettingsForAuth,
+  leaveRequestUserMatchesAuth,
 } from './settingsBranchFilter.js';
 
 describe('settingsBranchFilter (V-005)', () => {
@@ -49,6 +50,18 @@ describe('settingsBranchFilter (V-005)', () => {
       { userId: 'sam', type: 'Sick' },
     ];
     expect(filterLeaveRequestsForAuth(leave, auth, staffMap)).toEqual([{ userId: 'deep', type: 'Casual' }]);
+  });
+
+  it('matches leave userId aliases (display name / staff code) for staff self-filter', () => {
+    const auth = { userId: 'biswajit', staffRole: 'staff', roles: ['staff'], gymCodeId: branchA, allowedBranchIds: [branchA] };
+    const staffMap = new Map([['biswajit', branchA]]);
+    const aliasMap = new Map([
+      ['biswajit', 'biswajit'],
+      ['biswajit kumar', 'biswajit'],
+    ]);
+    const leave = [{ userId: 'Biswajit Kumar', type: 'Casual', status: 'Approved' }];
+    expect(filterLeaveRequestsForAuth(leave, auth, staffMap, aliasMap)).toHaveLength(1);
+    expect(leaveRequestUserMatchesAuth('Biswajit Kumar', 'biswajit', aliasMap)).toBe(true);
   });
 
   it('filters PT profiles by member branch', () => {
