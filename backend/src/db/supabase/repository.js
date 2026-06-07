@@ -138,6 +138,7 @@ async function loadMemberChildren(sb, gid, memberIds) {
         text: row.note_text,
         note: row.note_text,
         by: row.created_by,
+        at: row.created_at,
         createdAt: row.created_at,
         ts: row.created_at,
       });
@@ -897,8 +898,25 @@ async function updateMemberFields(memberCode, patch, branchScope = null) {
     .single();
   if (refErr) throw new Error(`member reload: ${refErr.message}`);
 
-  const children = await loadMemberChildren(sb, gid, [refreshed.id]);
-  const appMember = memberRowToApp(refreshed, {
+  let children = await loadMemberChildren(sb, gid, [refreshed.id]);
+  const hasInjuryLogPatch = Object.prototype.hasOwnProperty.call(patch, 'medicalAnswers')
+    && Array.isArray(patch.medicalAnswers?.injuryNotesLog);
+  if (hasInjuryLogPatch) {
+    const { injuryRows } = buildMemberChildRows(
+      { memberId: code, medicalAnswers: patch.medicalAnswers },
+      gid,
+      refreshed.id,
+    );
+    await syncMemberChildRows(sb, T.member_injury_notes, {
+      gymId: gid,
+      memberId: refreshed.id,
+      externalIdColumn: 'external_note_id',
+      rows: injuryRows,
+      onConflict: 'gym_id,member_id,external_note_id',
+    });
+    children = await loadMemberChildren(sb, gid, [refreshed.id]);
+  }
+  let appMember = memberRowToApp(refreshed, {
     payments: children.paymentsByMember.get(refreshed.id) || [],
     messages: children.messagesByMember.get(refreshed.id) || [],
     attachments: children.attachmentsByMember.get(refreshed.id) || [],
@@ -1075,7 +1093,7 @@ function buildMemberChildRows(m, gid, memberPk) {
         external_note_id: n.id ? String(n.id) : null,
         note_text: emptyText(n.text || n.note) || '-',
         created_by: emptyText(n.by || n.createdBy),
-        created_at: toTs(n.createdAt || n.ts) || new Date().toISOString(),
+        created_at: toTs(n.at || n.createdAt || n.ts) || new Date().toISOString(),
       });
     }
   }

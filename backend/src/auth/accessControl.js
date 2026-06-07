@@ -115,6 +115,9 @@ export const Access = {
   },
   financeWrite: (a) => a.finance.manageExpenses,
   logsRead: (a) => a.logs.viewLogs,
+  /** Append-only audit entries (POST /api/logs) — any authenticated staff. */
+  logsAppend: () => true,
+  /** Bulk log sync from client — requires View Audit Logs (legacy path). */
   logsWrite: (a) => a.logs.viewLogs,
   logsClear: (a) => a.logs.clearLogs,
   smsRead: (a) => Object.values(a.whatsapp).some(Boolean),

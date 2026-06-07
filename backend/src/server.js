@@ -1648,7 +1648,7 @@ app.get('/api/logs', requireAccess(Access.logsRead), async (req, res) => {
   res.json(logs.filter((l) => logMatchesBranchScope(l, branchScope)));
 });
 
-app.post('/api/logs', requireAccess(Access.logsWrite), async (req, res) => {
+app.post('/api/logs', requireAccess(Access.logsAppend), async (req, res) => {
   const body = req.body && typeof req.body === 'object' ? req.body : {};
   const branchScope = buildBranchScope(req);
   const activeBranch = resolveActiveBranchId(req.auth) || branchScope?.gymCodeId || '';
