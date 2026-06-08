@@ -11,6 +11,7 @@ import {
   mergeLeaveRequestsFromPull,
   leaveUserIdsMatch,
 } from '../features/leave/leaveApprovalSync.js';
+import { buildPtMonthCalendarCells } from '../features/pt/ptWorkoutCalendarGrid.js';
 import LeaveApprovalNotificationCard from '../components/leave/LeaveApprovalNotificationCard.js';
 import LeaveApprovalStatusBadge from '../components/leave/LeaveApprovalStatusBadge.js';
 import {
@@ -350,6 +351,7 @@ window.__APG_MODULES.mergeApprovedLeaveIntoAttendance = mergeApprovedLeaveIntoAt
 window.__APG_MODULES.annualLeaveBalanceRemaining = annualLeaveBalanceRemaining;
 window.__APG_MODULES.mergeLeaveRequestsFromPull = mergeLeaveRequestsFromPull;
 window.__APG_MODULES.leaveUserIdsMatch = leaveUserIdsMatch;
+window.__APG_MODULES.buildPtMonthCalendarCells = buildPtMonthCalendarCells;
 window.__APG_MODULES.LeaveApprovalNotificationCard = LeaveApprovalNotificationCard;
 window.__APG_MODULES.LeaveApprovalStatusBadge = LeaveApprovalStatusBadge;
 window.__APG_MODULES.filterMembersForUser = filterMembersForUser;

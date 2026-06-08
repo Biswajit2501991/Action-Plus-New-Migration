@@ -17304,15 +17304,25 @@ function PTClientsPage({ members, users, settings, updateSetting, currentUser, a
           setTimeout(() => setToast(''), 4000);
         }
       };
-      const monthEntries = Array.from({ length: daysInMonth }, (_, i) => {
-        const day = i + 1;
-        const dt = new Date(Date.UTC(monthDate.getUTCFullYear(), monthDate.getUTCMonth(), day));
-        const key = iso(dt);
-        const isSunday = dt.getUTCDay() === 0;
-        const hasFocus = Boolean((displayFocusByDate || {})[key]);
-        return { day, key, isSunday, hasFocus, focus: (displayFocusByDate || {})[key] || '' };
-      });
-      const ptDaysDone = monthEntries.filter((d) => !d.isSunday && d.hasFocus).length;
+      const buildPtCalendarCells = window.__APG_MODULES?.buildPtMonthCalendarCells;
+      const monthCalendarCells = typeof buildPtCalendarCells === 'function'
+        ? buildPtCalendarCells(monthDate.getUTCFullYear(), monthDate.getUTCMonth(), displayFocusByDate || {})
+        : (() => {
+            const monthLeadingPad = monthStart.getUTCDay();
+            const dayEntries = Array.from({ length: daysInMonth }, (_, i) => {
+              const day = i + 1;
+              const dt = new Date(Date.UTC(monthDate.getUTCFullYear(), monthDate.getUTCMonth(), day));
+              const key = iso(dt);
+              const isSunday = dt.getUTCDay() === 0;
+              const hasFocus = Boolean((displayFocusByDate || {})[key]);
+              return { day, key, isSunday, hasFocus, focus: (displayFocusByDate || {})[key] || '' };
+            });
+            return [
+              ...Array.from({ length: monthLeadingPad }, (_, i) => ({ kind: 'pad', key: `pt-pad-${monthDate.getUTCFullYear()}-${monthDate.getUTCMonth()}-s${i}` })),
+              ...dayEntries.map((entry) => ({ kind: 'day', ...entry })),
+            ];
+          })();
+      const ptDaysDone = monthCalendarCells.filter((c) => c.kind === 'day' && !c.isSunday && c.hasFocus).length;
       const selectedDateFocus = displayFocusByDate[workoutDateKey] || '';
       const addChatMessage = async () => {
         if (!selectedMember || !chatDraft.trim() || sectionSaving.chat) return;
@@ -17616,25 +17626,29 @@ function PTClientsPage({ members, users, settings, updateSetting, currentUser, a
                             {['Sun','Mon','Tue','Wed','Thu','Fri','Sat'].map((d) => <div key={d} className="font-semibold">{d}</div>)}
                           </div>
                           <div className="grid grid-cols-7 gap-2">
-                            {monthEntries.map((entry) => (
-                              <button
-                                key={entry.key}
-                                type="button"
-                                onClick={() => handleWorkoutDateChange(entry.key)}
-                                className={cx(
-                                  'rounded-lg border px-2 py-2 text-xs',
-                                  entry.isSunday
-                                    ? 'border-slate-200 bg-slate-100 text-slate-500'
-                                    : entry.hasFocus
-                                      ? 'border-emerald-300 bg-emerald-50 text-emerald-700'
-                                      : 'border-rose-300 bg-rose-50 text-rose-700',
-                                  iso(workoutDate) === entry.key ? 'ring-2 ring-blue-500' : ''
-                                )}
-                                title={entry.focus ? `${entry.key}: ${entry.focus}` : `${entry.key}: No focus assigned`}
-                              >
-                                <div className="font-semibold">{entry.day}</div>
-                                <div className="mt-1 truncate">{entry.focus || (entry.isSunday ? 'Sun' : '—')}</div>
-                              </button>
+                            {monthCalendarCells.map((entry) => (
+                              entry.kind === 'pad' ? (
+                                <div key={entry.key} className="rounded-lg border border-transparent px-2 py-2 min-h-[3rem]" aria-hidden="true" />
+                              ) : (
+                                <button
+                                  key={entry.key}
+                                  type="button"
+                                  onClick={() => handleWorkoutDateChange(entry.key)}
+                                  className={cx(
+                                    'rounded-lg border px-2 py-2 text-xs',
+                                    entry.isSunday
+                                      ? 'border-slate-200 bg-slate-100 text-slate-500'
+                                      : entry.hasFocus
+                                        ? 'border-emerald-300 bg-emerald-50 text-emerald-700'
+                                        : 'border-rose-300 bg-rose-50 text-rose-700',
+                                    iso(workoutDate) === entry.key ? 'ring-2 ring-blue-500' : ''
+                                  )}
+                                  title={entry.focus ? `${entry.key}: ${entry.focus}` : `${entry.key}: No focus assigned`}
+                                >
+                                  <div className="font-semibold">{entry.day}</div>
+                                  <div className="mt-1 truncate">{entry.focus || (entry.isSunday ? 'Sun' : '—')}</div>
+                                </button>
+                              )
                             ))}
                           </div>
                         </>
