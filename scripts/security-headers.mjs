@@ -3,10 +3,22 @@
  * Applied by scripts/dev-frontend.mjs for HTML and static assets.
  */
 
+/** Origin allowed to serve member/media images (signed Supabase Storage URLs). */
+function mediaImageOrigin() {
+  const raw = String(process.env.APG_MEDIA_ORIGIN || process.env.SUPABASE_URL || '').trim();
+  if (!raw) return '';
+  try {
+    return new URL(raw).origin;
+  } catch {
+    return '';
+  }
+}
+
 /**
  * CSP tuned for legacy SPA: local vendor scripts, inline tailwind config, inline styles.
  */
 export function buildContentSecurityPolicy() {
+  const mediaOrigin = mediaImageOrigin();
   return [
     "default-src 'self'",
     "base-uri 'self'",
@@ -15,7 +27,7 @@ export function buildContentSecurityPolicy() {
     "object-src 'none'",
     "script-src 'self' 'unsafe-inline'",
     "style-src 'self' 'unsafe-inline'",
-    "img-src 'self' data: blob:",
+    `img-src 'self' data: blob:${mediaOrigin ? ` ${mediaOrigin}` : ''}`,
     "font-src 'self' data:",
     "connect-src 'self'",
     "worker-src 'self' blob:",
