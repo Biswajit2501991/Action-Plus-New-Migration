@@ -4,6 +4,10 @@ import {
   shouldShowSmsSentBadge,
   toCalendarDateKey,
 } from '../features/members/reminderBillingCycle.js';
+import {
+  mergeMemberPatchResponse,
+  pickMemberBillingSource,
+} from '../features/members/memberBillingMerge.js';
 import { leaveSubmitErrorMessage } from '../features/leave/leaveSubmitError.js';
 import { createLeaveApprovalHandlers } from '../features/leave/leaveApprovalHandlers.js';
 import {
@@ -353,6 +357,8 @@ window.__APG_MODULES.normalizeAccess = permissions.normalizeAccess;
 window.__APG_MODULES.sectionsWithRoleDefaults = permissions.sectionsWithRoleDefaults;
 window.__APG_MODULES.reminderSentForCurrentBilling = reminderSentForCurrentBilling;
 window.__APG_MODULES.shouldShowSmsSentBadge = shouldShowSmsSentBadge;
+window.__APG_MODULES.pickMemberBillingSource = pickMemberBillingSource;
+window.__APG_MODULES.mergeMemberPatchResponse = mergeMemberPatchResponse;
 window.__APG_MODULES.toCalendarDateKey = toCalendarDateKey;
 window.__APG_MODULES.leaveSubmitErrorMessage = leaveSubmitErrorMessage;
 window.__APG_MODULES.createLeaveApprovalHandlers = createLeaveApprovalHandlers;

@@ -1124,15 +1124,23 @@ async function writeMembers(members, scope, options = {}) {
   }
   const incoming = writable;
 
-  const existing = await fetchAll((from, to) => sb.from(T.members).select('id, member_code, photo_url').eq('gym_id', gid).range(from, to));
+  const existing = await fetchAll((from, to) => sb
+    .from(T.members)
+    .select('id, member_code, photo_url, billing_date, billing_date_updated_at, next_payment_date, payment_by')
+    .eq('gym_id', gid)
+    .range(from, to));
+  const existingByCode = new Map((existing || []).map((r) => [String(r.member_code), r]));
   const photoByCode = new Map((existing || []).map((r) => [String(r.member_code), r.photo_url]));
 
   // Upsert-only: never delete members missing from a partial browser upload (prevents mass data loss).
 
+  const { preserveNewerBillingOnBulkRow } = await import('./memberBillingBulkGuard.js');
   const memberRows = incoming
     .filter((m) => m?.memberId)
     .map((m) => {
-      const row = appMemberToRow(m, gid, { partialBulkSync: true });
+      let row = appMemberToRow(m, gid, { partialBulkSync: true });
+      const prev = existingByCode.get(String(row.member_code));
+      if (prev) row = preserveNewerBillingOnBulkRow(row, prev);
       if (!String(row.photo_url || '').trim()) {
         const prevPhoto = photoByCode.get(String(row.member_code));
         if (String(prevPhoto || '').trim()) row.photo_url = prevPhoto;

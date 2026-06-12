@@ -3937,11 +3937,26 @@ Phone: +91-7047157510`;
      * If neither side has it (legacy rows), keep mergedFallback as-is.
      */
     const pickMemberBillingSource = (localRow, remoteRow, mergedFallback) => {
+      const fn = window.__APG_MODULES?.pickMemberBillingSource;
+      if (typeof fn === 'function') return fn(localRow, remoteRow, mergedFallback);
       const lf = parseApgTimeMs(localRow?.billingDateUpdatedAt);
       const rf = parseApgTimeMs(remoteRow?.billingDateUpdatedAt);
       if (lf <= 0 && rf <= 0) return mergedFallback;
       if (lf >= rf) return localRow;
       return remoteRow;
+    };
+    const mergeMemberPatchResponse = (localRow, serverRow) => {
+      const fn = window.__APG_MODULES?.mergeMemberPatchResponse;
+      if (typeof fn === 'function') return fn(localRow, serverRow);
+      const billingSrc = pickMemberBillingSource(localRow, serverRow, serverRow);
+      return {
+        ...localRow,
+        ...serverRow,
+        billingDate: billingSrc.billingDate,
+        nextPaymentDate: billingSrc.nextPaymentDate,
+        paymentBy: billingSrc.paymentBy,
+        billingDateUpdatedAt: billingSrc.billingDateUpdatedAt || serverRow?.billingDateUpdatedAt || localRow?.billingDateUpdatedAt,
+      };
     };
     /** Keep photo when backend row is newer but photo_url was not persisted yet (bulk race / stale GET). */
     const pickMemberPhoto = (localRow, remoteRow) => {
@@ -5549,6 +5564,8 @@ Phone: +91-7047157510`;
       const usersSkipNextBulkRef = React.useRef(false);
       const financeSkipNextBulkRef = React.useRef(false);
       const membersBulkInFlightRef = React.useRef(false);
+      const membersBulkRescheduleRef = React.useRef(false);
+      const [membersBulkGeneration, setMembersBulkGeneration] = React.useState(0);
       const visitorsSkipNextBulkRef = React.useRef(false);
       const skipPostHydratePoll = () => hydrateCompletedAtRef.current > 0
         && (Date.now() - hydrateCompletedAtRef.current) < 5000;
@@ -5885,7 +5902,10 @@ Phone: +91-7047157510`;
         if (!canBulkSyncMembers(user)) return;
         if (skipBulkPushAfterHydrate()) return;
         const timer = setTimeout(() => {
-          if (membersBulkInFlightRef.current) return;
+          if (membersBulkInFlightRef.current) {
+            membersBulkRescheduleRef.current = true;
+            return;
+          }
           membersBulkInFlightRef.current = true;
           const deletedIds = [...new Set([
             ...pendingDeletedMemberIdsRef.current,
@@ -5902,10 +5922,16 @@ Phone: +91-7047157510`;
           })
             .then(() => { pendingDeletedMemberIdsRef.current = []; })
             .catch(() => queueMembersSyncSnapshot(bulkMembers).then(() => setOfflineQueueCount((c) => c + 1)).catch(() => {}))
-            .finally(() => { membersBulkInFlightRef.current = false; });
+            .finally(() => {
+              membersBulkInFlightRef.current = false;
+              if (membersBulkRescheduleRef.current) {
+                membersBulkRescheduleRef.current = false;
+                setMembersBulkGeneration((n) => n + 1);
+              }
+            });
         }, BACKEND_BULK_DEBOUNCE_MS);
         return () => clearTimeout(timer);
-      }, [members, dataSyncMode, syncRuntimeReady, backendHydrated, memberSyncPending, user?.id, user?.gymCodeId]);
+      }, [members, dataSyncMode, syncRuntimeReady, backendHydrated, memberSyncPending, user?.id, user?.gymCodeId, membersBulkGeneration]);
       React.useEffect(() => {
         if (!syncRuntimeReady) return;
         if (dataSyncMode === 'backend' && !backendHydrated) return;
@@ -6391,6 +6417,7 @@ Phone: +91-7047157510`;
       const [editMember, setEditMember] = React.useState(null);
       const [editFormResetToken, setEditFormResetToken] = React.useState(0);
       const [quickFieldEdit, setQuickFieldEdit] = React.useState(null);
+      const [quickFieldEditSaving, setQuickFieldEditSaving] = React.useState(false);
       const [addOpen, setAddOpen] = React.useState(false);
       const [addTypeOpen, setAddTypeOpen] = React.useState(false);
       const [visitorFormOpen, setVisitorFormOpen] = React.useState(false);
@@ -8044,10 +8071,7 @@ Please pay by: ${formattedLastDate}`;
             patchMemberPhoto(toSave.memberId, toSave.photo);
           }
           if (Object.keys(delta).length) {
-            backendJson(`/members/${encodeURIComponent(toSave.memberId)}`, {
-              method: 'PATCH',
-              body: JSON.stringify({ patch: delta }),
-            }).then((res) => {
+            const applyPatchResponse = (res) => {
               clearMemberAwaitingBackendSync(toSave.memberId);
               const branchChanged = Object.prototype.hasOwnProperty.call(delta, 'assignedGymCodeId')
                 && String(delta.assignedGymCodeId || '').trim() !== String(beforeMember.assignedGymCodeId || '').trim();
@@ -8059,11 +8083,13 @@ Please pay by: ${formattedLastDate}`;
                 if (activeBranch && nextBranch && nextBranch !== activeBranch) {
                   setMembers((prev) => prev.filter((m) => m.memberId !== toSave.memberId));
                 } else if (res?.member?.memberId) {
-                  setMembers((prev) => prev.map((m) => (m.memberId === res.member.memberId ? { ...m, ...res.member } : m)));
+                  setMembers((prev) => prev.map((m) => (
+                    m.memberId === res.member.memberId ? mergeMemberPatchResponse(m, res.member) : m
+                  )));
                 }
               } else if (res?.member?.memberId) {
                 setMembers((prev) => prev.map((m) => (
-                  m.memberId === res.member.memberId ? { ...m, ...res.member } : m
+                  m.memberId === res.member.memberId ? mergeMemberPatchResponse(m, res.member) : m
                 )));
               }
               if (Object.prototype.hasOwnProperty.call(delta, 'plan')) {
@@ -8089,7 +8115,8 @@ Please pay by: ${formattedLastDate}`;
                 setToast(label ? `Paid for Month saved (${label}).` : 'Paid for Month saved.');
                 setTimeout(() => setToast(''), 2500);
               }
-            }).catch((err) => {
+            };
+            const handlePatchError = (err) => {
               setMembers(previousMembers);
               clearMemberAwaitingBackendSync(toSave.memberId);
               const msg = err?.apiError === 'cross-branch-write-forbidden'
@@ -8097,7 +8124,12 @@ Please pay by: ${formattedLastDate}`;
                 : 'Could not save member changes to the server. Please try again.';
               setToast(msg);
               setTimeout(() => setToast(''), 3200);
-            });
+            };
+            const patchPromise = backendJson(`/members/${encodeURIComponent(toSave.memberId)}`, {
+              method: 'PATCH',
+              body: JSON.stringify({ patch: delta }),
+            }).then(applyPatchResponse).catch(handlePatchError);
+            if (opts.awaitBackendPatch) return patchPromise.then(() => true).catch(() => false);
           }
         }
         // Keep status-trigger history aligned with latest member name/mobile for future sends.
@@ -8115,14 +8147,15 @@ Please pay by: ${formattedLastDate}`;
           }));
         }
         const mobileChanged = Boolean(beforeMember) && String(beforeMember.mobile || '') !== String(toSave.mobile || '');
-        if (!deferSuccessToastForPayMonthPatch) {
+        if (!opts.fromQuickField && !deferSuccessToastForPayMonthPatch) {
           setToast(mobileChanged ? 'Mobile number updated and messaging links synced.' : `${toSave.name} has been updated successfully`);
           setTimeout(() => setToast(''), 2500);
         }
-        rememberMemberDefaults(toSave);
-        showMemberUndoToast('Member updated — Undo', previousMembers);
-        // Close the modal
-        setEditMember(null);
+        if (!opts.fromQuickField) {
+          rememberMemberDefaults(toSave);
+          showMemberUndoToast('Member updated — Undo', previousMembers);
+          setEditMember(null);
+        }
         return true;
       };
       // Phase 2 defense-in-depth: even if stale data sneaks in, refuse to open Edit on out-of-branch member.
@@ -8264,11 +8297,6 @@ Please pay by: ${formattedLastDate}`;
         if (quickFieldEdit.fieldKey === 'holdDuration' && String(nextValue || '').trim()) {
           updated.status = 'Hold';
         }
-        if (quickFieldEdit.fieldKey === 'billingDate' && nextValue) {
-          const nextPay = addMonths(nextValue, 1);
-          updated.nextPaymentDate = iso(nextPay);
-          updated.paymentBy = iso(addDays(nextValue, 7));
-        }
         if (quickFieldEdit.fieldKey === 'payMonth') {
           const validatePaidMonthFn = window.__APG_MODULES?.validatePaidMonthKey;
           const payMonthKey = typeof validatePaidMonthFn === 'function'
@@ -8293,10 +8321,26 @@ Please pay by: ${formattedLastDate}`;
             ));
           }
         }
-        const ok = saveEdit(updated);
+        const awaitBackendPatch = dataSyncMode === 'backend'
+          && quickFieldEdit.fieldKey === 'billingDate';
+        if (awaitBackendPatch) setQuickFieldEditSaving(true);
+        let ok = false;
+        try {
+          const result = saveEdit(updated, {
+            fromQuickField: true,
+            awaitBackendPatch,
+          });
+          ok = awaitBackendPatch ? await result : result;
+        } finally {
+          if (awaitBackendPatch) setQuickFieldEditSaving(false);
+        }
         if (ok) {
           if (quickFieldEdit.fieldKey === 'payMonth' || quickFieldEdit.fieldKey === 'amount') {
             window.dispatchEvent(new CustomEvent('apg-finance-refresh'));
+          }
+          if (quickFieldEdit.fieldKey === 'billingDate') {
+            setToast('Billing date saved.');
+            setTimeout(() => setToast(''), 2500);
           }
           setQuickFieldEdit(null);
         }
@@ -11006,6 +11050,7 @@ Please pay by: ${formattedLastDate}`;
           {quickFieldEdit && (
             <QuickFieldEditModal
               quickFieldEdit={quickFieldEdit}
+              saving={quickFieldEditSaving}
               onClose={() => setQuickFieldEdit(null)}
               onSave={saveQuickFieldEdit}
             />
@@ -15949,7 +15994,7 @@ function EditMemberModal({ member, onClose, onSave, onPersistInjuryNotes = null,
       );
     }
 
-    function QuickFieldEditModal({ quickFieldEdit, onClose, onSave }) {
+    function QuickFieldEditModal({ quickFieldEdit, onClose, onSave, saving = false }) {
       const [value, setValue] = React.useState(quickFieldEdit?.value ?? '');
       React.useEffect(() => {
         setValue(quickFieldEdit?.value ?? '');
@@ -15995,8 +16040,8 @@ function EditMemberModal({ member, onClose, onSave, onPersistInjuryNotes = null,
               </div>
             </div>
             <div className="flex flex-col-reverse sm:flex-row justify-end gap-3 px-4 sm:px-5 py-4 border-t border-slate-200">
-              <button onClick={onClose} className="rounded-xl border border-slate-300 bg-white px-4 py-2 text-sm font-medium w-full sm:w-auto">Cancel</button>
-              <button onClick={() => onSave(value)} className="rounded-full bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 text-sm font-medium w-full sm:w-auto">Update</button>
+              <button onClick={onClose} disabled={saving} className="rounded-xl border border-slate-300 bg-white px-4 py-2 text-sm font-medium w-full sm:w-auto disabled:opacity-60">Cancel</button>
+              <button onClick={() => onSave(value)} disabled={saving} className="rounded-full bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 text-sm font-medium w-full sm:w-auto disabled:opacity-60">{saving ? 'Saving…' : 'Update'}</button>
             </div>
           </div>
         </div>
