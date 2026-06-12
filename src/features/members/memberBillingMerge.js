@@ -1,3 +1,5 @@
+import { mergeMemberPhotoFields } from './memberAvatarResolver.js';
+
 function parseApgTimeMs(value) {
   const s = String(value || '').trim();
   if (!s) return 0;
@@ -17,14 +19,16 @@ export function pickMemberBillingSource(localRow, remoteRow, mergedFallback) {
   return remoteRow;
 }
 
-/** Merge PATCH /members/:id response without clobbering newer local billing cycle fields. */
+/** Merge PATCH /members/:id response without clobbering billing cycle or photo fields. */
 export function mergeMemberPatchResponse(localRow, serverRow) {
   if (!localRow) return serverRow || localRow;
   if (!serverRow) return localRow;
   const billingSrc = pickMemberBillingSource(localRow, serverRow, serverRow);
+  const photoMeta = mergeMemberPhotoFields(localRow, serverRow);
   return {
     ...localRow,
     ...serverRow,
+    ...photoMeta,
     billingDate: billingSrc.billingDate,
     nextPaymentDate: billingSrc.nextPaymentDate,
     paymentBy: billingSrc.paymentBy,

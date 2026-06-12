@@ -3949,14 +3949,24 @@ Phone: +91-7047157510`;
       const fn = window.__APG_MODULES?.mergeMemberPatchResponse;
       if (typeof fn === 'function') return fn(localRow, serverRow);
       const billingSrc = pickMemberBillingSource(localRow, serverRow, serverRow);
+      const photoMeta = pickMemberPhotoMeta(localRow, serverRow);
       return {
         ...localRow,
         ...serverRow,
+        ...photoMeta,
         billingDate: billingSrc.billingDate,
         nextPaymentDate: billingSrc.nextPaymentDate,
         paymentBy: billingSrc.paymentBy,
         billingDateUpdatedAt: billingSrc.billingDateUpdatedAt || serverRow?.billingDateUpdatedAt || localRow?.billingDateUpdatedAt,
       };
+    };
+    const cacheMemberPhotoFromRow = (row) => {
+      const id = String(row?.memberId || '').trim();
+      const photo = String(row?.photo || '').trim();
+      const version = Number(row?.photoVersion || 0);
+      if (!id || !photo.startsWith('http')) return;
+      const setCache = window.__APG_MODULES?.setCachedMemberPhotoUrl;
+      if (typeof setCache === 'function') setCache(id, version, photo);
     };
     /** Keep photo when backend row is newer but photo_url was not persisted yet (bulk race / stale GET). */
     const pickMemberPhoto = (localRow, remoteRow) => {
@@ -8083,14 +8093,25 @@ Please pay by: ${formattedLastDate}`;
                 if (activeBranch && nextBranch && nextBranch !== activeBranch) {
                   setMembers((prev) => prev.filter((m) => m.memberId !== toSave.memberId));
                 } else if (res?.member?.memberId) {
-                  setMembers((prev) => prev.map((m) => (
-                    m.memberId === res.member.memberId ? mergeMemberPatchResponse(m, res.member) : m
-                  )));
+                  cacheMemberPhotoFromRow(res.member);
+                  setMembers((prev) => prev.map((m) => {
+                    if (m.memberId !== res.member.memberId) return m;
+                    const merged = mergeMemberPatchResponse(m, res.member);
+                    cacheMemberPhotoFromRow(merged);
+                    return merged;
+                  }));
                 }
               } else if (res?.member?.memberId) {
-                setMembers((prev) => prev.map((m) => (
-                  m.memberId === res.member.memberId ? mergeMemberPatchResponse(m, res.member) : m
-                )));
+                cacheMemberPhotoFromRow(res.member);
+                setMembers((prev) => prev.map((m) => {
+                  if (m.memberId !== res.member.memberId) return m;
+                  const merged = mergeMemberPatchResponse(m, res.member);
+                  cacheMemberPhotoFromRow(merged);
+                  return merged;
+                }));
+                queueMicrotask(() => scheduleMemberPhotoSync(
+                  [mergeMemberPatchResponse(toSave, res.member)],
+                ));
               }
               if (Object.prototype.hasOwnProperty.call(delta, 'plan')) {
                 const savedMember = res?.member || toSave;

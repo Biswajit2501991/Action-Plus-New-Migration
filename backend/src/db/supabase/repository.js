@@ -931,6 +931,10 @@ async function updateMemberFields(memberCode, patch, branchScope = null) {
     attachments: children.attachmentsByMember.get(refreshed.id) || [],
     injuryNotes: children.injuryByMember.get(refreshed.id) || [],
   });
+  if (memberPhotoStorageEnabled()) {
+    const { enrichMemberPhotoFromDbRow } = await import('../../services/memberPhoto/MemberPhotoService.js');
+    appMember = await enrichMemberPhotoFromDbRow(appMember, refreshed);
+  }
   const payMonthOnly = Object.prototype.hasOwnProperty.call(patch, 'payMonth')
     && !Object.prototype.hasOwnProperty.call(patch, 'paymentHistory');
   if (payMonthOnly) {

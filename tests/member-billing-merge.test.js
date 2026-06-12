@@ -16,6 +16,27 @@ describe('pickMemberBillingSource', () => {
 });
 
 describe('mergeMemberPatchResponse', () => {
+  it('keeps local photo when PATCH returns empty storage-mode photo', () => {
+    const prev = global.window;
+    global.window = { __APG_ENV__: { MEMBER_PHOTO_STORAGE_ENABLED: true } };
+    const local = {
+      memberId: 'APG-1',
+      photo: 'https://cdn.example/photo.jpg',
+      photoVersion: 2,
+      hasPhoto: true,
+    };
+    const server = {
+      memberId: 'APG-1',
+      photo: '',
+      photoVersion: 2,
+      hasPhoto: true,
+    };
+    const merged = mergeMemberPatchResponse(local, server);
+    expect(merged.photo).toBe('https://cdn.example/photo.jpg');
+    expect(merged.hasPhoto).toBe(true);
+    global.window = prev;
+  });
+
   it('keeps local billing when server response is stale', () => {
     const local = {
       memberId: 'APG-1',
