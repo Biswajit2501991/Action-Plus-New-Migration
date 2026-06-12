@@ -1,5 +1,9 @@
 import * as permissions from '../features/access/permissions.js';
-import { reminderSentForCurrentBilling, toCalendarDateKey } from '../features/members/reminderBillingCycle.js';
+import {
+  reminderSentForCurrentBilling,
+  shouldShowSmsSentBadge,
+  toCalendarDateKey,
+} from '../features/members/reminderBillingCycle.js';
 import { leaveSubmitErrorMessage } from '../features/leave/leaveSubmitError.js';
 import { createLeaveApprovalHandlers } from '../features/leave/leaveApprovalHandlers.js';
 import {
@@ -348,6 +352,7 @@ window.__APG_MODULES.DEFAULT_ACCESS = permissions.DEFAULT_ACCESS;
 window.__APG_MODULES.normalizeAccess = permissions.normalizeAccess;
 window.__APG_MODULES.sectionsWithRoleDefaults = permissions.sectionsWithRoleDefaults;
 window.__APG_MODULES.reminderSentForCurrentBilling = reminderSentForCurrentBilling;
+window.__APG_MODULES.shouldShowSmsSentBadge = shouldShowSmsSentBadge;
 window.__APG_MODULES.toCalendarDateKey = toCalendarDateKey;
 window.__APG_MODULES.leaveSubmitErrorMessage = leaveSubmitErrorMessage;
 window.__APG_MODULES.createLeaveApprovalHandlers = createLeaveApprovalHandlers;

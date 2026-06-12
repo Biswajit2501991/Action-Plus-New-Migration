@@ -12,6 +12,32 @@ export function toCalendarDateKey(value) {
   return `${y}-${m}-${d}`;
 }
 
+const BILLING_CYCLE_TEMPLATE_KEYS = new Set(['reminder', 'monthReminder']);
+
+/**
+ * Whether the "Sent … by …" chip should show for this template send.
+ * Reminder-style templates only count sends on/after the current billing date.
+ */
+export function shouldShowSmsSentBadge(member, templateKey, sentAt) {
+  const key = String(templateKey || '').trim();
+  const sentKey = toCalendarDateKey(sentAt || '');
+  if (!sentKey) return false;
+
+  if (BILLING_CYCLE_TEMPLATE_KEYS.has(key)) {
+    const billingKey = toCalendarDateKey(member?.billingDate || '');
+    if (!billingKey) return true;
+    return sentKey >= billingKey;
+  }
+
+  if (key === 'welcome') {
+    const anchorKey = toCalendarDateKey(member?.joiningDate || member?.billingDate || '');
+    if (!anchorKey) return true;
+    return sentKey >= anchorKey;
+  }
+
+  return true;
+}
+
 /**
  * True when a reminder was already sent for the member's current billing date.
  * Staff are blocked only for the current cycle; a newer billing date re-enables Reminder.
@@ -19,9 +45,5 @@ export function toCalendarDateKey(value) {
 export function reminderSentForCurrentBilling(member) {
   const sentRaw = member?.reminderSentAt;
   if (!sentRaw) return false;
-  const billingKey = toCalendarDateKey(member?.billingDate || '');
-  if (!billingKey) return true;
-  const sentKey = toCalendarDateKey(sentRaw);
-  if (!sentKey) return true;
-  return sentKey >= billingKey;
+  return shouldShowSmsSentBadge(member, 'reminder', sentRaw);
 }

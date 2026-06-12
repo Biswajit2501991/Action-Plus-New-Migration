@@ -1987,6 +1987,11 @@
     const getSmsSentInfoText = (member, templateKey, tz = 'IST') => {
       const meta = getLastWhatsAppSendMeta(member, templateKey);
       if (!meta || !meta.sentAt) return '';
+      const showBadgeFn = window.__APG_MODULES?.shouldShowSmsSentBadge;
+      const showBadge = typeof showBadgeFn === 'function'
+        ? showBadgeFn(member, templateKey, meta.sentAt)
+        : true;
+      if (!showBadge) return '';
       const sentByNorm = String(meta.sentBy || '').trim().toLowerCase();
       if (sentByNorm === 'owner') return '';
       const when = formatSmsSentAt(meta.sentAt, tz);
