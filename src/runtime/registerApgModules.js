@@ -111,6 +111,11 @@ import { staffRoleDisplayLabel } from '../features/branding/staffRoleLabel.js';
 import { buildHeaderBranchSwitcherModel } from '../features/branding/headerBranchSwitcherModel.js';
 import { staffInitialsFromName, staffPhotoSrcFromUser } from '../features/branding/staffAvatarInitials.js';
 import {
+  staffPhotoStorageEnabled,
+  uploadStaffPhotoApi,
+  deleteStaffPhotoApi,
+} from '../features/staff/staffPhotoApi.js';
+import {
   shouldReplaceBranchDataOnHydrate,
   mergeMembersAfterBranchReplace,
   mergeVisitorsAfterBranchReplace,
@@ -427,6 +432,9 @@ window.__APG_MODULES.primaryBranchIdForLogin = primaryBranchIdForLogin;
 window.__APG_MODULES.staffRoleDisplayLabel = staffRoleDisplayLabel;
 window.__APG_MODULES.staffInitialsFromName = staffInitialsFromName;
 window.__APG_MODULES.staffPhotoSrcFromUser = staffPhotoSrcFromUser;
+window.__APG_MODULES.staffPhotoStorageEnabled = staffPhotoStorageEnabled;
+window.__APG_MODULES.uploadStaffPhotoApi = uploadStaffPhotoApi;
+window.__APG_MODULES.deleteStaffPhotoApi = deleteStaffPhotoApi;
 window.__APG_MODULES.buildHeaderBranchSwitcherModel = buildHeaderBranchSwitcherModel;
 window.__APG_MODULES.activeBranchIdsForDataScope = activeBranchIdsForDataScope;
 window.__APG_MODULES.shouldReplaceBranchDataOnHydrate = shouldReplaceBranchDataOnHydrate;

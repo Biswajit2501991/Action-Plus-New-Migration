@@ -3227,7 +3227,11 @@ Phone: +91-7047157510`;
       const withSync = safe.syncBranchAssignments === true
         ? { ...safe, syncBranchAssignments: true }
         : safe;
-      // Bulk sync must not re-upload huge base64 photos for every staff row (causes 413 / DB errors).
+      const storageOn = window.__APG_MODULES?.staffPhotoStorageEnabled?.()
+        || window.__APG_MODULES?.memberPhotoStorageEnabled?.();
+      // Profile photos use POST /api/users/:id/photo when storage is enabled (same as members).
+      if (storageOn) return withSync;
+      // Legacy inline photo_url — keep small payloads only.
       if (photoStr && photoStr.length <= 400000) return { ...withSync, photo: photoStr };
       return withSync;
     });
@@ -13656,6 +13660,72 @@ function MobileMemberDetailView({ m, onBack, onEdit, onWelcome, onWhatsAppCall, 
       );
     }
 
+    function StaffPhotoPreviewModal({ open, onClose, name, staffId, photo }) {
+      React.useEffect(() => {
+        if (!open) return undefined;
+        const bindEsc = window.__APG_MODULES?.bindModalEscapeKey;
+        return typeof bindEsc === 'function' ? bindEsc(onClose) : undefined;
+      }, [open, onClose]);
+      if (!open) return null;
+      const previewZ = window.__APG_MODULES?.PHOTO_PREVIEW_MODAL_Z_INDEX ?? 78;
+      const photoFn = window.__APG_MODULES?.staffPhotoSrcFromUser;
+      const src = typeof photoFn === 'function'
+        ? photoFn({ photo })
+        : String(photo || '').trim();
+      const displayName = String(name || '').trim() || 'Staff';
+      const displayId = String(staffId || '').trim();
+      const initials = displayName.split(' ').map((p) => p[0]).slice(0, 2).join('').toUpperCase();
+      return (
+        <ModalPortal>
+          <div
+            className="fixed inset-0 flex items-center justify-center apg-modal-backdrop p-4"
+            style={{ zIndex: previewZ }}
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="staff-photo-preview-title"
+            data-testid="staff-photo-preview-modal"
+            onClick={onClose}
+          >
+            <div
+              className="w-full max-w-md rounded-3xl bg-white shadow-xl overflow-hidden flex flex-col"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <div className="flex items-center justify-between px-6 py-4">
+                <h4 id="staff-photo-preview-title" className="text-lg font-semibold text-slate-900">Staff Photo</h4>
+                <button type="button" onClick={onClose} className="rounded-xl p-2 hover:bg-slate-100" aria-label="Close preview"><span>✕</span></button>
+              </div>
+              <div className="px-6 pb-2 flex flex-col items-center text-center">
+                {src ? (
+                  <img
+                    src={src}
+                    alt={displayName}
+                    className="h-48 w-48 sm:h-56 sm:w-56 rounded-full object-cover border border-slate-200 shadow-sm"
+                  />
+                ) : (
+                  <div className="h-48 w-48 sm:h-56 sm:w-56 rounded-full bg-slate-200 text-slate-700 grid place-items-center text-3xl font-semibold border border-slate-200">
+                    {initials || '?'}
+                  </div>
+                )}
+                <p className="mt-5 text-lg font-semibold text-slate-900">{displayName}</p>
+                {displayId ? (
+                  <p className="mt-1 text-sm text-slate-600">Username: {displayId}</p>
+                ) : null}
+              </div>
+              <div className="flex justify-end px-6 py-4 border-t border-slate-100">
+                <button
+                  type="button"
+                  onClick={onClose}
+                  className="rounded-xl border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-800 hover:bg-slate-50"
+                >
+                  Close
+                </button>
+              </div>
+            </div>
+          </div>
+        </ModalPortal>
+      );
+    }
+
     // ---- Badge Component ----
     function Badge({ tone, children, className }) {
       const tones = {
@@ -22763,6 +22833,7 @@ function PTClientsPage({ members, users, settings, updateSetting, currentUser, a
     function UserManagementPage({ users, setUsers, settings, setSettings, currentUser, dataSyncMode = 'local', backendJson = null, logEvent, onApprovePasswordReset, onRejectPasswordReset, passwordResetDecidingId = '', gymCodes = [], hqGymCodeId = null, gymCodeLabel = () => '—' }) {
       const [modalOpen, setModalOpen] = React.useState(false);
       const [photoPickerOpen, setPhotoPickerOpen] = React.useState(false);
+      const [photoPreviewOpen, setPhotoPreviewOpen] = React.useState(false);
       const [form, setForm] = React.useState({ id: '', password: '', name: '', email: '', sections: [], access: { ...DEFAULT_ACCESS }, blocked: false, blockedReason: '', blockedAt: '', updatedBy: '', photo: null, testProfile: false, sandboxId: '', gymCodeId: '', staffRole: 'staff', assignedBranchIds: [] });
       const [error, setError] = React.useState('');
       const [saving, setSaving] = React.useState(false);
@@ -22900,6 +22971,7 @@ function PTClientsPage({ members, users, settings, updateSetting, currentUser, a
       };
       const closeStaffModal = () => {
         setModalOpen(false);
+        setPhotoPreviewOpen(false);
         setError('');
         setSelectedRole('');
         setDashboardAccessOpen(false);
@@ -23631,6 +23703,31 @@ function PTClientsPage({ members, users, settings, updateSetting, currentUser, a
                 method: 'PUT',
                 body: JSON.stringify({ users: usersForApi([updatedUser]) }),
               });
+              const photoStr = String(form.photo || '').trim();
+              const prevPhoto = String(beforeUser?.photo || '').trim();
+              const photoChanged = photoStr && photoStr !== prevPhoto && photoStr.startsWith('data:');
+              const storageOn = window.__APG_MODULES?.staffPhotoStorageEnabled?.()
+                || window.__APG_MODULES?.memberPhotoStorageEnabled?.();
+              const uploadStaffPhotoFn = window.__APG_MODULES?.uploadStaffPhotoApi;
+              if (photoChanged && storageOn && typeof uploadStaffPhotoFn === 'function') {
+                try {
+                  const photoRes = await uploadStaffPhotoFn(id, photoStr, backendJson);
+                  if (photoRes?.photoUrl) {
+                    updatedUser.photo = photoRes.photoUrl;
+                    updatedUser.photoVersion = photoRes.photoVersion;
+                    updatedUser.hasPhoto = true;
+                  } else if (photoRes?.user?.photo) {
+                    updatedUser.photo = photoRes.user.photo;
+                  }
+                } catch (photoErr) {
+                  const tooLarge = photoErr?.apiError === 'photo-too-large'
+                    || String(photoErr?.message || '').includes('photo-too-large');
+                  showStaffError(tooLarge
+                    ? 'Staff saved but photo is too large. Use a smaller image.'
+                    : 'Staff saved but photo upload failed. Try Change Photo again.');
+                  return;
+                }
+              }
             } catch (saveErr) {
               const msg = String(saveErr?.message || '');
               const errCode = String(saveErr?.apiError || '');
@@ -24036,7 +24133,19 @@ function PTClientsPage({ members, users, settings, updateSetting, currentUser, a
                 <div className="px-4 sm:px-6 pb-4 pt-1 space-y-3">
                   {error && <div ref={staffErrorRef} className="rounded-xl bg-rose-50 border border-rose-200 text-rose-700 px-3 py-2 text-sm">{error}</div>}
                   <div className="flex items-center gap-3">
-                    <Avatar name={form.name || form.id || 'Staff'} photo={form.photo} className="h-12 w-12" />
+                    <button
+                      type="button"
+                      onClick={() => setPhotoPreviewOpen(true)}
+                      className="rounded-full shrink-0 focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-2"
+                      aria-label="View full staff photo"
+                      data-testid="edit-staff-photo-preview-trigger"
+                    >
+                      <Avatar
+                        name={form.name || form.id || 'Staff'}
+                        photo={form.photo}
+                        className="h-12 w-12 cursor-pointer hover:opacity-90 transition-opacity"
+                      />
+                    </button>
                     <button
                       type="button"
                       onClick={() => setPhotoPickerOpen(true)}
@@ -24045,6 +24154,13 @@ function PTClientsPage({ members, users, settings, updateSetting, currentUser, a
                       {form.photo ? 'Change Photo' : 'Upload Picture'}
                     </button>
                   </div>
+                  <StaffPhotoPreviewModal
+                    open={photoPreviewOpen}
+                    onClose={() => setPhotoPreviewOpen(false)}
+                    name={form.name || form.id || 'Staff'}
+                    staffId={form.id || editingId || ''}
+                    photo={form.photo}
+                  />
                   <PhotoSourcePickerModal
                     open={photoPickerOpen}
                     onClose={() => setPhotoPickerOpen(false)}

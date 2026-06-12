@@ -1,4 +1,5 @@
 import crypto from 'node:crypto';
+import { memberPhotoStorageEnabled } from '../../services/memberPhoto/storageConstants.js';
 import { passwordResetStatusFromRecord } from '../../../../src/features/passwordReset/passwordResetStatus.js';
 import { emptyText, financeStatusFromNumeric, financeStatusToNumeric, toDate, toTs } from './utils.js';
 
@@ -237,6 +238,8 @@ export function staffRowToApp(row, sections = [], access = {}, assignedBranchIds
     blockedAt: row.blocked_at || '',
     updatedBy: row.updated_by || '',
     photo: row.photo_url || null,
+    photoVersion: Number(row.photo_version || 0),
+    hasPhoto: Boolean(String(row.photo_path || '').trim() || String(row.photo_url || '').trim()),
     testProfile: Boolean(row.is_test_profile),
     sandboxId: row.sandbox_id || '',
     passwordResetRequestedAt,
@@ -262,7 +265,9 @@ export function staffRowToApp(row, sections = [], access = {}, assignedBranchIds
 export function appStaffToRow(u, gymId) {
   const updatedAt = toTs(u.updatedAt) || new Date().toISOString();
   const photoRaw = String(u.photo || u.avatar || '').trim();
-  const photo_url = photoRaw && photoRaw.length <= 2_000_000 ? photoRaw : null;
+  const photo_url = memberPhotoStorageEnabled()
+    ? null
+    : (photoRaw && photoRaw.length <= 2_000_000 ? photoRaw : null);
   const row = {
     gym_id: gymId,
     staff_login_id: String(u.id || '').trim(),

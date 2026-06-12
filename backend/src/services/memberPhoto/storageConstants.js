@@ -35,6 +35,12 @@ export function buildMemberPhotoStoragePath(gymId, memberCode, version, ext = 'j
   return `gyms/${String(gymId).trim()}/members/${safe}/profile/v${v}.${ext}`;
 }
 
+export function buildStaffPhotoStoragePath(gymId, staffLoginId, version, ext = 'jpg') {
+  const safe = sanitizeMemberCodeForPath(staffLoginId);
+  const v = Math.max(1, Number(version) || 1);
+  return `gyms/${String(gymId).trim()}/staff/${safe}/profile/v${v}.${ext}`;
+}
+
 export function mimeToExtension(mime) {
   const m = String(mime || '').toLowerCase();
   if (m === 'image/png') return 'png';

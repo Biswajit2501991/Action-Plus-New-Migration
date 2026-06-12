@@ -1,6 +1,9 @@
 import crypto from 'node:crypto';
 import { ALL_SECTIONS } from '../../../../src/features/access/permissions.js';
 import { isPtPlanName } from '../../../../src/features/pt/ptEligibility.js';
+import { invalidateStaffAccessCache } from '../../auth/accessControl.js';
+import { memberPhotoStorageEnabled } from '../../services/memberPhoto/storageConstants.js';
+import { enrichStaffUsersWithPhotoUrls } from '../../services/staffPhoto/StaffPhotoService.js';
 import {
   resolvePaidMonthForPayment,
   validatePaidMonthKey,
@@ -1279,7 +1282,7 @@ async function readUsers(scope) {
     /* assignments table optional until migration */
   }
 
-  return staffRows.map((row) => {
+  const apps = staffRows.map((row) => {
     const fromAssignments = branchesByStaff.get(row.id);
     const assigned = fromAssignments?.length
       ? [...new Set(fromAssignments.filter(Boolean))]
@@ -1291,6 +1294,10 @@ async function readUsers(scope) {
       assigned,
     );
   });
+  if (memberPhotoStorageEnabled()) {
+    return enrichStaffUsersWithPhotoUrls(apps, staffRows);
+  }
+  return apps;
 }
 
 async function resolveDefaultStaffGymCodeId(sb, gid) {
@@ -1310,7 +1317,7 @@ async function writeUsers(users, scope) {
   const defaultGymCodeId = await resolveDefaultStaffGymCodeId(sb, gid);
   const loginIds = new Set(incoming.map((u) => String(u.id || '').trim()).filter(Boolean));
 
-  let existingQuery = sb.from(T.staff_users).select('id, staff_login_id, password_hash, photo_url').eq('gym_id', gid);
+  let existingQuery = sb.from(T.staff_users).select('id, staff_login_id, password_hash, photo_url, photo_path, photo_version').eq('gym_id', gid);
   if (scope) existingQuery = existingQuery.eq('sandbox_id', scope.sandboxId);
   const existing = await fetchAll((from, to) => existingQuery.range(from, to));
 
@@ -1359,7 +1366,11 @@ async function writeUsers(users, scope) {
     }
 
     const found = (existing || []).find((r) => String(r.staff_login_id) === String(u.id));
-    if (found && !String(row.photo_url || '').trim() && String(found.photo_url || '').trim()) {
+    if (found && memberPhotoStorageEnabled()) {
+      if (String(found.photo_path || '').trim()) row.photo_path = found.photo_path;
+      if (found.photo_version != null) row.photo_version = found.photo_version;
+      row.photo_url = null;
+    } else if (found && !String(row.photo_url || '').trim() && String(found.photo_url || '').trim()) {
       row.photo_url = found.photo_url;
     }
     let staffPk;

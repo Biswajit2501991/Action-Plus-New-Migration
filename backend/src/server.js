@@ -86,6 +86,7 @@ import authRouter from './routes/auth.js';
 import gymCodesRouter from './routes/gymCodes.js';
 import brandingRouter from './routes/branding.js';
 import memberPhotosRouter from './routes/memberPhotos.js';
+import staffPhotosRouter from './routes/staffPhotos.js';
 import {
   authIsOwner,
   stampBranchOnRows,
@@ -977,6 +978,8 @@ app.get('/api/users', requireStaffManagementRead, async (req, res) => {
   const users = await readJsonCollection('apg.users', [], null);
   res.json(filterUsersForAuth(users, req.auth));
 });
+
+app.use('/api/users', staffPhotosRouter);
 
 app.put('/api/users/bulk', requireStaffManagementWrite, async (req, res) => {
   try {
