@@ -2,7 +2,7 @@
  * Revenue breakdown: Membership / PT / Other from ledger income rows.
  */
 
-const PT_PLAN_RE = /\bpt\b/i;
+import { isPtPlanName, PT_PLAN_RE } from '../pt/ptEligibility.js';
 
 /**
  * @param {object} row ledger income row
@@ -27,7 +27,10 @@ export function classifyRevenueBucket(row, ctx = {}) {
     : null;
   const memberPlan = String(member?.plan || plan);
 
-  if (inPtList || PT_PLAN_RE.test(plan) || PT_PLAN_RE.test(memberPlan)) {
+  if (PT_PLAN_RE.test(plan) || isPtPlanName(memberPlan)) {
+    return 'pt';
+  }
+  if (inPtList && member && isPtPlanName(member.plan)) {
     return 'pt';
   }
   if (source === 'payment' || source === 'billing-pending') {
@@ -57,8 +60,18 @@ export function buildRevenueBreakdown(incomeRows, ctx = {}) {
  * @param {object} settings
  * @returns {Set<string>}
  */
-export function ptClientMemberIdSet(settings) {
+/**
+ * @param {object} settings
+ * @param {object[]} [members] when provided, drops orphaned profile keys for non-PT members
+ */
+export function ptClientMemberIdSet(settings, members = null) {
   const profiles = settings?.ptClientProfiles;
   if (!profiles || typeof profiles !== 'object') return new Set();
-  return new Set(Object.keys(profiles).map((k) => String(k).trim()).filter(Boolean));
+  const keys = Object.keys(profiles).map((k) => String(k).trim()).filter(Boolean);
+  if (!Array.isArray(members) || members.length === 0) return new Set(keys);
+  const memberById = new Map(members.map((m) => [String(m.memberId || '').trim(), m]));
+  return new Set(keys.filter((id) => {
+    const member = memberById.get(id);
+    return member ? isPtPlanName(member.plan) : false;
+  }));
 }

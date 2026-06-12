@@ -3,6 +3,9 @@ export const EDITOR_MODAL_Z_INDEX = 70;
 
 export const PHOTO_PICKER_MODAL_Z_INDEX = 80;
 
+/** Stacked above Edit Member (z-50), below photo source picker (z-80). */
+export const PHOTO_PREVIEW_MODAL_Z_INDEX = 78;
+
 /** Scroll window + `.apg-main-scroll` to top before opening a centered editor. */
 export function scrollEditorToTop(doc = document) {
   if (!doc || typeof doc.querySelector !== 'function') return;

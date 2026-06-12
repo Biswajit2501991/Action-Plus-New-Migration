@@ -5,6 +5,8 @@ import {
   bindModalEscapeKey,
   bindFocusTrap,
   EDITOR_MODAL_Z_INDEX,
+  PHOTO_PREVIEW_MODAL_Z_INDEX,
+  PHOTO_PICKER_MODAL_Z_INDEX,
 } from '../src/features/modal/editorModalShell.js';
 
 describe('editorModalShell', () => {
@@ -19,8 +21,10 @@ describe('editorModalShell', () => {
     document.body.innerHTML = '';
   });
 
-  it('exports stable z-index token', () => {
+  it('exports stable z-index tokens', () => {
     expect(EDITOR_MODAL_Z_INDEX).toBe(70);
+    expect(PHOTO_PREVIEW_MODAL_Z_INDEX).toBe(78);
+    expect(PHOTO_PICKER_MODAL_Z_INDEX).toBe(80);
   });
 
   it('scrollEditorToTop resets main scroll pane', () => {

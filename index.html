@@ -3420,10 +3420,9 @@ Phone: +91-7047157510`;
     };
     /** GET /users — owner / branch owner only (not regular multi-branch staff). */
     const canFetchStaffUsersList = (u) => Boolean(u?.id) && isBranchAdminUser(u);
-    const canFetchFinanceRead = (u) => {
-      if (!u?.id) return false;
-      if (isOwnerStaffUser(u)) return true;
-      const f = normalizeAccess(u?.access).finance;
+    const canReadFinanceSummary = (access, isOwner = false) => {
+      if (isOwner) return true;
+      const f = normalizeAccess(access).finance;
       return Boolean(
         f.viewRevenueAutoMembers
         || f.viewRevenueTrend4Months
@@ -3434,6 +3433,18 @@ Phone: +91-7047157510`;
         || f.viewProfitCard
         || f.manageExpenses,
       );
+    };
+    const canFetchFinanceRead = (u) => {
+      if (!u?.id) return false;
+      return canReadFinanceSummary(u?.access, isOwnerStaffUser(u));
+    };
+    const canReadWhatsappTemplates = (access, isOwner = false) => {
+      if (isOwner) return true;
+      return normalizeAccess(access).whatsapp?.viewTemplates !== false;
+    };
+    const canFetchWhatsappTemplates = (u) => {
+      if (!u?.id) return false;
+      return canReadWhatsappTemplates(u?.access, isOwnerStaffUser(u));
     };
     const canFetchAuditLogs = (u) => {
       if (!u?.id) return false;
@@ -4817,7 +4828,7 @@ Phone: +91-7047157510`;
       }, [user?.id, authoritativeActiveBranchId, refreshBranchBranding]);
       const fetchBranchWhatsappTemplates = React.useCallback(async (branchId) => {
         const id = String(branchId || '').trim();
-        if (!id || dataSyncMode !== 'backend') return;
+        if (!id || dataSyncMode !== 'backend' || !canFetchWhatsappTemplates(user)) return;
         setTemplatesBranchLoading(true);
         try {
           const res = await backendJson(`/whatsapp-templates?gymCodeId=${encodeURIComponent(id)}`);
@@ -4832,9 +4843,9 @@ Phone: +91-7047157510`;
         } finally {
           setTemplatesBranchLoading(false);
         }
-      }, [dataSyncMode]);
+      }, [dataSyncMode, user]);
       React.useEffect(() => {
-        if (!user?.id) return;
+        if (!user?.id || !canFetchWhatsappTemplates(user)) return;
         const branchId = authIsOwnerForTemplates(user)
           ? String(templatesBranchId || hqGymCodeId || '').trim()
           : String(user.gymCodeId || '').trim();
@@ -8046,6 +8057,20 @@ Please pay by: ${formattedLastDate}`;
                   m.memberId === res.member.memberId ? { ...m, ...res.member } : m
                 )));
               }
+              if (Object.prototype.hasOwnProperty.call(delta, 'plan')) {
+                const savedMember = res?.member || toSave;
+                const isPtFn = window.__APG_MODULES?.isPtEligibleMember;
+                const stillPt = typeof isPtFn === 'function'
+                  ? isPtFn(savedMember)
+                  : (String(savedMember?.status || '') === 'Active' && /\bpt\b/i.test(String(savedMember?.plan || '')));
+                if (!stillPt) {
+                  updateSettingValue('ptClientProfiles', (prevAll) => {
+                    const base = prevAll && typeof prevAll === 'object' ? { ...prevAll } : {};
+                    delete base[toSave.memberId];
+                    return base;
+                  });
+                }
+              }
               if (deferSuccessToastForPayMonthPatch) {
                 const displayFn = window.__APG_MODULES?.formatPaidMonthDisplay;
                 const savedKey = res?.member?.payMonth ?? toSave.payMonth;
@@ -10591,6 +10616,7 @@ Please pay by: ${formattedLastDate}`;
                 setFinanceTransactions={setFinanceTransactions}
                 updateSetting={updateSettingValue}
                 access={normalizeAccess(user?.access)}
+                isOwner={isOwnerUser}
                 displayTimeZone={displayTimeZone}
                 theme={theme}
                 memberSyncPending={memberSyncPending}
@@ -12135,7 +12161,7 @@ function Sidebar({ user, active, onSelect, theme, setTheme, layoutMode = 'classi
       const dbMonthRevenueStableRef = React.useRef(null);
       const dbRevenueGrowthStableRef = React.useRef(null);
       const fetchDashboardMonthRevenue = React.useCallback(() => {
-        if (dataSyncMode !== 'backend' || !todayMonthKey) return undefined;
+        if (dataSyncMode !== 'backend' || !todayMonthKey || !canReadFinanceSummary(access, isOwner)) return undefined;
         let cancelled = false;
         backendJson(`/finance/summary?month=${encodeURIComponent(todayMonthKey)}`)
           .then((body) => {
@@ -12149,9 +12175,9 @@ function Sidebar({ user, active, onSelect, theme, setTheme, layoutMode = 'classi
           })
           .catch(() => { /* keep last good DB totals to avoid flicker */ });
         return () => { cancelled = true; };
-      }, [dataSyncMode, todayMonthKey]);
+      }, [dataSyncMode, todayMonthKey, access, isOwner]);
       React.useEffect(() => {
-        if (dataSyncMode !== 'backend' || !todayMonthKey) {
+        if (dataSyncMode !== 'backend' || !todayMonthKey || !canReadFinanceSummary(access, isOwner)) {
           dbMonthRevenueStableRef.current = null;
           dbRevenueGrowthStableRef.current = null;
           setDbMonthRevenue(null);
@@ -12159,7 +12185,7 @@ function Sidebar({ user, active, onSelect, theme, setTheme, layoutMode = 'classi
           return undefined;
         }
         return fetchDashboardMonthRevenue();
-      }, [dataSyncMode, todayMonthKey, fetchDashboardMonthRevenue]);
+      }, [dataSyncMode, todayMonthKey, access, isOwner, fetchDashboardMonthRevenue]);
       React.useEffect(() => {
         const onRefresh = () => { fetchDashboardMonthRevenue(); };
         window.addEventListener('apg-finance-refresh', onRefresh);
@@ -13550,6 +13576,82 @@ function MobileMemberDetailView({ m, onBack, onEdit, onWelcome, onWhatsAppCall, 
             <input ref={uploadInputRef} type="file" accept="image/*" className="hidden" onChange={onFileChange} />
           </div>
         </div>
+        </ModalPortal>
+      );
+    }
+
+    function MemberPhotoPreviewModal({ open, onClose, name, memberId, photo, member, gymLabel = '' }) {
+      const [, photoCacheTick] = React.useReducer((n) => n + 1, 0);
+      React.useEffect(() => {
+        const onPhotoCache = () => photoCacheTick();
+        window.addEventListener('apg:photo-cache-updated', onPhotoCache);
+        return () => window.removeEventListener('apg:photo-cache-updated', onPhotoCache);
+      }, []);
+      React.useEffect(() => {
+        if (!open) return undefined;
+        const bindEsc = window.__APG_MODULES?.bindModalEscapeKey;
+        return typeof bindEsc === 'function' ? bindEsc(onClose) : undefined;
+      }, [open, onClose]);
+      if (!open) return null;
+      const previewZ = window.__APG_MODULES?.PHOTO_PREVIEW_MODAL_Z_INDEX ?? 78;
+      const resolveFn = window.__APG_MODULES?.resolveMemberAvatarSrc;
+      const src = typeof resolveFn === 'function' && member
+        ? resolveFn(member)
+        : String(photo || '').trim();
+      const displayName = String(name || '').trim() || 'Member';
+      const displayId = String(memberId || '').trim();
+      const initials = displayName.split(' ').map((p) => p[0]).slice(0, 2).join('').toUpperCase();
+      const gymText = String(gymLabel || '').trim();
+      return (
+        <ModalPortal>
+          <div
+            className="fixed inset-0 flex items-center justify-center apg-modal-backdrop p-4"
+            style={{ zIndex: previewZ }}
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="member-photo-preview-title"
+            data-testid="member-photo-preview-modal"
+            onClick={onClose}
+          >
+            <div
+              className="w-full max-w-md rounded-3xl bg-white shadow-xl overflow-hidden flex flex-col"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <div className="flex items-center justify-between px-6 py-4">
+                <h4 id="member-photo-preview-title" className="text-lg font-semibold text-slate-900">Member Photo</h4>
+                <button type="button" onClick={onClose} className="rounded-xl p-2 hover:bg-slate-100" aria-label="Close preview"><span>✕</span></button>
+              </div>
+              <div className="px-6 pb-2 flex flex-col items-center text-center">
+                {src ? (
+                  <img
+                    src={src}
+                    alt={displayName}
+                    className="h-48 w-48 sm:h-56 sm:w-56 rounded-full object-cover border border-slate-200 shadow-sm"
+                  />
+                ) : (
+                  <div className="h-48 w-48 sm:h-56 sm:w-56 rounded-full bg-slate-200 text-slate-700 grid place-items-center text-3xl font-semibold border border-slate-200">
+                    {initials || '?'}
+                  </div>
+                )}
+                <p className="mt-5 text-lg font-semibold text-slate-900">{displayName}</p>
+                {displayId ? (
+                  <p className="mt-1 text-sm text-slate-600">Member ID: {displayId}</p>
+                ) : null}
+                {gymText ? (
+                  <p className="mt-0.5 text-sm text-slate-500">{gymText}</p>
+                ) : null}
+              </div>
+              <div className="flex justify-end px-6 py-4 border-t border-slate-100">
+                <button
+                  type="button"
+                  onClick={onClose}
+                  className="rounded-xl border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-800 hover:bg-slate-50"
+                >
+                  Close
+                </button>
+              </div>
+            </div>
+          </div>
         </ModalPortal>
       );
     }
@@ -15358,6 +15460,12 @@ function EditMemberModal({ member, onClose, onSave, onPersistInjuryNotes = null,
         || (Array.isArray(currentUser?.roles) && currentUser.roles.includes('owner'));
       const [edit, setEdit] = React.useState(() => buildEditMemberDraft(member));
       const [photoPickerOpen, setPhotoPickerOpen] = React.useState(false);
+      const [photoPreviewOpen, setPhotoPreviewOpen] = React.useState(false);
+      const previewMember = React.useMemo(() => ({
+        ...edit,
+        memberId: edit.memberId || member.memberId,
+        name: edit.name || member.name,
+      }), [edit, member.memberId, member.name]);
       const markAllMedicalNo = React.useCallback(() => {
         setEdit((prev) => ({
           ...prev,
@@ -15503,7 +15611,20 @@ function EditMemberModal({ member, onClose, onSave, onPersistInjuryNotes = null,
                 </div>
               )}
               <div className="mb-4 flex items-center gap-3">
-                <Avatar name={edit.name || member.name} photo={edit.photo} className="h-14 w-14" />
+                <button
+                  type="button"
+                  onClick={() => setPhotoPreviewOpen(true)}
+                  className="rounded-full shrink-0 focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-2"
+                  aria-label="View full member photo"
+                  data-testid="edit-member-photo-preview-trigger"
+                >
+                  <Avatar
+                    name={edit.name || member.name}
+                    photo={edit.photo}
+                    member={previewMember}
+                    className="h-14 w-14 cursor-pointer hover:opacity-90 transition-opacity"
+                  />
+                </button>
                 <button
                   type="button"
                   onClick={() => setPhotoPickerOpen(true)}
@@ -15521,6 +15642,15 @@ function EditMemberModal({ member, onClose, onSave, onPersistInjuryNotes = null,
                   </button>
                 )}
               </div>
+              <MemberPhotoPreviewModal
+                open={photoPreviewOpen}
+                onClose={() => setPhotoPreviewOpen(false)}
+                name={edit.name || member.name}
+                memberId={edit.memberId || member.memberId}
+                photo={edit.photo}
+                member={previewMember}
+                gymLabel={gymCodeLabel(edit.assignedGymCodeId)}
+              />
               <PhotoSourcePickerModal
                 open={photoPickerOpen}
                 onClose={() => setPhotoPickerOpen(false)}
@@ -17074,9 +17204,10 @@ function PTClientsPage({ members, users, settings, updateSetting, currentUser, a
       const canUploadDietDocuments = ptAccess?.uploadDietDocuments !== false;
       const trainers = (users || []).filter(u => !u.blocked && (u.id === 'trainer' || (u.sections || []).includes('PT Clients')));
       const ptMembers = React.useMemo(() => {
-        const active = (members || []).filter(m => String(m.status || '') === 'Active');
-        return active.filter(m => /\bpt\b/i.test(String(m.plan || '')) || String(m.trainer || '').trim() || (ptProfiles[m.memberId]));
-      }, [members, ptProfiles]);
+        const isPtEligible = window.__APG_MODULES?.isPtEligibleMember
+          || ((m) => String(m?.status || '') === 'Active' && /\bpt\b/i.test(String(m?.plan || '')));
+        return (members || []).filter((m) => isPtEligible(m));
+      }, [members]);
       React.useEffect(() => {
         if (!ptMembers.length) {
           setSelectedMemberId('');
@@ -21026,7 +21157,7 @@ function PTClientsPage({ members, users, settings, updateSetting, currentUser, a
     }
 
     // ---- Finance Page ----
-    function FinancePage({ members, settings, logs, financeTransactions = [], setFinanceTransactions, updateSetting, access, openExpenseSignal = 0, displayTimeZone = 'IST', theme = 'light', memberSyncPending = {}, dataSyncMode = 'local' }) {
+    function FinancePage({ members, settings, logs, financeTransactions = [], setFinanceTransactions, updateSetting, access, isOwner = false, openExpenseSignal = 0, displayTimeZone = 'IST', theme = 'light', memberSyncPending = {}, dataSyncMode = 'local' }) {
       const [query, setQuery] = React.useState('');
       const [appliedQuery, setAppliedQuery] = React.useState('');
       const [showFilter, setShowFilter] = React.useState(false);
@@ -21216,12 +21347,12 @@ function PTClientsPage({ members, users, settings, updateSetting, currentUser, a
         const buildFn = window.__APG_MODULES?.buildRevenueBreakdown;
         const ptSetFn = window.__APG_MODULES?.ptClientMemberIdSet;
         if (typeof buildFn !== 'function') return { membership: 0, pt: 0, other: 0, total: 0 };
-        const ptIds = typeof ptSetFn === 'function' ? ptSetFn(settings) : new Set();
+        const ptIds = typeof ptSetFn === 'function' ? ptSetFn(settings, members) : new Set();
         return buildFn(incomeRowsCollected, {
           ptClientMemberIds: ptIds,
           memberById: (id) => membersById.get(String(id)),
         });
-      }, [incomeRowsCollected, membersById, settings]);
+      }, [incomeRowsCollected, members, membersById, settings]);
       const expenseBreakdown = React.useMemo(() => {
         const buildFn = window.__APG_MODULES?.buildExpenseBreakdown;
         const expenseRows = reportingMonthLedger.filter((t) => t.type === 'expense');
@@ -21241,7 +21372,7 @@ function PTClientsPage({ members, users, settings, updateSetting, currentUser, a
       const revenueDrilldownRows = React.useMemo(() => {
         const classifyFn = window.__APG_MODULES?.classifyRevenueBucket;
         const ptSetFn = window.__APG_MODULES?.ptClientMemberIdSet;
-        const ptIds = typeof ptSetFn === 'function' ? ptSetFn(settings) : new Set();
+        const ptIds = typeof ptSetFn === 'function' ? ptSetFn(settings, members) : new Set();
         const ctx = { ptClientMemberIds: ptIds, memberById: (id) => membersById.get(String(id)) };
         const rows = [...incomeRowsCollected].sort((a, b) => String(a.date || '').localeCompare(String(b.date || '')));
         let running = 0;
@@ -21253,7 +21384,7 @@ function PTClientsPage({ members, users, settings, updateSetting, currentUser, a
         });
       }, [incomeRowsCollected, membersById, settings]);
       const fetchFinanceServerSummary = React.useCallback((opts = {}) => {
-        if (dataSyncMode !== 'backend' || !financeMonth) return undefined;
+        if (dataSyncMode !== 'backend' || !financeMonth || !canReadFinanceSummary(access, isOwner)) return undefined;
         let cancelled = false;
         const silent = Boolean(opts.silent);
         if (!silent) setServerSummaryLoading(true);
@@ -21275,16 +21406,16 @@ function PTClientsPage({ members, users, settings, updateSetting, currentUser, a
             if (!cancelled) setServerSummaryLoading(false);
           });
         return () => { cancelled = true; };
-      }, [financeMonth, dataSyncMode]);
+      }, [financeMonth, dataSyncMode, access, isOwner]);
       React.useEffect(() => {
-        if (dataSyncMode !== 'backend' || !financeMonth) {
+        if (dataSyncMode !== 'backend' || !financeMonth || !canReadFinanceSummary(access, isOwner)) {
           serverSummaryStableRef.current = null;
           setServerSummary(null);
           setServerSummaryError('');
           return undefined;
         }
         return fetchFinanceServerSummary();
-      }, [financeMonth, dataSyncMode, fetchFinanceServerSummary]);
+      }, [financeMonth, dataSyncMode, access, isOwner, fetchFinanceServerSummary]);
       React.useEffect(() => {
         const onRefresh = () => { fetchFinanceServerSummary({ silent: true }); };
         window.addEventListener('apg-finance-refresh', onRefresh);
@@ -22207,6 +22338,15 @@ function PTClientsPage({ members, users, settings, updateSetting, currentUser, a
         return apiUp;
       }, [supervisorBase]);
       const verifyFinanceApi = React.useCallback(async () => {
+        if (!canReadFinanceSummary(access)) {
+          setFinanceApiCheck({
+            ok: false,
+            status: 0,
+            month: '',
+            message: 'Finance API check skipped — no finance read permission on this profile.',
+          });
+          return;
+        }
         const month = `${new Date().getFullYear()}-${String(new Date().getMonth() + 1).padStart(2, '0')}`;
         try {
           const body = await backendJson(`/finance/summary?month=${encodeURIComponent(month)}`);

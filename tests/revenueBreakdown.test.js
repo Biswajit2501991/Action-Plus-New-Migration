@@ -10,10 +10,23 @@ describe('classifyRevenueBucket', () => {
     expect(classifyRevenueBucket({ source: 'manual', type: 'income' }, {})).toBe('other');
   });
 
-  it('PT client member is PT', () => {
+  it('orphaned PT profile without PT plan is membership', () => {
     expect(classifyRevenueBucket(
       { source: 'payment', memberId: 'M9', plan: 'Gold' },
-      { ptClientMemberIds: new Set(['M9']) },
+      {
+        ptClientMemberIds: new Set(['M9']),
+        memberById: () => ({ memberId: 'M9', plan: 'Basic', status: 'Active' }),
+      },
+    )).toBe('membership');
+  });
+
+  it('PT client member with PT plan is PT', () => {
+    expect(classifyRevenueBucket(
+      { source: 'payment', memberId: 'M9', plan: 'Gold' },
+      {
+        ptClientMemberIds: new Set(['M9']),
+        memberById: () => ({ memberId: 'M9', plan: 'PT-Raja', status: 'Active' }),
+      },
     )).toBe('pt');
   });
 
@@ -51,5 +64,13 @@ describe('buildRevenueBreakdown', () => {
 describe('ptClientMemberIdSet', () => {
   it('reads keys from settings', () => {
     expect(ptClientMemberIdSet({ ptClientProfiles: { M1: {}, M2: {} } })).toEqual(new Set(['M1', 'M2']));
+  });
+
+  it('drops orphaned profile keys when members are provided', () => {
+    const members = [
+      { memberId: 'M1', plan: 'PT-Raja', status: 'Active' },
+      { memberId: 'M2', plan: 'Basic', status: 'Active' },
+    ];
+    expect(ptClientMemberIdSet({ ptClientProfiles: { M1: {}, M2: {} } }, members)).toEqual(new Set(['M1']));
   });
 });

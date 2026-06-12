@@ -1523,6 +1523,12 @@ async function handlePatchPtClientProfile(req, res) {
   } catch (error) {
     const msg = String(error?.message || error);
     if (msg === 'member_not_found') return res.status(404).json({ error: 'member-not-found' });
+    if (msg === 'member_not_pt_eligible') {
+      return res.status(400).json({
+        error: 'member-not-pt-eligible',
+        message: 'PT profiles can only be saved for members on an active PT plan.',
+      });
+    }
     return res.status(500).json({
       error: 'pt-client-profile-save-failed',
       message: msg,

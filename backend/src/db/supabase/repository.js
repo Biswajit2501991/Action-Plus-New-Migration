@@ -1,5 +1,6 @@
 import crypto from 'node:crypto';
 import { ALL_SECTIONS } from '../../../../src/features/access/permissions.js';
+import { isPtPlanName } from '../../../../src/features/pt/ptEligibility.js';
 import {
   resolvePaidMonthForPayment,
   validatePaidMonthKey,
@@ -898,6 +899,11 @@ async function updateMemberFields(memberCode, patch, branchScope = null) {
     .single();
   if (refErr) throw new Error(`member reload: ${refErr.message}`);
 
+  if (Object.prototype.hasOwnProperty.call(patch, 'plan') && !isPtPlanName(refreshed?.plan_name)) {
+    await safeDeleteByMemberIds(sb, T.pt_client_profiles, [existingRow.id]);
+    notifyCollectionChange('settings');
+  }
+
   let children = await loadMemberChildren(sb, gid, [refreshed.id]);
   const hasInjuryLogPatch = Object.prototype.hasOwnProperty.call(patch, 'medicalAnswers')
     && Array.isArray(patch.medicalAnswers?.injuryNotesLog);
@@ -1166,6 +1172,9 @@ async function writeMembers(members, scope, options = {}) {
   for (const m of incoming) {
     const memberPk = codeToId.get(String(m.memberId));
     if (!memberPk) continue;
+    if (!isPtPlanName(m.plan)) {
+      await safeDeleteByMemberIds(sb, T.pt_client_profiles, [memberPk]);
+    }
     const { payRows, msgRows, attRows, injuryRows } = buildMemberChildRows(m, gid, memberPk);
     if (Object.prototype.hasOwnProperty.call(m, 'paymentHistory')) {
       await syncMemberChildRows(sb, T.member_payment_history, {
@@ -1615,15 +1624,29 @@ async function buildPtProfilesFromRows(sb, gid, ptRowsPrefetched) {
   const profiles = {};
   const memberPks = [...new Set((ptRows || []).map((p) => p.member_id).filter(Boolean))];
   const idToCode = new Map();
+  const planById = new Map();
   for (const idChunk of chunk(memberPks, 100)) {
-    const { data, error } = await sb.from(T.members).select('id, member_code').eq('gym_id', gid).in('id', idChunk);
+    const { data, error } = await sb.from(T.members).select('id, member_code, plan_name').eq('gym_id', gid).in('id', idChunk);
     if (error) throw error;
-    for (const row of data || []) idToCode.set(row.id, row.member_code);
+    for (const row of data || []) {
+      idToCode.set(row.id, row.member_code);
+      planById.set(row.id, row.plan_name);
+    }
   }
+  const orphanMemberPks = [];
   for (const p of ptRows || []) {
     const code = idToCode.get(p.member_id);
+    const planName = planById.get(p.member_id);
     if (!code) continue;
+    if (!isPtPlanName(planName)) {
+      orphanMemberPks.push(p.member_id);
+      continue;
+    }
     profiles[code] = p.plan_json && typeof p.plan_json === 'object' ? p.plan_json : {};
+  }
+  if (orphanMemberPks.length) {
+    await safeDeleteByMemberIds(sb, T.pt_client_profiles, orphanMemberPks);
+    notifyCollectionChange('settings');
   }
   return profiles;
 }
@@ -2047,6 +2070,18 @@ export async function patchPtClientProfile(memberCode, incomingProfile, meta = {
   if (memberErr) throw memberErr;
   const memberRow = Array.isArray(memberRows) && memberRows.length ? memberRows[0] : null;
   if (!memberRow?.id) throw new Error('member_not_found');
+
+  const { data: memberPlanRow, error: memberPlanErr } = await sb
+    .from(T.members)
+    .select('plan_name')
+    .eq('id', memberRow.id)
+    .single();
+  if (memberPlanErr) throw memberPlanErr;
+  if (!isPtPlanName(memberPlanRow?.plan_name)) {
+    const err = new Error('member_not_pt_eligible');
+    err.status = 400;
+    throw err;
+  }
 
   const { data: existingRows, error: existingErr } = await sb
     .from(T.pt_client_profiles)

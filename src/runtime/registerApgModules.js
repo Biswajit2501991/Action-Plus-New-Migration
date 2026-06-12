@@ -12,6 +12,7 @@ import {
   leaveUserIdsMatch,
 } from '../features/leave/leaveApprovalSync.js';
 import { buildPtMonthCalendarCells } from '../features/pt/ptWorkoutCalendarGrid.js';
+import { isPtEligibleMember, isPtPlanName } from '../features/pt/ptEligibility.js';
 import LeaveApprovalNotificationCard from '../components/leave/LeaveApprovalNotificationCard.js';
 import LeaveApprovalStatusBadge from '../components/leave/LeaveApprovalStatusBadge.js';
 import {
@@ -71,6 +72,7 @@ import {
   bindFocusTrap,
   EDITOR_MODAL_Z_INDEX,
   PHOTO_PICKER_MODAL_Z_INDEX,
+  PHOTO_PREVIEW_MODAL_Z_INDEX,
 } from '../features/modal/editorModalShell.js';
 import {
   EDIT_MEMBER_DIRTY_KEYS,
@@ -352,6 +354,8 @@ window.__APG_MODULES.annualLeaveBalanceRemaining = annualLeaveBalanceRemaining;
 window.__APG_MODULES.mergeLeaveRequestsFromPull = mergeLeaveRequestsFromPull;
 window.__APG_MODULES.leaveUserIdsMatch = leaveUserIdsMatch;
 window.__APG_MODULES.buildPtMonthCalendarCells = buildPtMonthCalendarCells;
+window.__APG_MODULES.isPtEligibleMember = isPtEligibleMember;
+window.__APG_MODULES.isPtPlanName = isPtPlanName;
 window.__APG_MODULES.LeaveApprovalNotificationCard = LeaveApprovalNotificationCard;
 window.__APG_MODULES.LeaveApprovalStatusBadge = LeaveApprovalStatusBadge;
 window.__APG_MODULES.filterMembersForUser = filterMembersForUser;
@@ -396,6 +400,7 @@ window.__APG_MODULES.bindModalEscapeKey = bindModalEscapeKey;
 window.__APG_MODULES.bindFocusTrap = bindFocusTrap;
 window.__APG_MODULES.EDITOR_MODAL_Z_INDEX = EDITOR_MODAL_Z_INDEX;
 window.__APG_MODULES.PHOTO_PICKER_MODAL_Z_INDEX = PHOTO_PICKER_MODAL_Z_INDEX;
+window.__APG_MODULES.PHOTO_PREVIEW_MODAL_Z_INDEX = PHOTO_PREVIEW_MODAL_Z_INDEX;
 window.__APG_MODULES.EDIT_MEMBER_DIRTY_KEYS = EDIT_MEMBER_DIRTY_KEYS;
 window.__APG_MODULES.isMemberFormDirty = isMemberFormDirty;
 window.__APG_MODULES.memberFormChangedMap = memberFormChangedMap;

@@ -35,16 +35,30 @@ async function buildAppBundle(inlineScript) {
   return transformed.code;
 }
 
+/** Map `import … from 'react'` to the global loaded by index.html. */
+const reactGlobalPlugin = {
+  name: 'react-global',
+  setup(build) {
+    build.onResolve({ filter: /^react$/ }, () => ({ path: 'react-global', namespace: 'react-global' }));
+    build.onLoad({ filter: /.*/, namespace: 'react-global' }, () => ({
+      contents: 'const React = window.React;\nexport default React;\n',
+      loader: 'js',
+    }));
+  },
+};
+
 async function buildLeaveTrackerModule() {
-  const source = fs.readFileSync(leaveTrackerPath, 'utf8');
-  const transformed = await esbuild.transform(source, {
-    loader: 'jsx',
+  const result = await esbuild.build({
+    entryPoints: [leaveTrackerPath],
+    bundle: true,
     format: 'esm',
     target: 'es2020',
     minify: true,
     legalComments: 'none',
+    write: false,
+    plugins: [reactGlobalPlugin],
   });
-  return transformed.code;
+  return result.outputFiles[0].text;
 }
 
 function buildProdHtml(html, inlineFullMatch) {
