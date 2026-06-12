@@ -5625,7 +5625,11 @@ Phone: +91-7047157510`;
         if (dataSyncMode !== 'backend') return;
         const id = String(memberId || '').trim();
         const photoStr = String(photo || '').trim();
-        if (!id || !photoStr) return;
+        const isUploadableFn = window.__APG_MODULES?.isUploadableMemberPhotoPayload;
+        const uploadable = typeof isUploadableFn === 'function'
+          ? isUploadableFn(photoStr)
+          : /^data:image\/[a-z+]+;base64,/i.test(photoStr);
+        if (!id || !uploadable) return;
         const storageOn = window.__APG_MODULES?.memberPhotoStorageEnabled?.();
         const uploadFn = window.__APG_MODULES?.uploadMemberPhotoApi;
         if (storageOn && typeof uploadFn === 'function') {
@@ -8076,9 +8080,16 @@ Please pay by: ${formattedLastDate}`;
           }
           deferSuccessToastForPayMonthPatch = Object.keys(delta).length > 0
             && Object.prototype.hasOwnProperty.call(delta, 'payMonth');
-          const photoChanged = String(toSave.photo || '').trim() !== String(beforeMember.photo || '').trim();
-          if (photoStorageOn && photoChanged && String(toSave.photo || '').trim()) {
-            patchMemberPhoto(toSave.memberId, toSave.photo);
+          const toSavePhoto = String(toSave.photo || '').trim();
+          const beforePhoto = String(beforeMember.photo || '').trim();
+          const isUploadableFn = window.__APG_MODULES?.isUploadableMemberPhotoPayload;
+          const isUploadablePhoto = (value) => (typeof isUploadableFn === 'function'
+            ? isUploadableFn(value)
+            : /^data:image\/[a-z+]+;base64,/i.test(String(value || '').trim()));
+          const photoChanged = isUploadablePhoto(toSavePhoto)
+            && toSavePhoto !== beforePhoto;
+          if (photoStorageOn && photoChanged) {
+            patchMemberPhoto(toSave.memberId, toSavePhoto);
           }
           if (Object.keys(delta).length) {
             const applyPatchResponse = (res) => {
@@ -8510,8 +8521,13 @@ Please pay by: ${formattedLastDate}`;
         showMemberUndoToast('Member added — Undo', previousMembers);
         setToast(`${memberWithAudit.name} has been saved successfully`);
         setTimeout(() => setToast(''), 2500);
-        if (dataSyncMode === 'backend' && String(memberWithAudit.photo || '').trim()) {
-          patchMemberPhoto(memberWithAudit.memberId, memberWithAudit.photo);
+        const addPhoto = String(memberWithAudit.photo || '').trim();
+        const isUploadableFn = window.__APG_MODULES?.isUploadableMemberPhotoPayload;
+        const addPhotoUploadable = typeof isUploadableFn === 'function'
+          ? isUploadableFn(addPhoto)
+          : /^data:image\/[a-z+]+;base64,/i.test(addPhoto);
+        if (dataSyncMode === 'backend' && addPhotoUploadable) {
+          patchMemberPhoto(memberWithAudit.memberId, addPhoto);
         }
       };
       const confirmFamilyLink = () => {
@@ -13588,6 +13604,7 @@ function MobileMemberDetailView({ m, onBack, onEdit, onWelcome, onWhatsAppCall, 
     // ---- Avatar Component ----
     function Avatar({ name, photo, member, className }) {
       const [, photoCacheTick] = React.useReducer((n) => n + 1, 0);
+      const [imgFailed, setImgFailed] = React.useState(false);
       React.useEffect(() => {
         const onPhotoCache = () => photoCacheTick();
         window.addEventListener('apg:photo-cache-updated', onPhotoCache);
@@ -13597,9 +13614,17 @@ function MobileMemberDetailView({ m, onBack, onEdit, onWelcome, onWhatsAppCall, 
       const src = typeof resolveFn === 'function' && member
         ? resolveFn(member)
         : String(photo || '').trim();
+      React.useEffect(() => { setImgFailed(false); }, [src, member?.memberId, member?.photoVersion]);
       const initials = (name || '').split(' ').map(p => p[0]).slice(0, 2).join('').toUpperCase();
-      if (src) {
-        return <img src={src} alt={name} className={cx('rounded-full object-cover', className)} />;
+      if (src && !imgFailed) {
+        return (
+          <img
+            src={src}
+            alt={name}
+            className={cx('rounded-full object-cover', className)}
+            onError={() => setImgFailed(true)}
+          />
+        );
       }
       return (
         <div className={cx('rounded-full bg-slate-200 text-slate-700 grid place-items-center text-xs font-semibold', className)}>{initials || '?'}</div>
@@ -13657,6 +13682,7 @@ function MobileMemberDetailView({ m, onBack, onEdit, onWelcome, onWhatsAppCall, 
 
     function MemberPhotoPreviewModal({ open, onClose, name, memberId, photo, member, gymLabel = '' }) {
       const [, photoCacheTick] = React.useReducer((n) => n + 1, 0);
+      const [imgFailed, setImgFailed] = React.useState(false);
       React.useEffect(() => {
         const onPhotoCache = () => photoCacheTick();
         window.addEventListener('apg:photo-cache-updated', onPhotoCache);
@@ -13667,12 +13693,13 @@ function MobileMemberDetailView({ m, onBack, onEdit, onWelcome, onWhatsAppCall, 
         const bindEsc = window.__APG_MODULES?.bindModalEscapeKey;
         return typeof bindEsc === 'function' ? bindEsc(onClose) : undefined;
       }, [open, onClose]);
-      if (!open) return null;
       const previewZ = window.__APG_MODULES?.PHOTO_PREVIEW_MODAL_Z_INDEX ?? 78;
       const resolveFn = window.__APG_MODULES?.resolveMemberAvatarSrc;
       const src = typeof resolveFn === 'function' && member
         ? resolveFn(member)
         : String(photo || '').trim();
+      React.useEffect(() => { setImgFailed(false); }, [src, memberId, member?.photoVersion, open]);
+      if (!open) return null;
       const displayName = String(name || '').trim() || 'Member';
       const displayId = String(memberId || '').trim();
       const initials = displayName.split(' ').map((p) => p[0]).slice(0, 2).join('').toUpperCase();
@@ -13697,11 +13724,12 @@ function MobileMemberDetailView({ m, onBack, onEdit, onWelcome, onWhatsAppCall, 
                 <button type="button" onClick={onClose} className="rounded-xl p-2 hover:bg-slate-100" aria-label="Close preview"><span>✕</span></button>
               </div>
               <div className="px-6 pb-2 flex flex-col items-center text-center">
-                {src ? (
+                {src && !imgFailed ? (
                   <img
                     src={src}
                     alt={displayName}
                     className="h-48 w-48 sm:h-56 sm:w-56 rounded-full object-cover border border-slate-200 shadow-sm"
+                    onError={() => setImgFailed(true)}
                   />
                 ) : (
                   <div className="h-48 w-48 sm:h-56 sm:w-56 rounded-full bg-slate-200 text-slate-700 grid place-items-center text-3xl font-semibold border border-slate-200">

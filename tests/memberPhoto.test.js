@@ -83,6 +83,19 @@ describe('resolveMemberAvatarSrc', () => {
     invalidateMemberPhotoCache('M9');
     global.window = prev;
   });
+
+  it('does not use inline signed URLs when cache misses in storage mode', () => {
+    const prev = global.window;
+    global.window = { __APG_ENV__: { MEMBER_PHOTO_STORAGE_ENABLED: true } };
+    const src = resolveMemberAvatarSrc({
+      memberId: 'M10',
+      hasPhoto: true,
+      photoVersion: 2,
+      photo: 'https://cdn.example/stale-signed.jpg',
+    });
+    expect(src).toBe('');
+    global.window = prev;
+  });
 });
 
 describe('memberPhotoStorageEnabled env', () => {

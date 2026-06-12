@@ -22,7 +22,6 @@ export function resolveMemberAvatarSrc(member) {
   if (memberPhotoStorageEnabled() && id && member.hasPhoto) {
     const cached = getCachedMemberPhotoUrl(id, version);
     if (cached) return cached;
-    if (inline.startsWith('http')) return inline;
     if (inline.startsWith('data:')) return inline;
     return '';
   }
@@ -56,13 +55,17 @@ export function mergeMemberPhotoFields(localRow, remoteRow) {
     };
   }
 
+  const dataUrlOnly = (value) => {
+    const s = String(value || '').trim();
+    return s.startsWith('data:') ? s : '';
+  };
   let photo = '';
   if (remoteVer > localVer) {
-    photo = remotePhoto.startsWith('http') ? remotePhoto : '';
+    photo = dataUrlOnly(remotePhoto);
   } else if (localVer > remoteVer) {
-    photo = localPhoto;
+    photo = dataUrlOnly(localPhoto);
   } else {
-    photo = localPhoto || (remotePhoto.startsWith('http') ? remotePhoto : '');
+    photo = dataUrlOnly(localPhoto) || dataUrlOnly(remotePhoto);
   }
 
   return { photo, photoVersion: version, hasPhoto };

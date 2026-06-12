@@ -16,7 +16,7 @@ describe('pickMemberBillingSource', () => {
 });
 
 describe('mergeMemberPatchResponse', () => {
-  it('keeps local photo when PATCH returns empty storage-mode photo', () => {
+  it('strips signed URLs from photo but keeps hasPhoto on PATCH merge', () => {
     const prev = global.window;
     global.window = { __APG_ENV__: { MEMBER_PHOTO_STORAGE_ENABLED: true } };
     const local = {
@@ -32,8 +32,9 @@ describe('mergeMemberPatchResponse', () => {
       hasPhoto: true,
     };
     const merged = mergeMemberPatchResponse(local, server);
-    expect(merged.photo).toBe('https://cdn.example/photo.jpg');
+    expect(merged.photo).toBe('');
     expect(merged.hasPhoto).toBe(true);
+    expect(merged.photoVersion).toBe(2);
     global.window = prev;
   });
 

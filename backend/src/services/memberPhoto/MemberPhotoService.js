@@ -18,18 +18,7 @@ import {
   uploadMemberPhotoObject,
 } from './MemberPhotoStorageManager.js';
 
-function parseImagePayload(raw) {
-  if (!raw || typeof raw !== 'string') return null;
-  const match = raw.match(/^data:(image\/[a-z+]+);base64,(.+)$/i);
-  if (match) {
-    return { mime: match[1].toLowerCase(), buffer: Buffer.from(match[2], 'base64') };
-  }
-  try {
-    return { mime: 'image/jpeg', buffer: Buffer.from(raw, 'base64') };
-  } catch {
-    return null;
-  }
-}
+import { parseMemberPhotoImagePayload } from './parseImagePayload.js';
 
 function actorLabel(auth) {
   return String(auth?.name || auth?.userId || 'system').trim() || 'system';
@@ -120,7 +109,7 @@ export async function assertMemberPhotoStorageReady() {
  */
 export async function uploadMemberPhoto(auth, memberCode, imagePayload, branchScope) {
   await assertMemberPhotoStorageReady();
-  const parsed = parseImagePayload(imagePayload);
+  const parsed = parseMemberPhotoImagePayload(imagePayload);
   if (!parsed?.buffer?.length) {
     const err = new Error('photo-data-required');
     err.status = 400;

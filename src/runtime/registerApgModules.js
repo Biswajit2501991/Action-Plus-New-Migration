@@ -234,6 +234,7 @@ import {
   resolveMemberAvatarSrc,
   mergeMemberPhotoFields,
 } from '../features/members/memberAvatarResolver.js';
+import { isUploadableMemberPhotoPayload } from '../features/members/memberPhotoUpload.js';
 import {
   getCachedMemberPhotoUrl,
   setCachedMemberPhotoUrl,
@@ -520,6 +521,7 @@ window.__APG_MODULES.sumPaymentRowAmounts = sumPaymentRowAmounts;
 window.__APG_MODULES.pickMergedPaymentHistory = pickMergedPaymentHistory;
 window.__APG_MODULES.resolveMemberAvatarSrc = resolveMemberAvatarSrc;
 window.__APG_MODULES.mergeMemberPhotoFields = mergeMemberPhotoFields;
+window.__APG_MODULES.isUploadableMemberPhotoPayload = isUploadableMemberPhotoPayload;
 window.__APG_MODULES.getCachedMemberPhotoUrl = getCachedMemberPhotoUrl;
 window.__APG_MODULES.setCachedMemberPhotoUrl = setCachedMemberPhotoUrl;
 window.__APG_MODULES.invalidateMemberPhotoCache = invalidateMemberPhotoCache;
