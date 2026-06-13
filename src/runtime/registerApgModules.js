@@ -150,6 +150,26 @@ import {
   ANCHORED_POPOVER_LAYER_CLASS,
   ANCHORED_POPOVER_Z_INDEX,
 } from '../features/overlay/anchoredPopoverCoords.js';
+import HeaderDatePicker from '../components/overlay/HeaderDatePicker.js';
+import {
+  fetchFinanceMonthSummaryWithRetry,
+  fetchFinanceYearSummaryWithRetry,
+  collectedTrendFromYearSummary,
+} from '../features/finance/fetchFinanceSummary.js';
+import {
+  getCachedFinanceMonthSummary,
+  getCachedFinanceYearSummary,
+  setCachedFinanceMonthSummary,
+  setCachedFinanceYearSummary,
+  invalidateFinanceMetrics,
+  clearFinanceMetricsCache,
+  dispatchFinanceMetricsInvalidate,
+  subscribeFinanceMetricsInvalidation,
+} from '../features/finance/financeMetricsCache.js';
+import {
+  loadFinanceMonthSummaryCached,
+  loadFinanceYearSummaryCached,
+} from '../features/finance/financeMetricsLoader.js';
 import {
   PASSWORD_RESET_STATUS,
   canViewPasswordResetNotifications,
@@ -467,6 +487,20 @@ window.__APG_MODULES.resolveBrandingForActiveUser = resolveBrandingForActiveUser
 window.__APG_MODULES.measureAnchoredPopoverCoords = measureAnchoredPopoverCoords;
 window.__APG_MODULES.ANCHORED_POPOVER_LAYER_CLASS = ANCHORED_POPOVER_LAYER_CLASS;
 window.__APG_MODULES.ANCHORED_POPOVER_Z_INDEX = ANCHORED_POPOVER_Z_INDEX;
+window.__APG_MODULES.HeaderDatePicker = HeaderDatePicker;
+window.__APG_MODULES.fetchFinanceMonthSummaryWithRetry = fetchFinanceMonthSummaryWithRetry;
+window.__APG_MODULES.fetchFinanceYearSummaryWithRetry = fetchFinanceYearSummaryWithRetry;
+window.__APG_MODULES.collectedTrendFromYearSummary = collectedTrendFromYearSummary;
+window.__APG_MODULES.getCachedFinanceMonthSummary = getCachedFinanceMonthSummary;
+window.__APG_MODULES.getCachedFinanceYearSummary = getCachedFinanceYearSummary;
+window.__APG_MODULES.setCachedFinanceMonthSummary = setCachedFinanceMonthSummary;
+window.__APG_MODULES.setCachedFinanceYearSummary = setCachedFinanceYearSummary;
+window.__APG_MODULES.invalidateFinanceMetrics = invalidateFinanceMetrics;
+window.__APG_MODULES.clearFinanceMetricsCache = clearFinanceMetricsCache;
+window.__APG_MODULES.dispatchFinanceMetricsInvalidate = dispatchFinanceMetricsInvalidate;
+window.__APG_MODULES.subscribeFinanceMetricsInvalidation = subscribeFinanceMetricsInvalidation;
+window.__APG_MODULES.loadFinanceMonthSummaryCached = loadFinanceMonthSummaryCached;
+window.__APG_MODULES.loadFinanceYearSummaryCached = loadFinanceYearSummaryCached;
 window.__APG_MODULES.PASSWORD_RESET_STATUS = PASSWORD_RESET_STATUS;
 window.__APG_MODULES.passwordResetStatusFromRecord = passwordResetStatusFromRecord;
 window.__APG_MODULES.isPasswordResetPendingUser = isPasswordResetPendingUser;

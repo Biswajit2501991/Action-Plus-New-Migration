@@ -2347,6 +2347,7 @@ async function readFinanceSummary(branchScope, options = {}) {
     buildYearReconciliationFromRecords,
     calendarMonthPaidAtBounds,
     mapDbPaymentsToRecords,
+    paymentInCalendarMonth,
   } = await import('../../services/financeSummaryService.js');
 
   const emptyMonth = (monthKey) => ({
@@ -2577,10 +2578,12 @@ async function readFinanceSummary(branchScope, options = {}) {
     (sum, p) => sum + Number(p.amount || 0),
     0,
   );
-  let collectedFromLedger = (ledgerFastPath ? collectedPaymentSum : Number(summary.memberPaymentsCollected || 0))
+  const collectedFromLedger = (ledgerFastPath ? collectedPaymentSum : Number(summary.memberPaymentsCollected || 0))
     + manualIncome;
   let serviceFromPayments = ledgerServiceSum;
-  let revenueBasisTag = ledgerServiceSum > 0 ? 'member_paid_for_month_active_ledger' : summary.revenueBasis;
+  let serviceRevenueBasis = ledgerServiceSum > 0
+    ? 'member_paid_for_month_active_ledger'
+    : summary.revenueBasis;
   if (ledgerReady && ledgerServiceSum === 0) {
     const { sumServiceRevenueFromPaymentRecords } = await import(
       '../../../src/features/finance/aggregateFinanceSummary.js'
@@ -2588,20 +2591,28 @@ async function readFinanceSummary(branchScope, options = {}) {
     serviceRecords = await loadPaymentsForServiceMonth(monthKey);
     serviceFromPayments = sumServiceRevenueFromPaymentRecords(serviceRecords, monthKey);
     if (serviceFromPayments > 0) {
-      collectedFromLedger = serviceFromPayments + manualIncome;
-      revenueBasisTag = 'paid_month_payment_history_active_fallback';
+      serviceRevenueBasis = 'paid_month_payment_history_active_fallback';
     }
   }
-  const prevLedgerSum = await (async () => {
+  const prevMonthCollected = await (async () => {
     const prevKey = (() => {
       const [y, m] = monthKey.split('-').map(Number);
       if (!y || !m) return '';
       const d = new Date(Date.UTC(y, m - 2, 1));
       return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}`;
     })();
-    if (!prevKey) return 0;
+    const prevBounds = calendarMonthPaidAtBounds(prevKey);
+    if (!prevBounds) return 0;
     try {
-      return await sumPaidForMonthLedger(sb, gid, prevKey, financeMemberPks);
+      const prevRecords = await loadPaymentsInRange(prevBounds.from, prevBounds.toExclusive);
+      const prevPaymentSum = (prevRecords || []).reduce(
+        (sum, p) => sum + Number(p.amount || 0),
+        0,
+      );
+      const prevManual = (Array.isArray(financeRows) ? financeRows : [])
+        .filter((t) => t && t.type !== 'expense' && paymentInCalendarMonth(t.date, prevKey))
+        .reduce((sum, t) => sum + Number(t.amount || 0), 0);
+      return prevPaymentSum + prevManual;
     } catch {
       return 0;
     }
@@ -2615,8 +2626,8 @@ async function readFinanceSummary(branchScope, options = {}) {
       useEstimateFallback: summary.useEstimateFallback,
     }
     : { expense: 0, profit: collectedFromLedger, expenseSubtitle: '', useEstimateFallback: false };
-  const growthPct = prevLedgerSum + manualIncome > 0
-    ? Math.round(((collectedFromLedger - (prevLedgerSum + manualIncome)) / (prevLedgerSum + manualIncome)) * 1000) / 10
+  const growthPct = prevMonthCollected > 0
+    ? Math.round(((collectedFromLedger - prevMonthCollected) / prevMonthCollected) * 1000) / 10
     : (collectedFromLedger > 0 ? 100 : 0);
   return {
     ...summary,
@@ -2626,8 +2637,11 @@ async function readFinanceSummary(branchScope, options = {}) {
     memberPaymentsService: ledgerServiceSum || serviceFromPayments,
     profit: expenseProfit.profit,
     revenueGrowthPct: growthPct,
-    revenueBasis: revenueBasisTag,
-    dateBasis: ledgerServiceSum > 0 ? 'member_paid_for_month_active_ledger' : summary.dateBasis,
+    prevMonthCollected,
+    collectedRevenueBasis: 'payment_transaction_date_utc_calendar',
+    serviceRevenueBasis,
+    revenueBasis: serviceRevenueBasis,
+    dateBasis: 'payment_transaction_date_utc_calendar',
     dbLedgerServiceSum: ledgerServiceSum,
     dbLedgerActiveSum: ledgerServiceSum,
     dbServiceMonthFallbackSum: serviceFromPayments,

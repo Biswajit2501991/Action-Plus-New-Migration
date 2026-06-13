@@ -1338,7 +1338,8 @@
     /* cannot clip or bury the panel beneath sticky filters / dashboard cards. */
     /* --------------------------------------------------------------------- */
     .apg-anchored-popover,
-    .apg-notif-popover {
+    .apg-notif-popover,
+    .apg-header-date-popover {
       position: fixed;
       z-index: 9000;
       isolation: isolate;
@@ -1525,6 +1526,20 @@
       return `${y}-${m}-${d}`;
     };
     const localTodayCalendarKey = () => localCalendarDateKey(new Date());
+    const financeMonthsFromPayment = (paidMonth, paidAt) => {
+      const months = new Set();
+      const pm = String(paidMonth || '').trim().slice(0, 7);
+      const cm = String(localCalendarDateKey(paidAt) || '').slice(0, 7);
+      if (/^\d{4}-\d{2}$/.test(pm)) months.add(pm);
+      if (/^\d{4}-\d{2}$/.test(cm)) months.add(cm);
+      return [...months];
+    };
+    const financeMonthKeyFromDate = (dateStr) => String(localCalendarDateKey(dateStr) || '').slice(0, 7);
+    const notifyFinanceMetricsInvalidate = (detail = {}) => {
+      const dispatch = window.__APG_MODULES?.dispatchFinanceMetricsInvalidate;
+      if (typeof dispatch === 'function') dispatch(detail);
+      else window.dispatchEvent(new CustomEvent('apg-finance-invalidate', { detail }));
+    };
     /** Staff "Reminder Sent" only for current billing date; new billing date re-enables Reminder. */
     const reminderSentForCurrentBilling = (member) => {
       const sentRaw = member?.reminderSentAt;
@@ -4660,6 +4675,8 @@ Phone: +91-7047157510`;
         if (typeof resetFn === 'function') resetFn();
         const invalidateFn = window.__APG_MODULES?.branchBrandingCache?.invalidate;
         if (typeof invalidateFn === 'function') invalidateFn();
+        const clearFinanceFn = window.__APG_MODULES?.clearFinanceMetricsCache;
+        if (typeof clearFinanceFn === 'function') clearFinanceFn();
       }, []);
       const writeAuthSession = React.useCallback((userId, token) => {
         touchAuthSession(userId, token);
@@ -4787,11 +4804,47 @@ Phone: +91-7047157510`;
         return String(user?.activeBranchId || user?.gymCodeId || '').trim();
       }, [user, gymCodes, branchContextRev, user?.activeBranchId, user?.gymCodeId]);
       React.useEffect(() => {
+        const onLegacyRefresh = (ev) => {
+          const detail = ev?.detail || {};
+          const dispatchFn = window.__APG_MODULES?.dispatchFinanceMetricsInvalidate;
+          if (typeof dispatchFn !== 'function') {
+            setFinanceMetricsEpoch((n) => n + 1);
+            return;
+          }
+          if (Array.isArray(detail.months) && detail.months.length) {
+            dispatchFn({ ...detail, branchId: detail.branchId || authoritativeActiveBranchId });
+          } else {
+            const now = new Date();
+            const month = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+            dispatchFn({
+              months: [month],
+              years: [now.getFullYear()],
+              branchId: authoritativeActiveBranchId,
+              reason: detail.reason || 'legacy-refresh',
+            });
+          }
+        };
+        const onInvalidate = () => {
+          setFinanceMetricsEpoch((n) => n + 1);
+        };
+        window.addEventListener('apg-finance-refresh', onLegacyRefresh);
+        window.addEventListener('apg-finance-invalidate', onInvalidate);
+        const unsub = window.__APG_MODULES?.subscribeFinanceMetricsInvalidation?.(() => {
+          setFinanceMetricsEpoch((n) => n + 1);
+        });
+        return () => {
+          window.removeEventListener('apg-finance-refresh', onLegacyRefresh);
+          window.removeEventListener('apg-finance-invalidate', onInvalidate);
+          if (typeof unsub === 'function') unsub();
+        };
+      }, [authoritativeActiveBranchId]);
+      React.useEffect(() => {
         const store = window.__APG_MODULES?.activeBranchStore;
         if (!store?.subscribe) return undefined;
         return store.subscribe(() => setBranchContextRev((n) => n + 1));
       }, []);
       const [branchSwitching, setBranchSwitching] = React.useState(false);
+      const [financeMetricsEpoch, setFinanceMetricsEpoch] = React.useState(0);
       const [photoCacheRev, setPhotoCacheRev] = React.useState(0);
       const photoSyncSigRef = React.useRef('');
       const photoSyncInFlightRef = React.useRef(null);
@@ -5304,6 +5357,9 @@ Phone: +91-7047157510`;
           });
           const applyFn = window.__APG_MODULES?.applyAuthoritativeBranchToUser;
           setUser(typeof applyFn === 'function' ? applyFn(nextUser, gymCodes) : nextUser);
+          const clearFinanceFn = window.__APG_MODULES?.clearFinanceMetricsCache;
+          if (typeof clearFinanceFn === 'function') clearFinanceFn(id);
+          setFinanceMetricsEpoch((n) => n + 1);
           setToast('Branch context updated.');
           setTimeout(() => setToast(''), 2200);
         } catch (err) {
@@ -6376,7 +6432,7 @@ Phone: +91-7047157510`;
       const mobileBellRef = React.useRef(null);
       const desktopBellRef = React.useRef(null);
       const [headerDate, setHeaderDate] = React.useState(() => localTodayCalendarKey());
-      const headerDateInputRef = React.useRef(null);
+      const HeaderDatePickerCmp = window.__APG_MODULES?.HeaderDatePicker;
       const [quickExpenseOpen, setQuickExpenseOpen] = React.useState(false);
       const [paymentEntryModal, setPaymentEntryModal] = React.useState({
         open: false,
@@ -6596,10 +6652,18 @@ Phone: +91-7047157510`;
           createdAt: new Date().toISOString(),
         };
         setFinanceTransactions((prev) => [nextRow, ...(Array.isArray(prev) ? prev : [])]);
+        const expenseMonth = financeMonthKeyFromDate(nextRow.date);
+        if (expenseMonth) {
+          notifyFinanceMetricsInvalidate({
+            branchId: authoritativeActiveBranchId,
+            months: [expenseMonth],
+            reason: 'expense',
+          });
+        }
         setQuickExpenseOpen(false);
         setToast('Expense saved successfully.');
         setTimeout(() => setToast(''), 2200);
-      }, [quickExpenseDraft, user, setFinanceTransactions]);
+      }, [quickExpenseDraft, user, setFinanceTransactions, authoritativeActiveBranchId]);
       const rememberMemberDefaults = React.useCallback((member) => {
         if (!member) return;
         const nextDefaults = {
@@ -8305,7 +8369,11 @@ Please pay by: ${formattedLastDate}`;
                       paidForMonth: monthKey,
                       amount: newAmount,
                     });
-                    window.dispatchEvent(new CustomEvent('apg-finance-refresh'));
+                    notifyFinanceMetricsInvalidate({
+                      branchId: authoritativeActiveBranchId,
+                      months: [monthKey],
+                      reason: 'paid-for-month-override',
+                    });
                   } catch (retryErr) {
                     setToast('Could not override paid-for-month amount.');
                     setTimeout(() => setToast(''), 2800);
@@ -8368,7 +8436,16 @@ Please pay by: ${formattedLastDate}`;
         }
         if (ok) {
           if (quickFieldEdit.fieldKey === 'payMonth' || quickFieldEdit.fieldKey === 'amount') {
-            window.dispatchEvent(new CustomEvent('apg-finance-refresh'));
+            const payMonthKeyFn = window.__APG_MODULES?.payMonthKeyFromStoredValue;
+            const monthKey = quickFieldEdit.fieldKey === 'payMonth'
+              ? String(nextValue || '').trim().slice(0, 7)
+              : (typeof payMonthKeyFn === 'function' ? payMonthKeyFn(target.payMonth) : '');
+            const months = /^\d{4}-\d{2}$/.test(monthKey) ? [monthKey] : [];
+            notifyFinanceMetricsInvalidate({
+              branchId: authoritativeActiveBranchId,
+              months,
+              reason: 'quick-field-edit',
+            });
           }
           if (quickFieldEdit.fieldKey === 'billingDate') {
             setToast('Billing date saved.');
@@ -8466,7 +8543,13 @@ Please pay by: ${formattedLastDate}`;
           name: deletedRow?.name || '',
         });
         showMemberUndoToast('Member deleted — Undo', previousMembers);
-        window.dispatchEvent(new CustomEvent('apg-finance-refresh'));
+        const now = new Date();
+        notifyFinanceMetricsInvalidate({
+          branchId: authoritativeActiveBranchId,
+          months: [`${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`],
+          years: [now.getFullYear()],
+          reason: 'member-deleted',
+        });
         return true;
       };
 
@@ -8783,7 +8866,11 @@ Please pay by: ${formattedLastDate}`;
                 String(x.memberId || '').trim() === memberId ? savedMember : x
               )));
               markMemberAwaitingBackendSync(memberId, savedMember);
-              window.dispatchEvent(new CustomEvent('apg-finance-refresh'));
+              notifyFinanceMetricsInvalidate({
+                branchId: authoritativeActiveBranchId,
+                months: financeMonthsFromPayment(paidMonth, paidAt),
+                reason: 'payment-edited',
+              });
             } else {
               const patched = computePaymentEditPatch(target, memberId, editingId, afterRow, paidMonth, payTs);
               if (!patched) throw new Error('Could not update this payment in local data. Try refreshing the page.');
@@ -8791,7 +8878,11 @@ Please pay by: ${formattedLastDate}`;
                 String(x.memberId || '').trim() === memberId ? patched : x
               )));
               queueMicrotask(() => markMemberAwaitingBackendSync(memberId, patched));
-              window.dispatchEvent(new CustomEvent('apg-finance-refresh'));
+              notifyFinanceMetricsInvalidate({
+                branchId: authoritativeActiveBranchId,
+                months: financeMonthsFromPayment(paidMonth, paidAt),
+                reason: 'payment-edited',
+              });
             }
             logEvent('member.payment.edited', 'member', memberId, beforeRow, {
               memberName: target.name || '',
@@ -8869,7 +8960,11 @@ Please pay by: ${formattedLastDate}`;
                 String(x.memberId || '').trim() === memberId ? savedMember : x
               )));
               markMemberAwaitingBackendSync(memberId, savedMember);
-              window.dispatchEvent(new CustomEvent('apg-finance-refresh'));
+              notifyFinanceMetricsInvalidate({
+                branchId: authoritativeActiveBranchId,
+                months: financeMonthsFromPayment(paidMonth, paidAt),
+                reason: 'payment-added',
+              });
             } else {
               const patched = computePaymentAddPatch(target, memberId, row, paidMonth, payTs);
               if (!patched) throw new Error('Could not save this payment in local data. Try refreshing the page.');
@@ -8877,7 +8972,11 @@ Please pay by: ${formattedLastDate}`;
                 String(x.memberId || '').trim() === memberId ? patched : x
               )));
               queueMicrotask(() => markMemberAwaitingBackendSync(memberId, patched));
-              window.dispatchEvent(new CustomEvent('apg-finance-refresh'));
+              notifyFinanceMetricsInvalidate({
+                branchId: authoritativeActiveBranchId,
+                months: financeMonthsFromPayment(paidMonth, paidAt),
+                reason: 'payment-added',
+              });
             }
             logEvent('member.payment.added', 'member', memberId, null, {
               memberName: target.name || '',
@@ -8998,6 +9097,11 @@ Please pay by: ${formattedLastDate}`;
           });
           setToast('Payment entry deleted.');
           setTimeout(() => setToast(''), 2200);
+          notifyFinanceMetricsInvalidate({
+            branchId: authoritativeActiveBranchId,
+            months: financeMonthsFromPayment(removed.paidMonth, removed.paidAt),
+            reason: 'payment-deleted',
+          });
           setPaymentDeletePrompt({ open: false, memberId: '', memberName: '', paymentId: '', amount: 0, paidAt: '' });
           return true;
         } catch (err) {
@@ -10020,22 +10124,29 @@ Please pay by: ${formattedLastDate}`;
                   className="min-w-0 flex-1 border-0 bg-transparent px-3 py-2.5 text-xs text-slate-800 placeholder:text-black focus:outline-none focus:ring-0 dark:text-slate-100 dark:placeholder:text-emerald-50"
                 />
               </div>
-              <button
-                onClick={() => {
-                  const input = headerDateInputRef.current;
-                  if (!input) return;
-                  if (typeof input.showPicker === 'function') input.showPicker();
-                  else input.click();
-                }}
-                className="shrink-0 rounded-xl border border-slate-200 bg-white px-2.5 py-2 text-[11px] font-semibold text-slate-700"
-                title="Select date"
-              >
-                {(() => {
-                  const d = asUTC(headerDate);
-                  if (!d) return '--/---';
-                  return `${String(d.getDate()).padStart(2, '0')}/${String(MONTHS[d.getMonth()] || '').slice(0, 3)}`;
-                })()}
-              </button>
+              {HeaderDatePickerCmp ? (
+                <HeaderDatePickerCmp
+                  value={headerDate}
+                  onChange={setHeaderDate}
+                  compact
+                  showYear={false}
+                  width={288}
+                  offset={4}
+                  testId="header-date-picker-mobile"
+                />
+              ) : (
+                <button
+                  className="shrink-0 rounded-xl border border-slate-200 bg-white px-2.5 py-2 text-[11px] font-semibold text-slate-700"
+                  title="Select date"
+                  disabled
+                >
+                  {(() => {
+                    const d = asUTC(headerDate);
+                    if (!d) return '--/---';
+                    return `${String(d.getDate()).padStart(2, '0')}/${String(MONTHS[d.getMonth()] || '').slice(0, 3)}`;
+                  })()}
+                </button>
+              )}
             </div>
           </div>
           <Sidebar
@@ -10296,31 +10407,29 @@ Please pay by: ${formattedLastDate}`;
                       onSwitch={switchActiveBranch}
                       switching={branchSwitching}
                     />
-                    <button
-                      onClick={() => {
-                        const input = headerDateInputRef.current;
-                        if (!input) return;
-                        if (typeof input.showPicker === 'function') input.showPicker();
-                        else input.click();
-                      }}
-                      className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-50 shadow-[inset_0_1px_0_rgba(255,255,255,0.8)]"
-                      title="Select date"
-                    >
-                      🗓 {(() => {
-                        const d = asUTC(headerDate);
-                        if (!d) return '--/---/----';
-                        return `${String(d.getDate()).padStart(2, '0')}/${String(MONTHS[d.getMonth()] || '').slice(0, 3)}/${d.getFullYear()}`;
-                      })()}
-                    </button>
-                    <input
-                      ref={headerDateInputRef}
-                      type="date"
-                      value={headerDate}
-                      onChange={(e) => setHeaderDate(e.target.value)}
-                      className="absolute pointer-events-none opacity-0 h-0 w-0"
-                      tabIndex={-1}
-                      aria-hidden="true"
-                    />
+                    {HeaderDatePickerCmp ? (
+                      <HeaderDatePickerCmp
+                        value={headerDate}
+                        onChange={setHeaderDate}
+                        showYear
+                        showIcon
+                        width={280}
+                        offset={8}
+                        testId="header-date-picker-desktop"
+                      />
+                    ) : (
+                      <button
+                        className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-50 shadow-[inset_0_1px_0_rgba(255,255,255,0.8)]"
+                        title="Select date"
+                        disabled
+                      >
+                        🗓 {(() => {
+                          const d = asUTC(headerDate);
+                          if (!d) return '--/---/----';
+                          return `${String(d.getDate()).padStart(2, '0')}/${String(MONTHS[d.getMonth()] || '').slice(0, 3)}/${d.getFullYear()}`;
+                        })()}
+                      </button>
+                    )}
                   </div>
                 </div>
               </div>
@@ -10360,6 +10469,8 @@ Please pay by: ${formattedLastDate}`;
                   currentUserRole={currentUserRole}
                   fineRuleConfig={fineRuleConfig}
                   anyFilterActive={anyFilterActive}
+                  activeBranchId={authoritativeActiveBranchId}
+                  financeMetricsEpoch={financeMetricsEpoch}
                   onOpenFilters={() => setFilterOpen(true)}
                   onSelectStatus={(s) => {
                     setDashFilter(s);
@@ -10711,6 +10822,8 @@ Please pay by: ${formattedLastDate}`;
                 theme={theme}
                 memberSyncPending={memberSyncPending}
                 dataSyncMode={dataSyncMode}
+                activeBranchId={authoritativeActiveBranchId}
+                financeMetricsEpoch={financeMetricsEpoch}
               />
             )}
             {activeTab === 'Staff' && (
@@ -12207,7 +12320,7 @@ function Sidebar({ user, active, onSelect, theme, setTheme, layoutMode = 'classi
     }
 
     // ---- Dashboard Summary Component ----
-    function DashboardSummary({ members, financeTransactions = [], dataSyncMode = 'local', settings = {}, access, isOwner = false, currentUserRole = '', fineRuleConfig, onSelectStatus, onAddNew, onAddExpense, onSearch, onOpenMember, onWelcome, onOpenFilters, masterPlans = [], anyFilterActive = false }) {
+    function DashboardSummary({ members, financeTransactions = [], dataSyncMode = 'local', settings = {}, access, isOwner = false, currentUserRole = '', fineRuleConfig, onSelectStatus, onAddNew, onAddExpense, onSearch, onOpenMember, onWelcome, onOpenFilters, masterPlans = [], anyFilterActive = false, activeBranchId = '', financeMetricsEpoch = 0 }) {
       const counts = React.useMemo(() => {
         const sanitize = window.__APG_MODULES?.sanitizeMembersForDisplay;
         const scoped = typeof sanitize === 'function' ? sanitize(members) : members;
@@ -12247,48 +12360,104 @@ function Sidebar({ user, active, onSelect, theme, setTheme, layoutMode = 'classi
         }
         return null;
       }, [financeLedger, todayMonthKey, settings]);
-      const [dbMonthRevenue, setDbMonthRevenue] = React.useState(null);
-      const [dbRevenueGrowthPct, setDbRevenueGrowthPct] = React.useState(null);
-      const dbMonthRevenueStableRef = React.useRef(null);
-      const dbRevenueGrowthStableRef = React.useRef(null);
-      const fetchDashboardMonthRevenue = React.useCallback(() => {
+      const [dbMonthSummary, setDbMonthSummary] = React.useState(null);
+      const [dbMonthSummaryLoading, setDbMonthSummaryLoading] = React.useState(false);
+      const [dbMonthSummaryError, setDbMonthSummaryError] = React.useState('');
+      const dbMonthSummaryStableRef = React.useRef(null);
+      const [dbYearTrend, setDbYearTrend] = React.useState(null);
+      const dashboardFinanceEpochEffectReadyRef = React.useRef(false);
+      const financeBranchId = String(activeBranchId || '').trim() || 'default';
+      const hydrateDashboardFinanceFromCache = React.useCallback(() => {
+        const getMonth = window.__APG_MODULES?.getCachedFinanceMonthSummary;
+        const getYear = window.__APG_MODULES?.getCachedFinanceYearSummary;
+        const trendFn = window.__APG_MODULES?.collectedTrendFromYearSummary;
+        if (typeof getMonth !== 'function' || !todayMonthKey) return null;
+        const cached = getMonth(financeBranchId, todayMonthKey);
+        if (!cached) return null;
+        dbMonthSummaryStableRef.current = cached;
+        setDbMonthSummary(cached);
+        setDbMonthSummaryLoading(false);
+        setDbMonthSummaryError('');
+        const year = Number(String(todayMonthKey).slice(0, 4));
+        if (year && typeof getYear === 'function' && typeof trendFn === 'function') {
+          const yearCached = getYear(financeBranchId, year);
+          if (yearCached) setDbYearTrend(trendFn(yearCached, MONTHS, 12));
+        }
+        return cached;
+      }, [financeBranchId, todayMonthKey]);
+      const fetchDashboardMonthRevenue = React.useCallback((opts = {}) => {
         if (dataSyncMode !== 'backend' || !todayMonthKey || !canReadFinanceSummary(access, isOwner)) return undefined;
+        const silent = Boolean(opts.silent);
+        const force = Boolean(opts.force);
+        const loadMonthFn = window.__APG_MODULES?.loadFinanceMonthSummaryCached;
+        const loadYearFn = window.__APG_MODULES?.loadFinanceYearSummaryCached;
+        const trendFn = window.__APG_MODULES?.collectedTrendFromYearSummary;
         let cancelled = false;
-        backendJson(`/finance/summary?month=${encodeURIComponent(todayMonthKey)}`)
-          .then((body) => {
+        if (!silent) {
+          setDbMonthSummaryLoading(true);
+          setDbMonthSummaryError('');
+        }
+        const run = async () => {
+          try {
+            const monthResult = typeof loadMonthFn === 'function'
+              ? await loadMonthFn(backendJson, financeBranchId, todayMonthKey, { force })
+              : { data: await window.__APG_MODULES?.fetchFinanceMonthSummaryWithRetry?.(backendJson, todayMonthKey)
+                ?? await backendJson(`/finance/summary?month=${encodeURIComponent(todayMonthKey)}`), fromCache: false };
             if (cancelled) return;
-            const rev = Number(body?.collectedRevenue ?? 0);
-            const growth = typeof body?.revenueGrowthPct === 'number' ? body.revenueGrowthPct : null;
-            dbMonthRevenueStableRef.current = rev;
-            dbRevenueGrowthStableRef.current = growth;
-            setDbMonthRevenue(rev);
-            setDbRevenueGrowthPct(growth);
-          })
-          .catch(() => { /* keep last good DB totals to avoid flicker */ });
+            const body = monthResult?.data ?? monthResult;
+            dbMonthSummaryStableRef.current = body;
+            setDbMonthSummary(body);
+            setDbMonthSummaryError('');
+            const year = Number(String(todayMonthKey).slice(0, 4));
+            if (year && typeof loadYearFn === 'function' && typeof trendFn === 'function') {
+              try {
+                const yearResult = await loadYearFn(backendJson, financeBranchId, year, { force });
+                if (!cancelled) setDbYearTrend(trendFn(yearResult.data, MONTHS, 12));
+              } catch {
+                /* year trend optional — client ledger fallback remains */
+              }
+            }
+          } catch (err) {
+            if (cancelled) return;
+            setDbMonthSummaryError(String(err?.message || err || 'Could not load revenue'));
+          } finally {
+            if (!cancelled) setDbMonthSummaryLoading(false);
+          }
+        };
+        void run();
         return () => { cancelled = true; };
-      }, [dataSyncMode, todayMonthKey, access, isOwner]);
+      }, [dataSyncMode, todayMonthKey, access, isOwner, financeBranchId]);
       React.useEffect(() => {
         if (dataSyncMode !== 'backend' || !todayMonthKey || !canReadFinanceSummary(access, isOwner)) {
-          dbMonthRevenueStableRef.current = null;
-          dbRevenueGrowthStableRef.current = null;
-          setDbMonthRevenue(null);
-          setDbRevenueGrowthPct(null);
+          dbMonthSummaryStableRef.current = null;
+          setDbMonthSummary(null);
+          setDbYearTrend(null);
+          setDbMonthSummaryError('');
+          setDbMonthSummaryLoading(false);
           return undefined;
         }
-        return fetchDashboardMonthRevenue();
-      }, [dataSyncMode, todayMonthKey, access, isOwner, fetchDashboardMonthRevenue]);
+        const cached = hydrateDashboardFinanceFromCache();
+        if (!cached) return fetchDashboardMonthRevenue();
+        return undefined;
+      }, [dataSyncMode, todayMonthKey, access, isOwner, financeBranchId, hydrateDashboardFinanceFromCache, fetchDashboardMonthRevenue]);
       React.useEffect(() => {
-        const onRefresh = () => { fetchDashboardMonthRevenue(); };
-        window.addEventListener('apg-finance-refresh', onRefresh);
-        return () => window.removeEventListener('apg-finance-refresh', onRefresh);
-      }, [fetchDashboardMonthRevenue]);
-      const dashboardRevenueFromDb = dbMonthRevenue ?? dbMonthRevenueStableRef.current;
+        if (dataSyncMode !== 'backend' || !todayMonthKey || !canReadFinanceSummary(access, isOwner)) return undefined;
+        if (!dashboardFinanceEpochEffectReadyRef.current) {
+          dashboardFinanceEpochEffectReadyRef.current = true;
+          return undefined;
+        }
+        return fetchDashboardMonthRevenue({ silent: true, force: true });
+      }, [financeMetricsEpoch, dataSyncMode, todayMonthKey, access, isOwner, fetchDashboardMonthRevenue]);
+      const dashboardSummaryFromDb = dbMonthSummary ?? dbMonthSummaryStableRef.current;
       const monthlyRevenue = dataSyncMode === 'backend'
-        ? (dashboardRevenueFromDb != null ? dashboardRevenueFromDb : null)
+        ? (dashboardSummaryFromDb != null ? Number(dashboardSummaryFromDb.collectedRevenue ?? 0) : null)
         : (cfoKpis?.collectedRevenue ?? 0);
       const growthRate = dataSyncMode === 'backend'
-        ? (dbRevenueGrowthPct ?? dbRevenueGrowthStableRef.current ?? 0)
+        ? Number(dashboardSummaryFromDb?.revenueGrowthPct ?? 0)
         : (cfoKpis?.revenueGrowthPct ?? 0);
+      const dashboardProfit = dataSyncMode === 'backend' && dashboardSummaryFromDb
+        ? Number(dashboardSummaryFromDb.profit ?? 0)
+        : (cfoKpis?.profit ?? 0);
       const collectedRevenueEntries = React.useMemo(
         () => buildCollectedRevenueEntries(members, todayKey),
         [members, todayKey],
@@ -12341,8 +12510,18 @@ function Sidebar({ user, active, onSelect, theme, setTheme, layoutMode = 'classi
       }, [financeLedger, collectedRevenueEntries, todayUtc]);
       const monthTrend = React.useMemo(() => allMonthTrend.slice(-6), [allMonthTrend]);
       const historicalTrend = React.useMemo(() => allMonthTrend.slice(0, -6), [allMonthTrend]);
-      const maxTrend = Math.max(1, ...monthTrend.map(x => x.total));
-      const maxHistoricalTrend = Math.max(1, ...historicalTrend.map(x => x.total));
+      const serverMonthTrend = React.useMemo(() => {
+        if (dataSyncMode !== 'backend' || !Array.isArray(dbYearTrend) || !dbYearTrend.length) return null;
+        return dbYearTrend.slice(-6);
+      }, [dataSyncMode, dbYearTrend]);
+      const serverHistoricalTrend = React.useMemo(() => {
+        if (dataSyncMode !== 'backend' || !Array.isArray(dbYearTrend) || dbYearTrend.length <= 6) return [];
+        return dbYearTrend.slice(0, -6);
+      }, [dataSyncMode, dbYearTrend]);
+      const monthTrendDisplay = serverMonthTrend || monthTrend;
+      const historicalTrendDisplay = serverMonthTrend ? serverHistoricalTrend : historicalTrend;
+      const maxTrend = Math.max(1, ...monthTrendDisplay.map(x => x.total));
+      const maxHistoricalTrend = Math.max(1, ...historicalTrendDisplay.map(x => x.total));
       const planDistributionOpts = React.useMemo(() => ({
         topN: 6,
         palette: 'dashboard',
@@ -12545,17 +12724,28 @@ function Sidebar({ user, active, onSelect, theme, setTheme, layoutMode = 'classi
                 <div className="rounded-2xl p-5 text-left shadow border bg-emerald-50 border-emerald-200 text-emerald-800">
                   <div className="text-sm">Collected Revenue (This Month)</div>
                   <div className="mt-2 text-3xl font-bold">
-                    {monthlyRevenue == null ? '…' : `₹${Number(monthlyRevenue).toLocaleString('en-IN')}`}
+                    {dbMonthSummaryLoading && monthlyRevenue == null
+                      ? '…'
+                      : `₹${Number(monthlyRevenue || 0).toLocaleString('en-IN')}`}
                   </div>
                   <div className="mt-1 text-xs text-emerald-700">
-                    {dataSyncMode === 'backend' ? 'Active members · Paid for Month (DB)' : 'Client ledger'}
+                    {dataSyncMode === 'backend'
+                      ? 'Active members · Payment received this month (DB)'
+                      : 'Client ledger · Payment received this month'}
                     {growthRate >= 0 ? ' · +' : ' · '}{growthRate}% vs last month
-                    {cfoKpis?.ytdCollected ? ` · YTD ₹${cfoKpis.ytdCollected.toLocaleString('en-IN')}` : ''}
+                    {dataSyncMode === 'backend' && dashboardSummaryFromDb?.prevMonthCollected != null
+                      ? ` · Prev ₹${Number(dashboardSummaryFromDb.prevMonthCollected).toLocaleString('en-IN')}`
+                      : (cfoKpis?.ytdCollected ? ` · YTD ₹${cfoKpis.ytdCollected.toLocaleString('en-IN')}` : '')}
                   </div>
-                  {cfoKpis && (
+                  {dbMonthSummaryError && monthlyRevenue == null && (
+                    <div className="mt-1 text-xs text-rose-600">{dbMonthSummaryError}</div>
+                  )}
+                  {(dashboardProfit != null || cfoKpis) && (
                     <div className="mt-1 text-xs text-slate-600">
-                      Profit (est.): ₹{cfoKpis.profit.toLocaleString('en-IN')}
-                      {cfoKpis.profitGrowthPct !== 0 ? ` · ${cfoKpis.profitGrowthPct >= 0 ? '+' : ''}${cfoKpis.profitGrowthPct}% vs last month` : ''}
+                      Profit (est.): ₹{Number(dashboardProfit || cfoKpis?.profit || 0).toLocaleString('en-IN')}
+                      {dataSyncMode !== 'backend' && cfoKpis?.profitGrowthPct !== 0
+                        ? ` · ${cfoKpis.profitGrowthPct >= 0 ? '+' : ''}${cfoKpis.profitGrowthPct}% vs last month`
+                        : ''}
                     </div>
                   )}
                 </div>
@@ -12569,12 +12759,12 @@ function Sidebar({ user, active, onSelect, theme, setTheme, layoutMode = 'classi
               <div className="flex items-center justify-between mb-3">
                 <div className="text-lg font-semibold text-slate-800">Revenue and Membership Trends</div>
                 <div className="flex items-center gap-3">
-                  {historicalTrend.length > 0 && (
+                  {historicalTrendDisplay.length > 0 && (
                     <button
                       onClick={() => setShowTrendHistory(v => !v)}
                       className="rounded-full px-3 py-1 text-xs font-semibold border border-slate-300 bg-white text-slate-700 hover:bg-slate-100"
                     >
-                      {showTrendHistory ? 'Hide Expanded Trend' : `Expand (${historicalTrend.length} more)`}
+                      {showTrendHistory ? 'Hide Expanded Trend' : `Expand (${historicalTrendDisplay.length} more)`}
                     </button>
                   )}
                   <div className={cx('text-sm font-semibold', growthRate >= 0 ? 'text-emerald-700' : 'text-rose-700')}>
@@ -12584,7 +12774,7 @@ function Sidebar({ user, active, onSelect, theme, setTheme, layoutMode = 'classi
               </div>
               <div className="h-52 overflow-hidden">
                 <div className="h-full flex items-end gap-3">
-                {monthTrend.map(x => {
+                {monthTrendDisplay.map(x => {
                   // Keep headroom for amount/month labels so bars never overlap header text.
                   const h = Math.max(10, Math.round((x.total / maxTrend) * 112));
                   return (
@@ -12617,11 +12807,11 @@ function Sidebar({ user, active, onSelect, theme, setTheme, layoutMode = 'classi
             </div>
             )}
           </div>
-          {canViewRevenueTrend && showTrendHistory && historicalTrend.length > 0 && (
+          {canViewRevenueTrend && showTrendHistory && historicalTrendDisplay.length > 0 && (
             <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
               <div className="text-base font-semibold text-slate-800 mb-3">Expanded Revenue Trend (Older Months)</div>
               <div className="h-44 flex items-end gap-2 overflow-x-auto overflow-y-hidden">
-                {historicalTrend.map(x => {
+                {historicalTrendDisplay.map(x => {
                   const h = Math.max(8, Math.round((x.total / maxHistoricalTrend) * 96));
                   return (
                     <div key={x.label} className="w-16 h-full shrink-0 flex flex-col justify-end items-center gap-1">
@@ -21326,7 +21516,7 @@ function PTClientsPage({ members, users, settings, updateSetting, currentUser, a
     }
 
     // ---- Finance Page ----
-    function FinancePage({ members, settings, logs, financeTransactions = [], setFinanceTransactions, updateSetting, access, isOwner = false, openExpenseSignal = 0, displayTimeZone = 'IST', theme = 'light', memberSyncPending = {}, dataSyncMode = 'local' }) {
+    function FinancePage({ members, settings, logs, financeTransactions = [], setFinanceTransactions, updateSetting, access, isOwner = false, openExpenseSignal = 0, displayTimeZone = 'IST', theme = 'light', memberSyncPending = {}, dataSyncMode = 'local', activeBranchId = '', financeMetricsEpoch = 0 }) {
       const [query, setQuery] = React.useState('');
       const [appliedQuery, setAppliedQuery] = React.useState('');
       const [showFilter, setShowFilter] = React.useState(false);
@@ -21358,6 +21548,8 @@ function PTClientsPage({ members, users, settings, updateSetting, currentUser, a
       const [expenseDraft, setExpenseDraft] = React.useState({ date: iso(new Date()), amount: '', category: expenseCategories[0] || 'General', note: '' });
       const useEstimatedExpense = settings?.financeUseEstimatedExpense !== false;
       const today = new Date();
+      const financeBranchId = String(activeBranchId || '').trim() || 'default';
+      const financeEpochEffectReadyRef = React.useRef(false);
 
       const manualFinanceRows = React.useMemo(() => {
         const mapManual = window.__APG_MODULES?.mapManualFinanceLedgerRows;
@@ -21478,7 +21670,7 @@ function PTClientsPage({ members, users, settings, updateSetting, currentUser, a
       const serverCollectedRaw = Number(activeServerSummary?.collectedRevenue ?? 0);
       const serverServiceRaw = Number(activeServerSummary?.serviceRevenue ?? 0);
       const useBackendFinanceTotals = dataSyncMode === 'backend';
-      const financeTotalsLoading = useBackendFinanceTotals && (serverSummaryLoading || !activeServerSummary);
+      const financeTotalsLoading = useBackendFinanceTotals && serverSummaryLoading && !activeServerSummary;
       const formatFinanceAmount = (value) => (
         financeTotalsLoading ? '…' : `₹${Number(value || 0).toLocaleString('en-IN')}`
       );
@@ -21554,28 +21746,45 @@ function PTClientsPage({ members, users, settings, updateSetting, currentUser, a
       }, [incomeRowsCollected, membersById, settings]);
       const fetchFinanceServerSummary = React.useCallback((opts = {}) => {
         if (dataSyncMode !== 'backend' || !financeMonth || !canReadFinanceSummary(access, isOwner)) return undefined;
-        let cancelled = false;
         const silent = Boolean(opts.silent);
+        const force = Boolean(opts.force);
+        const loadMonthFn = window.__APG_MODULES?.loadFinanceMonthSummaryCached;
+        let cancelled = false;
         if (!silent) setServerSummaryLoading(true);
-        backendJson(`/finance/summary?month=${encodeURIComponent(financeMonth)}`)
-          .then((body) => {
+        const run = async () => {
+          try {
+            const monthResult = typeof loadMonthFn === 'function'
+              ? await loadMonthFn(backendJson, financeBranchId, financeMonth, { force })
+              : { data: await window.__APG_MODULES?.fetchFinanceMonthSummaryWithRetry?.(backendJson, financeMonth)
+                ?? await backendJson(`/finance/summary?month=${encodeURIComponent(financeMonth)}`), fromCache: false };
             if (cancelled) return;
-            const next = body && typeof body === 'object' ? body : null;
-            if (next) {
+            const next = monthResult?.data ?? monthResult;
+            if (next && typeof next === 'object') {
               serverSummaryStableRef.current = next;
               setServerSummary(next);
             }
             setServerSummaryError('');
-          })
-          .catch((err) => {
+          } catch (err) {
             if (cancelled) return;
             setServerSummaryError(String(err?.message || err || 'Could not load server summary'));
-          })
-          .finally(() => {
+          } finally {
             if (!cancelled) setServerSummaryLoading(false);
-          });
+          }
+        };
+        void run();
         return () => { cancelled = true; };
-      }, [financeMonth, dataSyncMode, access, isOwner]);
+      }, [financeMonth, dataSyncMode, access, isOwner, financeBranchId]);
+      const hydrateFinanceSummaryFromCache = React.useCallback(() => {
+        const getMonth = window.__APG_MODULES?.getCachedFinanceMonthSummary;
+        if (typeof getMonth !== 'function' || !financeMonth) return null;
+        const cached = getMonth(financeBranchId, financeMonth);
+        if (!cached) return null;
+        serverSummaryStableRef.current = cached;
+        setServerSummary(cached);
+        setServerSummaryLoading(false);
+        setServerSummaryError('');
+        return cached;
+      }, [financeBranchId, financeMonth]);
       React.useEffect(() => {
         if (dataSyncMode !== 'backend' || !financeMonth || !canReadFinanceSummary(access, isOwner)) {
           serverSummaryStableRef.current = null;
@@ -21583,13 +21792,18 @@ function PTClientsPage({ members, users, settings, updateSetting, currentUser, a
           setServerSummaryError('');
           return undefined;
         }
-        return fetchFinanceServerSummary();
-      }, [financeMonth, dataSyncMode, access, isOwner, fetchFinanceServerSummary]);
+        const cached = hydrateFinanceSummaryFromCache();
+        if (!cached) return fetchFinanceServerSummary();
+        return undefined;
+      }, [financeMonth, dataSyncMode, access, isOwner, financeBranchId, hydrateFinanceSummaryFromCache, fetchFinanceServerSummary]);
       React.useEffect(() => {
-        const onRefresh = () => { fetchFinanceServerSummary({ silent: true }); };
-        window.addEventListener('apg-finance-refresh', onRefresh);
-        return () => window.removeEventListener('apg-finance-refresh', onRefresh);
-      }, [fetchFinanceServerSummary]);
+        if (dataSyncMode !== 'backend' || !financeMonth || !canReadFinanceSummary(access, isOwner)) return undefined;
+        if (!financeEpochEffectReadyRef.current) {
+          financeEpochEffectReadyRef.current = true;
+          return undefined;
+        }
+        return fetchFinanceServerSummary({ silent: true, force: true });
+      }, [financeMetricsEpoch, financeMonth, dataSyncMode, access, isOwner, fetchFinanceServerSummary]);
       const revenueVerification = React.useMemo(() => {
         const deltaFn = window.__APG_MODULES?.financeSummaryDelta;
         if (!activeServerSummary || typeof deltaFn !== 'function') return null;
@@ -21615,6 +21829,14 @@ function PTClientsPage({ members, users, settings, updateSetting, currentUser, a
         };
         const current = Array.isArray(financeTransactions) ? financeTransactions : [];
         if (typeof setFinanceTransactions === 'function') setFinanceTransactions([nextRow, ...current]);
+        const expenseMonth = financeMonthKeyFromDate(nextRow.date);
+        if (expenseMonth) {
+          notifyFinanceMetricsInvalidate({
+            branchId: activeBranchId,
+            months: [expenseMonth],
+            reason: 'expense',
+          });
+        }
         setExpenseDraft({ date: iso(new Date()), amount: '', category: expenseCategories[0] || 'General', note: '' });
         setShowExpenseForm(false);
       };
@@ -21997,7 +22219,7 @@ function PTClientsPage({ members, users, settings, updateSetting, currentUser, a
               <button
                 type="button"
                 onClick={() => setShowExpenseLedger(true)}
-                className={cx(cardBase, 'text-left hover:bg-rose-50/50 transition-colors dark:hover:bg-slate-800')}
+                className={cx(cardBase, 'flex flex-col items-start justify-start self-start w-full text-left hover:bg-rose-50/50 transition-colors dark:hover:bg-slate-800')}
               >
                 <div className="text-sm text-slate-500">Expenses</div>
                 <div className="mt-1 text-3xl font-bold text-rose-700 dark:text-rose-400">₹{expense.toLocaleString('en-IN')}</div>
@@ -22061,7 +22283,7 @@ function PTClientsPage({ members, users, settings, updateSetting, currentUser, a
               )}
               data-testid="finance-server-verification"
             >
-              <div className="text-sm font-semibold text-slate-800 dark:text-slate-100">Database verification (Paid for Month · Active)</div>
+              <div className="text-sm font-semibold text-slate-800 dark:text-slate-100">Database verification (Collected vs Paid-for-Month)</div>
               {serverSummaryLoading && (
                 <div className="text-xs text-slate-500 mt-1">Loading server totals…</div>
               )}
@@ -22069,13 +22291,20 @@ function PTClientsPage({ members, users, settings, updateSetting, currentUser, a
                 <div className="text-xs text-rose-600 mt-1">{serverSummaryError}</div>
               )}
               {serverSummary && !serverSummaryLoading && (
-                <div className="mt-2 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 text-xs text-slate-600 dark:text-slate-300">
+                <div className="mt-2 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 text-xs text-slate-600 dark:text-slate-300">
                   <div>
-                    <span className="text-slate-500">DB Paid for Month sum (Active)</span>
+                    <span className="text-slate-500">DB Collected (payment date)</span>
                     <div className="text-lg font-bold text-emerald-700 dark:text-emerald-300">
                       ₹{Number(serverSummary.collectedRevenue || 0).toLocaleString('en-IN')}
                     </div>
-                    <div>{Number(serverSummary.paymentCount || 0)} payments · {Number(serverSummary.dbPaymentRowsInRange || serverSummary.paymentCount || 0)} rows in range</div>
+                    <div>{Number(serverSummary.dbPaymentRowsInRange || serverSummary.paymentCount || 0)} payment rows in range</div>
+                  </div>
+                  <div>
+                    <span className="text-slate-500">DB Paid-for-Month (Active)</span>
+                    <div className="text-lg font-bold text-indigo-700 dark:text-indigo-300">
+                      ₹{Number(serverSummary.serviceRevenue || 0).toLocaleString('en-IN')}
+                    </div>
+                    <div>{Number(serverSummary.dbLedgerServiceSum || serverSummary.servicePaymentCount || 0)} ledger rows</div>
                   </div>
                   <div>
                     <span className="text-slate-500">Screen collected (ledger)</span>
