@@ -1184,12 +1184,18 @@ async function writeMembers(members, scope, options = {}) {
   const refreshed = await fetchAll((from, to) => sb.from(T.members).select('id, member_code').eq('gym_id', gid).range(from, to));
   codeToId = new Map((refreshed || []).map((r) => [String(r.member_code), r.id]));
 
+  // Batch PT profile cleanup for non-PT members (was one DELETE per member → 504 on large branches).
+  const nonPtMemberPks = [];
+  for (const m of incoming) {
+    if (!m?.memberId || isPtPlanName(m.plan)) continue;
+    const memberPk = codeToId.get(String(m.memberId));
+    if (memberPk) nonPtMemberPks.push(memberPk);
+  }
+  await safeDeleteByMemberIds(sb, T.pt_client_profiles, nonPtMemberPks);
+
   for (const m of incoming) {
     const memberPk = codeToId.get(String(m.memberId));
     if (!memberPk) continue;
-    if (!isPtPlanName(m.plan)) {
-      await safeDeleteByMemberIds(sb, T.pt_client_profiles, [memberPk]);
-    }
     const { payRows, msgRows, attRows, injuryRows } = buildMemberChildRows(m, gid, memberPk);
     if (Object.prototype.hasOwnProperty.call(m, 'paymentHistory')) {
       await syncMemberChildRows(sb, T.member_payment_history, {
