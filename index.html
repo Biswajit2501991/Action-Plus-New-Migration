@@ -12381,7 +12381,7 @@ function Sidebar({ user, active, onSelect, theme, setTheme, layoutMode = 'classi
         const year = Number(String(todayMonthKey).slice(0, 4));
         if (year && typeof getYear === 'function' && typeof trendFn === 'function') {
           const yearCached = getYear(financeBranchId, year);
-          if (yearCached) setDbYearTrend(trendFn(yearCached, MONTHS, 12));
+          if (yearCached) setDbYearTrend(trendFn(yearCached, MONTHS, 12, todayMonthKey));
         }
         return cached;
       }, [financeBranchId, todayMonthKey]);
@@ -12412,7 +12412,7 @@ function Sidebar({ user, active, onSelect, theme, setTheme, layoutMode = 'classi
             if (year && typeof loadYearFn === 'function' && typeof trendFn === 'function') {
               try {
                 const yearResult = await loadYearFn(backendJson, financeBranchId, year, { force });
-                if (!cancelled) setDbYearTrend(trendFn(yearResult.data, MONTHS, 12));
+                if (!cancelled) setDbYearTrend(trendFn(yearResult.data, MONTHS, 12, todayMonthKey));
               } catch {
                 /* year trend optional — client ledger fallback remains */
               }
@@ -12512,8 +12512,17 @@ function Sidebar({ user, active, onSelect, theme, setTheme, layoutMode = 'classi
       const historicalTrend = React.useMemo(() => allMonthTrend.slice(0, -6), [allMonthTrend]);
       const serverMonthTrend = React.useMemo(() => {
         if (dataSyncMode !== 'backend' || !Array.isArray(dbYearTrend) || !dbYearTrend.length) return null;
-        return dbYearTrend.slice(-6);
-      }, [dataSyncMode, dbYearTrend]);
+        const recent = dbYearTrend.slice(-6);
+        const collected = dashboardSummaryFromDb != null
+          ? Number(dashboardSummaryFromDb.collectedRevenue ?? 0)
+          : null;
+        if (collected == null || !todayMonthKey) return recent;
+        return recent.map((slot) => (
+          String(slot.monthKey || '') === todayMonthKey
+            ? { ...slot, total: collected }
+            : slot
+        ));
+      }, [dataSyncMode, dbYearTrend, dashboardSummaryFromDb, todayMonthKey]);
       const serverHistoricalTrend = React.useMemo(() => {
         if (dataSyncMode !== 'backend' || !Array.isArray(dbYearTrend) || dbYearTrend.length <= 6) return [];
         return dbYearTrend.slice(0, -6);

@@ -74,10 +74,12 @@ export async function fetchFinanceYearSummaryWithRetry(backendJson, year, option
  * @param {object} yearBody API response
  * @param {string[]} monthLabels e.g. ['Jan','Feb',...]
  * @param {number} [maxMonths]
+ * @param {string} [throughMonthKey] YYYY-MM — exclude future calendar months (e.g. Jul–Dec when today is Jun)
  */
-export function collectedTrendFromYearSummary(yearBody, monthLabels = [], maxMonths = 6) {
+export function collectedTrendFromYearSummary(yearBody, monthLabels = [], maxMonths = 6, throughMonthKey = '') {
   const months = Array.isArray(yearBody?.months) ? yearBody.months : [];
-  const slots = months.map((row) => {
+  const through = String(throughMonthKey || '').trim();
+  let slots = months.map((row) => {
     const monthKey = String(row?.monthKey || '').trim();
     const monthNum = Number(monthKey.slice(5, 7));
     const labelMonth = monthLabels[monthNum - 1] || monthKey.slice(5, 7);
@@ -88,6 +90,9 @@ export function collectedTrendFromYearSummary(yearBody, monthLabels = [], maxMon
       total: Number(row?.incomeCollected ?? row?.collectedRevenue ?? 0),
     };
   });
+  if (/^\d{4}-\d{2}$/.test(through)) {
+    slots = slots.filter((slot) => String(slot.monthKey || '') <= through);
+  }
   const cap = Math.max(1, Number(maxMonths) || 6);
   return slots.slice(-cap);
 }

@@ -38,4 +38,23 @@ describe('collectedTrendFromYearSummary', () => {
     expect(trend[1].total).toBe(300);
     expect(trend[1].label).toBe('Jun-26');
   });
+
+  it('drops future calendar months when throughMonthKey is set', () => {
+    const yearBody = {
+      months: [
+        { monthKey: '2026-01', incomeCollected: 10 },
+        { monthKey: '2026-06', incomeCollected: 82915 },
+        { monthKey: '2026-07', incomeCollected: 699 },
+        { monthKey: '2026-12', incomeCollected: 0 },
+      ],
+    };
+    const withoutCap = collectedTrendFromYearSummary(yearBody, ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'], 12);
+    expect(withoutCap.map((x) => x.monthKey)).toEqual(['2026-01', '2026-06', '2026-07', '2026-12']);
+
+    const throughJune = collectedTrendFromYearSummary(yearBody, ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'], 12, '2026-06');
+    expect(throughJune.map((x) => x.monthKey)).toEqual(['2026-01', '2026-06']);
+
+    const lastSix = collectedTrendFromYearSummary(yearBody, ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'], 6, '2026-06');
+    expect(lastSix.map((x) => x.label)).toEqual(['Jan-26', 'Jun-26']);
+  });
 });
