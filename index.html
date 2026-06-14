@@ -1893,6 +1893,19 @@
       return { key: 'none', label: '', disabled: true };
     };
     const smsTemplateLogLabel = (key) => {
+      const raw = String(key || '').trim();
+      const parseFn = window.__APG_MODULES?.parseCustomTemplateHistoryKey;
+      if (typeof parseFn === 'function') {
+        const code = parseFn(raw);
+        if (code) {
+          return code.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase());
+        }
+      } else if (raw.startsWith('custom:')) {
+        const code = raw.slice('custom:'.length).trim();
+        if (code) {
+          return code.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase());
+        }
+      }
       const map = {
         reminder: 'Reminder',
         monthReminder: 'Month-Based Reminder',
@@ -1904,7 +1917,7 @@
         templates: 'WhatsApp Template',
         call: 'WhatsApp call/chat',
       };
-      return map[key] || String(key || '');
+      return map[raw] || raw || '';
     };
     /** Audit log action for WhatsApp template sends, e.g. sms.reminder.opened, sms.fine.opened */
     const smsTemplateOpenedAction = (templateKey) => {
@@ -4620,6 +4633,7 @@ Phone: +91-7047157510`;
       acknowledgementTemplate: ACKNOWLEDGEMENT_TEMPLATE_DEFAULT,
       acknowledgementUnder18Template: ACKNOWLEDGEMENT_UNDER18_TEMPLATE_DEFAULT,
       gmailWelcomeTemplate: GMAIL_WELCOME_TEMPLATE_DEFAULT,
+      customTemplatesEnabled: false,
     });
     const buildOwnerOnlyUser = () => ({
       id: 'owner',
@@ -4874,8 +4888,10 @@ Phone: +91-7047157510`;
         return hq?.id || null;
       }, [gymCodes]);
       const [whatsappTemplatesByBranch, setWhatsappTemplatesByBranch] = React.useState({});
+      const [customTemplatesByBranch, setCustomTemplatesByBranch] = React.useState({});
       const [templatesBranchId, setTemplatesBranchId] = React.useState('');
       const [templatesBranchLoading, setTemplatesBranchLoading] = React.useState(false);
+      const [customTemplatesLoading, setCustomTemplatesLoading] = React.useState(false);
       const branchTemplateWarnShownRef = React.useRef(false);
       const authIsOwnerForTemplates = React.useCallback((u) => {
         const masterFn = window.__APG_MODULES?.authIsMasterOwnerUser || window.__APG_MODULES?.authIsOwnerUser;
@@ -4947,13 +4963,37 @@ Phone: +91-7047157510`;
           setTemplatesBranchLoading(false);
         }
       }, [dataSyncMode, user]);
+      const fetchBranchCustomTemplates = React.useCallback(async (branchId) => {
+        const id = String(branchId || '').trim();
+        if (!id || dataSyncMode !== 'backend' || !canFetchWhatsappTemplates(user)) return;
+        setCustomTemplatesLoading(true);
+        try {
+          const res = await backendJson(`/custom-templates?gymCodeId=${encodeURIComponent(id)}`);
+          if (Array.isArray(res?.templates)) {
+            setCustomTemplatesByBranch((prev) => ({
+              ...prev,
+              [id]: res.templates,
+            }));
+          }
+        } catch {
+          /* keep prior branch cache */
+        } finally {
+          setCustomTemplatesLoading(false);
+        }
+      }, [dataSyncMode, user]);
+      const fetchBranchTemplateData = React.useCallback(async (branchId) => {
+        await Promise.all([
+          fetchBranchWhatsappTemplates(branchId),
+          fetchBranchCustomTemplates(branchId),
+        ]);
+      }, [fetchBranchWhatsappTemplates, fetchBranchCustomTemplates]);
       React.useEffect(() => {
         if (!user?.id || !canFetchWhatsappTemplates(user)) return;
         const branchId = authIsOwnerForTemplates(user)
           ? String(templatesBranchId || hqGymCodeId || '').trim()
           : String(user.gymCodeId || '').trim();
-        if (branchId) fetchBranchWhatsappTemplates(branchId);
-      }, [user?.id, templatesBranchId, hqGymCodeId, fetchBranchWhatsappTemplates, authIsOwnerForTemplates]);
+        if (branchId) fetchBranchTemplateData(branchId);
+      }, [user?.id, templatesBranchId, hqGymCodeId, fetchBranchTemplateData, authIsOwnerForTemplates]);
       const effectiveTemplatesBranchId = React.useMemo(() => {
         const fn = window.__APG_MODULES?.effectiveTemplateBranchIdForUser;
         if (typeof fn === 'function') {
@@ -5013,6 +5053,13 @@ Phone: +91-7047157510`;
         } catch {}
         return buildDefaultSettings();
       });
+      React.useEffect(() => {
+        if (!user?.id || !canFetchWhatsappTemplates(user)) return;
+        const branchId = authIsOwnerForTemplates(user)
+          ? String(templatesBranchId || hqGymCodeId || '').trim()
+          : String(user.gymCodeId || '').trim();
+        if (branchId) fetchBranchCustomTemplates(branchId);
+      }, [settings?.customTemplatesEnabled, user?.id, templatesBranchId, hqGymCodeId, fetchBranchCustomTemplates, authIsOwnerForTemplates]);
       const [logs, setLogs] = React.useState(() => {
         try {
           const saved = localStorage.getItem(STORAGE_KEYS.logs);
@@ -5579,10 +5626,18 @@ Phone: +91-7047157510`;
           if (ev?.detail?.collection === 'finance') {
             window.dispatchEvent(new CustomEvent('apg-finance-refresh'));
           }
+          if (ev?.detail?.collection === 'customTemplates' && user?.id && canFetchWhatsappTemplates(user)) {
+            const branchId = authIsOwnerForTemplates(user)
+              ? String(templatesBranchId || hqGymCodeId || '').trim()
+              : String(user.gymCodeId || '').trim();
+            if (branchId) {
+              scheduleDebouncedPull('customTemplates', () => fetchBranchCustomTemplates(branchId));
+            }
+          }
         };
         window.addEventListener('apg-realtime', onRealtime);
         return () => window.removeEventListener('apg-realtime', onRealtime);
-      }, [dataSyncMode]);
+      }, [dataSyncMode, user?.id, templatesBranchId, hqGymCodeId, fetchBranchCustomTemplates, authIsOwnerForTemplates, scheduleDebouncedPull]);
       React.useEffect(() => () => {
         Object.values(realtimePullTimersRef.current).forEach((t) => clearTimeout(t));
       }, []);
@@ -10819,7 +10874,12 @@ Please pay by: ${formattedLastDate}`;
                 whatsappTemplatesByBranch={whatsappTemplatesByBranch}
                 setWhatsappTemplatesByBranch={setWhatsappTemplatesByBranch}
                 templatesBranchLoading={templatesBranchLoading}
+                customTemplatesByBranch={customTemplatesByBranch}
+                setCustomTemplatesByBranch={setCustomTemplatesByBranch}
+                customTemplatesLoading={customTemplatesLoading}
                 fetchBranchWhatsappTemplates={fetchBranchWhatsappTemplates}
+                fetchBranchCustomTemplates={fetchBranchCustomTemplates}
+                fetchBranchTemplateData={fetchBranchTemplateData}
                 resolveWhatsappTemplateBody={resolveWhatsappTemplateBody}
                 canEditBranchTemplates={canEditBranchWhatsappTemplates}
               />
@@ -19277,8 +19337,21 @@ function PTClientsPage({ members, users, settings, updateSetting, currentUser, a
           setGymCodeBusy(false);
         }
       };
-      const isOwnerForCodes = String(currentUser?.id || '').toLowerCase() === 'owner'
-        || (Array.isArray(currentUser?.roles) && currentUser.roles.includes('owner'));
+      const isOwnerForCodes = React.useMemo(() => {
+        const fn = window.__APG_MODULES?.authIsMasterOwnerUser;
+        if (typeof fn === 'function') return fn(currentUser);
+        const id = String(currentUser?.id || '').trim().toLowerCase();
+        const role = String(currentUser?.staffRole || currentUser?.role || '').trim().toLowerCase();
+        return id === 'owner'
+          || role === 'owner'
+          || role === 'master_owner'
+          || (Array.isArray(currentUser?.roles) && currentUser.roles.includes('owner'));
+      }, [currentUser]);
+      const canManageCustomTemplatesFlag = React.useMemo(() => {
+        const fn = window.__APG_MODULES?.canManageCustomTemplatesFeatureFlag;
+        if (typeof fn === 'function') return fn(currentUser);
+        return isOwnerForCodes;
+      }, [currentUser, isOwnerForCodes]);
       const upperShortCode = (raw) => String(raw || '').trim().toUpperCase().replace(/[^A-Z0-9_-]/g, '').slice(0, 20);
       const submitGymCode = async (e) => {
         if (e && e.preventDefault) e.preventDefault();
@@ -19493,8 +19566,8 @@ function PTClientsPage({ members, users, settings, updateSetting, currentUser, a
       const memberPtSettingKeys = new Set(['holdDurations', 'genders', 'exerciseTypes']);
       const businessItems = settingItems.filter((x) => businessSettingKeys.has(x.key));
       const memberPtItems = settingItems.filter((x) => memberPtSettingKeys.has(x.key));
-      const showBranchSystemCategory = isOwnerForCodes || canViewBackendDiskUsage || settingsAccess.manageFineRule;
-      const branchSystemItemCount = (isOwnerForCodes ? 1 : 0) + (canViewBackendDiskUsage ? 1 : 0) + (settingsAccess.manageFineRule ? 1 : 0);
+      const showBranchSystemCategory = isOwnerForCodes || canManageCustomTemplatesFlag || canViewBackendDiskUsage || settingsAccess.manageFineRule;
+      const branchSystemItemCount = (isOwnerForCodes ? 1 : 0) + (canManageCustomTemplatesFlag ? 1 : 0) + (canViewBackendDiskUsage ? 1 : 0) + (settingsAccess.manageFineRule ? 1 : 0);
       const lookupIconSvg = {
         plans: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M12 2l2.4 7.4H22l-6 4.6 2.3 7-6.3-4.6L5.7 21l2.3-7-6-4.6h7.6z"/></svg>,
         statuses: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M7 3h10a2 2 0 012 2v16l-7-3.5L5 21V5a2 2 0 012-2z"/></svg>,
@@ -19936,6 +20009,34 @@ function PTClientsPage({ members, users, settings, updateSetting, currentUser, a
                 </div>
               </div>
             </SettingsNavRow>
+          )}
+          {canManageCustomTemplatesFlag && (
+            <div
+              className="apg-settings-nav-item rounded-2xl border border-blue-200 bg-blue-50/40 p-4 space-y-2"
+              data-testid="settings-panel-custom-templates-flag"
+            >
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <div className="min-w-0">
+                  <div className="text-sm font-semibold text-slate-900">Custom WhatsApp Templates</div>
+                  <p className="text-sm text-slate-600 mt-1">
+                    Enable branch-scoped custom templates (Promotion, Festival Offer, etc.).
+                    System templates (Welcome, Overdue, Hold) stay unchanged.
+                  </p>
+                </div>
+                <label className="inline-flex items-center gap-2 text-sm font-semibold text-slate-800 shrink-0">
+                  <input
+                    type="checkbox"
+                    checked={settings.customTemplatesEnabled === true}
+                    onChange={(e) => updateSetting('customTemplatesEnabled', Boolean(e.target.checked))}
+                    data-testid="custom-templates-feature-flag"
+                  />
+                  Enable
+                </label>
+              </div>
+              <div className="text-xs text-slate-500">
+                Disabled by default. Also available under WhatsApp SMS → WhatsApp Template.
+              </div>
+            </div>
           )}
           </SettingsCategorySection>
           )}
@@ -20640,7 +20741,12 @@ function PTClientsPage({ members, users, settings, updateSetting, currentUser, a
       whatsappTemplatesByBranch = {},
       setWhatsappTemplatesByBranch = null,
       templatesBranchLoading = false,
+      customTemplatesByBranch = {},
+      setCustomTemplatesByBranch = null,
+      customTemplatesLoading = false,
       fetchBranchWhatsappTemplates = null,
+      fetchBranchCustomTemplates = null,
+      fetchBranchTemplateData = null,
       resolveWhatsappTemplateBody = null,
       canEditBranchTemplates = false,
     }) {
@@ -20651,11 +20757,23 @@ function PTClientsPage({ members, users, settings, updateSetting, currentUser, a
       const [autoSyncPage, setAutoSyncPage] = React.useState(1);
       const [expandedTemplates, setExpandedTemplates] = React.useState({});
       const [templateEditor, setTemplateEditor] = React.useState({ open: false, key: '', value: '' });
+      const [customTemplateEditor, setCustomTemplateEditor] = React.useState({
+        open: false,
+        mode: 'create',
+        id: '',
+        templateCode: '',
+        templateName: '',
+        templateType: 'promotional',
+        messageBody: '',
+        branchId: '',
+      });
       // Phase 1: surgical save state. The focused PATCH endpoint replaces the
       // old "ship the whole settings blob" approach so two staff editing
       // different templates can't accidentally clobber each other's work.
       const [templateSaving, setTemplateSaving] = React.useState(false);
       const [templateSaveError, setTemplateSaveError] = React.useState('');
+      const [customTemplateSaving, setCustomTemplateSaving] = React.useState(false);
+      const [customTemplateSaveError, setCustomTemplateSaveError] = React.useState('');
       const messageCenterRef = React.useRef(null);
       const [preview, setPreview] = React.useState({ open: false, member: null, templateKey: '' });
       const VARIABLE_KEYS = ['[CustomerName]','[PLAN]','[CurrentPlan]','[Amount]','[BillingDate]','[PaymentBy]','[GymStartdate]','[NextPaymentDate]','[PaymentMethod]','[SystemDetails]'];
@@ -20664,6 +20782,18 @@ function PTClientsPage({ members, users, settings, updateSetting, currentUser, a
         if (typeof fn === 'function') return fn(currentUser);
         return currentUser?.id === 'owner';
       };
+      const customTemplatesFeatureEnabled = React.useMemo(() => {
+        const fn = window.__APG_MODULES?.isCustomTemplatesEnabled;
+        if (typeof fn === 'function') return fn(settings);
+        return settings?.customTemplatesEnabled === true;
+      }, [settings]);
+      const canManageCustomTemplatesFlag = React.useMemo(() => {
+        const fn = window.__APG_MODULES?.canManageCustomTemplatesFeatureFlag;
+        if (typeof fn === 'function') return fn(currentUser);
+        const id = String(currentUser?.id || '').trim().toLowerCase();
+        const role = String(currentUser?.staffRole || currentUser?.role || '').trim().toLowerCase();
+        return id === 'owner' || role === 'owner' || role === 'master_owner';
+      }, [currentUser]);
       const authMayPickTemplateBranch = () => {
         const masterFn = window.__APG_MODULES?.authIsMasterOwnerUser || window.__APG_MODULES?.authIsOwnerUser;
         if (typeof masterFn === 'function' && masterFn(currentUser)) return true;
@@ -20693,7 +20823,56 @@ function PTClientsPage({ members, users, settings, updateSetting, currentUser, a
         ...SMS_TEMPLATE_DEFAULTS,
         ...(whatsappTemplatesByBranch[effectiveBranchId] || {}),
       }), [whatsappTemplatesByBranch, effectiveBranchId]);
+      const branchCustomTemplates = React.useMemo(() => {
+        if (!customTemplatesFeatureEnabled) return [];
+        const list = customTemplatesByBranch[effectiveBranchId];
+        if (!Array.isArray(list)) return [];
+        return list.filter((t) => t && t.isActive !== false && t.status !== 'archived');
+      }, [customTemplatesByBranch, effectiveBranchId, customTemplatesFeatureEnabled]);
+      const customTemplateTypeOptions = React.useMemo(() => {
+        const fromMod = window.__APG_MODULES?.CUSTOM_TEMPLATE_TYPES;
+        if (Array.isArray(fromMod) && fromMod.length) return fromMod;
+        return [
+          { value: 'promotional', label: 'Promotional' },
+          { value: 'informational', label: 'Informational' },
+          { value: 'retention', label: 'Retention' },
+          { value: 'custom', label: 'Custom' },
+        ];
+      }, []);
+      const customTemplateCards = React.useMemo(() => {
+        const historyFn = window.__APG_MODULES?.customTemplateHistoryKey;
+        const toneFn = window.__APG_MODULES?.customTemplateCardTone;
+        const labelFn = window.__APG_MODULES?.customTemplateTypeLabel;
+        return branchCustomTemplates.map((t) => {
+          const templateCode = String(t.templateCode || '').trim();
+          const historyKey = typeof historyFn === 'function'
+            ? historyFn(templateCode)
+            : (templateCode ? `custom:${templateCode}` : '');
+          const templateType = String(t.templateType || 'promotional').trim().toLowerCase();
+          return {
+            id: String(t.id || ''),
+            templateCode,
+            historyKey,
+            title: String(t.templateName || templateCode || 'Custom Template'),
+            subtitle: `${typeof labelFn === 'function' ? labelFn(templateType) : templateType} / WHATSAPP`,
+            tone: typeof toneFn === 'function' ? toneFn(templateType) : 'bg-indigo-50 border-indigo-200',
+            body: String(t.messageBody || ''),
+            templateType,
+          };
+        });
+      }, [branchCustomTemplates]);
+      const resolveCustomTemplateBody = React.useCallback((templateKey) => {
+        const isCustomFn = window.__APG_MODULES?.isCustomTemplateHistoryKey;
+        const parseFn = window.__APG_MODULES?.parseCustomTemplateHistoryKey;
+        if (typeof isCustomFn !== 'function' || !isCustomFn(templateKey)) return '';
+        const code = typeof parseFn === 'function' ? parseFn(templateKey) : '';
+        if (!code) return '';
+        const hit = branchCustomTemplates.find((t) => String(t.templateCode || '').trim() === code);
+        return hit?.messageBody || '';
+      }, [branchCustomTemplates]);
       const resolveTemplateForMember = (templateKey, member) => {
+        const customBody = resolveCustomTemplateBody(templateKey);
+        if (customBody) return customBody;
         if (typeof resolveWhatsappTemplateBody === 'function') {
           return resolveWhatsappTemplateBody(templateKey, member);
         }
@@ -20703,6 +20882,11 @@ function PTClientsPage({ members, users, settings, updateSetting, currentUser, a
           if (hit?.body) return hit.body;
         }
         return templates[templateKey] || templates.reminder || '';
+      };
+      const resolvePreviewTemplateBody = (templateKey) => {
+        const customBody = resolveCustomTemplateBody(templateKey);
+        if (customBody) return customBody;
+        return templates[templateKey] || '';
       };
       const templateCards = [
         { key: 'reminder', title: 'Billing Reminder SMS', subtitle: 'SMS / WHATSAPP', tone: 'bg-amber-50 border-amber-200' },
@@ -20827,8 +21011,8 @@ function PTClientsPage({ members, users, settings, updateSetting, currentUser, a
         deactivate: membersByType.deactivate.length,
         hold: membersByType.hold.length,
         welcome: membersByType.welcome.length,
-        templates: templateCards.length,
-      }), [membersByType, templateCards.length]);
+        templates: templateCards.length + (customTemplatesFeatureEnabled ? customTemplateCards.length : 0),
+      }), [membersByType, templateCards.length, customTemplateCards.length, customTemplatesFeatureEnabled]);
       const rules = [
         { name: 'Billing D-5', status: 'Active', recipients: billingD5, type: 'billing' },
         { name: 'Billing D-3', status: 'Active', recipients: billingD3, type: 'billing' },
@@ -20853,7 +21037,7 @@ function PTClientsPage({ members, users, settings, updateSetting, currentUser, a
       const autoSyncTotalPages = Math.max(1, Math.ceil(autoSyncRows.length / AUTO_SYNC_PAGE_SIZE));
       const safeAutoSyncPage = autoSyncPage > autoSyncTotalPages ? 1 : autoSyncPage;
       const autoSyncPageRows = autoSyncRows.slice((safeAutoSyncPage - 1) * AUTO_SYNC_PAGE_SIZE, safeAutoSyncPage * AUTO_SYNC_PAGE_SIZE);
-      useAppScrollLock(templateEditor.open || preview.open);
+      useAppScrollLock(templateEditor.open || customTemplateEditor.open || preview.open);
       const scrollMainToTop = () => {
         try {
           window.scrollTo({ top: 0, behavior: 'smooth' });
@@ -20873,6 +21057,55 @@ function PTClientsPage({ members, users, settings, updateSetting, currentUser, a
         const curr = templates[key] || '';
         scrollMainToTop();
         setTemplateEditor({ open: true, key, value: curr });
+      };
+      const openCreateCustomTemplate = () => {
+        const branchId = String(effectiveBranchId || '').trim();
+        scrollMainToTop();
+        setCustomTemplateSaveError('');
+        setCustomTemplateEditor({
+          open: true,
+          mode: 'create',
+          id: '',
+          templateCode: '',
+          templateName: '',
+          templateType: 'promotional',
+          messageBody: '',
+          branchId,
+        });
+      };
+      const openEditCustomTemplate = (card) => {
+        if (!card?.id) return;
+        scrollMainToTop();
+        setCustomTemplateSaveError('');
+        setCustomTemplateEditor({
+          open: true,
+          mode: 'edit',
+          id: card.id,
+          templateCode: card.templateCode || '',
+          templateName: card.title || '',
+          templateType: card.templateType || 'promotional',
+          messageBody: card.body || '',
+          branchId: String(effectiveBranchId || '').trim(),
+        });
+      };
+      const closeCustomTemplateEditor = () => {
+        if (customTemplateSaving) return;
+        setCustomTemplateEditor({
+          open: false,
+          mode: 'create',
+          id: '',
+          templateCode: '',
+          templateName: '',
+          templateType: 'promotional',
+          messageBody: '',
+          branchId: '',
+        });
+        setCustomTemplateSaveError('');
+      };
+      const friendlyCustomTemplateError = (err) => {
+        const fn = window.__APG_MODULES?.friendlyCustomTemplateApiError;
+        if (typeof fn === 'function') return fn(err);
+        return `Save failed: ${err?.message || err}`;
       };
       const renderSms = (template, m, templateKey, composeAt) => {
         if (!m) return '';
@@ -20956,7 +21189,10 @@ function PTClientsPage({ members, users, settings, updateSetting, currentUser, a
         });
       };
       return (
-        <div className="p-3 md:p-8 space-y-5 bg-slate-100">
+        <div
+          className="p-3 md:p-8 space-y-5 bg-slate-100"
+          data-custom-templates-enabled={customTemplatesFeatureEnabled ? 'true' : 'false'}
+        >
           <div className="flex items-center justify-between">
             <h1 className="text-xl md:text-2xl font-semibold text-slate-900">WhatsApp SMS</h1>
           </div>
@@ -20983,6 +21219,32 @@ function PTClientsPage({ members, users, settings, updateSetting, currentUser, a
           )}
           {activeType === 'templates' && (
             <div className="space-y-4">
+              {canManageCustomTemplatesFlag && (
+                <div
+                  className="rounded-2xl border border-blue-200 bg-blue-50 p-4 shadow-sm"
+                  data-testid="whatsapp-custom-templates-feature-rollout"
+                >
+                  <div className="flex flex-wrap items-center justify-between gap-3">
+                    <div className="min-w-0">
+                      <div className="text-base font-semibold text-slate-900">Custom WhatsApp Templates</div>
+                      <p className="text-sm text-slate-600 mt-1">
+                        {customTemplatesFeatureEnabled
+                          ? 'Create branch-specific templates such as Promotion or Festival Offer. They appear below the system templates.'
+                          : 'Enable to create branch-specific templates such as Promotion or Festival Offer.'}
+                      </p>
+                    </div>
+                    <label className="inline-flex items-center gap-2 rounded-full border border-blue-300 bg-white px-4 py-2 text-sm font-semibold text-slate-800 shrink-0">
+                      <input
+                        type="checkbox"
+                        checked={customTemplatesFeatureEnabled}
+                        onChange={(e) => updateSetting && updateSetting('customTemplatesEnabled', Boolean(e.target.checked))}
+                        data-testid="whatsapp-custom-templates-feature-flag"
+                      />
+                      Enable
+                    </label>
+                  </div>
+                </div>
+              )}
               {authMayPickTemplateBranch() && (
                 <div className="flex flex-wrap items-end gap-3 rounded-2xl border border-slate-200 bg-white p-4">
                   <div className="min-w-[220px] flex-1">
@@ -20992,7 +21254,11 @@ function PTClientsPage({ members, users, settings, updateSetting, currentUser, a
                       onChange={(e) => {
                         const next = e.target.value;
                         if (typeof onTemplatesBranchIdChange === 'function') onTemplatesBranchIdChange(next);
-                        if (typeof fetchBranchWhatsappTemplates === 'function') fetchBranchWhatsappTemplates(next);
+                        if (typeof fetchBranchTemplateData === 'function') fetchBranchTemplateData(next);
+                        else {
+                          if (typeof fetchBranchWhatsappTemplates === 'function') fetchBranchWhatsappTemplates(next);
+                          if (typeof fetchBranchCustomTemplates === 'function') fetchBranchCustomTemplates(next);
+                        }
                       }}
                       className="mt-1 w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm"
                       data-testid="whatsapp-templates-branch-select"
@@ -21004,7 +21270,7 @@ function PTClientsPage({ members, users, settings, updateSetting, currentUser, a
                     </select>
                   </div>
                   <p className="text-xs text-slate-500">
-                    {templatesBranchLoading ? 'Loading templates…' : `Editing templates for ${gymCodeLabel(effectiveBranchId)}`}
+                    {(templatesBranchLoading || customTemplatesLoading) ? 'Loading templates…' : `Editing templates for ${gymCodeLabel(effectiveBranchId)}`}
                   </p>
                 </div>
               )}
@@ -21023,6 +21289,29 @@ function PTClientsPage({ members, users, settings, updateSetting, currentUser, a
                     className="rounded-full bg-blue-600 text-white px-4 py-2 text-sm font-semibold"
                   >
                     ＋ Messaging Center
+                  </button>
+                </div>
+              )}
+              {customTemplatesFeatureEnabled && canEditBranchTemplates && (
+                <div className="flex flex-wrap items-center justify-between gap-3">
+                  <div className="text-sm font-semibold text-slate-700">
+                    {customTemplateCards.length
+                      ? `${customTemplateCards.length} custom template${customTemplateCards.length === 1 ? '' : 's'} for this branch`
+                      : 'No custom templates yet for this branch'}
+                  </div>
+                  <button
+                    type="button"
+                    onClick={openCreateCustomTemplate}
+                    disabled={!effectiveBranchId}
+                    data-testid="whatsapp-custom-template-create"
+                    className={cx(
+                      'rounded-full px-4 py-2 text-sm font-semibold',
+                      effectiveBranchId
+                        ? 'bg-violet-600 text-white hover:bg-violet-700'
+                        : 'bg-slate-200 text-slate-500 cursor-not-allowed',
+                    )}
+                  >
+                    + Create Template
                   </button>
                 </div>
               )}
@@ -21065,6 +21354,50 @@ function PTClientsPage({ members, users, settings, updateSetting, currentUser, a
                       className="mt-2 w-full rounded-lg border border-slate-300 bg-white py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-100"
                     >
                       {expandedTemplates[card.key] ? 'Collapse SMS' : 'Expand SMS'}
+                    </button>
+                  </div>
+                ))}
+                {customTemplatesFeatureEnabled && customTemplateCards.map((card) => (
+                  <div
+                    key={card.id || card.historyKey}
+                    className={cx('rounded-2xl border p-4 bg-white shadow-sm', card.tone)}
+                    data-testid={`whatsapp-custom-template-card-${card.templateCode}`}
+                  >
+                    <div className="text-2xl font-semibold">{card.title}</div>
+                    <div className="text-lg text-slate-600">({card.subtitle})</div>
+                    <div className="text-xs text-slate-500 mt-1">Code: {card.templateCode}</div>
+                    <div className={cx('mt-3 text-sm text-slate-800 whitespace-pre-wrap rounded-xl border border-slate-200 bg-slate-50 p-2', expandedTemplates[card.historyKey] ? 'max-h-[340px] overflow-auto' : 'h-24 overflow-hidden')}>
+                      {card.body || '-'}
+                    </div>
+                    <div className="mt-3 grid grid-cols-2 gap-2">
+                      <button
+                        onClick={() => openEditCustomTemplate(card)}
+                        disabled={!canEditBranchTemplates}
+                        className={cx(
+                          'w-full rounded-full py-2 text-sm font-medium',
+                          canEditBranchTemplates
+                            ? 'bg-blue-600 text-white'
+                            : 'bg-slate-200 text-slate-500 cursor-not-allowed',
+                        )}
+                      >
+                        EDIT
+                      </button>
+                      <button
+                        onClick={() => {
+                          const sample = members.find(m => m.status === 'Active') || members[0];
+                          scrollMainToTop();
+                          setPreview({ open: true, member: sample || null, templateKey: card.historyKey });
+                        }}
+                        className="w-full rounded-xl border border-emerald-300 bg-emerald-50 text-emerald-700 py-2 text-sm font-medium"
+                      >
+                        Send Now
+                      </button>
+                    </div>
+                    <button
+                      onClick={() => setExpandedTemplates(prev => ({ ...prev, [card.historyKey]: !prev[card.historyKey] }))}
+                      className="mt-2 w-full rounded-lg border border-slate-300 bg-white py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-100"
+                    >
+                      {expandedTemplates[card.historyKey] ? 'Collapse SMS' : 'Expand SMS'}
                     </button>
                   </div>
                 ))}
@@ -21511,6 +21844,245 @@ function PTClientsPage({ members, users, settings, updateSetting, currentUser, a
               </div>
             </ModalPortal>
           )}
+          {customTemplateEditor.open && (
+            <ModalPortal>
+              <div
+                className="fixed inset-0 z-[70] flex items-center justify-center apg-modal-backdrop p-4 overflow-y-auto"
+                data-testid="whatsapp-custom-template-modal"
+                role="dialog"
+                aria-modal="true"
+                aria-labelledby="whatsapp-custom-template-modal-title"
+                onClick={closeCustomTemplateEditor}
+              >
+                <div
+                  className="apg-force-light w-full max-w-3xl max-h-[min(92vh,900px)] flex flex-col rounded-2xl bg-white p-4 shadow-xl space-y-3 my-auto"
+                  onClick={(e) => e.stopPropagation()}
+                >
+                  <div className="flex items-center justify-between shrink-0">
+                    <div id="whatsapp-custom-template-modal-title" className="text-lg font-semibold">
+                      {customTemplateEditor.mode === 'create' ? 'Create custom template' : `Edit template: ${customTemplateEditor.templateName || customTemplateEditor.templateCode}`}
+                    </div>
+                    <button
+                      type="button"
+                      onClick={closeCustomTemplateEditor}
+                      className="rounded-lg px-2 py-1 hover:bg-slate-100"
+                      disabled={customTemplateSaving}
+                      aria-label="Close custom template editor"
+                    >
+                      ✕
+                    </button>
+                  </div>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-3 shrink-0">
+                    <div>
+                      <label className="text-xs font-medium text-slate-600">Template Name</label>
+                      <input
+                        type="text"
+                        value={customTemplateEditor.templateName}
+                        onChange={(e) => {
+                          const templateName = e.target.value;
+                          setCustomTemplateEditor((prev) => {
+                            const slugFn = window.__APG_MODULES?.slugFromTemplateName;
+                            const nextCode = prev.mode === 'create' && typeof slugFn === 'function'
+                              ? slugFn(templateName)
+                              : prev.templateCode;
+                            return { ...prev, templateName, templateCode: nextCode };
+                          });
+                        }}
+                        className="mt-1 w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm"
+                        data-testid="whatsapp-custom-template-name"
+                        maxLength={80}
+                      />
+                    </div>
+                    <div>
+                      <label className="text-xs font-medium text-slate-600">Template Type</label>
+                      <select
+                        value={customTemplateEditor.templateType}
+                        onChange={(e) => setCustomTemplateEditor((prev) => ({ ...prev, templateType: e.target.value }))}
+                        className="mt-1 w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm"
+                        data-testid="whatsapp-custom-template-type"
+                      >
+                        {customTemplateTypeOptions.map((opt) => (
+                          <option key={opt.value} value={opt.value}>{opt.label}</option>
+                        ))}
+                      </select>
+                    </div>
+                    <div className="md:col-span-2">
+                      <label className="text-xs font-medium text-slate-600">Gym Branch (Gym Code)</label>
+                      <select
+                        value={customTemplateEditor.branchId || effectiveBranchId || ''}
+                        onChange={(e) => setCustomTemplateEditor((prev) => ({ ...prev, branchId: e.target.value }))}
+                        disabled={customTemplateEditor.mode === 'edit' || !authMayPickTemplateBranch()}
+                        className="mt-1 w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm disabled:bg-slate-100"
+                        data-testid="whatsapp-custom-template-branch"
+                      >
+                        <option value="">Select branch…</option>
+                        {(assignableGymCodes || []).map((c) => (
+                          <option key={c.id} value={c.id}>{c.code} / {c.name || c.branchName}</option>
+                        ))}
+                      </select>
+                    </div>
+                    {customTemplateEditor.templateCode && (
+                      <div className="md:col-span-2 text-xs text-slate-500">
+                        Template code: <span className="font-mono text-slate-700">{customTemplateEditor.templateCode}</span>
+                      </div>
+                    )}
+                  </div>
+                  <div className="text-xs text-slate-500 shrink-0">Use placeholders like [CustomerName], [PLAN], [Amount], [BillingDate].</div>
+                  <textarea
+                    value={customTemplateEditor.messageBody}
+                    onChange={(e) => setCustomTemplateEditor((prev) => ({ ...prev, messageBody: e.target.value }))}
+                    className="min-h-[32vh] max-h-[45vh] flex-1 w-full rounded-xl border border-slate-300 bg-white p-3 text-sm leading-6 font-medium text-slate-800 focus:outline-none focus:ring-2 focus:ring-violet-300 resize-y"
+                    data-testid="whatsapp-custom-template-body"
+                  />
+                  {customTemplateSaveError && (
+                    <div className="rounded-xl border border-rose-300 bg-rose-50 px-3 py-2 text-xs text-rose-700 shrink-0" data-testid="whatsapp-custom-template-error">
+                      {customTemplateSaveError}
+                    </div>
+                  )}
+                  <div className="flex flex-wrap justify-between gap-2 shrink-0">
+                    {customTemplateEditor.mode === 'edit' && canEditBranchTemplates && (
+                      <button
+                        type="button"
+                        onClick={async () => {
+                          const branchId = String(customTemplateEditor.branchId || effectiveBranchId || '').trim();
+                          const templateId = String(customTemplateEditor.id || '').trim();
+                          if (!branchId || !templateId) return;
+                          if (!window.confirm('Archive this custom template? It will be hidden but history is preserved.')) return;
+                          const backend = typeof window !== 'undefined' ? window.__APG_BACKEND_JSON__ : null;
+                          setCustomTemplateSaveError('');
+                          try {
+                            setCustomTemplateSaving(true);
+                            if (backend) {
+                              await backend(`/custom-templates/${encodeURIComponent(templateId)}/archive`, {
+                                method: 'POST',
+                                body: JSON.stringify({ gymCodeId: branchId }),
+                              });
+                            }
+                            if (typeof setCustomTemplatesByBranch === 'function') {
+                              setCustomTemplatesByBranch((prev) => {
+                                const list = Array.isArray(prev[branchId]) ? prev[branchId] : [];
+                                return {
+                                  ...prev,
+                                  [branchId]: list.filter((t) => String(t.id) !== templateId),
+                                };
+                              });
+                            }
+                            if (typeof fetchBranchCustomTemplates === 'function') fetchBranchCustomTemplates(branchId);
+                            closeCustomTemplateEditor();
+                          } catch (err) {
+                            setCustomTemplateSaveError(friendlyCustomTemplateError(err));
+                          } finally {
+                            setCustomTemplateSaving(false);
+                          }
+                        }}
+                        disabled={customTemplateSaving}
+                        className="rounded-xl border border-rose-300 bg-rose-50 px-3 py-2 text-sm text-rose-700 hover:bg-rose-100 disabled:opacity-50"
+                      >
+                        Archive
+                      </button>
+                    )}
+                    <div className="flex justify-end gap-2 ml-auto">
+                      <button
+                        type="button"
+                        onClick={closeCustomTemplateEditor}
+                        className="rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm"
+                        disabled={customTemplateSaving}
+                      >
+                        Cancel
+                      </button>
+                      <button
+                        type="button"
+                        onClick={async () => {
+                          setCustomTemplateSaveError('');
+                          const branchId = String(customTemplateEditor.branchId || effectiveBranchId || '').trim();
+                          const templateName = String(customTemplateEditor.templateName || '').trim();
+                          const templateType = String(customTemplateEditor.templateType || 'promotional').trim();
+                          const messageBody = String(customTemplateEditor.messageBody == null ? '' : customTemplateEditor.messageBody);
+                          const slugFn = window.__APG_MODULES?.slugFromTemplateName;
+                          const templateCode = String(customTemplateEditor.templateCode || '').trim()
+                            || (typeof slugFn === 'function' ? slugFn(templateName) : '');
+                          const validateFn = window.__APG_MODULES?.validateCustomTemplateDraft;
+                          const draftErr = typeof validateFn === 'function'
+                            ? validateFn({ templateName, templateCode, messageBody })
+                            : (!templateName || !messageBody.trim() ? 'Template name and message body are required.' : '');
+                          if (draftErr) {
+                            setCustomTemplateSaveError(draftErr);
+                            return;
+                          }
+                          if (!branchId) {
+                            setCustomTemplateSaveError('Select a gym branch before saving.');
+                            return;
+                          }
+                          const backend = typeof window !== 'undefined' ? window.__APG_BACKEND_JSON__ : null;
+                          try {
+                            setCustomTemplateSaving(true);
+                            if (customTemplateEditor.mode === 'create') {
+                              let created = null;
+                              if (backend) {
+                                const res = await backend('/custom-templates', {
+                                  method: 'POST',
+                                  body: JSON.stringify({
+                                    gymCodeId: branchId,
+                                    templateName,
+                                    templateCode,
+                                    templateType,
+                                    messageBody,
+                                    channel: 'whatsapp',
+                                  }),
+                                });
+                                created = res?.template || null;
+                              }
+                              if (created && typeof setCustomTemplatesByBranch === 'function') {
+                                setCustomTemplatesByBranch((prev) => {
+                                  const list = Array.isArray(prev[branchId]) ? prev[branchId] : [];
+                                  return { ...prev, [branchId]: [...list, created] };
+                                });
+                              }
+                            } else {
+                              const templateId = String(customTemplateEditor.id || '').trim();
+                              let updated = null;
+                              if (backend) {
+                                const res = await backend(`/custom-templates/${encodeURIComponent(templateId)}`, {
+                                  method: 'PATCH',
+                                  body: JSON.stringify({
+                                    gymCodeId: branchId,
+                                    templateName,
+                                    templateType,
+                                    messageBody,
+                                  }),
+                                });
+                                updated = res?.template || null;
+                              }
+                              if (updated && typeof setCustomTemplatesByBranch === 'function') {
+                                setCustomTemplatesByBranch((prev) => {
+                                  const list = Array.isArray(prev[branchId]) ? prev[branchId] : [];
+                                  return {
+                                    ...prev,
+                                    [branchId]: list.map((t) => (String(t.id) === templateId ? updated : t)),
+                                  };
+                                });
+                              }
+                            }
+                            if (typeof fetchBranchCustomTemplates === 'function') fetchBranchCustomTemplates(branchId);
+                            closeCustomTemplateEditor();
+                          } catch (err) {
+                            setCustomTemplateSaveError(friendlyCustomTemplateError(err));
+                          } finally {
+                            setCustomTemplateSaving(false);
+                          }
+                        }}
+                        disabled={customTemplateSaving}
+                        data-testid="whatsapp-custom-template-save"
+                        className="rounded-full bg-violet-600 px-4 py-2 text-sm font-medium text-white hover:bg-violet-700 disabled:opacity-50"
+                      >
+                        {customTemplateSaving ? 'Saving…' : (customTemplateEditor.mode === 'create' ? 'Create' : 'Save')}
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </ModalPortal>
+          )}
           {preview.open && (
             <ModalPortal>
               <div
@@ -21526,7 +22098,7 @@ function PTClientsPage({ members, users, settings, updateSetting, currentUser, a
                   </div>
                   <div className="text-xs text-slate-500">Variables: {VARIABLE_KEYS.join(', ')}</div>
                   <div className="max-h-72 overflow-auto whitespace-pre-wrap rounded-xl border border-slate-200 bg-slate-50 p-3 text-sm">
-                    {renderSms(templates[preview.templateKey] || '', preview.member, preview.templateKey)}
+                    {renderSms(resolvePreviewTemplateBody(preview.templateKey), preview.member, preview.templateKey)}
                   </div>
                   <div className="flex justify-end gap-2">
                     <button type="button" onClick={() => setPreview({ open: false, member: null, templateKey: '' })} className="rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm">Cancel</button>

@@ -797,6 +797,122 @@ export async function writeWhatsappTemplate(scope, payload) {
   return { key, body, updatedAt: nowIso, gymCodeId };
 }
 
+const LOCAL_CUSTOM_TEMPLATES_KEY = 'customTemplatesByBranch';
+
+function readLocalCustomTemplatesMap(settings) {
+  const map = settings?.[LOCAL_CUSTOM_TEMPLATES_KEY];
+  return map && typeof map === 'object' ? map : {};
+}
+
+function writeLocalCustomTemplatesMap(settings, map) {
+  return { ...settings, [LOCAL_CUSTOM_TEMPLATES_KEY]: map };
+}
+
+/** Branch-scoped custom templates list. */
+export async function readCustomTemplates(scope, gymCodeId, options = {}) {
+  if (useSupabase()) {
+    const { listBranchCustomTemplates } = await import('../services/branchCustomTemplates.js');
+    return listBranchCustomTemplates(gymCodeId, options);
+  }
+  const settings = (await readJsonValue('apg.settings', {}, scope)) || {};
+  const branchId = String(gymCodeId || '').trim();
+  const map = readLocalCustomTemplatesMap(settings);
+  const list = Array.isArray(map[branchId]) ? map[branchId] : [];
+  const featureEnabled = settings.customTemplatesEnabled === true;
+  const includeArchived = options.includeArchived === true;
+  const templates = list.filter((t) => includeArchived || (t.isActive !== false && t.status !== 'archived'));
+  return {
+    gymCodeId: branchId,
+    featureEnabled,
+    templates: featureEnabled ? templates : [],
+  };
+}
+
+export async function createCustomTemplate(scope, payload, meta = {}) {
+  if (useSupabase()) {
+    const { createBranchCustomTemplate } = await import('../services/branchCustomTemplates.js');
+    const created = await createBranchCustomTemplate(payload?.gymCodeId, payload, meta);
+    const { notifyCollectionChange } = await import('../realtime/supabaseListener.js');
+    notifyCollectionChange('customTemplates');
+    return created;
+  }
+  const settings = (await readJsonValue('apg.settings', {}, scope)) || {};
+  if (settings.customTemplatesEnabled !== true) {
+    throw Object.assign(new Error('custom-templates-feature-disabled'), { status: 403 });
+  }
+  const branchId = String(payload?.gymCodeId || '').trim();
+  if (!branchId) throw Object.assign(new Error('gym-code-id-required'), { status: 400 });
+  const nowIso = new Date().toISOString();
+  const template = {
+    id: crypto.randomUUID(),
+    gymCodeId: branchId,
+    templateCode: String(payload?.templateCode || '').trim(),
+    templateName: String(payload?.templateName || '').trim(),
+    templateType: String(payload?.templateType || 'promotional'),
+    messageBody: String(payload?.messageBody || ''),
+    channel: String(payload?.channel || 'whatsapp'),
+    isActive: true,
+    status: 'active',
+    createdBy: String(meta?.createdBy || '').trim() || null,
+    createdAt: nowIso,
+    updatedAt: nowIso,
+    sortOrder: Number(payload?.sortOrder || 0),
+  };
+  const map = readLocalCustomTemplatesMap(settings);
+  const list = Array.isArray(map[branchId]) ? [...map[branchId]] : [];
+  list.push(template);
+  await writeJsonValue('apg.settings', writeLocalCustomTemplatesMap(settings, { ...map, [branchId]: list }), scope);
+  return template;
+}
+
+export async function updateCustomTemplate(scope, templateId, payload) {
+  if (useSupabase()) {
+    const { updateBranchCustomTemplate } = await import('../services/branchCustomTemplates.js');
+    const result = await updateBranchCustomTemplate(templateId, payload?.gymCodeId, payload);
+    const { notifyCollectionChange } = await import('../realtime/supabaseListener.js');
+    notifyCollectionChange('customTemplates');
+    return result;
+  }
+  const settings = (await readJsonValue('apg.settings', {}, scope)) || {};
+  if (settings.customTemplatesEnabled !== true) {
+    throw Object.assign(new Error('custom-templates-feature-disabled'), { status: 403 });
+  }
+  const branchId = String(payload?.gymCodeId || '').trim();
+  const id = String(templateId || '').trim();
+  const map = readLocalCustomTemplatesMap(settings);
+  const list = Array.isArray(map[branchId]) ? [...map[branchId]] : [];
+  const idx = list.findIndex((t) => String(t?.id || '') === id);
+  if (idx < 0) throw Object.assign(new Error('custom-template-not-found'), { status: 404 });
+  const before = { ...list[idx] };
+  const nowIso = new Date().toISOString();
+  const next = { ...list[idx], updatedAt: nowIso };
+  if (payload?.templateName != null) next.templateName = String(payload.templateName);
+  if (payload?.messageBody != null) next.messageBody = String(payload.messageBody);
+  if (payload?.templateType != null) next.templateType = String(payload.templateType);
+  if (payload?.channel != null) next.channel = String(payload.channel);
+  if (payload?.status != null) next.status = String(payload.status);
+  if (payload?.isActive != null) next.isActive = Boolean(payload.isActive);
+  if (payload?.sortOrder != null) next.sortOrder = Number(payload.sortOrder);
+  list[idx] = next;
+  await writeJsonValue('apg.settings', writeLocalCustomTemplatesMap(settings, { ...map, [branchId]: list }), scope);
+  return { template: next, before };
+}
+
+export async function archiveCustomTemplate(scope, templateId, gymCodeId) {
+  if (useSupabase()) {
+    const { archiveBranchCustomTemplate } = await import('../services/branchCustomTemplates.js');
+    const result = await archiveBranchCustomTemplate(templateId, gymCodeId);
+    const { notifyCollectionChange } = await import('../realtime/supabaseListener.js');
+    notifyCollectionChange('customTemplates');
+    return result;
+  }
+  return updateCustomTemplate(scope, templateId, {
+    gymCodeId,
+    isActive: false,
+    status: 'archived',
+  });
+}
+
 /** Surgical PT client profile save (staff + owner). */
 export async function patchPtClientProfileValue(memberCode, profile, meta = {}) {
   if (useSupabase()) return supabaseStore.patchPtClientProfile(memberCode, profile, meta);

@@ -319,6 +319,7 @@ async function migrateSettings(supabase, settings, gymId) {
     acknowledgementUnder18Template: settings.acknowledgementUnder18Template || null,
     gmailWelcomeTemplate: settings.gmailWelcomeTemplate || null,
     smsTemplatePresetVersion: settings.smsTemplatePresetVersion || null,
+    customTemplatesEnabled: settings.customTemplatesEnabled === true,
   };
 
   const { error: cfgErr } = await supabase.from(T.settings_app_config).insert({

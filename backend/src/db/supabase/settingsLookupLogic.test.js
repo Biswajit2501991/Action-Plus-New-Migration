@@ -39,12 +39,26 @@ describe('applySettingsConfigJson', () => {
         plans: [],
         statuses: [],
         medicalQuestionnaireTemplate: { version: 2 },
+        customTemplatesEnabled: true,
       },
     });
     expect(settings.plans).toEqual(['Basic', 'PT-Raja']);
     expect(settings.statuses).toEqual(['Active']);
     expect(settings.medicalQuestionnaireTemplate).toEqual({ version: 2 });
     expect(settings.fineSmsGraceDays).toBe(2);
+    expect(settings.customTemplatesEnabled).toBe(true);
+  });
+
+  it('leaves customTemplatesEnabled unset when absent from config_json', () => {
+    const settings = { plans: ['Basic'] };
+    applySettingsConfigJson(settings, {
+      fine_sms_enabled: true,
+      fine_sms_grace_days: 0,
+      fine_sms_immediate_roles_json: [],
+      finance_use_estimated_expense: true,
+      config_json: {},
+    });
+    expect(settings.customTemplatesEnabled).toBeUndefined();
   });
 });
 

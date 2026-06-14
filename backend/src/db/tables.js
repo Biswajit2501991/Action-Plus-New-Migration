@@ -29,6 +29,7 @@ export const T = {
   staff_branch_assignments: 'staff_branch_assignments',
   settings_lookup_values: 'settings_lookup_values',
   settings_templates: 'settings_templates',
+  branch_custom_templates: 'branch_custom_templates',
   settings_app_config: 'settings_app_config',
   settings_staff_directory: 'settings_staff_directory',
   leave_requests: 'leave_requests',

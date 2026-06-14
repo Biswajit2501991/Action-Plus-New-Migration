@@ -39,6 +39,10 @@ import {
   deleteAttendanceRecordsInRange,
   readWhatsappTemplates,
   writeWhatsappTemplate,
+  readCustomTemplates,
+  createCustomTemplate,
+  updateCustomTemplate,
+  archiveCustomTemplate,
   appendAuditLogEntry,
   createAuditLog,
   deleteLogsInRange,
@@ -1288,6 +1292,143 @@ app.patch('/api/whatsapp-templates/:key', requireAccess(Access.templatesWrite), 
     const status = error?.status || 500;
     return res.status(status).json({
       error: error?.message || 'whatsapp_template_save_failed',
+      message: String(error?.message || error),
+    });
+  }
+});
+
+// ----------------------------------------------------------------------------
+// Branch-scoped custom WhatsApp templates — CRUD (additive; soft archive only).
+// ----------------------------------------------------------------------------
+app.get('/api/custom-templates', requireAccess(Access.templatesRead), async (req, res) => {
+  try {
+    const { resolveEffectiveTemplateBranchId } = await import('./services/branchCustomTemplates.js');
+    const gymCodeId = await resolveEffectiveTemplateBranchId(
+      req.auth,
+      req.query?.gymCodeId || req.query?.gym_code_id,
+    );
+    const includeArchived = String(req.query?.includeArchived || '').toLowerCase() === 'true';
+    const result = await readCustomTemplates(readSandboxScope(req), gymCodeId, { includeArchived });
+    return res.json({ ok: true, ...result });
+  } catch (error) {
+    const status = error?.status || 500;
+    return res.status(status).json({
+      error: error?.message || 'custom_templates_read_failed',
+      message: String(error?.message || error),
+    });
+  }
+});
+
+app.post('/api/custom-templates', requireAccess(Access.templatesWrite), async (req, res) => {
+  try {
+    const {
+      resolveEffectiveTemplateBranchId,
+      assertWhatsappTemplateWriteAllowed,
+    } = await import('./services/branchCustomTemplates.js');
+    const gymCodeId = await resolveEffectiveTemplateBranchId(
+      req.auth,
+      req.body?.gymCodeId || req.body?.gym_code_id,
+    );
+    if (!authIsOwner(req.auth)) {
+      const access = req.staffAccess || await getStaffAccessForUser(req.auth?.userId);
+      assertWhatsappTemplateWriteAllowed(req.auth, access);
+    }
+    const created = await createCustomTemplate(
+      readSandboxScope(req),
+      { ...req.body, gymCodeId },
+      { createdBy: String(req.auth?.userId || '').trim() || null },
+    );
+    await appendAuditLog(req, {
+      action: 'custom_template.created',
+      entityType: 'custom_template',
+      entityId: `${gymCodeId}:${created.templateCode}`,
+      after: {
+        id: created.id,
+        templateCode: created.templateCode,
+        templateName: created.templateName,
+        gymCodeId,
+        channel: created.channel,
+      },
+    });
+    queueDatabaseBackup('custom-template');
+    return res.status(201).json({ ok: true, template: created, gymCodeId });
+  } catch (error) {
+    const status = error?.status || 500;
+    return res.status(status).json({
+      error: error?.message || 'custom_template_create_failed',
+      message: String(error?.message || error),
+    });
+  }
+});
+
+app.patch('/api/custom-templates/:id', requireAccess(Access.templatesWrite), async (req, res) => {
+  try {
+    const {
+      resolveEffectiveTemplateBranchId,
+      assertWhatsappTemplateWriteAllowed,
+      assertValidCustomTemplateId,
+    } = await import('./services/branchCustomTemplates.js');
+    const templateId = assertValidCustomTemplateId(req.params?.id);
+    const gymCodeId = await resolveEffectiveTemplateBranchId(
+      req.auth,
+      req.body?.gymCodeId || req.body?.gym_code_id,
+    );
+    if (!authIsOwner(req.auth)) {
+      const access = req.staffAccess || await getStaffAccessForUser(req.auth?.userId);
+      assertWhatsappTemplateWriteAllowed(req.auth, access);
+    }
+    const result = await updateCustomTemplate(readSandboxScope(req), templateId, {
+      ...req.body,
+      gymCodeId,
+    });
+    await appendAuditLog(req, {
+      action: 'custom_template.updated',
+      entityType: 'custom_template',
+      entityId: `${gymCodeId}:${result.template?.templateCode || templateId}`,
+      before: result.before || null,
+      after: result.template || null,
+    });
+    queueDatabaseBackup('custom-template');
+    return res.json({ ok: true, template: result.template, gymCodeId });
+  } catch (error) {
+    const status = error?.status || 500;
+    return res.status(status).json({
+      error: error?.message || 'custom_template_update_failed',
+      message: String(error?.message || error),
+    });
+  }
+});
+
+app.post('/api/custom-templates/:id/archive', requireAccess(Access.templatesWrite), async (req, res) => {
+  try {
+    const {
+      resolveEffectiveTemplateBranchId,
+      assertWhatsappTemplateWriteAllowed,
+      assertValidCustomTemplateId,
+    } = await import('./services/branchCustomTemplates.js');
+    const templateId = assertValidCustomTemplateId(req.params?.id);
+    const gymCodeId = await resolveEffectiveTemplateBranchId(
+      req.auth,
+      req.body?.gymCodeId || req.body?.gym_code_id,
+    );
+    if (!authIsOwner(req.auth)) {
+      const access = req.staffAccess || await getStaffAccessForUser(req.auth?.userId);
+      assertWhatsappTemplateWriteAllowed(req.auth, access);
+    }
+    const result = await archiveCustomTemplate(readSandboxScope(req), templateId, gymCodeId);
+    await appendAuditLog(req, {
+      action: 'custom_template.archived',
+      entityType: 'custom_template',
+      entityId: `${gymCodeId}:${result.template?.templateCode || templateId}`,
+      before: result.before || null,
+      after: result.template || null,
+    });
+    queueDatabaseBackup('custom-template');
+    return res.json({ ok: true, template: result.template, gymCodeId });
+  } catch (error) {
+    const status = error?.status || 500;
+    return res.status(status).json({
+      error: error?.message || 'custom_template_archive_failed',
       message: String(error?.message || error),
     });
   }

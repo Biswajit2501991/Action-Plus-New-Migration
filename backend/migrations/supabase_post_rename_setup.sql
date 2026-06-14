@@ -35,6 +35,7 @@ DECLARE
     'sms_status_events',
     'settings_lookup_values',
     'settings_templates',
+    'branch_custom_templates',
     'settings_app_config',
     'settings_staff_directory',
     'staff_role_templates',

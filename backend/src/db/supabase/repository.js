@@ -1699,6 +1699,7 @@ function buildSettingsObject({ lookups, templates, configRow, staffDir, roles, l
     fineSmsGraceDays: 0,
     fineSmsImmediateRoles: [],
     financeUseEstimatedExpense: true,
+    customTemplatesEnabled: false,
   };
 
   for (const [key, category] of LOOKUP_CATEGORIES) {
@@ -2001,6 +2002,7 @@ async function writeSettings(settings, scope) {
     acknowledgementUnder18Template: s.acknowledgementUnder18Template || null,
     gmailWelcomeTemplate: s.gmailWelcomeTemplate || null,
     smsTemplatePresetVersion: s.smsTemplatePresetVersion || null,
+    customTemplatesEnabled: s.customTemplatesEnabled === true,
   };
   await sb.from(T.settings_app_config).delete().eq('gym_id', gid);
   await sb.from(T.settings_app_config).insert({

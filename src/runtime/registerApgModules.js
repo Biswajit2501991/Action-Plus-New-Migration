@@ -105,6 +105,27 @@ import {
 } from '../features/whatsapp/branchTemplateAccess.js';
 import { WHATSAPP_TEMPLATE_KEYS } from '../features/whatsapp/templateKeys.js';
 import {
+  CUSTOM_TEMPLATES_FEATURE_FLAG_KEY,
+  isCustomTemplatesEnabled,
+  normalizeCustomTemplatesEnabled,
+  canManageCustomTemplatesFeatureFlag,
+} from '../features/whatsapp/customTemplatesFeature.js';
+import {
+  RESERVED_SYSTEM_TEMPLATE_CODES,
+  customTemplateHistoryKey,
+  isCustomTemplateHistoryKey,
+  isValidCustomTemplateCode,
+  parseCustomTemplateHistoryKey,
+} from '../features/whatsapp/customTemplateCodes.js';
+import {
+  CUSTOM_TEMPLATE_TYPES,
+  slugFromTemplateName,
+  customTemplateCardTone,
+  customTemplateTypeLabel,
+  validateCustomTemplateDraft,
+  friendlyCustomTemplateApiError,
+} from '../features/whatsapp/customTemplatesClient.js';
+import {
   resolveClientBranchBranding,
   defaultClientBranding,
   DEFAULT_LOGO_PATH,
@@ -454,6 +475,21 @@ window.__APG_MODULES.nextBranchFormNumber = nextBranchFormNumber;
 window.__APG_MODULES.branchCodeToken = branchCodeToken;
 window.__APG_MODULES.buildBranchMemberId = buildBranchMemberId;
 window.__APG_MODULES.WHATSAPP_TEMPLATE_KEYS = WHATSAPP_TEMPLATE_KEYS;
+window.__APG_MODULES.CUSTOM_TEMPLATES_FEATURE_FLAG_KEY = CUSTOM_TEMPLATES_FEATURE_FLAG_KEY;
+window.__APG_MODULES.isCustomTemplatesEnabled = isCustomTemplatesEnabled;
+window.__APG_MODULES.normalizeCustomTemplatesEnabled = normalizeCustomTemplatesEnabled;
+window.__APG_MODULES.canManageCustomTemplatesFeatureFlag = canManageCustomTemplatesFeatureFlag;
+window.__APG_MODULES.RESERVED_SYSTEM_TEMPLATE_CODES = RESERVED_SYSTEM_TEMPLATE_CODES;
+window.__APG_MODULES.isValidCustomTemplateCode = isValidCustomTemplateCode;
+window.__APG_MODULES.customTemplateHistoryKey = customTemplateHistoryKey;
+window.__APG_MODULES.isCustomTemplateHistoryKey = isCustomTemplateHistoryKey;
+window.__APG_MODULES.parseCustomTemplateHistoryKey = parseCustomTemplateHistoryKey;
+window.__APG_MODULES.CUSTOM_TEMPLATE_TYPES = CUSTOM_TEMPLATE_TYPES;
+window.__APG_MODULES.slugFromTemplateName = slugFromTemplateName;
+window.__APG_MODULES.customTemplateCardTone = customTemplateCardTone;
+window.__APG_MODULES.customTemplateTypeLabel = customTemplateTypeLabel;
+window.__APG_MODULES.validateCustomTemplateDraft = validateCustomTemplateDraft;
+window.__APG_MODULES.friendlyCustomTemplateApiError = friendlyCustomTemplateApiError;
 window.__APG_MODULES.authIsOwnerUserWhatsapp = authIsOwnerUserWhatsapp;
 window.__APG_MODULES.staffMayEditWhatsappTemplates = staffMayEditWhatsappTemplates;
 window.__APG_MODULES.effectiveTemplateBranchIdForUser = effectiveTemplateBranchIdForUser;

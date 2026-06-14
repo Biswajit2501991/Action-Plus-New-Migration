@@ -34,6 +34,7 @@ begin
     'staff_role_templates',
     'settings_lookup_values',
     'settings_templates',
+    'branch_custom_templates',
     'settings_app_config',
     'settings_staff_directory',
     'leave_requests',
