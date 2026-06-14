@@ -130,6 +130,17 @@ import {
   memberProfileCustomTemplateActions,
 } from '../features/whatsapp/customTemplatesClient.js';
 import {
+  normalizeWhatsAppTemplateKey,
+  whatsappSendAuditAction,
+  whatsappSendAuditEntityType,
+  whatsappSendAuditEntityId,
+  whatsappSendAuditMeta,
+  buildWhatsAppSendMemberPatch,
+  buildWhatsAppMissingPhonePatch,
+  buildWhatsAppSendUrl,
+  formatWhatsAppPhone,
+} from '../features/whatsapp/whatsappSendFlow.js';
+import {
   resolveClientBranchBranding,
   defaultClientBranding,
   DEFAULT_LOGO_PATH,
@@ -498,6 +509,15 @@ window.__APG_MODULES.resolveMemberBranchIdForTemplates = resolveMemberBranchIdFo
 window.__APG_MODULES.resolveMemberCustomTemplatesFromCache = resolveMemberCustomTemplatesFromCache;
 window.__APG_MODULES.resolveCustomTemplateBodyFromCache = resolveCustomTemplateBodyFromCache;
 window.__APG_MODULES.memberProfileCustomTemplateActions = memberProfileCustomTemplateActions;
+window.__APG_MODULES.normalizeWhatsAppTemplateKey = normalizeWhatsAppTemplateKey;
+window.__APG_MODULES.whatsappSendAuditAction = whatsappSendAuditAction;
+window.__APG_MODULES.whatsappSendAuditEntityType = whatsappSendAuditEntityType;
+window.__APG_MODULES.whatsappSendAuditEntityId = whatsappSendAuditEntityId;
+window.__APG_MODULES.whatsappSendAuditMeta = whatsappSendAuditMeta;
+window.__APG_MODULES.buildWhatsAppSendMemberPatch = buildWhatsAppSendMemberPatch;
+window.__APG_MODULES.buildWhatsAppMissingPhonePatch = buildWhatsAppMissingPhonePatch;
+window.__APG_MODULES.buildWhatsAppSendUrl = buildWhatsAppSendUrl;
+window.__APG_MODULES.formatWhatsAppPhone = formatWhatsAppPhone;
 window.__APG_MODULES.authIsOwnerUserWhatsapp = authIsOwnerUserWhatsapp;
 window.__APG_MODULES.staffMayEditWhatsappTemplates = staffMayEditWhatsappTemplates;
 window.__APG_MODULES.effectiveTemplateBranchIdForUser = effectiveTemplateBranchIdForUser;

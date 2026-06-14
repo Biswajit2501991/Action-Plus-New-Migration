@@ -4,6 +4,7 @@ import {
   assertValidCustomTemplateId,
   customTemplateRowToApp,
   assertCustomTemplatesFeatureEnabled,
+  deleteBranchCustomTemplate,
 } from '../backend/src/services/branchCustomTemplates.js';
 
 const UUID = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
@@ -55,5 +56,9 @@ describe('branchCustomTemplates validation', () => {
     expect(() => assertCustomTemplatesFeatureEnabled(false)).toThrow(/custom-templates-feature-disabled/);
     expect(() => assertCustomTemplatesFeatureEnabled(undefined)).toThrow(/custom-templates-feature-disabled/);
     expect(assertCustomTemplatesFeatureEnabled(true)).toBeUndefined();
+  });
+
+  it('exposes hard delete service for custom templates', () => {
+    expect(typeof deleteBranchCustomTemplate).toBe('function');
   });
 });

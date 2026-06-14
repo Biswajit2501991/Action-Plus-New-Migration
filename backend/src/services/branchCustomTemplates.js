@@ -305,7 +305,7 @@ export async function updateBranchCustomTemplate(templateId, gymCodeId, payload)
   };
 }
 
-/** Soft archive only — never DELETE. */
+/** Soft archive — hides template from active UI; history preserved. */
 export async function archiveBranchCustomTemplate(templateId, gymCodeId) {
   assertCustomTemplatesFeatureEnabled(await readCustomTemplatesFeatureEnabled());
 
@@ -333,5 +333,35 @@ export async function archiveBranchCustomTemplate(templateId, gymCodeId) {
   return {
     template: customTemplateRowToApp(data),
     before: customTemplateRowToApp(existing),
+  };
+}
+
+/** Hard delete — master owner only (enforced at API). History rows are not removed. */
+export async function deleteBranchCustomTemplate(templateId, gymCodeId) {
+  assertCustomTemplatesFeatureEnabled(await readCustomTemplatesFeatureEnabled());
+
+  const branchId = assertBranchUuid(String(gymCodeId || '').trim());
+  const existing = await loadTemplateForBranch(templateId, branchId);
+  const sb = getSupabase();
+  const gid = gymId();
+  const safeId = assertValidCustomTemplateId(templateId);
+
+  const { error, count } = await sb
+    .from(T.branch_custom_templates)
+    .delete({ count: 'exact' })
+    .eq('gym_id', gid)
+    .eq('gym_code_id', branchId)
+    .eq('id', safeId);
+  if (error) throw error;
+  if (!count) {
+    throw Object.assign(new Error('custom-template-not-found'), { status: 404 });
+  }
+
+  const before = customTemplateRowToApp(existing);
+  return {
+    deletedId: safeId,
+    templateCode: before?.templateCode || '',
+    gymCodeId: branchId,
+    before,
   };
 }

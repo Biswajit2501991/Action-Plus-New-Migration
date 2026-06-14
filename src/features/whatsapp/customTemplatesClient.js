@@ -116,6 +116,7 @@ export function friendlyCustomTemplateApiError(err) {
     'custom-templates-feature-disabled': 'Enable Custom WhatsApp Templates in Settings first.',
     'custom-template-not-found': 'Template not found for this branch.',
     'no-updatable-fields': 'Nothing to save — change the name, type, or message first.',
+    'owner-required': 'Only the master owner may permanently delete custom templates.',
   };
   for (const [code, msg] of Object.entries(map)) {
     if (raw.includes(code)) return msg;

@@ -1919,13 +1919,20 @@
       };
       return map[raw] || raw || '';
     };
-    /** Audit log action for WhatsApp template sends, e.g. sms.reminder.opened, sms.fine.opened */
+    /** Audit log action for WhatsApp template sends, e.g. sms.reminder.opened or custom_template.sent */
     const smsTemplateOpenedAction = (templateKey) => {
+      const fn = window.__APG_MODULES?.whatsappSendAuditAction;
+      if (typeof fn === 'function') return fn(templateKey);
       const raw = String(templateKey || 'unknown').trim() || 'unknown';
       const safe = raw.replace(/[^a-zA-Z0-9_-]/g, '_');
       return `sms.${safe}.opened`;
     };
     const AUDIT_ACTION_LABEL_OVERRIDES = {
+      'custom_template.created': 'Custom template created',
+      'custom_template.updated': 'Custom template updated',
+      'custom_template.archived': 'Custom template archived',
+      'custom_template.deleted': 'Custom template deleted',
+      'custom_template.sent': 'Custom WhatsApp template sent',
       'member.updated': 'Member updated',
       'member.created': 'Member created',
       'member.deleted': 'Member deleted',
@@ -7917,9 +7924,20 @@ Please pay by: ${formattedLastDate}`;
           Deactivated: 'deactivate',
           Cancelled: 'fine',
         };
-        const resolvedKey = templateKey || keyByStatus[member.status] || 'reminder';
+        const normalizeKeyFn = window.__APG_MODULES?.normalizeWhatsAppTemplateKey;
+        const sendContext = { customTemplatesByBranch, hqGymCodeId, member };
+        let resolvedKey = templateKey || keyByStatus[member.status] || 'reminder';
+        if (typeof normalizeKeyFn === 'function') {
+          resolvedKey = normalizeKeyFn(resolvedKey, sendContext) || resolvedKey;
+        }
+        const isCustomFn = window.__APG_MODULES?.isCustomTemplateHistoryKey;
         const composeAt = new Date();
         let message = resolveWhatsappTemplateBody(resolvedKey, member) || SMS_TEMPLATE_DEFAULTS.reminder || '';
+        if (typeof isCustomFn === 'function' && isCustomFn(resolvedKey) && !String(message || '').trim()) {
+          setToast('Custom template is not available for this member branch.');
+          setTimeout(() => setToast(''), 2800);
+          return;
+        }
         const billing = asUTC(member.billingDate);
         const paymentBy = retentionPaymentDeadline(member);
         const totalAmountWithFine = Number(member.amount || 0) + 100;
@@ -7952,62 +7970,126 @@ Please pay by: ${formattedLastDate}`;
         if (resolvedKey === 'success') {
           message = finalizeSuccessWhatsAppMessage(message, displayTimeZone, composeAt);
         }
-        const cleanPhone = String(member.mobile || '').replace(/\D/g, '');
-        if (!cleanPhone) {
-          setMembers(prev => prev.map(m => m.memberId === member.memberId ? {
-            ...m,
-            messageHistory: [{ id: crypto.randomUUID(), channel: 'whatsapp', templateKey: resolvedKey, status: 'failed', reason: 'missing_phone', ts: new Date().toISOString() }, ...(m.messageHistory || [])].slice(0, 50),
-          } : m));
+        const buildUrlFn = window.__APG_MODULES?.buildWhatsAppSendUrl;
+        const formatPhoneFn = window.__APG_MODULES?.formatWhatsAppPhone;
+        const url = typeof buildUrlFn === 'function'
+          ? buildUrlFn(member.mobile, message)
+          : (() => {
+            const cleanPhone = String(member.mobile || '').replace(/\D/g, '');
+            if (!cleanPhone) return '';
+            const finalPhone = cleanPhone.length === 10 ? `91${cleanPhone}` : cleanPhone;
+            return `https://api.whatsapp.com/send?phone=${finalPhone}&text=${encodeURIComponent(message)}`;
+          })();
+        const finalPhone = typeof formatPhoneFn === 'function'
+          ? formatPhoneFn(member.mobile)
+          : String(member.mobile || '').replace(/\D/g, '');
+        if (!url || !finalPhone) {
+          const missingPatchFn = window.__APG_MODULES?.buildWhatsAppMissingPhonePatch;
+          setMembers((prev) => prev.map((m) => {
+            if (m.memberId !== member.memberId) return m;
+            const patch = typeof missingPatchFn === 'function'
+              ? missingPatchFn(m, resolvedKey, { createId: () => crypto.randomUUID() })
+              : {
+                messageHistory: [{
+                  id: crypto.randomUUID(),
+                  channel: 'whatsapp',
+                  templateKey: resolvedKey,
+                  status: 'failed',
+                  reason: 'missing_phone',
+                  ts: new Date().toISOString(),
+                }, ...(m.messageHistory || [])].slice(0, 50),
+              };
+            return { ...m, ...patch };
+          }));
           setToast('Mobile number is missing.');
           setTimeout(() => setToast(''), 2500);
           return;
         }
-        const finalPhone = cleanPhone.length === 10 ? `91${cleanPhone}` : cleanPhone;
-        const url = `https://api.whatsapp.com/send?phone=${finalPhone}&text=${encodeURIComponent(message)}`;
         safeOpenExternal(url);
         const sentAt = composeAt.toISOString();
         const sentBy = user?.name || user?.id || 'Staff';
-        setMembers(prev => prev.map(m => m.memberId === member.memberId ? {
-          ...m,
-          reminderSentAt: resolvedKey === 'reminder' ? sentAt : m.reminderSentAt,
-          ...(resolvedKey === 'success'
+        const buildPatchFn = window.__APG_MODULES?.buildWhatsAppSendMemberPatch;
+        setMembers((prev) => prev.map((m) => {
+          if (m.memberId !== member.memberId) return m;
+          const basePatch = typeof buildPatchFn === 'function'
+            ? buildPatchFn(m, resolvedKey, { sentAt, sentBy, createId: () => crypto.randomUUID() })
+            : {
+              lastSmsSent: { ...(m.lastSmsSent || {}), [resolvedKey]: { sentAt, sentBy } },
+              messageHistory: [{
+                id: crypto.randomUUID(),
+                channel: 'whatsapp',
+                templateKey: resolvedKey,
+                status: 'opened',
+                ts: sentAt,
+                sentAt,
+                sentBy,
+              }, ...(m.messageHistory || [])].slice(0, 50),
+              updatedAt: sentAt,
+              ...(resolvedKey === 'reminder' ? { reminderSentAt: sentAt } : {}),
+            };
+          const successPatch = resolvedKey === 'success'
             ? (() => {
-                const successDraft = {
-                  paidAt: sentAt,
-                  receivedAt: sentAt,
-                  amount: Number(member.amount || 0),
-                  method: member.paymentMethod || '',
-                  recordedBy: sentBy,
-                  by: sentBy,
-                  source: 'whatsapp',
-                };
-                const successRow = {
-                  ...successDraft,
-                  id: stablePaymentHistoryRowId(successDraft, member.memberId) || crypto.randomUUID(),
-                };
-                return {
-                  paymentReceivedAt: sentAt,
-                  paymentHistory: mergePaymentHistoryArrays(
-                    [successRow],
-                    Array.isArray(m.paymentHistory) ? m.paymentHistory : [],
-                    120,
-                  ),
-                };
-              })()
-            : {}),
+              const successDraft = {
+                paidAt: sentAt,
+                receivedAt: sentAt,
+                amount: Number(member.amount || 0),
+                method: member.paymentMethod || '',
+                recordedBy: sentBy,
+                by: sentBy,
+                source: 'whatsapp',
+              };
+              const successRow = {
+                ...successDraft,
+                id: stablePaymentHistoryRowId(successDraft, member.memberId) || crypto.randomUUID(),
+              };
+              return {
+                paymentReceivedAt: sentAt,
+                paymentHistory: mergePaymentHistoryArrays(
+                  [successRow],
+                  Array.isArray(m.paymentHistory) ? m.paymentHistory : [],
+                  120,
+                ),
+              };
+            })()
+            : {};
+          return { ...m, ...basePatch, ...successPatch };
+        }));
+        const updatedMember = {
+          ...member,
+          updatedAt: sentAt,
           lastSmsSent: {
-            ...(m.lastSmsSent || {}),
+            ...(member.lastSmsSent || {}),
             [resolvedKey]: { sentAt, sentBy },
           },
-          messageHistory: [{ id: crypto.randomUUID(), channel: 'whatsapp', templateKey: resolvedKey, status: 'opened', ts: sentAt, sentAt, sentBy }, ...(m.messageHistory || [])].slice(0, 50),
-        } : m));
-        logEvent(smsTemplateOpenedAction(resolvedKey), 'member', member.memberId, null, {
-          memberName: member.name || '',
-          templateKey: resolvedKey,
-          templateLabel: smsTemplateLogLabel(resolvedKey),
-          source: 'members_or_dashboard',
-          mobile: finalPhone,
-        });
+        };
+        queueMicrotask(() => markMemberAwaitingBackendSync(member.memberId, updatedMember));
+        const auditActionFn = window.__APG_MODULES?.whatsappSendAuditAction;
+        const auditEntityTypeFn = window.__APG_MODULES?.whatsappSendAuditEntityType;
+        const auditEntityIdFn = window.__APG_MODULES?.whatsappSendAuditEntityId;
+        const auditMetaFn = window.__APG_MODULES?.whatsappSendAuditMeta;
+        const action = typeof auditActionFn === 'function'
+          ? auditActionFn(resolvedKey)
+          : smsTemplateOpenedAction(resolvedKey);
+        const entityType = typeof auditEntityTypeFn === 'function'
+          ? auditEntityTypeFn(resolvedKey)
+          : 'member';
+        const entityId = typeof auditEntityIdFn === 'function'
+          ? auditEntityIdFn(resolvedKey, member, { hqGymCodeId })
+          : (member.memberId || '');
+        const auditMeta = typeof auditMetaFn === 'function'
+          ? auditMetaFn(resolvedKey, member, {
+            templateLabel: smsTemplateLogLabel(resolvedKey),
+            source: 'members_or_dashboard',
+            mobile: finalPhone,
+          })
+          : {
+            memberName: member.name || '',
+            templateKey: resolvedKey,
+            templateLabel: smsTemplateLogLabel(resolvedKey),
+            source: 'members_or_dashboard',
+            mobile: finalPhone,
+          };
+        logEvent(action, entityType, entityId, null, auditMeta);
         setToast('WhatsApp message opened.');
         setTimeout(() => setToast(''), 2500);
       };
@@ -20855,6 +20937,9 @@ function PTClientsPage({ members, users, settings, updateSetting, currentUser, a
       const [templateSaveError, setTemplateSaveError] = React.useState('');
       const [customTemplateSaving, setCustomTemplateSaving] = React.useState(false);
       const [customTemplateSaveError, setCustomTemplateSaveError] = React.useState('');
+      const [customTemplateDeleteConfirm, setCustomTemplateDeleteConfirm] = React.useState({ open: false, card: null });
+      const [customTemplateDeleting, setCustomTemplateDeleting] = React.useState(false);
+      const [customTemplateDeleteError, setCustomTemplateDeleteError] = React.useState('');
       const messageCenterRef = React.useRef(null);
       const [preview, setPreview] = React.useState({ open: false, member: null, templateKey: '' });
       const VARIABLE_KEYS = ['[CustomerName]','[PLAN]','[CurrentPlan]','[Amount]','[BillingDate]','[PaymentBy]','[GymStartdate]','[NextPaymentDate]','[PaymentMethod]','[SystemDetails]'];
@@ -21118,7 +21203,7 @@ function PTClientsPage({ members, users, settings, updateSetting, currentUser, a
       const autoSyncTotalPages = Math.max(1, Math.ceil(autoSyncRows.length / AUTO_SYNC_PAGE_SIZE));
       const safeAutoSyncPage = autoSyncPage > autoSyncTotalPages ? 1 : autoSyncPage;
       const autoSyncPageRows = autoSyncRows.slice((safeAutoSyncPage - 1) * AUTO_SYNC_PAGE_SIZE, safeAutoSyncPage * AUTO_SYNC_PAGE_SIZE);
-      useAppScrollLock(templateEditor.open || customTemplateEditor.open || preview.open);
+      useAppScrollLock(templateEditor.open || customTemplateEditor.open || customTemplateDeleteConfirm.open || preview.open);
       const scrollMainToTop = () => {
         try {
           window.scrollTo({ top: 0, behavior: 'smooth' });
@@ -21188,6 +21273,49 @@ function PTClientsPage({ members, users, settings, updateSetting, currentUser, a
         if (typeof fn === 'function') return fn(err);
         return `Save failed: ${err?.message || err}`;
       };
+      const openCustomTemplateDeleteConfirm = (card) => {
+        if (!card?.id || !canManageCustomTemplatesFlag) return;
+        scrollMainToTop();
+        setCustomTemplateDeleteError('');
+        setCustomTemplateDeleteConfirm({ open: true, card });
+      };
+      const closeCustomTemplateDeleteConfirm = () => {
+        if (customTemplateDeleting) return;
+        setCustomTemplateDeleteConfirm({ open: false, card: null });
+        setCustomTemplateDeleteError('');
+      };
+      const confirmDeleteCustomTemplate = async () => {
+        const card = customTemplateDeleteConfirm.card;
+        const branchId = String(effectiveBranchId || '').trim();
+        const templateId = String(card?.id || '').trim();
+        if (!branchId || !templateId) return;
+        const backend = typeof window !== 'undefined' ? window.__APG_BACKEND_JSON__ : null;
+        setCustomTemplateDeleteError('');
+        try {
+          setCustomTemplateDeleting(true);
+          if (backend) {
+            await backend(`/custom-templates/${encodeURIComponent(templateId)}?gymCodeId=${encodeURIComponent(branchId)}`, {
+              method: 'DELETE',
+              body: JSON.stringify({ gymCodeId: branchId }),
+            });
+          }
+          if (typeof setCustomTemplatesByBranch === 'function') {
+            setCustomTemplatesByBranch((prev) => {
+              const list = Array.isArray(prev[branchId]) ? prev[branchId] : [];
+              return {
+                ...prev,
+                [branchId]: list.filter((t) => String(t?.id || '') !== templateId),
+              };
+            });
+          }
+          if (typeof fetchBranchCustomTemplates === 'function') fetchBranchCustomTemplates(branchId);
+          closeCustomTemplateDeleteConfirm();
+        } catch (err) {
+          setCustomTemplateDeleteError(friendlyCustomTemplateError(err));
+        } finally {
+          setCustomTemplateDeleting(false);
+        }
+      };
       const renderSms = (template, m, templateKey, composeAt) => {
         if (!m) return '';
         const at = composeAt instanceof Date && !Number.isNaN(composeAt.getTime()) ? composeAt : new Date();
@@ -21231,43 +21359,107 @@ function PTClientsPage({ members, users, settings, updateSetting, currentUser, a
           window.alert('Member not found for this event.');
           return;
         }
+        const normalizeKeyFn = window.__APG_MODULES?.normalizeWhatsAppTemplateKey;
+        const sendContext = { customTemplatesByBranch, hqGymCodeId, member };
+        let resolvedKey = String(templateKey || '').trim();
+        if (typeof normalizeKeyFn === 'function') {
+          resolvedKey = normalizeKeyFn(resolvedKey, sendContext) || resolvedKey;
+        }
+        const isCustomFn = window.__APG_MODULES?.isCustomTemplateHistoryKey;
         const composeAt = new Date();
-        let message = prebuiltMessage || renderSms(resolveTemplateForMember(templateKey, member) || '', member, templateKey, composeAt);
-        if (templateKey === 'success') {
+        let message = prebuiltMessage || renderSms(resolveTemplateForMember(resolvedKey, member) || '', member, resolvedKey, composeAt);
+        if (resolvedKey === 'success') {
           message = finalizeSuccessWhatsAppMessage(message, displayTimeZone, composeAt);
         }
-        const cleanPhone = String(member.mobile || '').replace(/\D/g, '');
-        if (!cleanPhone) {
+        if (!prebuiltMessage && typeof isCustomFn === 'function' && isCustomFn(resolvedKey) && !String(message || '').trim()) {
+          window.alert('Custom template is not available for this member branch.');
+          return;
+        }
+        const buildUrlFn = window.__APG_MODULES?.buildWhatsAppSendUrl;
+        const formatPhoneFn = window.__APG_MODULES?.formatWhatsAppPhone;
+        const url = typeof buildUrlFn === 'function'
+          ? buildUrlFn(member.mobile, message)
+          : (() => {
+            const cleanPhone = String(member.mobile || '').replace(/\D/g, '');
+            if (!cleanPhone) return '';
+            const finalPhone = cleanPhone.length === 10 ? `91${cleanPhone}` : cleanPhone;
+            return `https://api.whatsapp.com/send?phone=${finalPhone}&text=${encodeURIComponent(message)}`;
+          })();
+        const finalPhone = typeof formatPhoneFn === 'function'
+          ? formatPhoneFn(member.mobile)
+          : String(member.mobile || '').replace(/\D/g, '');
+        if (!url || !finalPhone) {
           window.alert('Member mobile number is missing.');
           return;
         }
-        const finalPhone = cleanPhone.length === 10 ? `91${cleanPhone}` : cleanPhone;
-        const url = `https://api.whatsapp.com/send?phone=${finalPhone}&text=${encodeURIComponent(message)}`;
         safeOpenExternal(url);
         const sentAt = composeAt.toISOString();
         const sentBy = currentUser?.name || currentUser?.id || 'Staff';
+        const buildPatchFn = window.__APG_MODULES?.buildWhatsAppSendMemberPatch;
         if (setMembers) {
-          setMembers((prev) => prev.map((mm) => (mm.memberId === member.memberId ? {
-            ...mm,
-            reminderSentAt: templateKey === 'reminder' ? sentAt : mm.reminderSentAt,
-            lastSmsSent: {
-              ...(mm.lastSmsSent || {}),
-              [templateKey]: { sentAt, sentBy },
-            },
-            messageHistory: [{ id: crypto.randomUUID(), channel: 'whatsapp', templateKey, status: 'opened', ts: sentAt, sentAt, sentBy }, ...(mm.messageHistory || [])].slice(0, 50),
-            updatedAt: sentAt,
-          } : mm)));
+          setMembers((prev) => prev.map((mm) => {
+            if (mm.memberId !== member.memberId) return mm;
+            const basePatch = typeof buildPatchFn === 'function'
+              ? buildPatchFn(mm, resolvedKey, { sentAt, sentBy, createId: () => crypto.randomUUID() })
+              : {
+                reminderSentAt: resolvedKey === 'reminder' ? sentAt : mm.reminderSentAt,
+                lastSmsSent: {
+                  ...(mm.lastSmsSent || {}),
+                  [resolvedKey]: { sentAt, sentBy },
+                },
+                messageHistory: [{
+                  id: crypto.randomUUID(),
+                  channel: 'whatsapp',
+                  templateKey: resolvedKey,
+                  status: 'opened',
+                  ts: sentAt,
+                  sentAt,
+                  sentBy,
+                }, ...(mm.messageHistory || [])].slice(0, 50),
+                updatedAt: sentAt,
+              };
+            return { ...mm, ...basePatch };
+          }));
           if (markMemberAwaitingBackendSync) {
-            queueMicrotask(() => markMemberAwaitingBackendSync(member.memberId, { ...member, updatedAt: sentAt }));
+            queueMicrotask(() => markMemberAwaitingBackendSync(member.memberId, {
+              ...member,
+              updatedAt: sentAt,
+              lastSmsSent: {
+                ...(member.lastSmsSent || {}),
+                [resolvedKey]: { sentAt, sentBy },
+              },
+            }));
           }
         }
-        logEvent && logEvent(smsTemplateOpenedAction(templateKey), 'member', member.memberId || '', null, {
-          memberName: member.name || '',
-          templateKey,
-          templateLabel: smsTemplateLogLabel(templateKey),
-          source: 'whatsapp_sms_page',
-          mobile: finalPhone,
-        });
+        if (logEvent) {
+          const auditActionFn = window.__APG_MODULES?.whatsappSendAuditAction;
+          const auditEntityTypeFn = window.__APG_MODULES?.whatsappSendAuditEntityType;
+          const auditEntityIdFn = window.__APG_MODULES?.whatsappSendAuditEntityId;
+          const auditMetaFn = window.__APG_MODULES?.whatsappSendAuditMeta;
+          const action = typeof auditActionFn === 'function'
+            ? auditActionFn(resolvedKey)
+            : smsTemplateOpenedAction(resolvedKey);
+          const entityType = typeof auditEntityTypeFn === 'function'
+            ? auditEntityTypeFn(resolvedKey)
+            : 'member';
+          const entityId = typeof auditEntityIdFn === 'function'
+            ? auditEntityIdFn(resolvedKey, member, { hqGymCodeId })
+            : (member.memberId || '');
+          const auditMeta = typeof auditMetaFn === 'function'
+            ? auditMetaFn(resolvedKey, member, {
+              templateLabel: smsTemplateLogLabel(resolvedKey),
+              source: 'whatsapp_sms_page',
+              mobile: finalPhone,
+            })
+            : {
+              memberName: member.name || '',
+              templateKey: resolvedKey,
+              templateLabel: smsTemplateLogLabel(resolvedKey),
+              source: 'whatsapp_sms_page',
+              mobile: finalPhone,
+            };
+          logEvent(action, entityType, entityId, null, auditMeta);
+        }
       };
       return (
         <div
@@ -21441,10 +21633,22 @@ function PTClientsPage({ members, users, settings, updateSetting, currentUser, a
                 {customTemplatesFeatureEnabled && customTemplateCards.map((card) => (
                   <div
                     key={card.id || card.historyKey}
-                    className={cx('rounded-2xl border p-4 bg-white shadow-sm', card.tone)}
+                    className={cx('relative rounded-2xl border p-4 bg-white shadow-sm', card.tone)}
                     data-testid={`whatsapp-custom-template-card-${card.templateCode}`}
                   >
-                    <div className="text-2xl font-semibold">{card.title}</div>
+                    {canManageCustomTemplatesFlag && (
+                      <button
+                        type="button"
+                        onClick={() => openCustomTemplateDeleteConfirm(card)}
+                        className="absolute top-2 right-2 z-10 inline-flex min-h-[44px] min-w-[44px] items-center justify-center rounded-xl border border-rose-200 bg-white/90 text-lg text-rose-700 hover:bg-rose-50 shadow-sm"
+                        aria-label={`Delete template ${card.title}`}
+                        title="Delete template"
+                        data-testid={`whatsapp-custom-template-delete-btn-${card.templateCode}`}
+                      >
+                        🗑
+                      </button>
+                    )}
+                    <div className="text-2xl font-semibold pr-12">{card.title}</div>
                     <div className="text-lg text-slate-600">({card.subtitle})</div>
                     <div className="text-xs text-slate-500 mt-1">Code: {card.templateCode}</div>
                     <div className={cx('mt-3 text-sm text-slate-800 whitespace-pre-wrap rounded-xl border border-slate-200 bg-slate-50 p-2', expandedTemplates[card.historyKey] ? 'max-h-[340px] overflow-auto' : 'h-24 overflow-hidden')}>
@@ -22159,6 +22363,64 @@ function PTClientsPage({ members, users, settings, updateSetting, currentUser, a
                         {customTemplateSaving ? 'Saving…' : (customTemplateEditor.mode === 'create' ? 'Create' : 'Save')}
                       </button>
                     </div>
+                  </div>
+                </div>
+              </div>
+            </ModalPortal>
+          )}
+          {customTemplateDeleteConfirm.open && (
+            <ModalPortal>
+              <div
+                className="fixed inset-0 z-[75] flex items-center justify-center apg-modal-backdrop p-4"
+                data-testid="whatsapp-custom-template-delete-modal"
+                role="dialog"
+                aria-modal="true"
+                aria-labelledby="whatsapp-custom-template-delete-title"
+                onClick={closeCustomTemplateDeleteConfirm}
+              >
+                <div
+                  className="apg-force-light w-full max-w-md rounded-2xl bg-white p-6 shadow-xl space-y-4"
+                  onClick={(e) => e.stopPropagation()}
+                >
+                  <h3 id="whatsapp-custom-template-delete-title" className="text-lg font-semibold text-slate-900">
+                    Delete Template
+                  </h3>
+                  <p className="text-sm text-slate-600 leading-relaxed">
+                    Are you sure you want to permanently delete this template?
+                    <br /><br />
+                    This action cannot be undone and the template will be permanently removed from the system.
+                  </p>
+                  {customTemplateDeleteConfirm.card?.title && (
+                    <div className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-700">
+                      <span className="font-medium">{customTemplateDeleteConfirm.card.title}</span>
+                      {customTemplateDeleteConfirm.card.templateCode && (
+                        <span className="text-slate-500"> ({customTemplateDeleteConfirm.card.templateCode})</span>
+                      )}
+                    </div>
+                  )}
+                  {customTemplateDeleteError && (
+                    <div className="rounded-xl border border-rose-300 bg-rose-50 px-3 py-2 text-xs text-rose-700">
+                      {customTemplateDeleteError}
+                    </div>
+                  )}
+                  <div className="flex flex-wrap justify-end gap-2">
+                    <button
+                      type="button"
+                      onClick={closeCustomTemplateDeleteConfirm}
+                      disabled={customTemplateDeleting}
+                      className="rounded-xl border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-700 disabled:opacity-50"
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      type="button"
+                      onClick={confirmDeleteCustomTemplate}
+                      disabled={customTemplateDeleting}
+                      data-testid="whatsapp-custom-template-delete-confirm"
+                      className="rounded-xl bg-rose-600 px-4 py-2 text-sm font-medium text-white hover:bg-rose-700 disabled:opacity-50"
+                    >
+                      {customTemplateDeleting ? 'Deleting…' : 'Delete Permanently'}
+                    </button>
                   </div>
                 </div>
               </div>

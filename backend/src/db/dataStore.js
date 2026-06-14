@@ -913,6 +913,35 @@ export async function archiveCustomTemplate(scope, templateId, gymCodeId) {
   });
 }
 
+export async function deleteCustomTemplate(scope, templateId, gymCodeId) {
+  if (useSupabase()) {
+    const { deleteBranchCustomTemplate } = await import('../services/branchCustomTemplates.js');
+    const result = await deleteBranchCustomTemplate(templateId, gymCodeId);
+    const { notifyCollectionChange } = await import('../realtime/supabaseListener.js');
+    notifyCollectionChange('customTemplates');
+    return result;
+  }
+  const settings = (await readJsonValue('apg.settings', {}, scope)) || {};
+  if (settings.customTemplatesEnabled !== true) {
+    throw Object.assign(new Error('custom-templates-feature-disabled'), { status: 403 });
+  }
+  const branchId = String(gymCodeId || '').trim();
+  const id = String(templateId || '').trim();
+  const map = readLocalCustomTemplatesMap(settings);
+  const list = Array.isArray(map[branchId]) ? [...map[branchId]] : [];
+  const idx = list.findIndex((t) => String(t?.id || '') === id);
+  if (idx < 0) throw Object.assign(new Error('custom-template-not-found'), { status: 404 });
+  const before = { ...list[idx] };
+  list.splice(idx, 1);
+  await writeJsonValue('apg.settings', writeLocalCustomTemplatesMap(settings, { ...map, [branchId]: list }), scope);
+  return {
+    deletedId: id,
+    templateCode: String(before?.templateCode || ''),
+    gymCodeId: branchId,
+    before,
+  };
+}
+
 /** Surgical PT client profile save (staff + owner). */
 export async function patchPtClientProfileValue(memberCode, profile, meta = {}) {
   if (useSupabase()) return supabaseStore.patchPtClientProfile(memberCode, profile, meta);

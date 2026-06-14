@@ -37,6 +37,8 @@ describe('customTemplatesClient', () => {
       .toMatch(/already exists/);
     expect(friendlyCustomTemplateApiError({ message: 'custom-templates-feature-disabled' }))
       .toMatch(/Enable Custom WhatsApp Templates/);
+    expect(friendlyCustomTemplateApiError({ message: 'owner-required' }))
+      .toMatch(/master owner may permanently delete/);
   });
 
   it('resolves member custom templates by assigned branch with HQ fallback', () => {

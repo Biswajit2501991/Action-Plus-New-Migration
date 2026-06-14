@@ -43,6 +43,7 @@ import {
   createCustomTemplate,
   updateCustomTemplate,
   archiveCustomTemplate,
+  deleteCustomTemplate,
   appendAuditLogEntry,
   createAuditLog,
   deleteLogsInRange,
@@ -1298,7 +1299,7 @@ app.patch('/api/whatsapp-templates/:key', requireAccess(Access.templatesWrite), 
 });
 
 // ----------------------------------------------------------------------------
-// Branch-scoped custom WhatsApp templates — CRUD (additive; soft archive only).
+// Branch-scoped custom WhatsApp templates — CRUD (hard delete: master owner only).
 // ----------------------------------------------------------------------------
 app.get('/api/custom-templates', requireAccess(Access.templatesRead), async (req, res) => {
   try {
@@ -1429,6 +1430,47 @@ app.post('/api/custom-templates/:id/archive', requireAccess(Access.templatesWrit
     const status = error?.status || 500;
     return res.status(status).json({
       error: error?.message || 'custom_template_archive_failed',
+      message: String(error?.message || error),
+    });
+  }
+});
+
+app.delete('/api/custom-templates/:id', requireAccess(Access.templatesWrite), async (req, res) => {
+  try {
+    if (!authIsOwner(req.auth)) {
+      return res.status(403).json({
+        error: 'owner-required',
+        message: 'Only the master owner may permanently delete custom templates.',
+      });
+    }
+    const {
+      resolveEffectiveTemplateBranchId,
+      assertValidCustomTemplateId,
+    } = await import('./services/branchCustomTemplates.js');
+    const templateId = assertValidCustomTemplateId(req.params?.id);
+    const gymCodeId = await resolveEffectiveTemplateBranchId(
+      req.auth,
+      req.body?.gymCodeId || req.body?.gym_code_id || req.query?.gymCodeId || req.query?.gym_code_id,
+    );
+    const result = await deleteCustomTemplate(readSandboxScope(req), templateId, gymCodeId);
+    await appendAuditLog(req, {
+      action: 'custom_template.deleted',
+      entityType: 'custom_template',
+      entityId: `${gymCodeId}:${result.templateCode || templateId}`,
+      before: result.before || null,
+      after: null,
+    });
+    queueDatabaseBackup('custom-template');
+    return res.json({
+      ok: true,
+      deletedId: result.deletedId,
+      templateCode: result.templateCode,
+      gymCodeId,
+    });
+  } catch (error) {
+    const status = error?.status || 500;
+    return res.status(status).json({
+      error: error?.message || 'custom_template_delete_failed',
       message: String(error?.message || error),
     });
   }
