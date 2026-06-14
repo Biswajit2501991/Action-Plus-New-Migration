@@ -320,6 +320,7 @@ async function migrateSettings(supabase, settings, gymId) {
     gmailWelcomeTemplate: settings.gmailWelcomeTemplate || null,
     smsTemplatePresetVersion: settings.smsTemplatePresetVersion || null,
     customTemplatesEnabled: settings.customTemplatesEnabled === true,
+    paymentQrInReminderEnabled: settings.paymentQrInReminderEnabled === true,
   };
 
   const { error: cfgErr } = await supabase.from(T.settings_app_config).insert({

@@ -92,6 +92,8 @@ import gymCodesRouter from './routes/gymCodes.js';
 import brandingRouter from './routes/branding.js';
 import memberPhotosRouter from './routes/memberPhotos.js';
 import staffPhotosRouter from './routes/staffPhotos.js';
+import paymentQrRouter from './routes/paymentQr.js';
+import publicPaymentQrRouter from './routes/publicPaymentQr.js';
 import {
   authIsOwner,
   stampBranchOnRows,
@@ -485,6 +487,8 @@ app.get('/api/v1/version', (_req, res) => {
 app.get('/api/version', (_req, res) => {
   res.json({ ok: true, ...versionPayload() });
 });
+
+app.use('/api/public/payment-qr', publicPaymentQrRouter);
 
 app.use('/api/auth', authRouter);
 
@@ -1475,6 +1479,8 @@ app.delete('/api/custom-templates/:id', requireAccess(Access.templatesWrite), as
     });
   }
 });
+
+app.use('/api/payment-qr', paymentQrRouter);
 
 // ----------------------------------------------------------------------------
 // Leave Requests — dedicated mutation surface that bypasses the owner-only

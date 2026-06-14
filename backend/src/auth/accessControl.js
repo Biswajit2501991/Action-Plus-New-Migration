@@ -84,6 +84,10 @@ export function normalizeAccess(access) {
       viewBackendPage: access?.backend?.viewBackendPage !== false,
       controlBackendProcesses: access?.backend?.controlBackendProcesses !== false,
     },
+    paymentQr: {
+      viewPaymentQr: access?.paymentQr?.viewPaymentQr !== false,
+      managePaymentSettings: access?.paymentQr?.managePaymentSettings === true,
+    },
   };
 }
 
@@ -135,6 +139,8 @@ export const Access = {
   ptClientsRead: (a) => a.ptClients.viewPtClients !== false,
   ptClientsWriteWorkout: (a) => a.ptClients.editPtWorkout !== false,
   ptClientsWritePlan: (a) => a.ptClients.editPtPlan !== false,
+  paymentQrView: (a) => a.__owner || a.paymentQr?.viewPaymentQr !== false,
+  paymentQrManage: (a) => a.__owner || a.paymentQr?.managePaymentSettings === true,
 };
 
 export function invalidateStaffAccessCache(staffLoginId) {

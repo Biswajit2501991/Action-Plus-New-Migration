@@ -130,6 +130,27 @@ import {
   memberProfileCustomTemplateActions,
 } from '../features/whatsapp/customTemplatesClient.js';
 import {
+  canViewPaymentQr,
+  canManagePaymentSettings,
+  sortPaymentQrItems,
+  activePaymentQrItems,
+} from '../features/paymentQr/paymentQrAccess.js';
+import {
+  fetchPaymentQrList,
+  createPaymentQrApi,
+  updatePaymentQrApi,
+  uploadPaymentQrImageApi,
+  validatePaymentQrDraft,
+} from '../features/paymentQr/paymentQrApi.js';
+import {
+  PAYMENT_QR_REMINDER_FLAG_KEY,
+  isPaymentQrInReminderEnabled,
+  resolveMemberBranchCodeForPaymentQr,
+  buildPublicPaymentQrViewUrl,
+  appendPaymentQrLinkToReminderMessage,
+  maybeAppendPaymentQrToReminderMessage,
+} from '../features/paymentQr/paymentQrReminder.js';
+import {
   normalizeWhatsAppTemplateKey,
   whatsappSendAuditAction,
   whatsappSendAuditEntityType,
@@ -415,6 +436,7 @@ window.__APG_MODULES.DASHBOARD_CHILD_PERMISSIONS = permissions.DASHBOARD_CHILD_P
 window.__APG_MODULES.DEFAULT_ACCESS = permissions.DEFAULT_ACCESS;
 window.__APG_MODULES.normalizeAccess = permissions.normalizeAccess;
 window.__APG_MODULES.sectionsWithRoleDefaults = permissions.sectionsWithRoleDefaults;
+window.__APG_MODULES.PAYMENT_QR_CHILD_PERMISSIONS = permissions.PAYMENT_QR_CHILD_PERMISSIONS;
 window.__APG_MODULES.reminderSentForCurrentBilling = reminderSentForCurrentBilling;
 window.__APG_MODULES.shouldShowSmsSentBadge = shouldShowSmsSentBadge;
 window.__APG_MODULES.pickMemberBillingSource = pickMemberBillingSource;
@@ -505,6 +527,21 @@ window.__APG_MODULES.customTemplateCardTone = customTemplateCardTone;
 window.__APG_MODULES.customTemplateTypeLabel = customTemplateTypeLabel;
 window.__APG_MODULES.validateCustomTemplateDraft = validateCustomTemplateDraft;
 window.__APG_MODULES.friendlyCustomTemplateApiError = friendlyCustomTemplateApiError;
+window.__APG_MODULES.canViewPaymentQr = canViewPaymentQr;
+window.__APG_MODULES.canManagePaymentSettings = canManagePaymentSettings;
+window.__APG_MODULES.sortPaymentQrItems = sortPaymentQrItems;
+window.__APG_MODULES.activePaymentQrItems = activePaymentQrItems;
+window.__APG_MODULES.fetchPaymentQrList = fetchPaymentQrList;
+window.__APG_MODULES.createPaymentQrApi = createPaymentQrApi;
+window.__APG_MODULES.updatePaymentQrApi = updatePaymentQrApi;
+window.__APG_MODULES.uploadPaymentQrImageApi = uploadPaymentQrImageApi;
+window.__APG_MODULES.validatePaymentQrDraft = validatePaymentQrDraft;
+window.__APG_MODULES.PAYMENT_QR_REMINDER_FLAG_KEY = PAYMENT_QR_REMINDER_FLAG_KEY;
+window.__APG_MODULES.isPaymentQrInReminderEnabled = isPaymentQrInReminderEnabled;
+window.__APG_MODULES.resolveMemberBranchCodeForPaymentQr = resolveMemberBranchCodeForPaymentQr;
+window.__APG_MODULES.buildPublicPaymentQrViewUrl = buildPublicPaymentQrViewUrl;
+window.__APG_MODULES.appendPaymentQrLinkToReminderMessage = appendPaymentQrLinkToReminderMessage;
+window.__APG_MODULES.maybeAppendPaymentQrToReminderMessage = maybeAppendPaymentQrToReminderMessage;
 window.__APG_MODULES.resolveMemberBranchIdForTemplates = resolveMemberBranchIdForTemplates;
 window.__APG_MODULES.resolveMemberCustomTemplatesFromCache = resolveMemberCustomTemplatesFromCache;
 window.__APG_MODULES.resolveCustomTemplateBodyFromCache = resolveCustomTemplateBodyFromCache;

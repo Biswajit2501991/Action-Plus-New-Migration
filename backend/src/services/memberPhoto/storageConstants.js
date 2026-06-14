@@ -41,6 +41,14 @@ export function buildStaffPhotoStoragePath(gymId, staffLoginId, version, ext = '
   return `gyms/${String(gymId).trim()}/staff/${safe}/profile/v${v}.${ext}`;
 }
 
+/** Branch payment QR image path (private apg-media bucket). */
+export function buildPaymentQrStoragePath(gymId, gymCodeId, slug, version, ext = 'jpg') {
+  const safeSlug = sanitizeMemberCodeForPath(slug);
+  const branch = String(gymCodeId || '').trim();
+  const v = Math.max(1, Number(version) || 1);
+  return `gyms/${String(gymId).trim()}/payment-qr/${branch}/${safeSlug}/v${v}.${ext}`;
+}
+
 export function mimeToExtension(mime) {
   const m = String(mime || '').toLowerCase();
   if (m === 'image/png') return 'png';

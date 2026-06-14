@@ -95,6 +95,11 @@ export const BACKEND_CHILD_PERMISSIONS = [
   { key: 'controlBackendProcesses', label: 'Restart / Turn On / Turn Off Backend' },
 ];
 
+export const PAYMENT_QR_CHILD_PERMISSIONS = [
+  { key: 'viewPaymentQr', label: 'View Payment QR (Members toolbar)' },
+  { key: 'managePaymentSettings', label: 'Manage Payment Settings (Owner)' },
+];
+
 export const DEFAULT_ACCESS = {
   dashboard: {
     viewDashboardCore: true,
@@ -169,6 +174,10 @@ export const DEFAULT_ACCESS = {
   backend: {
     viewBackendPage: true,
     controlBackendProcesses: true,
+  },
+  paymentQr: {
+    viewPaymentQr: true,
+    managePaymentSettings: false,
   },
 };
 
@@ -247,6 +256,10 @@ export function normalizeAccess(access) {
     backend: {
       viewBackendPage: access?.backend?.viewBackendPage !== false,
       controlBackendProcesses: access?.backend?.controlBackendProcesses !== false,
+    },
+    paymentQr: {
+      viewPaymentQr: access?.paymentQr?.viewPaymentQr !== false,
+      managePaymentSettings: access?.paymentQr?.managePaymentSettings === true,
     },
   };
 }

@@ -4641,6 +4641,7 @@ Phone: +91-7047157510`;
       acknowledgementUnder18Template: ACKNOWLEDGEMENT_UNDER18_TEMPLATE_DEFAULT,
       gmailWelcomeTemplate: GMAIL_WELCOME_TEMPLATE_DEFAULT,
       customTemplatesEnabled: false,
+      paymentQrInReminderEnabled: false,
     });
     const buildOwnerOnlyUser = () => ({
       id: 'owner',
@@ -6584,6 +6585,12 @@ Phone: +91-7047157510`;
       const [visitorEdit, setVisitorEdit] = React.useState(null);
       const [prefillVisitor, setPrefillVisitor] = React.useState(null);
       const [membersView, setMembersView] = React.useState('all');
+      const [financeView, setFinanceView] = React.useState('transactions');
+      const [paymentQrViewerOpen, setPaymentQrViewerOpen] = React.useState(false);
+      const [paymentQrViewerItems, setPaymentQrViewerItems] = React.useState([]);
+      const [paymentQrViewerIndex, setPaymentQrViewerIndex] = React.useState(0);
+      const [paymentQrViewerBranchId, setPaymentQrViewerBranchId] = React.useState('');
+      const [paymentQrViewerLoading, setPaymentQrViewerLoading] = React.useState(false);
       React.useEffect(() => {
         if (!apgV2VisitorsEnabled()) return;
         if (activeTab !== 'Members' || membersView !== 'visitors') return;
@@ -6625,6 +6632,7 @@ Phone: +91-7047157510`;
         || resetModalOpen
         || paymentEntryModal.open
         || paymentDeletePrompt.open
+        || paymentQrViewerOpen
         || mobileMenuOpen;
       useAppScrollLock(appModalScrollLock);
       const leaveNotifications = React.useMemo(() => {
@@ -7959,6 +7967,17 @@ Please pay by: ${formattedLastDate}`;
         Object.keys(replacements).forEach((k) => {
           message = message.split(k).join(replacements[k]);
         });
+        const maybeAppendQrFn = window.__APG_MODULES?.maybeAppendPaymentQrToReminderMessage;
+        if (typeof maybeAppendQrFn === 'function') {
+          message = maybeAppendQrFn(message, {
+            templateKey: resolvedKey,
+            member,
+            settings,
+            gymCodes,
+            hqGymCodeId,
+            apiBaseUrl: getBackendApiBaseUrl(),
+          });
+        }
         if (resolvedKey === 'success') {
           message = finalizeSuccessWhatsAppMessage(message, displayTimeZone, composeAt);
         }
@@ -9903,6 +9922,32 @@ Please pay by: ${formattedLastDate}`;
         return String(user?.id || '').trim().toLowerCase() === 'owner' || role === 'owner' || role === 'master_owner';
       }, [user]);
 
+      const openPaymentQrViewer = React.useCallback(async (branchOverride = '') => {
+        const fetchFn = window.__APG_MODULES?.fetchPaymentQrList;
+        if (typeof fetchFn !== 'function' || dataSyncMode !== 'backend') {
+          setToast('Payment QR requires backend sync.');
+          setTimeout(() => setToast(''), 3200);
+          return;
+        }
+        const branchId = String(branchOverride || authoritativeActiveBranchId || hqGymCodeId || '').trim();
+        setPaymentQrViewerBranchId(branchId);
+        setPaymentQrViewerLoading(true);
+        setPaymentQrViewerOpen(true);
+        try {
+          const res = await fetchFn(backendJson, { gymCodeId: branchId, activeOnly: true });
+          const sortFn = window.__APG_MODULES?.activePaymentQrItems;
+          const nextItems = typeof sortFn === 'function' ? sortFn(res.items) : (Array.isArray(res.items) ? res.items : []);
+          setPaymentQrViewerItems(nextItems);
+          setPaymentQrViewerIndex(0);
+        } catch {
+          setPaymentQrViewerItems([]);
+          setToast('Could not load payment QR codes.');
+          setTimeout(() => setToast(''), 3200);
+        } finally {
+          setPaymentQrViewerLoading(false);
+        }
+      }, [dataSyncMode, authoritativeActiveBranchId, hqGymCodeId]);
+
       // Login screen; saved session restores in the background when valid.
       if (!user) {
         return (
@@ -9930,6 +9975,12 @@ Please pay by: ${formattedLastDate}`;
       }
       const financeAccess = normalizeAccess(user?.access).finance;
       const canManageExpenses = financeAccess?.manageExpenses !== false;
+      const canViewPaymentQr = typeof window.__APG_MODULES?.canViewPaymentQr === 'function'
+        ? window.__APG_MODULES.canViewPaymentQr(user)
+        : isOwnerUser;
+      const canManagePaymentQrSettings = typeof window.__APG_MODULES?.canManagePaymentSettings === 'function'
+        ? window.__APG_MODULES.canManagePaymentSettings(user)
+        : isOwnerUser;
       const refreshBackendBackupMeta = async () => {
         if (dataSyncMode !== 'backend') return;
         try {
@@ -10321,6 +10372,7 @@ Please pay by: ${formattedLastDate}`;
               setActiveTab(tab);
               if (tab === 'Dashboard') setDashMode('summary');
               if (tab === 'Members') setMembersView('all');
+              if (tab === 'Finance') setFinanceView('transactions');
               setMobileMenuOpen(false);
             }}
             theme={theme}
@@ -10336,6 +10388,9 @@ Please pay by: ${formattedLastDate}`;
             onCloseMobile={() => setMobileMenuOpen(false)}
             membersView={membersView}
             setMembersView={setMembersView}
+            financeView={financeView}
+            setFinanceView={setFinanceView}
+            canManagePaymentQrSettings={canManagePaymentQrSettings}
             branchBranding={branchBranding}
           />
           <main className="apg-main-scroll flex-1 overflow-y-auto pt-[112px] md:pt-0 pb-28 md:pb-0 w-full bg-[#F8FAFC] md:bg-transparent">
@@ -10771,6 +10826,7 @@ Please pay by: ${formattedLastDate}`;
                     onUnlinkFamilyGroup={canEditMembers ? unlinkFamilyGroup : null}
                     gymCodeLabel={gymCodeLabel}
                     onLoadMemberDetail={fetchMemberDetail}
+                    onOpenPaymentQr={canViewPaymentQr ? () => { void openPaymentQrViewer(); } : null}
                     customTemplatesFeatureEnabled={customTemplatesFeatureEnabled}
                     customTemplatesByBranch={customTemplatesByBranch}
                     hqGymCodeId={hqGymCodeId}
@@ -10987,6 +11043,21 @@ Please pay by: ${formattedLastDate}`;
               />
             )}
             {activeTab === 'Finance' && (
+              financeView === 'payment-settings' ? (
+                <PaymentSettingsPage
+                  gymCodes={gymCodes}
+                  backendJson={backendJson}
+                  isOwner={isOwnerUser}
+                  hqGymCodeId={hqGymCodeId}
+                  authoritativeActiveBranchId={authoritativeActiveBranchId}
+                  dataSyncMode={dataSyncMode}
+                  gymCodeLabel={gymCodeLabel}
+                />
+              ) : financeView === 'reports' ? (
+                <FinanceSubPlaceholder title="Reports" hint="Branch revenue and payment reports will appear here." />
+              ) : financeView === 'expenses' ? (
+                <FinanceSubPlaceholder title="Expenses" hint="Use Transactions for expense entry and ledger review." />
+              ) : (
               <FinancePage
                 members={branchScopedMembers}
                 settings={settings}
@@ -11003,6 +11074,7 @@ Please pay by: ${formattedLastDate}`;
                 activeBranchId={authoritativeActiveBranchId}
                 financeMetricsEpoch={financeMetricsEpoch}
               />
+              )
             )}
             {activeTab === 'Staff' && (
               <UserManagementPage
@@ -11098,6 +11170,18 @@ Please pay by: ${formattedLastDate}`;
               })}
             </div>
           </nav>
+          <PaymentQrViewerModal
+            open={paymentQrViewerOpen}
+            onClose={() => setPaymentQrViewerOpen(false)}
+            items={paymentQrViewerItems}
+            index={paymentQrViewerIndex}
+            onIndexChange={setPaymentQrViewerIndex}
+            loading={paymentQrViewerLoading}
+            isOwner={isOwnerUser}
+            gymCodes={gymCodes}
+            viewerBranchId={paymentQrViewerBranchId}
+            onBranchChange={(branchId) => { void openPaymentQrViewer(branchId); }}
+          />
           {paymentEntryModal.open && (
             <div className="fixed inset-0 z-[75] flex items-center justify-center apg-modal-backdrop p-4">
               <div className="w-full max-w-xl rounded-2xl border border-emerald-200 bg-white p-5 shadow-2xl" data-testid="payment-entry-modal">
@@ -12198,7 +12282,7 @@ Please pay by: ${formattedLastDate}`;
     }
 
     // ---- Sidebar Component ----
-function Sidebar({ user, active, onSelect, theme, setTheme, layoutMode = 'classic', setLayoutMode = () => {}, onLogout, onUndo, onRedo, canUndo, canRedo, mobileOpen, onCloseMobile, membersView = 'all', setMembersView, branchBranding = null }) {
+function Sidebar({ user, active, onSelect, theme, setTheme, layoutMode = 'classic', setLayoutMode = () => {}, onLogout, onUndo, onRedo, canUndo, canRedo, mobileOpen, onCloseMobile, membersView = 'all', setMembersView, financeView = 'transactions', setFinanceView, canManagePaymentQrSettings = false, branchBranding = null }) {
       const brand = branchBranding || (window.__APG_MODULES?.defaultClientBranding?.() || { displayName: 'Action Plus Gym', logoUrl: './assets/action-plus-logo.png' });
       const NAV = [
         { key: 'Dashboard', label: 'Dashboard', icon: 'home', group: '' },
@@ -12224,6 +12308,10 @@ function Sidebar({ user, active, onSelect, theme, setTheme, layoutMode = 'classi
       };
       const navItems = NAV.filter(item => (allowedSections.includes(item.key) || item.key === 'Support' || item.key === 'Logs') && canViewSectionByAccess(item.key));
       const [membersExpanded, setMembersExpanded] = React.useState(true);
+      const [financeExpanded, setFinanceExpanded] = React.useState(true);
+      React.useEffect(() => {
+        if (active === 'Finance') setFinanceExpanded(true);
+      }, [active]);
       const sidebarCollapseStorageKey = React.useMemo(
         () => `apg.sidebar.collapsed.${String(user?.id || 'anonymous')}`,
         [user?.id]
@@ -12440,6 +12528,71 @@ function Sidebar({ user, active, onSelect, theme, setTheme, layoutMode = 'classi
                                     Visitors
                                   </button>
                                 )}
+                              </div>
+                            )}
+                          </div>
+                        );
+                      }
+                      if (item.key === 'Finance') {
+                        const financeSubs = [
+                          { key: 'transactions', label: 'Transactions' },
+                          { key: 'reports', label: 'Reports' },
+                          { key: 'expenses', label: 'Expenses' },
+                          ...(canManagePaymentQrSettings ? [{ key: 'payment-settings', label: 'Payment Settings' }] : []),
+                        ];
+                        if (collapsed) {
+                          return (
+                            <button
+                              key={item.key}
+                              onClick={() => {
+                                onSelect('Finance');
+                                setFinanceView && setFinanceView('transactions');
+                                onCloseMobile && onCloseMobile();
+                              }}
+                              className={navButtonClass(active === 'Finance')}
+                              title="Finance"
+                            >
+                              <AppIcon name={item.icon} className="h-4 w-4 shrink-0" />
+                            </button>
+                          );
+                        }
+                        return (
+                          <div key={item.key} className="space-y-1">
+                            <button
+                              onClick={() => {
+                                onSelect('Finance');
+                                setFinanceView && setFinanceView('transactions');
+                                setFinanceExpanded((v) => !v);
+                                onCloseMobile && onCloseMobile();
+                              }}
+                              className={cx(navButtonClass(active === 'Finance'), 'justify-between')}
+                            >
+                              <span className="flex items-center gap-3">
+                                <AppIcon name={item.icon} className="h-4 w-4 shrink-0" />
+                                <span>{item.label}</span>
+                              </span>
+                              <span className="text-[10px] text-slate-400 dark:text-slate-300">{financeExpanded ? '▾' : '▸'}</span>
+                            </button>
+                            {financeExpanded && (
+                              <div className="ml-8 mr-1 space-y-1">
+                                {financeSubs.map((sub) => (
+                                  <button
+                                    key={sub.key}
+                                    onClick={() => {
+                                      onSelect('Finance');
+                                      setFinanceView && setFinanceView(sub.key);
+                                      onCloseMobile && onCloseMobile();
+                                    }}
+                                    className={cx(
+                                      'w-full rounded-2xl px-3 py-2 text-left text-[10px] font-semibold',
+                                      active === 'Finance' && financeView === sub.key
+                                        ? 'bg-blue-50 text-blue-700 dark:bg-blue-900/35 dark:text-blue-200'
+                                        : 'text-slate-600 hover:bg-slate-50 dark:text-slate-200 dark:hover:bg-slate-800/80'
+                                    )}
+                                  >
+                                    {sub.label}
+                                  </button>
+                                ))}
                               </div>
                             )}
                           </div>
@@ -14098,6 +14251,123 @@ function MobileMemberDetailView({ m, onBack, onEdit, onWelcome, onWhatsAppCall, 
       );
     }
 
+    function PaymentQrViewerModal({
+      open,
+      onClose,
+      items = [],
+      index = 0,
+      onIndexChange,
+      loading = false,
+      isOwner = false,
+      gymCodes = [],
+      viewerBranchId = '',
+      onBranchChange,
+    }) {
+      const [imgFailed, setImgFailed] = React.useState(false);
+      React.useEffect(() => {
+        if (!open) return undefined;
+        const bindEsc = window.__APG_MODULES?.bindModalEscapeKey;
+        return typeof bindEsc === 'function' ? bindEsc(onClose) : undefined;
+      }, [open, onClose]);
+      const previewZ = window.__APG_MODULES?.PHOTO_PREVIEW_MODAL_Z_INDEX ?? 78;
+      const activeItems = typeof window.__APG_MODULES?.activePaymentQrItems === 'function'
+        ? window.__APG_MODULES.activePaymentQrItems(items)
+        : (Array.isArray(items) ? items : []);
+      const total = activeItems.length;
+      const safeIndex = total > 0 ? Math.min(Math.max(0, index), total - 1) : 0;
+      const current = total > 0 ? activeItems[safeIndex] : null;
+      const src = String(current?.qrImageUrl || '').trim();
+      React.useEffect(() => { setImgFailed(false); }, [src, current?.id, open]);
+      if (!open) return null;
+      return (
+        <ModalPortal>
+          <div
+            className="fixed inset-0 flex items-center justify-center apg-modal-backdrop p-4"
+            style={{ zIndex: previewZ }}
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="payment-qr-viewer-title"
+            data-testid="payment-qr-viewer-modal"
+            onClick={onClose}
+          >
+            <div
+              className="w-full max-w-md rounded-3xl bg-white shadow-xl overflow-hidden flex flex-col"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <div className="flex items-center justify-between px-6 py-4 border-b border-slate-100">
+                <h4 id="payment-qr-viewer-title" className="text-lg font-semibold text-slate-900">Payment QR</h4>
+                <button type="button" onClick={onClose} className="rounded-xl p-2 hover:bg-slate-100" aria-label="Close preview"><span>✕</span></button>
+              </div>
+              <div className="px-6 py-4 flex flex-col items-center text-center gap-3">
+                {isOwner && Array.isArray(gymCodes) && gymCodes.length > 0 && typeof onBranchChange === 'function' && (
+                  <label className="w-full text-left text-xs font-semibold text-slate-600">
+                    Gym Branch
+                    <select
+                      className="mt-1 w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm text-slate-800"
+                      value={viewerBranchId}
+                      onChange={(e) => onBranchChange(e.target.value)}
+                    >
+                      {gymCodes.map((gc) => (
+                        <option key={gc.id} value={gc.id}>{gc.name} ({gc.code})</option>
+                      ))}
+                    </select>
+                  </label>
+                )}
+                {loading ? (
+                  <div className="py-10 text-sm text-slate-500">Loading payment QR codes…</div>
+                ) : !current ? (
+                  <div className="py-10 text-sm text-slate-500">No active payment QR codes for this branch.</div>
+                ) : (
+                  <>
+                    <div>
+                      <div className="text-lg font-semibold text-slate-900">{current.qrName}</div>
+                      <div className="text-sm text-slate-600 mt-1">{current.branchLabel || ''}</div>
+                    </div>
+                    {src && !imgFailed ? (
+                      <img
+                        src={src}
+                        alt={current.qrName}
+                        className="h-56 w-56 rounded-2xl object-contain border border-slate-200 bg-white shadow-sm"
+                        onError={() => setImgFailed(true)}
+                      />
+                    ) : (
+                      <div className="h-56 w-56 rounded-2xl border border-dashed border-slate-300 bg-slate-50 flex items-center justify-center text-sm text-slate-500">
+                        QR image unavailable
+                      </div>
+                    )}
+                    {total > 1 && (
+                      <div className="flex items-center justify-center gap-3 pt-1">
+                        <button
+                          type="button"
+                          disabled={safeIndex <= 0}
+                          onClick={() => onIndexChange && onIndexChange(Math.max(0, safeIndex - 1))}
+                          className="rounded-xl border border-slate-300 px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-40"
+                        >
+                          Previous
+                        </button>
+                        <span className="text-sm font-semibold text-slate-700">{safeIndex + 1} / {total}</span>
+                        <button
+                          type="button"
+                          disabled={safeIndex >= total - 1}
+                          onClick={() => onIndexChange && onIndexChange(Math.min(total - 1, safeIndex + 1))}
+                          className="rounded-xl border border-slate-300 px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-40"
+                        >
+                          Next
+                        </button>
+                      </div>
+                    )}
+                  </>
+                )}
+              </div>
+              <div className="px-6 py-4 border-t border-slate-100 flex justify-end">
+                <button type="button" onClick={onClose} className="rounded-xl border border-slate-300 px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50">Close</button>
+              </div>
+            </div>
+          </div>
+        </ModalPortal>
+      );
+    }
+
     function MemberPhotoPreviewModal({ open, onClose, name, memberId, photo, member, gymLabel = '' }) {
       const [, photoCacheTick] = React.useReducer((n) => n + 1, 0);
       const [imgFailed, setImgFailed] = React.useState(false);
@@ -15092,7 +15362,7 @@ function QuickActions({ m, onStatusChange, holdOptions, canDelete, onDelete, can
     }
 
     // ---- Dashboard View (Members grouped by status) ----
-function DashboardView({ members, memberSyncPending = {}, onEdit, onStatusChange, holdOptions, logs, filters, filterOpen, setFilterOpen, anyFilterActive, canDelete, onDelete, billingMonthOptions, onWelcome, onWhatsAppCall, onWelcomeMail, onAddAttachment, onQuickFieldEdit, editOptions, isOwner, currentUserRole = '', fineRuleConfig, access = null, asOfDateKey = null, canEdit = true, onImportCsv = null, onAddExpense = null, displayTimeZone = 'IST', tableDensity = 'normal', setTableDensity = () => {}, onAddPaymentEntry = null, onDeletePaymentEntry = null, onEditPaymentEntry = null, onUnlinkFamilyGroup = null, gymCodeLabel = null, onLoadMemberDetail = null, customTemplatesFeatureEnabled = false, customTemplatesByBranch = {}, hqGymCodeId = null, ensureBranchCustomTemplates = null }) {
+function DashboardView({ members, memberSyncPending = {}, onEdit, onStatusChange, holdOptions, logs, filters, filterOpen, setFilterOpen, anyFilterActive, canDelete, onDelete, billingMonthOptions, onWelcome, onWhatsAppCall, onWelcomeMail, onAddAttachment, onQuickFieldEdit, editOptions, isOwner, currentUserRole = '', fineRuleConfig, access = null, asOfDateKey = null, canEdit = true, onImportCsv = null, onAddExpense = null, displayTimeZone = 'IST', tableDensity = 'normal', setTableDensity = () => {}, onAddPaymentEntry = null, onDeletePaymentEntry = null, onEditPaymentEntry = null, onUnlinkFamilyGroup = null, gymCodeLabel = null, onLoadMemberDetail = null, onOpenPaymentQr = null, customTemplatesFeatureEnabled = false, customTemplatesByBranch = {}, hqGymCodeId = null, ensureBranchCustomTemplates = null }) {
       // Single expanded row across all statuses. Only one memberId may be expanded at a time.
       const [expandedId, setExpandedId] = React.useState(null);
       const [mobileDetailMemberId, setMobileDetailMemberId] = React.useState('');
@@ -15801,6 +16071,16 @@ function DashboardView({ members, memberSyncPending = {}, onEdit, onStatusChange
                     </div>
                   )}
                 </div>
+                {onOpenPaymentQr && (
+                  <button
+                    type="button"
+                    onClick={onOpenPaymentQr}
+                    className={cx(MEMBER_UI.buttonBase, MEMBER_UI.buttonSecondary)}
+                    data-testid="members-payment-qr-button"
+                  >
+                    Payment QR
+                  </button>
+                )}
               </div>
               {isTabletView && (
                 <div className={cx(MEMBER_UI.segmentedWrap, 'lg:ml-auto')}>
@@ -20161,6 +20441,20 @@ function PTClientsPage({ members, users, settings, updateSetting, currentUser, a
                   <div className="rounded-2xl border border-rose-200 bg-rose-50 px-3 py-2 text-xs text-rose-700">
                     Fine SMS is shown when member is Active and Payment By date is crossed. Selected immediate roles bypass grace days.
                   </div>
+                  <div className="rounded-2xl border border-slate-200 bg-white px-3 py-3 space-y-2">
+                    <div className="text-sm font-semibold text-slate-900">Billing Reminder — Payment QR link</div>
+                    <p className="text-xs text-slate-600">
+                      When enabled, billing reminder WhatsApp messages optionally append a branch-specific payment QR page link. Template text in the database is not modified.
+                    </p>
+                    <label className="inline-flex items-center gap-2 text-sm font-medium text-slate-700">
+                      <input
+                        type="checkbox"
+                        checked={settings.paymentQrInReminderEnabled === true}
+                        onChange={(e) => updateSetting('paymentQrInReminderEnabled', Boolean(e.target.checked))}
+                      />
+                      Include Payment QR link in Billing Reminder
+                    </label>
+                  </div>
                 </div>
               </div>
             </SettingsNavRow>
@@ -21367,6 +21661,17 @@ function PTClientsPage({ members, users, settings, updateSetting, currentUser, a
           window.alert('Custom template is not available for this member branch.');
           return;
         }
+        const maybeAppendQrFn = window.__APG_MODULES?.maybeAppendPaymentQrToReminderMessage;
+        if (typeof maybeAppendQrFn === 'function') {
+          message = maybeAppendQrFn(message, {
+            templateKey: resolvedKey,
+            member,
+            settings,
+            gymCodes,
+            hqGymCodeId,
+            apiBaseUrl: getBackendApiBaseUrl(),
+          });
+        }
         const buildUrlFn = window.__APG_MODULES?.buildWhatsAppSendUrl;
         const formatPhoneFn = window.__APG_MODULES?.formatWhatsAppPhone;
         const url = typeof buildUrlFn === 'function'
@@ -22450,6 +22755,295 @@ function PTClientsPage({ members, users, settings, updateSetting, currentUser, a
     }
 
     // ---- Finance Page ----
+    function FinanceSubPlaceholder({ title, hint }) {
+      return (
+        <div className="p-3 md:p-8">
+          <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
+            <h2 className="text-xl font-semibold text-slate-900">{title}</h2>
+            <p className="mt-2 text-sm text-slate-600">{hint}</p>
+          </div>
+        </div>
+      );
+    }
+
+    function PaymentSettingsPage({
+      gymCodes = [],
+      backendJson,
+      isOwner = false,
+      hqGymCodeId = '',
+      authoritativeActiveBranchId = '',
+      dataSyncMode = 'local',
+      gymCodeLabel,
+    }) {
+      const [items, setItems] = React.useState([]);
+      const [loading, setLoading] = React.useState(false);
+      const [editorOpen, setEditorOpen] = React.useState(false);
+      const [editing, setEditing] = React.useState(null);
+      const [draft, setDraft] = React.useState({
+        qrName: '',
+        gymCodeId: '',
+        displayOrder: 0,
+        isActive: true,
+        imageDataUrl: '',
+      });
+      const [saving, setSaving] = React.useState(false);
+      const [error, setError] = React.useState('');
+      const uploadInputRef = React.useRef(null);
+
+      const loadItems = React.useCallback(async () => {
+        const fetchFn = window.__APG_MODULES?.fetchPaymentQrList;
+        if (typeof fetchFn !== 'function' || dataSyncMode !== 'backend') return;
+        setLoading(true);
+        try {
+          const res = await fetchFn(backendJson, { includeInactive: true, activeOnly: false });
+          const sortFn = window.__APG_MODULES?.sortPaymentQrItems;
+          setItems(typeof sortFn === 'function' ? sortFn(res.items) : (Array.isArray(res.items) ? res.items : []));
+        } catch {
+          setItems([]);
+        } finally {
+          setLoading(false);
+        }
+      }, [backendJson, dataSyncMode]);
+
+      React.useEffect(() => { void loadItems(); }, [loadItems]);
+
+      const openCreate = () => {
+        setEditing(null);
+        setDraft({
+          qrName: '',
+          gymCodeId: String(authoritativeActiveBranchId || hqGymCodeId || gymCodes[0]?.id || '').trim(),
+          displayOrder: 0,
+          isActive: true,
+          imageDataUrl: '',
+        });
+        setError('');
+        setEditorOpen(true);
+      };
+
+      const openEdit = (item) => {
+        setEditing(item);
+        setDraft({
+          qrName: String(item?.qrName || ''),
+          gymCodeId: String(item?.gymCodeId || ''),
+          displayOrder: Number(item?.displayOrder || 0),
+          isActive: item?.isActive !== false,
+          imageDataUrl: '',
+        });
+        setError('');
+        setEditorOpen(true);
+      };
+
+      const onPickImage = async (file) => {
+        if (!file) return;
+        await applyPhotoFromFile(file, {
+          onSuccess: (compressed) => setDraft((prev) => ({ ...prev, imageDataUrl: compressed })),
+          onError: (msg) => setError(String(msg || 'Could not process image.')),
+        });
+      };
+
+      const saveDraft = async () => {
+        const validateFn = window.__APG_MODULES?.validatePaymentQrDraft;
+        const validation = typeof validateFn === 'function'
+          ? validateFn({ ...draft, requireImage: !editing })
+          : '';
+        if (validation) {
+          setError(validation);
+          return;
+        }
+        setSaving(true);
+        setError('');
+        try {
+          if (editing) {
+            const updateFn = window.__APG_MODULES?.updatePaymentQrApi;
+            if (typeof updateFn !== 'function') throw new Error('update-api-unavailable');
+            await updateFn(backendJson, editing.id, {
+              qrName: draft.qrName,
+              gymCodeId: draft.gymCodeId,
+              displayOrder: draft.displayOrder,
+              isActive: draft.isActive,
+            });
+            if (draft.imageDataUrl) {
+              const uploadFn = window.__APG_MODULES?.uploadPaymentQrImageApi;
+              if (typeof uploadFn === 'function') {
+                await uploadFn(backendJson, editing.id, draft.imageDataUrl, draft.gymCodeId);
+              }
+            }
+          } else {
+            const createFn = window.__APG_MODULES?.createPaymentQrApi;
+            const uploadFn = window.__APG_MODULES?.uploadPaymentQrImageApi;
+            if (typeof createFn !== 'function' || typeof uploadFn !== 'function') throw new Error('create-api-unavailable');
+            const created = await createFn(backendJson, {
+              qrName: draft.qrName,
+              gymCodeId: draft.gymCodeId,
+              displayOrder: draft.displayOrder,
+              isActive: draft.isActive,
+            });
+            const item = created?.item || created;
+            if (draft.imageDataUrl && item?.id) {
+              await uploadFn(backendJson, item.id, draft.imageDataUrl, draft.gymCodeId);
+            }
+          }
+          setEditorOpen(false);
+          await loadItems();
+        } catch (err) {
+          const raw = String(err?.message || 'Could not save payment QR.');
+          const detail = String(err?.apiError || raw);
+          const status = Number(err?.status || 0);
+          if (/payment-qr-table-missing|payment_qr_settings|schema cache|could not find the table/i.test(`${raw} ${detail}`)) {
+            setError('Payment QR database table is not set up yet. Run backend/migrations/supabase_payment_qr_settings.sql and supabase_payment_qr_settings_rls.sql in Supabase SQL Editor, then try again.');
+          } else if (status === 404 || raw === 'backend-404') {
+            setError('Save failed (404). If this is a new install, run the Payment QR SQL migrations in Supabase, then restart the backend from the Backend tab.');
+          } else if (raw.startsWith('backend-')) {
+            setError(detail && !detail.startsWith('backend-') ? detail : `Could not save payment QR (${raw}). Check Network → payment-qr response for details.`);
+          } else {
+            setError(raw);
+          }
+        } finally {
+          setSaving(false);
+        }
+      };
+
+      const toggleActive = async (item) => {
+        const updateFn = window.__APG_MODULES?.updatePaymentQrApi;
+        if (typeof updateFn !== 'function' || !item?.id) return;
+        try {
+          await updateFn(backendJson, item.id, {
+            gymCodeId: item.gymCodeId,
+            isActive: !(item.isActive !== false),
+          });
+          await loadItems();
+        } catch {}
+      };
+
+      if (!isOwner) {
+        return (
+          <div className="p-3 md:p-8">
+            <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4 text-sm text-slate-600">
+              Payment Settings are available to the owner only.
+            </div>
+          </div>
+        );
+      }
+
+      if (dataSyncMode !== 'backend') {
+        return (
+          <div className="p-3 md:p-8">
+            <div className="rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">
+              Payment Settings require backend sync mode.
+            </div>
+          </div>
+        );
+      }
+
+      return (
+        <div className="p-3 md:p-8 space-y-4">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div>
+              <h1 className="text-xl md:text-2xl font-semibold text-slate-900">Payment Settings</h1>
+              <p className="text-sm text-slate-600 mt-1">Manage branch-scoped payment QR codes.</p>
+            </div>
+            <button type="button" onClick={openCreate} className="rounded-xl bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700">
+              Add QR
+            </button>
+          </div>
+          <div className="rounded-2xl border border-slate-200 bg-white overflow-hidden shadow-sm">
+            <div className="overflow-x-auto">
+              <table className="min-w-full text-sm">
+                <thead className="bg-slate-50 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">
+                  <tr>
+                    <th className="px-4 py-3">QR Name</th>
+                    <th className="px-4 py-3">Branch</th>
+                    <th className="px-4 py-3">Order</th>
+                    <th className="px-4 py-3">Status</th>
+                    <th className="px-4 py-3">Actions</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {loading ? (
+                    <tr><td colSpan={5} className="px-4 py-8 text-center text-slate-500">Loading…</td></tr>
+                  ) : items.length === 0 ? (
+                    <tr><td colSpan={5} className="px-4 py-8 text-center text-slate-500">No payment QR codes yet.</td></tr>
+                  ) : items.map((item) => (
+                    <tr key={item.id} className="border-t border-slate-100">
+                      <td className="px-4 py-3 font-medium text-slate-900">{item.qrName}</td>
+                      <td className="px-4 py-3 text-slate-700">{typeof gymCodeLabel === 'function' ? gymCodeLabel(item.gymCodeId) : (item.branchLabel || item.gymCode)}</td>
+                      <td className="px-4 py-3 text-slate-700">{item.displayOrder}</td>
+                      <td className="px-4 py-3">
+                        <span className={cx('rounded-full px-2 py-0.5 text-xs font-semibold', item.isActive !== false ? 'bg-emerald-50 text-emerald-700' : 'bg-slate-100 text-slate-600')}>
+                          {item.isActive !== false ? 'Active' : 'Inactive'}
+                        </span>
+                      </td>
+                      <td className="px-4 py-3">
+                        <div className="flex flex-wrap gap-2">
+                          <button type="button" onClick={() => openEdit(item)} className="rounded-lg border border-slate-300 px-2.5 py-1 text-xs font-semibold text-slate-700 hover:bg-slate-50">Edit</button>
+                          <button type="button" onClick={() => { void toggleActive(item); }} className="rounded-lg border border-slate-300 px-2.5 py-1 text-xs font-semibold text-slate-700 hover:bg-slate-50">
+                            {item.isActive !== false ? 'Deactivate' : 'Activate'}
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          {editorOpen && (
+            <div className="fixed inset-0 z-[70] flex items-center justify-center apg-modal-backdrop p-4" onClick={() => !saving && setEditorOpen(false)}>
+              <div className="w-full max-w-lg rounded-2xl bg-white border border-slate-200 shadow-xl p-5" onClick={(e) => e.stopPropagation()}>
+                <h3 className="text-lg font-semibold text-slate-900">{editing ? 'Edit Payment QR' : 'Add Payment QR'}</h3>
+                <div className="mt-4 space-y-3">
+                  <label className="block text-sm font-medium text-slate-700">
+                    QR Name *
+                    <input className="mt-1 w-full rounded-xl border border-slate-300 px-3 py-2" value={draft.qrName} onChange={(e) => setDraft((p) => ({ ...p, qrName: e.target.value }))} />
+                  </label>
+                  <label className="block text-sm font-medium text-slate-700">
+                    Gym Branch (Gym Code) *
+                    <select className="mt-1 w-full rounded-xl border border-slate-300 px-3 py-2" value={draft.gymCodeId} onChange={(e) => setDraft((p) => ({ ...p, gymCodeId: e.target.value }))}>
+                      <option value="">Select branch</option>
+                      {gymCodes.map((gc) => (
+                        <option key={gc.id} value={gc.id}>{gc.name} ({gc.code})</option>
+                      ))}
+                    </select>
+                  </label>
+                  <label className="block text-sm font-medium text-slate-700">
+                    QR Image Upload {editing ? '' : '*'}
+                    <div className="mt-1 flex flex-col gap-2">
+                      <button type="button" onClick={() => uploadInputRef.current?.click()} className="rounded-xl border border-dashed border-slate-300 px-3 py-8 text-sm text-slate-600 hover:bg-slate-50">
+                        {draft.imageDataUrl ? 'Image selected — click to replace' : (editing?.qrImageUrl ? 'Click to upload new image' : 'Click to upload QR image')}
+                      </button>
+                      <input ref={uploadInputRef} type="file" accept="image/*" className="hidden" onChange={(e) => { void onPickImage(e.target.files?.[0]); e.target.value = ''; }} />
+                      {draft.imageDataUrl ? <img src={draft.imageDataUrl} alt="QR preview" className="h-32 w-32 rounded-lg border border-slate-200 object-contain" /> : null}
+                    </div>
+                  </label>
+                  <div className="grid grid-cols-2 gap-3">
+                    <label className="block text-sm font-medium text-slate-700">
+                      Display Order
+                      <input type="number" min="0" className="mt-1 w-full rounded-xl border border-slate-300 px-3 py-2" value={draft.displayOrder} onChange={(e) => setDraft((p) => ({ ...p, displayOrder: Number(e.target.value || 0) }))} />
+                    </label>
+                    <label className="block text-sm font-medium text-slate-700">
+                      Status
+                      <select className="mt-1 w-full rounded-xl border border-slate-300 px-3 py-2" value={draft.isActive ? 'active' : 'inactive'} onChange={(e) => setDraft((p) => ({ ...p, isActive: e.target.value === 'active' }))}>
+                        <option value="active">Active</option>
+                        <option value="inactive">Inactive</option>
+                      </select>
+                    </label>
+                  </div>
+                  {error ? <div className="rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-700">{error}</div> : null}
+                </div>
+                <div className="mt-5 flex justify-end gap-2">
+                  <button type="button" disabled={saving} onClick={() => setEditorOpen(false)} className="rounded-xl border border-slate-300 px-4 py-2 text-sm font-semibold text-slate-700">Cancel</button>
+                  <button type="button" disabled={saving} onClick={() => { void saveDraft(); }} className="rounded-xl bg-blue-600 px-4 py-2 text-sm font-semibold text-white disabled:opacity-60">
+                    {saving ? 'Saving…' : 'Save QR'}
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
+        </div>
+      );
+    }
+
     function FinancePage({ members, settings, logs, financeTransactions = [], setFinanceTransactions, updateSetting, access, isOwner = false, openExpenseSignal = 0, displayTimeZone = 'IST', theme = 'light', memberSyncPending = {}, dataSyncMode = 'local', activeBranchId = '', financeMetricsEpoch = 0 }) {
       const [query, setQuery] = React.useState('');
       const [appliedQuery, setAppliedQuery] = React.useState('');

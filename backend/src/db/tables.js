@@ -30,6 +30,7 @@ export const T = {
   settings_lookup_values: 'settings_lookup_values',
   settings_templates: 'settings_templates',
   branch_custom_templates: 'branch_custom_templates',
+  payment_qr_settings: 'payment_qr_settings',
   settings_app_config: 'settings_app_config',
   settings_staff_directory: 'settings_staff_directory',
   leave_requests: 'leave_requests',

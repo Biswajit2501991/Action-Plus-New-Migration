@@ -13,6 +13,7 @@
     "db:migrate-supabase:dry": "node scripts/migrate-to-supabase.js --dry-run",
     "db:rename-members": "node scripts/rename-members-table.js",
     "db:enable-realtime": "node scripts/run-supabase-sql.js migrations/supabase_enable_realtime.sql",
+    "db:migrate-payment-qr": "node scripts/run-supabase-sql.js migrations/supabase_payment_qr_settings.sql && node scripts/run-supabase-sql.js migrations/supabase_payment_qr_settings_rls.sql",
     "db:post-rename-setup": "node scripts/post-rename-setup.js",
     "db:print-database-url": "node scripts/print-database-url.js",
     "auth:hash-staff-passwords": "node scripts/hash-staff-passwords.js",

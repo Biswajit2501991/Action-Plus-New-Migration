@@ -1700,6 +1700,7 @@ function buildSettingsObject({ lookups, templates, configRow, staffDir, roles, l
     fineSmsImmediateRoles: [],
     financeUseEstimatedExpense: true,
     customTemplatesEnabled: false,
+    paymentQrInReminderEnabled: false,
   };
 
   for (const [key, category] of LOOKUP_CATEGORIES) {
@@ -2003,6 +2004,7 @@ async function writeSettings(settings, scope) {
     gmailWelcomeTemplate: s.gmailWelcomeTemplate || null,
     smsTemplatePresetVersion: s.smsTemplatePresetVersion || null,
     customTemplatesEnabled: s.customTemplatesEnabled === true,
+    paymentQrInReminderEnabled: s.paymentQrInReminderEnabled === true,
   };
   await sb.from(T.settings_app_config).delete().eq('gym_id', gid);
   await sb.from(T.settings_app_config).insert({
