@@ -4,7 +4,13 @@ import {
   customTemplateCardTone,
   validateCustomTemplateDraft,
   friendlyCustomTemplateApiError,
+  resolveMemberCustomTemplatesFromCache,
+  resolveCustomTemplateBodyFromCache,
+  memberProfileCustomTemplateActions,
 } from '../src/features/whatsapp/customTemplatesClient.js';
+
+const BRANCH = 'branch-a';
+const HQ = 'hq-branch';
 
 describe('customTemplatesClient', () => {
   it('slugifies display names into valid template codes', () => {
@@ -31,5 +37,25 @@ describe('customTemplatesClient', () => {
       .toMatch(/already exists/);
     expect(friendlyCustomTemplateApiError({ message: 'custom-templates-feature-disabled' }))
       .toMatch(/Enable Custom WhatsApp Templates/);
+  });
+
+  it('resolves member custom templates by assigned branch with HQ fallback', () => {
+    const byBranch = {
+      [BRANCH]: [{ templateCode: 'promotion', templateName: 'Promotion', isActive: true, status: 'active' }],
+      [HQ]: [{ templateCode: 'festival', templateName: 'Festival', isActive: true, status: 'active' }],
+    };
+    const member = { assignedGymCodeId: BRANCH };
+    expect(resolveMemberCustomTemplatesFromCache(byBranch, HQ, member)).toHaveLength(1);
+    expect(resolveCustomTemplateBodyFromCache(byBranch, HQ, member, 'custom:promotion')).toBe('');
+    const withBody = {
+      [BRANCH]: [{ templateCode: 'promotion', templateName: 'Promotion', messageBody: 'Hi [CustomerName]', isActive: true, status: 'active' }],
+    };
+    expect(resolveCustomTemplateBodyFromCache(withBody, HQ, member, 'custom:promotion')).toBe('Hi [CustomerName]');
+    expect(resolveMemberCustomTemplatesFromCache(byBranch, HQ, {})).toHaveLength(1);
+    expect(memberProfileCustomTemplateActions(withBody, HQ, member)[0]).toMatchObject({
+      key: 'custom:promotion',
+      label: 'Promotion',
+      isCustom: true,
+    });
   });
 });

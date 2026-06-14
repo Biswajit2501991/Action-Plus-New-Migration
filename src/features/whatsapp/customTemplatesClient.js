@@ -1,4 +1,9 @@
-import { isValidCustomTemplateCode } from './customTemplateCodes.js';
+import {
+  customTemplateHistoryKey,
+  isCustomTemplateHistoryKey,
+  isValidCustomTemplateCode,
+  parseCustomTemplateHistoryKey,
+} from './customTemplateCodes.js';
 
 export const CUSTOM_TEMPLATE_TYPES = [
   { value: 'promotional', label: 'Promotional' },
@@ -50,6 +55,52 @@ export function validateCustomTemplateDraft({ templateName, templateCode, messag
   if (!body.trim()) return 'Message body is required.';
   if (body.length > 8000) return 'Message body must be 8000 characters or fewer.';
   return '';
+}
+
+function activeCustomTemplates(list) {
+  return (Array.isArray(list) ? list : [])
+    .filter((t) => t && t.isActive !== false && t.status !== 'archived');
+}
+
+export function resolveMemberBranchIdForTemplates(member, hqGymCodeId) {
+  const assigned = String(member?.assignedGymCodeId || '').trim();
+  return assigned || String(hqGymCodeId || '').trim();
+}
+
+/** Branch-scoped custom templates for a member (HQ fallback when unassigned). */
+export function resolveMemberCustomTemplatesFromCache(customTemplatesByBranch, hqGymCodeId, member) {
+  let branchId = String(member?.assignedGymCodeId || '').trim();
+  if (branchId) {
+    const hit = activeCustomTemplates(customTemplatesByBranch?.[branchId]);
+    if (hit.length) return hit;
+  }
+  const hq = String(hqGymCodeId || '').trim();
+  if (hq && hq !== branchId) {
+    return activeCustomTemplates(customTemplatesByBranch?.[hq]);
+  }
+  return branchId ? activeCustomTemplates(customTemplatesByBranch?.[branchId]) : [];
+}
+
+export function resolveCustomTemplateBodyFromCache(customTemplatesByBranch, hqGymCodeId, member, historyKey) {
+  if (!isCustomTemplateHistoryKey(historyKey)) return '';
+  const code = parseCustomTemplateHistoryKey(historyKey);
+  if (!code) return '';
+  const hit = resolveMemberCustomTemplatesFromCache(customTemplatesByBranch, hqGymCodeId, member)
+    .find((t) => String(t.templateCode || '').trim() === code);
+  return hit?.messageBody || '';
+}
+
+/** UI rows for Member Profile → WhatsApp Message Types. */
+export function memberProfileCustomTemplateActions(customTemplatesByBranch, hqGymCodeId, member) {
+  return resolveMemberCustomTemplatesFromCache(customTemplatesByBranch, hqGymCodeId, member).map((t) => {
+    const templateCode = String(t.templateCode || '').trim();
+    return {
+      key: customTemplateHistoryKey(templateCode),
+      label: String(t.templateName || templateCode || 'Custom Template'),
+      isCustom: true,
+      templateCode,
+    };
+  });
 }
 
 export function friendlyCustomTemplateApiError(err) {

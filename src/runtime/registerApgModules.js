@@ -124,6 +124,10 @@ import {
   customTemplateTypeLabel,
   validateCustomTemplateDraft,
   friendlyCustomTemplateApiError,
+  resolveMemberBranchIdForTemplates,
+  resolveMemberCustomTemplatesFromCache,
+  resolveCustomTemplateBodyFromCache,
+  memberProfileCustomTemplateActions,
 } from '../features/whatsapp/customTemplatesClient.js';
 import {
   resolveClientBranchBranding,
@@ -490,6 +494,10 @@ window.__APG_MODULES.customTemplateCardTone = customTemplateCardTone;
 window.__APG_MODULES.customTemplateTypeLabel = customTemplateTypeLabel;
 window.__APG_MODULES.validateCustomTemplateDraft = validateCustomTemplateDraft;
 window.__APG_MODULES.friendlyCustomTemplateApiError = friendlyCustomTemplateApiError;
+window.__APG_MODULES.resolveMemberBranchIdForTemplates = resolveMemberBranchIdForTemplates;
+window.__APG_MODULES.resolveMemberCustomTemplatesFromCache = resolveMemberCustomTemplatesFromCache;
+window.__APG_MODULES.resolveCustomTemplateBodyFromCache = resolveCustomTemplateBodyFromCache;
+window.__APG_MODULES.memberProfileCustomTemplateActions = memberProfileCustomTemplateActions;
 window.__APG_MODULES.authIsOwnerUserWhatsapp = authIsOwnerUserWhatsapp;
 window.__APG_MODULES.staffMayEditWhatsappTemplates = staffMayEditWhatsappTemplates;
 window.__APG_MODULES.effectiveTemplateBranchIdForUser = effectiveTemplateBranchIdForUser;

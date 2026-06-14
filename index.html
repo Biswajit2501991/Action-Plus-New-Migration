@@ -5005,7 +5005,16 @@ Phone: +91-7047157510`;
       }, [user, templatesBranchId, hqGymCodeId, authIsOwnerForTemplates]);
       const resolveWhatsappTemplateBody = React.useCallback((templateKey, member) => {
         const resolveFn = window.__APG_MODULES?.resolveMemberTemplateFromCache;
+        const resolveCustomFn = window.__APG_MODULES?.resolveCustomTemplateBodyFromCache;
+        const isCustomFn = window.__APG_MODULES?.isCustomTemplateHistoryKey;
         const key = String(templateKey || '').trim();
+        if (typeof isCustomFn === 'function' && isCustomFn(key)) {
+          if (typeof resolveCustomFn === 'function') {
+            const customBody = resolveCustomFn(customTemplatesByBranch, hqGymCodeId, member || {}, key);
+            if (customBody) return customBody;
+          }
+          return '';
+        }
         if (typeof resolveFn === 'function') {
           const hit = resolveFn(whatsappTemplatesByBranch, hqGymCodeId, member || {}, key);
           if (hit?.body) {
@@ -5021,7 +5030,7 @@ Phone: +91-7047157510`;
         }
         const branchMap = whatsappTemplatesByBranch[effectiveTemplatesBranchId] || {};
         return branchMap[key] || SMS_TEMPLATE_DEFAULTS[key] || SMS_TEMPLATE_DEFAULTS.reminder || '';
-      }, [whatsappTemplatesByBranch, hqGymCodeId, effectiveTemplatesBranchId]);
+      }, [whatsappTemplatesByBranch, customTemplatesByBranch, hqGymCodeId, effectiveTemplatesBranchId]);
       const canEditBranchWhatsappTemplates = React.useMemo(() => {
         const fn = window.__APG_MODULES?.staffMayEditWhatsappTemplates;
         if (typeof fn === 'function') return fn(user);
@@ -5060,6 +5069,17 @@ Phone: +91-7047157510`;
           : String(user.gymCodeId || '').trim();
         if (branchId) fetchBranchCustomTemplates(branchId);
       }, [settings?.customTemplatesEnabled, user?.id, templatesBranchId, hqGymCodeId, fetchBranchCustomTemplates, authIsOwnerForTemplates]);
+      const customTemplatesFeatureEnabled = React.useMemo(() => {
+        const fn = window.__APG_MODULES?.isCustomTemplatesEnabled;
+        if (typeof fn === 'function') return fn(settings);
+        return settings?.customTemplatesEnabled === true;
+      }, [settings]);
+      const ensureBranchCustomTemplates = React.useCallback(async (branchId) => {
+        const id = String(branchId || '').trim();
+        if (!id || dataSyncMode !== 'backend' || !canFetchWhatsappTemplates(user) || !customTemplatesFeatureEnabled) return;
+        if (Object.prototype.hasOwnProperty.call(customTemplatesByBranch, id)) return;
+        await fetchBranchCustomTemplates(id);
+      }, [dataSyncMode, user, customTemplatesFeatureEnabled, customTemplatesByBranch, fetchBranchCustomTemplates]);
       const [logs, setLogs] = React.useState(() => {
         try {
           const saved = localStorage.getItem(STORAGE_KEYS.logs);
@@ -10600,6 +10620,10 @@ Please pay by: ${formattedLastDate}`;
                   onEditPaymentEntry={editMemberPaymentEntry}
                   gymCodeLabel={gymCodeLabel}
                   onLoadMemberDetail={fetchMemberDetail}
+                  customTemplatesFeatureEnabled={customTemplatesFeatureEnabled}
+                  customTemplatesByBranch={customTemplatesByBranch}
+                  hqGymCodeId={hqGymCodeId}
+                  ensureBranchCustomTemplates={ensureBranchCustomTemplates}
                 />
               )
             )}
@@ -10673,6 +10697,10 @@ Please pay by: ${formattedLastDate}`;
                     onUnlinkFamilyGroup={canEditMembers ? unlinkFamilyGroup : null}
                     gymCodeLabel={gymCodeLabel}
                     onLoadMemberDetail={fetchMemberDetail}
+                    customTemplatesFeatureEnabled={customTemplatesFeatureEnabled}
+                    customTemplatesByBranch={customTemplatesByBranch}
+                    hqGymCodeId={hqGymCodeId}
+                    ensureBranchCustomTemplates={ensureBranchCustomTemplates}
                   />
                 )
               ) : (
@@ -13037,7 +13065,7 @@ function Sidebar({ user, active, onSelect, theme, setTheme, layoutMode = 'classi
     }
 
     // ---- Members List (Dashboard list mode) ----
-function MembersList({ title, list, allMembers = [], onBack, onEdit, onStatusChange, holdOptions, logs, onWelcome, onWhatsAppCall, onWelcomeMail, onAddAttachment, onQuickFieldEdit, editOptions, isOwner, currentUserRole = '', fineRuleConfig, access = null, asOfDateKey = null, canEdit = true, displayTimeZone = 'IST', tableDensity = 'normal', setTableDensity = () => {}, onAddPaymentEntry = null, onDeletePaymentEntry = null, onEditPaymentEntry = null, memberSyncPending = {}, onUnlinkFamilyGroup = null, gymCodeLabel = null, onLoadMemberDetail = null }) {
+function MembersList({ title, list, allMembers = [], onBack, onEdit, onStatusChange, holdOptions, logs, onWelcome, onWhatsAppCall, onWelcomeMail, onAddAttachment, onQuickFieldEdit, editOptions, isOwner, currentUserRole = '', fineRuleConfig, access = null, asOfDateKey = null, canEdit = true, displayTimeZone = 'IST', tableDensity = 'normal', setTableDensity = () => {}, onAddPaymentEntry = null, onDeletePaymentEntry = null, onEditPaymentEntry = null, memberSyncPending = {}, onUnlinkFamilyGroup = null, gymCodeLabel = null, onLoadMemberDetail = null, customTemplatesFeatureEnabled = false, customTemplatesByBranch = {}, hqGymCodeId = null, ensureBranchCustomTemplates = null }) {
       const [openId, setOpenId] = React.useState(null);
       const [mobileDetailMemberId, setMobileDetailMemberId] = React.useState('');
       const [page, setPage] = React.useState(1);
@@ -13140,6 +13168,10 @@ function MembersList({ title, list, allMembers = [], onBack, onEdit, onStatusCha
                 onFamilyMemberNavigate={(mem) => mem?.memberId && setOpenId(mem.memberId)}
                 onUnlinkFamilyGroup={onUnlinkFamilyGroup}
                 gymCodeLabel={gymCodeLabel}
+                customTemplatesFeatureEnabled={customTemplatesFeatureEnabled}
+                customTemplatesByBranch={customTemplatesByBranch}
+                hqGymCodeId={hqGymCodeId}
+                ensureBranchCustomTemplates={ensureBranchCustomTemplates}
               />
             ))}
             {(prioritizedList || []).length > pageSize && (
@@ -13249,7 +13281,7 @@ function MembersList({ title, list, allMembers = [], onBack, onEdit, onStatusCha
     }
 
     // ---- Member Row ----
-function MemberRow({ m, memberSyncPending = {}, expanded, onToggle, onEdit, onStatusChange, holdOptions, onDelete, canDelete, onWelcome, onWhatsAppCall, onWelcomeMail, onAddAttachment, logs, selected, onSelectToggle, selectable, onQuickFieldEdit, editOptions, isOwner, currentUserRole = '', fineRuleConfig, access = null, asOfDateKey = null, onOpenMobileDetail, canEdit = true, displayTimeZone = 'IST', isCompactTablet = false, onAddPaymentEntry = null, onDeletePaymentEntry = null, onEditPaymentEntry = null, allMembers = null, onFamilyMemberNavigate = null, onUnlinkFamilyGroup = null, gymCodeLabel = null }) {
+function MemberRow({ m, memberSyncPending = {}, expanded, onToggle, onEdit, onStatusChange, holdOptions, onDelete, canDelete, onWelcome, onWhatsAppCall, onWelcomeMail, onAddAttachment, logs, selected, onSelectToggle, selectable, onQuickFieldEdit, editOptions, isOwner, currentUserRole = '', fineRuleConfig, access = null, asOfDateKey = null, onOpenMobileDetail, canEdit = true, displayTimeZone = 'IST', isCompactTablet = false, onAddPaymentEntry = null, onDeletePaymentEntry = null, onEditPaymentEntry = null, allMembers = null, onFamilyMemberNavigate = null, onUnlinkFamilyGroup = null, gymCodeLabel = null, customTemplatesFeatureEnabled = false, customTemplatesByBranch = {}, hqGymCodeId = null, ensureBranchCustomTemplates = null }) {
       const refToday = referenceTodayKey(asOfDateKey);
       const pastDue = isPaymentByPastDue(m, { asOfKey: refToday });
       const fineSmsSent = Boolean(getLastWhatsAppSendMeta(m, 'fine')?.sentAt);
@@ -13367,6 +13399,10 @@ function MemberRow({ m, memberSyncPending = {}, expanded, onToggle, onEdit, onSt
                 statusTemplate={statusTemplate}
                 uploadDoc={uploadDoc}
                 gymCodeLabel={gymCodeLabel}
+                customTemplatesFeatureEnabled={customTemplatesFeatureEnabled}
+                customTemplatesByBranch={customTemplatesByBranch}
+                hqGymCodeId={hqGymCodeId}
+                ensureBranchCustomTemplates={ensureBranchCustomTemplates}
               />
               <QuickActions m={m} onStatusChange={onStatusChange} holdOptions={holdOptions} canDelete={canDelete} onDelete={onDelete} canEdit={canEdit} />
               </div>
@@ -13820,10 +13856,31 @@ function MobileMemberDetailView({ m, onBack, onEdit, onWelcome, onWhatsAppCall, 
       );
     }
 
-    function WhatsAppMessageTypesBlock({ m, onWelcome, canWelcome, statusTemplate }) {
+    function WhatsAppMessageTypesBlock({
+      m,
+      onWelcome,
+      canWelcome,
+      statusTemplate,
+      customTemplatesFeatureEnabled = false,
+      customTemplatesByBranch = {},
+      hqGymCodeId = null,
+      ensureBranchCustomTemplates = null,
+    }) {
       const todayIso = iso(new Date());
       const showWelcomeType = iso(m.joiningDate) === todayIso;
-      const types = [
+      const memberBranchId = React.useMemo(() => {
+        const fn = window.__APG_MODULES?.resolveMemberBranchIdForTemplates;
+        if (typeof fn === 'function') return fn(m, hqGymCodeId);
+        const assigned = String(m?.assignedGymCodeId || '').trim();
+        return assigned || String(hqGymCodeId || '').trim();
+      }, [m?.assignedGymCodeId, hqGymCodeId]);
+      React.useEffect(() => {
+        if (!customTemplatesFeatureEnabled || !memberBranchId) return;
+        if (typeof ensureBranchCustomTemplates === 'function') {
+          ensureBranchCustomTemplates(memberBranchId);
+        }
+      }, [customTemplatesFeatureEnabled, memberBranchId, ensureBranchCustomTemplates]);
+      const systemTypes = [
         { key: 'reminder', label: 'Reminder' },
         { key: 'monthReminder', label: 'Month Reminder' },
         { key: 'fine', label: 'Fine SMS' },
@@ -13832,8 +13889,17 @@ function MobileMemberDetailView({ m, onBack, onEdit, onWelcome, onWhatsAppCall, 
         ...(showWelcomeType ? [{ key: 'welcome', label: 'Welcome SMS' }] : []),
         { key: 'success', label: 'Success SMS' },
       ];
+      const customTypes = React.useMemo(() => {
+        if (!customTemplatesFeatureEnabled) return [];
+        const fn = window.__APG_MODULES?.memberProfileCustomTemplateActions;
+        if (typeof fn === 'function') {
+          return fn(customTemplatesByBranch, hqGymCodeId, m);
+        }
+        return [];
+      }, [customTemplatesFeatureEnabled, customTemplatesByBranch, hqGymCodeId, m]);
+      const types = [...systemTypes, ...customTypes];
       return (
-        <div className={MEMBER_UI.stripCard}>
+        <div className={MEMBER_UI.stripCard} data-testid="whatsapp-message-types-block">
           <div className="text-xs font-semibold text-slate-600 mb-1">WhatsApp Message Types</div>
           <div className="flex flex-wrap gap-1.5">
             {types.map(t => (
@@ -13843,9 +13909,12 @@ function MobileMemberDetailView({ m, onBack, onEdit, onWelcome, onWhatsAppCall, 
                   disabled={!canWelcome}
                   className={cx(
                     MEMBER_UI.buttonBase,
-                    t.key === statusTemplate.key ? MEMBER_UI.buttonPrimary : MEMBER_UI.buttonSecondary,
+                    t.isCustom
+                      ? MEMBER_UI.buttonIndigo
+                      : (t.key === statusTemplate.key ? MEMBER_UI.buttonPrimary : MEMBER_UI.buttonSecondary),
                     !canWelcome && MEMBER_UI.buttonDisabled
                   )}
+                  data-testid={t.isCustom ? `whatsapp-custom-type-${t.templateCode || t.key}` : undefined}
                 >
                   {t.label}
                 </button>
@@ -14352,7 +14421,7 @@ function MobileMemberDetailView({ m, onBack, onEdit, onWelcome, onWhatsAppCall, 
     }
 
     // ---- Member Details (expanded row) ----
-function MemberDetails({ m, logs, onQuickFieldEdit, editOptions, isOwner = false, displayTimeZone = 'IST', onAddPaymentEntry = null, onDeletePaymentEntry = null, onEditPaymentEntry = null, onWelcome = null, onWelcomeMail = null, canWelcome = false, statusTemplate = { key: 'none', label: '', disabled: false, overdueDays: 0 }, uploadDoc = null, gymCodeLabel = null }) {
+function MemberDetails({ m, logs, onQuickFieldEdit, editOptions, isOwner = false, displayTimeZone = 'IST', onAddPaymentEntry = null, onDeletePaymentEntry = null, onEditPaymentEntry = null, onWelcome = null, onWelcomeMail = null, canWelcome = false, statusTemplate = { key: 'none', label: '', disabled: false, overdueDays: 0 }, uploadDoc = null, gymCodeLabel = null, customTemplatesFeatureEnabled = false, customTemplatesByBranch = {}, hqGymCodeId = null, ensureBranchCustomTemplates = null }) {
       const [copiedKey, setCopiedKey] = React.useState('');
       const [paymentHistoryOpen, setPaymentHistoryOpen] = React.useState(true);
       const [paymentHistoryMonthFilter, setPaymentHistoryMonthFilter] = React.useState('');
@@ -14695,6 +14764,10 @@ function MemberDetails({ m, logs, onQuickFieldEdit, editOptions, isOwner = false
             onWelcome={onWelcome}
             canWelcome={canWelcome}
             statusTemplate={statusTemplate}
+            customTemplatesFeatureEnabled={customTemplatesFeatureEnabled}
+            customTemplatesByBranch={customTemplatesByBranch}
+            hqGymCodeId={hqGymCodeId}
+            ensureBranchCustomTemplates={ensureBranchCustomTemplates}
           />
           <GmailUploadActionsBlock
             m={m}
@@ -14945,7 +15018,7 @@ function QuickActions({ m, onStatusChange, holdOptions, canDelete, onDelete, can
     }
 
     // ---- Dashboard View (Members grouped by status) ----
-function DashboardView({ members, memberSyncPending = {}, onEdit, onStatusChange, holdOptions, logs, filters, filterOpen, setFilterOpen, anyFilterActive, canDelete, onDelete, billingMonthOptions, onWelcome, onWhatsAppCall, onWelcomeMail, onAddAttachment, onQuickFieldEdit, editOptions, isOwner, currentUserRole = '', fineRuleConfig, access = null, asOfDateKey = null, canEdit = true, onImportCsv = null, onAddExpense = null, displayTimeZone = 'IST', tableDensity = 'normal', setTableDensity = () => {}, onAddPaymentEntry = null, onDeletePaymentEntry = null, onEditPaymentEntry = null, onUnlinkFamilyGroup = null, gymCodeLabel = null, onLoadMemberDetail = null }) {
+function DashboardView({ members, memberSyncPending = {}, onEdit, onStatusChange, holdOptions, logs, filters, filterOpen, setFilterOpen, anyFilterActive, canDelete, onDelete, billingMonthOptions, onWelcome, onWhatsAppCall, onWelcomeMail, onAddAttachment, onQuickFieldEdit, editOptions, isOwner, currentUserRole = '', fineRuleConfig, access = null, asOfDateKey = null, canEdit = true, onImportCsv = null, onAddExpense = null, displayTimeZone = 'IST', tableDensity = 'normal', setTableDensity = () => {}, onAddPaymentEntry = null, onDeletePaymentEntry = null, onEditPaymentEntry = null, onUnlinkFamilyGroup = null, gymCodeLabel = null, onLoadMemberDetail = null, customTemplatesFeatureEnabled = false, customTemplatesByBranch = {}, hqGymCodeId = null, ensureBranchCustomTemplates = null }) {
       // Single expanded row across all statuses. Only one memberId may be expanded at a time.
       const [expandedId, setExpandedId] = React.useState(null);
       const [mobileDetailMemberId, setMobileDetailMemberId] = React.useState('');
@@ -15496,6 +15569,10 @@ function DashboardView({ members, memberSyncPending = {}, onEdit, onStatusChange
                   onFamilyMemberNavigate={(mem) => mem?.memberId && setMobileDetailMemberId(mem.memberId)}
                   onUnlinkFamilyGroup={onUnlinkFamilyGroup}
                   gymCodeLabel={gymCodeLabel}
+                  customTemplatesFeatureEnabled={customTemplatesFeatureEnabled}
+                  customTemplatesByBranch={customTemplatesByBranch}
+                  hqGymCodeId={hqGymCodeId}
+                  ensureBranchCustomTemplates={ensureBranchCustomTemplates}
                 />
               ))}
             </div>
@@ -15800,6 +15877,10 @@ function DashboardView({ members, memberSyncPending = {}, onEdit, onStatusChange
                       onFamilyMemberNavigate={(mem) => mem?.memberId && setExpandedId(mem.memberId)}
                       onUnlinkFamilyGroup={onUnlinkFamilyGroup}
                       gymCodeLabel={gymCodeLabel}
+                      customTemplatesFeatureEnabled={customTemplatesFeatureEnabled}
+                      customTemplatesByBranch={customTemplatesByBranch}
+                      hqGymCodeId={hqGymCodeId}
+                      ensureBranchCustomTemplates={ensureBranchCustomTemplates}
                     />
                   ))}
                   {pageList.length === 0 && (
