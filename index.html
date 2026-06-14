@@ -2995,7 +2995,9 @@ Phone: +91-7047157510`;
       }
       return merged;
     };
-    const LOGS_LIST_QUERY = 'view=list&days=2555&limit=5000';
+    const LOGS_LIST_QUERY = 'view=list&days=2555&limit=25000';
+    const LOGS_LIST_MERGE_LIMIT = 25000;
+    const LOGS_FETCH_PAGE_SIZE = 1000;
     const mergeAuditLogs = (prev, incoming, limit = 5000) => {
       const fn = window.__APG_MODULES?.mergeAuditLogs;
       if (typeof fn === 'function') return fn(prev, incoming, limit);
@@ -3015,8 +3017,22 @@ Phone: +91-7047157510`;
     const fetchAuditLogsFromBackend = async (baseQuery = LOGS_LIST_QUERY) => {
       const fn = window.__APG_MODULES?.fetchAuditLogsFromBackend;
       if (typeof fn === 'function') return fn(backendJson, baseQuery);
-      const batch = await backendJson(`/logs?${baseQuery}&offset=0`);
-      return Array.isArray(batch) ? batch : [];
+      const query = String(baseQuery || LOGS_LIST_QUERY);
+      const limitMatch = /(?:^|&)limit=(\d+)/i.exec(query);
+      const requestedLimit = limitMatch ? Math.min(Math.max(Number(limitMatch[1]) || 25000, 1), 50000) : 25000;
+      const pageSize = LOGS_FETCH_PAGE_SIZE;
+      const maxPages = Math.ceil(requestedLimit / pageSize) + 1;
+      let offset = 0;
+      const all = [];
+      for (let page = 0; page < maxPages && all.length < requestedLimit; page += 1) {
+        const batch = await backendJson(`/logs?${query}&offset=${offset}`);
+        if (!Array.isArray(batch) || batch.length === 0) break;
+        all.push(...batch);
+        if (all.length >= requestedLimit) break;
+        if (batch.length < pageSize) break;
+        offset += batch.length;
+      }
+      return all.length > requestedLimit ? all.slice(0, requestedLimit) : all;
     };
     const settingsLookupArraysAllEmpty = (s) => {
       if (!s || typeof s !== 'object') return true;
@@ -5183,7 +5199,7 @@ Phone: +91-7047157510`;
           const remoteLogs = await fetchAuditLogsFromBackend(LOGS_LIST_QUERY).catch(() => []);
           if (Array.isArray(remoteLogs)) {
             if (replaceBranch) setLogs(remoteLogs);
-            else setLogs((prev) => mergeAuditLogs(prev, remoteLogs));
+            else setLogs((prev) => mergeAuditLogs(prev, remoteLogs, LOGS_LIST_MERGE_LIMIT));
           }
         } else if (replaceBranch) {
           const remoteLogs = await fetchAuditLogsFromBackend(LOGS_LIST_QUERY).catch(() => []);
@@ -5654,7 +5670,7 @@ Phone: +91-7047157510`;
       }, []);
       const pullLogsList = React.useCallback(async (query = LOGS_LIST_QUERY) => {
         const remoteLogs = await fetchAuditLogsFromBackend(query).catch(() => []);
-        if (Array.isArray(remoteLogs)) setLogs((prev) => mergeAuditLogs(prev, remoteLogs));
+        if (Array.isArray(remoteLogs)) setLogs((prev) => mergeAuditLogs(prev, remoteLogs, LOGS_LIST_MERGE_LIMIT));
         return remoteLogs;
       }, []);
       const memberDetailInFlightRef = React.useRef(new Set());

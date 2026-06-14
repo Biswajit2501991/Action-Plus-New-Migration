@@ -2723,22 +2723,37 @@ async function readLogs(scope, options = {}, branchScope = null) {
 
   const slim = options.view !== 'full';
   const columns = slim ? LOG_LIST_COLUMNS : '*';
-  const limit = Math.min(Math.max(Number(options.limit) || 500, 1), 5000);
+  const limit = Math.min(Math.max(Number(options.limit) || 500, 1), 50000);
   const offset = Math.max(Number(options.offset) || 0, 0);
   const days = Math.min(Math.max(Number(options.days) || 90, 1), 2555);
   const startIso = toTs(options.startDate);
   const endIso = toTs(options.endDate);
+  const pageSize = 1000;
 
-  let q = sb.from(T.audit_logs).select(columns).order('logged_at', { ascending: false });
-  if (gymScoped) q = q.eq('gym_id', gid);
-  q = applyAuditLogBranchReadFilter(q, branchScope, branchColReady);
-  if (startIso) q = q.gte('logged_at', startIso);
-  else q = q.gte('logged_at', new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString());
-  if (endIso) q = q.lte('logged_at', endIso);
-  q = q.range(offset, offset + limit - 1);
-  const { data, error } = await q;
-  if (error) throw new Error(`audit_logs read: ${error.message}`);
-  return sandboxFilter((data || []).map((row) => logRowToApp(row, { slim })), scope);
+  const buildPagedQuery = () => {
+    let q = sb.from(T.audit_logs).select(columns).order('logged_at', { ascending: false });
+    if (gymScoped) q = q.eq('gym_id', gid);
+    q = applyAuditLogBranchReadFilter(q, branchScope, branchColReady);
+    if (startIso) q = q.gte('logged_at', startIso);
+    else q = q.gte('logged_at', new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString());
+    if (endIso) q = q.lte('logged_at', endIso);
+    return q;
+  };
+
+  const rows = [];
+  let cursor = offset;
+  while (rows.length < limit) {
+    const chunkSize = Math.min(pageSize, limit - rows.length);
+    const from = cursor;
+    const to = cursor + chunkSize - 1;
+    const { data, error } = await buildPagedQuery().range(from, to);
+    if (error) throw new Error(`audit_logs read: ${error.message}`);
+    if (!data?.length) break;
+    rows.push(...data);
+    if (data.length < chunkSize) break;
+    cursor += data.length;
+  }
+  return sandboxFilter(rows.map((row) => logRowToApp(row, { slim })), scope);
 }
 
 async function writeLogs(logs, scope) {

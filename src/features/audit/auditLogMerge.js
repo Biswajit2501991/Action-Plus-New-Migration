@@ -1,3 +1,6 @@
+/** Cap when merging a full server pull into Audit Command Center state. */
+export const AUDIT_LOGS_LIST_MERGE_LIMIT = 25000;
+
 /**
  * Merge audit log arrays by id (newest first). Remote/incoming rows win on id collision.
  * @param {object[]} prev

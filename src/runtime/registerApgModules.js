@@ -72,8 +72,11 @@ import {
 import {
   fetchAuditLogsFromBackend,
   DEFAULT_AUDIT_LOGS_QUERY,
+  AUDIT_LOGS_PAGE_SIZE,
+  AUDIT_LOGS_LIST_LIMIT,
+  parseAuditLogsRequestedLimit,
 } from '../features/audit/auditLogsFetch.js';
-import { mergeAuditLogs } from '../features/audit/auditLogMerge.js';
+import { mergeAuditLogs, AUDIT_LOGS_LIST_MERGE_LIMIT } from '../features/audit/auditLogMerge.js';
 import {
   scrollEditorToTop,
   bindModalEscapeKey,
@@ -422,6 +425,10 @@ window.__APG_MODULES.membersListFromServerDelta = membersListFromServerDelta;
 window.__APG_MODULES.fetchAuditLogsFromBackend = fetchAuditLogsFromBackend;
 window.__APG_MODULES.mergeAuditLogs = mergeAuditLogs;
 window.__APG_MODULES.DEFAULT_AUDIT_LOGS_QUERY = DEFAULT_AUDIT_LOGS_QUERY;
+window.__APG_MODULES.AUDIT_LOGS_PAGE_SIZE = AUDIT_LOGS_PAGE_SIZE;
+window.__APG_MODULES.AUDIT_LOGS_LIST_LIMIT = AUDIT_LOGS_LIST_LIMIT;
+window.__APG_MODULES.AUDIT_LOGS_LIST_MERGE_LIMIT = AUDIT_LOGS_LIST_MERGE_LIMIT;
+window.__APG_MODULES.parseAuditLogsRequestedLimit = parseAuditLogsRequestedLimit;
 window.__APG_MODULES.staffHasBranch = staffHasBranch;
 window.__APG_MODULES.scopeMembersForBulkSync = scopeMembersForBulkSync;
 window.__APG_MODULES.scopeVisitorsForBulkSync = scopeVisitorsForBulkSync;

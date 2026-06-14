@@ -44,7 +44,9 @@ while true; do
       log "restart_triggered streak=$fail_streak local=$local_code public=$public_code"
       pkill -f "scripts/dev-frontend.mjs|scripts/apg-supervisor.mjs|scripts/dev-all-with-tunnel.mjs|scripts/dev-all.mjs|cloudflared|node src/server.js" || true
       sleep 3
-      if [[ "$(uname -s)" == Darwin && -n "${APG_CAFFEINATE:-}" ]]; then
+      if [[ "${APG_LAUNCHD_MANAGED:-}" == "1" ]]; then
+        log "restart_delegated_to_launchd (APG_LAUNCHD_MANAGED=1)"
+      elif [[ "$(uname -s)" == Darwin && -n "${APG_CAFFEINATE:-}" ]]; then
         case "${APG_CAFFEINATE}" in
           1|y|Y|yes|YES|true|TRUE)
             if command -v caffeinate >/dev/null 2>&1; then
@@ -55,10 +57,11 @@ while true; do
             ;;
           *) npm run dev:all:tunnel >>"$LOG_FILE" 2>&1 & ;;
         esac
+        log "restart_launched dev:all:tunnel"
       else
         npm run dev:all:tunnel >>"$LOG_FILE" 2>&1 &
+        log "restart_launched dev:all:tunnel"
       fi
-      log "restart_launched dev:all:tunnel"
       fail_streak=0
     fi
   fi
