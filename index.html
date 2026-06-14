@@ -4899,6 +4899,18 @@ Phone: +91-7047157510`;
       const [templatesBranchId, setTemplatesBranchId] = React.useState('');
       const [templatesBranchLoading, setTemplatesBranchLoading] = React.useState(false);
       const [customTemplatesLoading, setCustomTemplatesLoading] = React.useState(false);
+      const [settings, setSettings] = React.useState(() => {
+        try {
+          const saved = localStorage.getItem(STORAGE_KEYS.settings);
+          if (saved) return JSON.parse(saved);
+        } catch {}
+        return buildDefaultSettings();
+      });
+      const customTemplatesFeatureEnabled = React.useMemo(() => {
+        const fn = window.__APG_MODULES?.isCustomTemplatesEnabled;
+        if (typeof fn === 'function') return fn(settings);
+        return settings?.customTemplatesEnabled === true;
+      }, [settings]);
       const branchTemplateWarnShownRef = React.useRef(false);
       const authIsOwnerForTemplates = React.useCallback((u) => {
         const masterFn = window.__APG_MODULES?.authIsMasterOwnerUser || window.__APG_MODULES?.authIsOwnerUser;
@@ -4972,7 +4984,7 @@ Phone: +91-7047157510`;
       }, [dataSyncMode, user]);
       const fetchBranchCustomTemplates = React.useCallback(async (branchId) => {
         const id = String(branchId || '').trim();
-        if (!id || dataSyncMode !== 'backend' || !canFetchWhatsappTemplates(user)) return;
+        if (!id || dataSyncMode !== 'backend' || !canFetchWhatsappTemplates(user) || !customTemplatesFeatureEnabled) return;
         setCustomTemplatesLoading(true);
         try {
           const res = await backendJson(`/custom-templates?gymCodeId=${encodeURIComponent(id)}`);
@@ -4987,20 +4999,19 @@ Phone: +91-7047157510`;
         } finally {
           setCustomTemplatesLoading(false);
         }
-      }, [dataSyncMode, user]);
+      }, [dataSyncMode, user, customTemplatesFeatureEnabled]);
       const fetchBranchTemplateData = React.useCallback(async (branchId) => {
-        await Promise.all([
-          fetchBranchWhatsappTemplates(branchId),
-          fetchBranchCustomTemplates(branchId),
-        ]);
-      }, [fetchBranchWhatsappTemplates, fetchBranchCustomTemplates]);
+        const tasks = [fetchBranchWhatsappTemplates(branchId)];
+        if (customTemplatesFeatureEnabled) tasks.push(fetchBranchCustomTemplates(branchId));
+        await Promise.all(tasks);
+      }, [fetchBranchWhatsappTemplates, fetchBranchCustomTemplates, customTemplatesFeatureEnabled]);
       React.useEffect(() => {
         if (!user?.id || !canFetchWhatsappTemplates(user)) return;
         const branchId = authIsOwnerForTemplates(user)
           ? String(templatesBranchId || hqGymCodeId || '').trim()
           : String(user.gymCodeId || '').trim();
         if (branchId) fetchBranchTemplateData(branchId);
-      }, [user?.id, templatesBranchId, hqGymCodeId, fetchBranchTemplateData, authIsOwnerForTemplates]);
+      }, [user?.id, templatesBranchId, hqGymCodeId, fetchBranchTemplateData, authIsOwnerForTemplates, customTemplatesFeatureEnabled]);
       const effectiveTemplatesBranchId = React.useMemo(() => {
         const fn = window.__APG_MODULES?.effectiveTemplateBranchIdForUser;
         if (typeof fn === 'function') {
@@ -5062,25 +5073,6 @@ Phone: +91-7047157510`;
         });
         if (changed) setMembers(normalized);
       }, [members]);
-      const [settings, setSettings] = React.useState(() => {
-        try {
-          const saved = localStorage.getItem(STORAGE_KEYS.settings);
-          if (saved) return JSON.parse(saved);
-        } catch {}
-        return buildDefaultSettings();
-      });
-      React.useEffect(() => {
-        if (!user?.id || !canFetchWhatsappTemplates(user)) return;
-        const branchId = authIsOwnerForTemplates(user)
-          ? String(templatesBranchId || hqGymCodeId || '').trim()
-          : String(user.gymCodeId || '').trim();
-        if (branchId) fetchBranchCustomTemplates(branchId);
-      }, [settings?.customTemplatesEnabled, user?.id, templatesBranchId, hqGymCodeId, fetchBranchCustomTemplates, authIsOwnerForTemplates]);
-      const customTemplatesFeatureEnabled = React.useMemo(() => {
-        const fn = window.__APG_MODULES?.isCustomTemplatesEnabled;
-        if (typeof fn === 'function') return fn(settings);
-        return settings?.customTemplatesEnabled === true;
-      }, [settings]);
       const ensureBranchCustomTemplates = React.useCallback(async (branchId) => {
         const id = String(branchId || '').trim();
         if (!id || dataSyncMode !== 'backend' || !canFetchWhatsappTemplates(user) || !customTemplatesFeatureEnabled) return;
@@ -5653,7 +5645,7 @@ Phone: +91-7047157510`;
           if (ev?.detail?.collection === 'finance') {
             window.dispatchEvent(new CustomEvent('apg-finance-refresh'));
           }
-          if (ev?.detail?.collection === 'customTemplates' && user?.id && canFetchWhatsappTemplates(user)) {
+          if (ev?.detail?.collection === 'customTemplates' && customTemplatesFeatureEnabled && user?.id && canFetchWhatsappTemplates(user)) {
             const branchId = authIsOwnerForTemplates(user)
               ? String(templatesBranchId || hqGymCodeId || '').trim()
               : String(user.gymCodeId || '').trim();
@@ -5664,7 +5656,7 @@ Phone: +91-7047157510`;
         };
         window.addEventListener('apg-realtime', onRealtime);
         return () => window.removeEventListener('apg-realtime', onRealtime);
-      }, [dataSyncMode, user?.id, templatesBranchId, hqGymCodeId, fetchBranchCustomTemplates, authIsOwnerForTemplates, scheduleDebouncedPull]);
+      }, [dataSyncMode, user?.id, templatesBranchId, hqGymCodeId, fetchBranchCustomTemplates, authIsOwnerForTemplates, scheduleDebouncedPull, customTemplatesFeatureEnabled]);
       React.useEffect(() => () => {
         Object.values(realtimePullTimersRef.current).forEach((t) => clearTimeout(t));
       }, []);
@@ -21308,10 +21300,10 @@ function PTClientsPage({ members, users, settings, updateSetting, currentUser, a
               };
             });
           }
-          if (typeof fetchBranchCustomTemplates === 'function') fetchBranchCustomTemplates(branchId);
           closeCustomTemplateDeleteConfirm();
         } catch (err) {
           setCustomTemplateDeleteError(friendlyCustomTemplateError(err));
+          if (typeof fetchBranchCustomTemplates === 'function') fetchBranchCustomTemplates(branchId);
         } finally {
           setCustomTemplateDeleting(false);
         }
@@ -22252,10 +22244,10 @@ function PTClientsPage({ members, users, settings, updateSetting, currentUser, a
                                 };
                               });
                             }
-                            if (typeof fetchBranchCustomTemplates === 'function') fetchBranchCustomTemplates(branchId);
                             closeCustomTemplateEditor();
                           } catch (err) {
                             setCustomTemplateSaveError(friendlyCustomTemplateError(err));
+                            if (typeof fetchBranchCustomTemplates === 'function') fetchBranchCustomTemplates(branchId);
                           } finally {
                             setCustomTemplateSaving(false);
                           }
@@ -22301,8 +22293,8 @@ function PTClientsPage({ members, users, settings, updateSetting, currentUser, a
                           const backend = typeof window !== 'undefined' ? window.__APG_BACKEND_JSON__ : null;
                           try {
                             setCustomTemplateSaving(true);
+                            let savedTemplate = null;
                             if (customTemplateEditor.mode === 'create') {
-                              let created = null;
                               if (backend) {
                                 const res = await backend('/custom-templates', {
                                   method: 'POST',
@@ -22315,17 +22307,16 @@ function PTClientsPage({ members, users, settings, updateSetting, currentUser, a
                                     channel: 'whatsapp',
                                   }),
                                 });
-                                created = res?.template || null;
+                                savedTemplate = res?.template || null;
                               }
-                              if (created && typeof setCustomTemplatesByBranch === 'function') {
+                              if (savedTemplate && typeof setCustomTemplatesByBranch === 'function') {
                                 setCustomTemplatesByBranch((prev) => {
                                   const list = Array.isArray(prev[branchId]) ? prev[branchId] : [];
-                                  return { ...prev, [branchId]: [...list, created] };
+                                  return { ...prev, [branchId]: [...list, savedTemplate] };
                                 });
                               }
                             } else {
                               const templateId = String(customTemplateEditor.id || '').trim();
-                              let updated = null;
                               if (backend) {
                                 const res = await backend(`/custom-templates/${encodeURIComponent(templateId)}`, {
                                   method: 'PATCH',
@@ -22336,22 +22327,25 @@ function PTClientsPage({ members, users, settings, updateSetting, currentUser, a
                                     messageBody,
                                   }),
                                 });
-                                updated = res?.template || null;
+                                savedTemplate = res?.template || null;
                               }
-                              if (updated && typeof setCustomTemplatesByBranch === 'function') {
+                              if (savedTemplate && typeof setCustomTemplatesByBranch === 'function') {
                                 setCustomTemplatesByBranch((prev) => {
                                   const list = Array.isArray(prev[branchId]) ? prev[branchId] : [];
                                   return {
                                     ...prev,
-                                    [branchId]: list.map((t) => (String(t.id) === templateId ? updated : t)),
+                                    [branchId]: list.map((t) => (String(t.id) === templateId ? savedTemplate : t)),
                                   };
                                 });
                               }
                             }
-                            if (typeof fetchBranchCustomTemplates === 'function') fetchBranchCustomTemplates(branchId);
+                            if (backend && !savedTemplate && typeof fetchBranchCustomTemplates === 'function') {
+                              await fetchBranchCustomTemplates(branchId);
+                            }
                             closeCustomTemplateEditor();
                           } catch (err) {
                             setCustomTemplateSaveError(friendlyCustomTemplateError(err));
+                            if (typeof fetchBranchCustomTemplates === 'function') fetchBranchCustomTemplates(branchId);
                           } finally {
                             setCustomTemplateSaving(false);
                           }
