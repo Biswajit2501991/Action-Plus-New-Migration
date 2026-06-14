@@ -1,10 +1,25 @@
 import { Router } from 'express';
 import crypto from 'node:crypto';
-import { requireStaffManagementWrite } from '../middleware/requireStaffManagement.js';
+import { requireStaffManagementRead, requireStaffManagementWrite } from '../middleware/requireStaffManagement.js';
 import { appendAuditLogEntry } from '../db/dataStore.js';
-import { uploadStaffPhoto, deleteStaffPhoto } from '../services/staffPhoto/StaffPhotoService.js';
+import { uploadStaffPhoto, deleteStaffPhoto, batchStaffPhotoSignedUrls } from '../services/staffPhoto/StaffPhotoService.js';
 
 const router = Router();
+
+/** Batch signed URLs for staff list avatars. Must register before /:staffId routes. */
+router.post('/photo-urls', requireStaffManagementRead, async (req, res) => {
+  const staffIds = Array.isArray(req.body?.staffIds) ? req.body.staffIds : [];
+  try {
+    const result = await batchStaffPhotoSignedUrls(staffIds);
+    return res.json({ ok: true, ...result });
+  } catch (err) {
+    const status = err?.status || 500;
+    return res.status(status).json({
+      error: err?.message || 'staff-photo-urls-failed',
+      detail: err?.detail || null,
+    });
+  }
+});
 
 router.post('/:staffId/photo', requireStaffManagementWrite, async (req, res) => {
   const staffId = decodeURIComponent(String(req.params.staffId || '').trim());

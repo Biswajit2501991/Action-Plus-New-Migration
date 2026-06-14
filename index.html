@@ -218,45 +218,72 @@
     }
     @keyframes apg-payment-qr-btn-border-flash {
       0%, 100% {
-        border-color: #4ade80;
-        background-color: #ecfccb;
-        box-shadow: 0 0 0 2px rgba(74, 222, 128, 0.45);
+        border-color: rgba(34, 197, 94, 0.55);
+        background-color: rgba(34, 197, 94, 0.12);
+        box-shadow: 0 0 0 3px rgba(34, 197, 94, 0.25);
       }
       50% {
-        border-color: #16a34a;
-        background-color: #bbf7d0;
-        box-shadow: 0 0 0 5px rgba(74, 222, 128, 0.75);
+        border-color: rgb(34, 197, 94);
+        background-color: rgba(34, 197, 94, 0.25);
+        box-shadow: 0 0 0 6px rgba(34, 197, 94, 0.25), 0 0 18px rgba(34, 197, 94, 0.35);
       }
     }
     .apg-payment-qr-btn-flash {
       border-width: 2px !important;
       border-style: solid !important;
-      border-color: #4ade80 !important;
-      background-color: #ecfccb !important;
+      border-color: rgba(34, 197, 94, 0.55) !important;
+      background-color: rgba(34, 197, 94, 0.12) !important;
       color: #166534 !important;
+      box-shadow: 0 0 0 3px rgba(34, 197, 94, 0.25) !important;
       animation: apg-payment-qr-btn-border-flash 1.2s ease-in-out infinite !important;
     }
     .apg-payment-qr-btn-flash:hover {
-      background-color: #bbf7d0 !important;
+      background-color: rgba(34, 197, 94, 0.2) !important;
       color: #14532d !important;
     }
     html.dark .apg-payment-qr-btn-flash {
-      border-color: #4ade80 !important;
-      background-color: rgba(34, 197, 94, 0.22) !important;
+      border-color: rgba(34, 197, 94, 0.65) !important;
+      background-color: rgba(34, 197, 94, 0.18) !important;
       color: #bbf7d0 !important;
+      box-shadow: 0 0 0 3px rgba(34, 197, 94, 0.25) !important;
       animation: apg-payment-qr-btn-border-flash-dark 1.2s ease-in-out infinite !important;
     }
     @keyframes apg-payment-qr-btn-border-flash-dark {
       0%, 100% {
-        border-color: rgba(74, 222, 128, 0.7);
+        border-color: rgba(34, 197, 94, 0.55);
         background-color: rgba(34, 197, 94, 0.18);
-        box-shadow: 0 0 0 2px rgba(74, 222, 128, 0.25);
+        box-shadow: 0 0 0 3px rgba(34, 197, 94, 0.25);
       }
       50% {
-        border-color: #4ade80;
-        background-color: rgba(34, 197, 94, 0.38);
-        box-shadow: 0 0 0 5px rgba(74, 222, 128, 0.45);
+        border-color: rgb(74, 222, 128);
+        background-color: rgba(34, 197, 94, 0.32);
+        box-shadow: 0 0 0 6px rgba(34, 197, 94, 0.25), 0 0 20px rgba(34, 197, 94, 0.4);
       }
+    }
+    @keyframes apg-payment-qr-btn-border-flash-luxury {
+      0%, 100% {
+        border-color: rgba(52, 211, 153, 0.55);
+        background-color: rgba(34, 197, 94, 0.16);
+        box-shadow: 0 0 0 3px rgba(34, 197, 94, 0.25);
+      }
+      50% {
+        border-color: var(--lux-emerald-strong);
+        background-color: rgba(34, 197, 94, 0.28);
+        box-shadow: 0 0 0 6px rgba(34, 197, 94, 0.25), 0 0 22px rgba(34, 197, 94, 0.45);
+      }
+    }
+    body[data-apg-layout="luxury"] .apg-payment-qr-btn-flash {
+      border-color: rgba(52, 211, 153, 0.65) !important;
+      background-color: rgba(34, 197, 94, 0.16) !important;
+      color: var(--lux-emerald) !important;
+      box-shadow: 0 0 0 3px rgba(34, 197, 94, 0.25) !important;
+      backdrop-filter: none !important;
+      -webkit-backdrop-filter: none !important;
+      animation: apg-payment-qr-btn-border-flash-luxury 1.2s ease-in-out infinite !important;
+    }
+    body[data-apg-layout="luxury"] .apg-payment-qr-btn-flash:hover {
+      background-color: rgba(34, 197, 94, 0.24) !important;
+      color: var(--lux-emerald) !important;
     }
     html.dark .apg-dark-row-hover:hover {
       background: #16253d !important;
@@ -352,10 +379,15 @@
       border-color: var(--lux-gold-rich) !important;
       animation-name: apgFilterBtnSoftPulse;
     }
+    body[data-apg-layout="luxury"] .apg-payment-qr-btn-flash {
+      border-color: rgba(52, 211, 153, 0.65) !important;
+      animation-name: apg-payment-qr-btn-border-flash-luxury;
+    }
     @media (prefers-reduced-motion: reduce) {
       .apg-pt-workout-date-attention,
       .apg-filter-btn-active,
-      .apg-pt-calendar-collapsed-attention {
+      .apg-pt-calendar-collapsed-attention,
+      .apg-payment-qr-btn-flash {
         animation: none;
       }
       .apg-pt-workout-date-attention {
@@ -369,6 +401,12 @@
       .apg-pt-calendar-collapsed-attention {
         outline: 2px solid rgb(16, 185, 129);
         outline-offset: 2px;
+      }
+      .apg-payment-qr-btn-flash {
+        box-shadow: 0 0 0 3px rgba(34, 197, 94, 0.25) !important;
+      }
+      body[data-apg-layout="luxury"] .apg-payment-qr-btn-flash {
+        color: var(--lux-emerald) !important;
       }
     }
 
@@ -4349,6 +4387,11 @@ Phone: +91-7047157510`;
     };
     /** Keep photo when backend row is newer but photo_url was not persisted yet (bulk race / stale GET). */
     const pickUserPhoto = (localRow, remoteRow) => {
+      const mergeFn = window.__APG_MODULES?.mergeStaffPhotoFields;
+      if (typeof mergeFn === 'function') {
+        const merged = mergeFn(localRow, remoteRow);
+        return merged.photo || '';
+      }
       const localPhoto = String(localRow?.photo || localRow?.avatar || '').trim();
       const remotePhoto = String(remoteRow?.photo || remoteRow?.avatar || '').trim();
       if (localPhoto && remotePhoto) {
@@ -4357,6 +4400,14 @@ Phone: +91-7047157510`;
         return localTs >= remoteTs ? localPhoto : remotePhoto;
       }
       return localPhoto || remotePhoto || '';
+    };
+    const cacheStaffPhotoFromRow = (row) => {
+      const id = String(row?.id || '').trim();
+      const photo = String(row?.photo || row?.avatar || '').trim();
+      const version = Number(row?.photoVersion || 0);
+      if (!id || !photo.startsWith('http')) return;
+      const setCache = window.__APG_MODULES?.setCachedMemberPhotoUrl;
+      if (typeof setCache === 'function') setCache(id, version, photo);
     };
     const normalizeBranchIdList = (row) => {
       const fromAllowed = Array.isArray(row?.allowedBranchIds) ? row.allowedBranchIds : [];
@@ -4470,7 +4521,9 @@ Phone: +91-7047157510`;
           gymCodeId,
           assignedBranchIds,
           staffRole: mergedCore?.staffRole || remoteRow?.staffRole || localRow?.staffRole || 'staff',
-          photo: pickUserPhoto(localRow, remoteRow) || null,
+          ...(typeof window.__APG_MODULES?.mergeStaffPhotoFields === 'function'
+            ? window.__APG_MODULES.mergeStaffPhotoFields(localRow, remoteRow)
+            : { photo: pickUserPhoto(localRow, remoteRow) || null }),
         }));
       });
       mergedRows.sort((a, b) => userSortTimestamp(b) - userSortTimestamp(a));
@@ -5353,6 +5406,16 @@ Phone: +91-7047157510`;
               usersSkipNextBulkRef.current = true;
               setUsers((prev) => mergeRemoteUsersWithLocal(prev, normalizedRemoteUsers));
               apgLoadTimingRecord('hydrate', 'merge:users (CPU)', performance.now() - tMerge, { rows: remoteUsers.length });
+              if (window.__APG_MODULES?.staffPhotoStorageEnabled?.()) {
+                normalizedRemoteUsers.forEach((u) => cacheStaffPhotoFromRow(u));
+                queueMicrotask(() => {
+                  const syncFn = window.__APG_MODULES?.syncAllStaffPhotoUrls;
+                  if (typeof syncFn !== 'function') return;
+                  syncFn(normalizedRemoteUsers, backendJson)
+                    .then(() => setPhotoCacheRev((n) => n + 1))
+                    .catch(() => {});
+                });
+              }
             }
             if (Array.isArray(remoteMembers)) {
               const tMerge = performance.now();
@@ -6388,12 +6451,23 @@ Phone: +91-7047157510`;
             .then((remoteUsers) => {
               if (!alive || !Array.isArray(remoteUsers)) return;
               const normalizedRemote = remoteUsers.map((u) => prepareStaffUser(u));
+              if (window.__APG_MODULES?.staffPhotoStorageEnabled?.()) {
+                normalizedRemote.forEach((u) => cacheStaffPhotoFromRow(u));
+              }
               setUsers((prev) => {
                 const merged = mergeRemoteUsersWithLocal(prev, normalizedRemote);
                 const prevSig = JSON.stringify(Array.isArray(prev) ? prev : []);
                 const nextSig = JSON.stringify(merged);
                 return prevSig === nextSig ? prev : merged;
               });
+              if (window.__APG_MODULES?.staffPhotoStorageEnabled?.()) {
+                const syncFn = window.__APG_MODULES?.syncAllStaffPhotoUrls;
+                if (typeof syncFn === 'function') {
+                  syncFn(normalizedRemote, backendJson)
+                    .then(() => setPhotoCacheRev((n) => n + 1))
+                    .catch(() => {});
+                }
+              }
             })
             .catch(() => {});
         };
@@ -6482,13 +6556,23 @@ Phone: +91-7047157510`;
       // staff or updated roles survive page reloads.
       React.useEffect(() => {
         if (!syncRuntimeReady) return;
+        const stripStaffPhotosForPersist = (list) => {
+          const rows = Array.isArray(list) ? list : [];
+          const storageOn = window.__APG_MODULES?.staffPhotoStorageEnabled?.();
+          const mergeFn = window.__APG_MODULES?.mergeStaffPhotoFields;
+          if (!storageOn || typeof mergeFn !== 'function') return rows;
+          return rows.map((u) => {
+            const stripped = mergeFn(u, u);
+            return { ...u, photo: stripped.photo, hasPhoto: stripped.hasPhoto, photoVersion: stripped.photoVersion };
+          });
+        };
         if (dataSyncMode !== 'backend') {
-          safeSetItemJSON(STORAGE_KEYS.users, users);
+          safeSetItemJSON(STORAGE_KEYS.users, stripStaffPhotosForPersist(users));
           queueSyncSnapshot('users', users).then(() => setOfflineQueueCount((c) => c + 1)).catch(() => {});
           return;
         }
         if (backendHydrated && isOwnerStaffUser(user) && Array.isArray(users) && users.length) {
-          safeSetItemJSON(STORAGE_KEYS.users, users);
+          safeSetItemJSON(STORAGE_KEYS.users, stripStaffPhotosForPersist(users));
         }
       }, [users, dataSyncMode, syncRuntimeReady, backendHydrated, user?.id]);
       React.useEffect(() => {
@@ -14215,7 +14299,7 @@ function MobileMemberDetailView({ m, onBack, onEdit, onWelcome, onWhatsAppCall, 
     }
 
     // ---- Avatar Component ----
-    function Avatar({ name, photo, member, className }) {
+    function Avatar({ name, photo, member, staffUser, className }) {
       const [, photoCacheTick] = React.useReducer((n) => n + 1, 0);
       const [imgFailed, setImgFailed] = React.useState(false);
       React.useEffect(() => {
@@ -14224,10 +14308,13 @@ function MobileMemberDetailView({ m, onBack, onEdit, onWelcome, onWhatsAppCall, 
         return () => window.removeEventListener('apg:photo-cache-updated', onPhotoCache);
       }, []);
       const resolveFn = window.__APG_MODULES?.resolveMemberAvatarSrc;
+      const staffPhotoFn = window.__APG_MODULES?.staffPhotoSrcFromUser;
       const src = typeof resolveFn === 'function' && member
         ? resolveFn(member)
-        : String(photo || '').trim();
-      React.useEffect(() => { setImgFailed(false); }, [src, member?.memberId, member?.photoVersion]);
+        : (typeof staffPhotoFn === 'function' && staffUser)
+          ? staffPhotoFn(staffUser)
+          : String(photo || '').trim();
+      React.useEffect(() => { setImgFailed(false); }, [src, member?.memberId, member?.photoVersion, staffUser?.id, staffUser?.photoVersion]);
       const initials = (name || '').split(' ').map(p => p[0]).slice(0, 2).join('').toUpperCase();
       if (src && !imgFailed) {
         return (
@@ -25746,6 +25833,8 @@ function PTClientsPage({ members, users, settings, updateSetting, currentUser, a
                     updatedUser.photo = photoRes.photoUrl;
                     updatedUser.photoVersion = photoRes.photoVersion;
                     updatedUser.hasPhoto = true;
+                    const setCache = window.__APG_MODULES?.setCachedMemberPhotoUrl;
+                    if (typeof setCache === 'function') setCache(id, photoRes.photoVersion, photoRes.photoUrl);
                   } else if (photoRes?.user?.photo) {
                     updatedUser.photo = photoRes.user.photo;
                   }
@@ -25968,7 +26057,7 @@ function PTClientsPage({ members, users, settings, updateSetting, currentUser, a
                       </td>
                     )}
                     <td className="px-3 py-2 whitespace-nowrap text-slate-900">
-                      <Avatar name={u.name || u.id} photo={u.photo || u.avatar || null} className="h-8 w-8" />
+                      <Avatar name={u.name || u.id} staffUser={u} className="h-8 w-8" />
                     </td>
                     <td className="px-3 py-2 whitespace-nowrap text-slate-900">{u.id}</td>
                     <td className="px-3 py-2 whitespace-nowrap text-slate-900">{u.name}</td>
@@ -26067,7 +26156,7 @@ function PTClientsPage({ members, users, settings, updateSetting, currentUser, a
               {users.map(u => (
                 <div key={`mobile-staff-${u.id}`} className="py-3 space-y-2">
                   <div className="flex items-center gap-3">
-                    <Avatar name={u.name || u.id} photo={u.photo || u.avatar || null} className="h-10 w-10" />
+                    <Avatar name={u.name || u.id} staffUser={u} className="h-10 w-10" />
                     <div className="min-w-0">
                       <div className="font-semibold text-slate-900 truncate">{u.name || u.id}</div>
                       <div className="text-xs text-slate-500 truncate">@{u.id}</div>

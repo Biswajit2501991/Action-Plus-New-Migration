@@ -696,6 +696,35 @@ export async function deleteLogsByIds(scope, ids = []) {
  * Returns { deleted: string[], skipped: string[] } where `deleted` is the list
  * of staff_login_id values actually removed from the persistent store.
  */
+export async function deactivateStaffUsers(scope, ids = [], reason = '') {
+  const wanted = (Array.isArray(ids) ? ids : [])
+    .map((x) => String(x || '').trim())
+    .filter(Boolean);
+  if (!wanted.length) return { deactivated: [], skipped: [] };
+  if (useSupabase()) return supabaseStore.deactivateStaffUsers(scope, wanted, reason);
+  const all = await kvStore.readJsonCollection('apg.users', []);
+  const wantNorm = new Set(wanted.map((id) => id.toLowerCase()));
+  const now = new Date().toISOString();
+  const deactivated = [];
+  const next = (Array.isArray(all) ? all : []).map((u) => {
+    const id = String(u?.id || '').trim();
+    if (!id || !wantNorm.has(id.toLowerCase())) return u;
+    deactivated.push(id);
+    return {
+      ...u,
+      blocked: true,
+      blockedReason: String(reason || '').trim() || 'Deactivated',
+      blockedAt: now,
+      sections: [],
+      access: {},
+    };
+  });
+  if (deactivated.length) await kvStore.writeJsonCollection('apg.users', next);
+  const deactivatedNorm = new Set(deactivated.map((id) => id.toLowerCase()));
+  const skipped = wanted.filter((id) => !deactivatedNorm.has(id.toLowerCase()));
+  return { deactivated, skipped };
+}
+
 export async function deleteStaffUsers(scope, ids = []) {
   const wanted = (Array.isArray(ids) ? ids : [])
     .map((x) => String(x || '').trim())

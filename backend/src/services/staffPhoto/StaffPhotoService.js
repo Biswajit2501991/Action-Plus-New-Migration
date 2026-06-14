@@ -100,6 +100,58 @@ export async function enrichStaffUsersWithPhotoUrls(users, dbRows = []) {
   return Promise.all(users.map((u) => enrichStaffUserWithPhotoUrl(u, rowByLogin.get(String(u.id || '').trim()) || null)));
 }
 
+/**
+ * Batch signed URLs for staff list avatars.
+ * @param {string[]} staffLoginIds
+ */
+export async function batchStaffPhotoSignedUrls(staffLoginIds) {
+  await assertStaffPhotoStorageReady();
+  const logins = [...new Set((staffLoginIds || []).map((c) => String(c || '').trim()).filter(Boolean))];
+  if (!logins.length) return { urls: [] };
+
+  const sb = getSupabase();
+  const gid = gymId();
+  const { data: rows, error } = await sb
+    .from(T.staff_users)
+    .select('staff_login_id, photo_path, photo_version, photo_url')
+    .eq('gym_id', gid)
+    .in('staff_login_id', logins);
+  if (error) throw new Error(`staff photo batch lookup: ${error.message}`);
+
+  const storageItems = [];
+  const urls = [];
+  for (const row of rows || []) {
+    const staffId = String(row.staff_login_id || '').trim();
+    const version = Number(row.photo_version || 0);
+    const path = String(row.photo_path || '').trim();
+    if (path) {
+      storageItems.push({ staffId, version, path });
+      continue;
+    }
+    const legacy = String(row.photo_url || '').trim();
+    if (legacy) {
+      urls.push({ staffId, photoVersion: version, url: legacy, hasPhoto: true });
+    }
+  }
+
+  if (storageItems.length) {
+    const { createMemberPhotoSignedUrlsBatch } = await import('../memberPhoto/MemberPhotoStorageManager.js');
+    const signedMap = await createMemberPhotoSignedUrlsBatch(storageItems.map((x) => x.path));
+    for (const item of storageItems) {
+      const url = signedMap.get(item.path) || '';
+      if (!url) continue;
+      urls.push({
+        staffId: item.staffId,
+        photoVersion: item.version,
+        url,
+        hasPhoto: true,
+      });
+    }
+  }
+
+  return { urls };
+}
+
 export async function uploadStaffPhoto(auth, staffLoginId, imagePayload) {
   await assertStaffPhotoStorageReady();
   const parsed = parseImagePayload(imagePayload);

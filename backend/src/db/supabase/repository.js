@@ -3368,6 +3368,58 @@ export async function upsertWhatsappTemplate(_scope, { key, body, gymCodeId }) {
  * (a partial browser PUT must never wipe accounts). Cleanup is the only path
  * that may destructively delete staff and therefore goes through this fn.
  */
+/**
+ * Safe deactivation: block login and revoke access while retaining historical rows.
+ */
+export async function deactivateStaffUsers(_scope, loginIds = [], reason = 'Deactivated — historical records retained') {
+  const sb = getSupabase();
+  const gid = gymId();
+  const wantedRaw = (Array.isArray(loginIds) ? loginIds : [])
+    .map((x) => String(x || '').trim())
+    .filter(Boolean);
+  if (!wantedRaw.length) return { deactivated: [], skipped: [] };
+  const wantedNorm = new Set(wantedRaw.map((id) => id.toLowerCase()));
+
+  const { data: rows, error: lookupErr } = await sb
+    .from(T.staff_users)
+    .select('id, staff_login_id, is_blocked')
+    .eq('gym_id', gid);
+  if (lookupErr) throw new Error(`staff lookup failed: ${lookupErr.message}`);
+
+  const present = (rows || []).filter((r) => {
+    if (!r || !r.id || !r.staff_login_id) return false;
+    return wantedNorm.has(String(r.staff_login_id).trim().toLowerCase());
+  });
+  if (!present.length) return { deactivated: [], skipped: wantedRaw };
+
+  const now = new Date().toISOString();
+  const deactivated = [];
+  for (const row of present) {
+    const login = String(row.staff_login_id);
+    const { error: updErr } = await sb
+      .from(T.staff_users)
+      .update({
+        is_blocked: true,
+        blocked_reason: String(reason || '').trim() || 'Deactivated',
+        blocked_at: now,
+        updated_at: now,
+      })
+      .eq('id', row.id)
+      .eq('gym_id', gid);
+    if (updErr) throw new Error(`staff deactivate ${login}: ${updErr.message}`);
+    const pk = row.id;
+    await sb.from(T.staff_user_sections).delete().eq('staff_user_id', pk).then(() => {}, () => {});
+    await sb.from(T.staff_user_access).delete().eq('staff_user_id', pk).then(() => {}, () => {});
+    invalidateStaffAccessCache(login);
+    deactivated.push(login);
+  }
+  notifyCollectionChange('users');
+
+  const deactivatedNorm = new Set(deactivated.map((id) => String(id).trim().toLowerCase()));
+  const skipped = wantedRaw.filter((id) => !deactivatedNorm.has(String(id).trim().toLowerCase()));
+  return { deactivated, skipped };
+}
+
 export async function deleteStaffUsers(_scope, loginIds = []) {
   const sb = getSupabase();
   const gid = gymId();

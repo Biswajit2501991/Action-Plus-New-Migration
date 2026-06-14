@@ -216,45 +216,72 @@
     }
     @keyframes apg-payment-qr-btn-border-flash {
       0%, 100% {
-        border-color: #4ade80;
-        background-color: #ecfccb;
-        box-shadow: 0 0 0 2px rgba(74, 222, 128, 0.45);
+        border-color: rgba(34, 197, 94, 0.55);
+        background-color: rgba(34, 197, 94, 0.12);
+        box-shadow: 0 0 0 3px rgba(34, 197, 94, 0.25);
       }
       50% {
-        border-color: #16a34a;
-        background-color: #bbf7d0;
-        box-shadow: 0 0 0 5px rgba(74, 222, 128, 0.75);
+        border-color: rgb(34, 197, 94);
+        background-color: rgba(34, 197, 94, 0.25);
+        box-shadow: 0 0 0 6px rgba(34, 197, 94, 0.25), 0 0 18px rgba(34, 197, 94, 0.35);
       }
     }
     .apg-payment-qr-btn-flash {
       border-width: 2px !important;
       border-style: solid !important;
-      border-color: #4ade80 !important;
-      background-color: #ecfccb !important;
+      border-color: rgba(34, 197, 94, 0.55) !important;
+      background-color: rgba(34, 197, 94, 0.12) !important;
       color: #166534 !important;
+      box-shadow: 0 0 0 3px rgba(34, 197, 94, 0.25) !important;
       animation: apg-payment-qr-btn-border-flash 1.2s ease-in-out infinite !important;
     }
     .apg-payment-qr-btn-flash:hover {
-      background-color: #bbf7d0 !important;
+      background-color: rgba(34, 197, 94, 0.2) !important;
       color: #14532d !important;
     }
     html.dark .apg-payment-qr-btn-flash {
-      border-color: #4ade80 !important;
-      background-color: rgba(34, 197, 94, 0.22) !important;
+      border-color: rgba(34, 197, 94, 0.65) !important;
+      background-color: rgba(34, 197, 94, 0.18) !important;
       color: #bbf7d0 !important;
+      box-shadow: 0 0 0 3px rgba(34, 197, 94, 0.25) !important;
       animation: apg-payment-qr-btn-border-flash-dark 1.2s ease-in-out infinite !important;
     }
     @keyframes apg-payment-qr-btn-border-flash-dark {
       0%, 100% {
-        border-color: rgba(74, 222, 128, 0.7);
+        border-color: rgba(34, 197, 94, 0.55);
         background-color: rgba(34, 197, 94, 0.18);
-        box-shadow: 0 0 0 2px rgba(74, 222, 128, 0.25);
+        box-shadow: 0 0 0 3px rgba(34, 197, 94, 0.25);
       }
       50% {
-        border-color: #4ade80;
-        background-color: rgba(34, 197, 94, 0.38);
-        box-shadow: 0 0 0 5px rgba(74, 222, 128, 0.45);
+        border-color: rgb(74, 222, 128);
+        background-color: rgba(34, 197, 94, 0.32);
+        box-shadow: 0 0 0 6px rgba(34, 197, 94, 0.25), 0 0 20px rgba(34, 197, 94, 0.4);
       }
+    }
+    @keyframes apg-payment-qr-btn-border-flash-luxury {
+      0%, 100% {
+        border-color: rgba(52, 211, 153, 0.55);
+        background-color: rgba(34, 197, 94, 0.16);
+        box-shadow: 0 0 0 3px rgba(34, 197, 94, 0.25);
+      }
+      50% {
+        border-color: var(--lux-emerald-strong);
+        background-color: rgba(34, 197, 94, 0.28);
+        box-shadow: 0 0 0 6px rgba(34, 197, 94, 0.25), 0 0 22px rgba(34, 197, 94, 0.45);
+      }
+    }
+    body[data-apg-layout="luxury"] .apg-payment-qr-btn-flash {
+      border-color: rgba(52, 211, 153, 0.65) !important;
+      background-color: rgba(34, 197, 94, 0.16) !important;
+      color: var(--lux-emerald) !important;
+      box-shadow: 0 0 0 3px rgba(34, 197, 94, 0.25) !important;
+      backdrop-filter: none !important;
+      -webkit-backdrop-filter: none !important;
+      animation: apg-payment-qr-btn-border-flash-luxury 1.2s ease-in-out infinite !important;
+    }
+    body[data-apg-layout="luxury"] .apg-payment-qr-btn-flash:hover {
+      background-color: rgba(34, 197, 94, 0.24) !important;
+      color: var(--lux-emerald) !important;
     }
     html.dark .apg-dark-row-hover:hover {
       background: #16253d !important;
@@ -350,10 +377,15 @@
       border-color: var(--lux-gold-rich) !important;
       animation-name: apgFilterBtnSoftPulse;
     }
+    body[data-apg-layout="luxury"] .apg-payment-qr-btn-flash {
+      border-color: rgba(52, 211, 153, 0.65) !important;
+      animation-name: apg-payment-qr-btn-border-flash-luxury;
+    }
     @media (prefers-reduced-motion: reduce) {
       .apg-pt-workout-date-attention,
       .apg-filter-btn-active,
-      .apg-pt-calendar-collapsed-attention {
+      .apg-pt-calendar-collapsed-attention,
+      .apg-payment-qr-btn-flash {
         animation: none;
       }
       .apg-pt-workout-date-attention {
@@ -367,6 +399,12 @@
       .apg-pt-calendar-collapsed-attention {
         outline: 2px solid rgb(16, 185, 129);
         outline-offset: 2px;
+      }
+      .apg-payment-qr-btn-flash {
+        box-shadow: 0 0 0 3px rgba(34, 197, 94, 0.25) !important;
+      }
+      body[data-apg-layout="luxury"] .apg-payment-qr-btn-flash {
+        color: var(--lux-emerald) !important;
       }
     }
 
@@ -1444,9 +1482,9 @@
     });
   </script>
   <script src="/app.env.js"></script>
-  <script>window.__APG_ESM_CACHE_BUST='1781441795009';</script>
-  <script type="module" src="/src/runtime/registerApgModules.js?v=1781441795009"></script>
+  <script>window.__APG_ESM_CACHE_BUST='1781443656336';</script>
+  <script type="module" src="/src/runtime/registerApgModules.js?v=1781443656336"></script>
   <!-- Application Code. Babel will compile this JSX on the fly. -->
-  <script src="/dist-legacy/app.bundle.js?v=1781441795009"></script>
+  <script src="/dist-legacy/app.bundle.js?v=1781443656336"></script>
 </body>
 </html>

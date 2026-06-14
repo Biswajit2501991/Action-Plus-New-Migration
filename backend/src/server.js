@@ -49,6 +49,7 @@ import {
   deleteLogsInRange,
   deleteLogsByIds,
   deleteStaffUsers,
+  deactivateStaffUsers,
   addSettingsLookup,
   deleteSettingsLookup,
   deleteMemberPayment,
@@ -1014,12 +1015,11 @@ app.put('/api/users/bulk', requireStaffManagementWrite, async (req, res) => {
   }
 });
 
-// Owner-only focused staff bulk-delete. Refuses to remove protected seed
-// owners (Bis, Raja), any user whose role is 'owner', or the requester
-// themselves. Returns the lists of deleted + skipped ids so the UI can
-// surface "n removed, k skipped because…" without re-reading the collection.
+// Master-owner-only staff delete/deactivate. Protected seed owners (Bis, Raja),
+// any user whose role is 'owner', or the requester themselves are skipped.
+// Staff with historical dependencies are deactivated (blocked) instead of hard-deleted.
 const PROTECTED_STAFF_IDS = new Set(['Bis', 'Raja', 'owner']);
-app.post('/api/users/cleanup', requireStaffManagementWrite, async (req, res) => {
+app.post('/api/users/cleanup', requireMasterOwner, async (req, res) => {
   try {
     const incoming = Array.isArray(req.body?.userIds) ? req.body.userIds : [];
     const targets = new Set(
@@ -1028,63 +1028,79 @@ app.post('/api/users/cleanup', requireStaffManagementWrite, async (req, res) => 
         .filter(Boolean),
     );
     if (!targets.size) {
-      return res.json({ ok: true, deleted: [], skipped: [], reason: 'no-ids' });
+      return res.json({ ok: true, deleted: [], deactivated: [], skipped: [], reason: 'no-ids' });
     }
     const requesterId = String(req.auth?.userId || '').trim();
-    // Read the live staff list so protection rules (owner role, requester self,
-    // seed ids) can be enforced before we touch persistent storage.
     const existing = await readJsonCollection('apg.users', [], null);
     const lookup = new Map();
     for (const user of existing) {
       const id = String(user?.id || '').trim();
       if (id) lookup.set(id, user);
     }
-    const toDelete = [];
+    const toProcess = [];
     const skipped = [];
     for (const id of targets) {
       const user = lookup.get(id);
       const isOwnerRow = user
         ? (String(user?.role || '').toLowerCase() === 'owner'
-          || String(user?.staffRole || '').toLowerCase() === 'master_owner')
+          || String(user?.staffRole || '').toLowerCase() === 'master_owner'
+          || String(user?.staffRole || '').toLowerCase() === 'branch_owner')
         : false;
       const isProtected = PROTECTED_STAFF_IDS.has(id) || isOwnerRow || (requesterId && id === requesterId);
       if (isProtected) {
         skipped.push({ id, reason: isOwnerRow ? 'owner_role' : (id === requesterId ? 'self' : 'seed_account') });
         continue;
       }
-      if (!authIsMasterOwner(req.auth) && user) {
-        try {
-          const { assertBranchAdminManagesUser } = await import('./auth/tenant/userScope.js');
-          assertBranchAdminManagesUser(req.auth, user);
-        } catch (err) {
-          skipped.push({ id, reason: err?.message || 'cross_branch' });
-          continue;
-        }
+      toProcess.push(id);
+    }
+    if (!toProcess.length) {
+      return res.json({ ok: true, deleted: [], deactivated: [], skipped });
+    }
+
+    const { findStaffDeleteDependenciesBatch } = await import('./services/staff/staffDeleteGuard.js');
+    const depMap = await findStaffDeleteDependenciesBatch(toProcess);
+    const toDeactivate = [];
+    const toDelete = [];
+    for (const id of toProcess) {
+      const deps = depMap.get(id);
+      if (deps?.length) toDeactivate.push(id);
+      else toDelete.push(id);
+    }
+
+    const scope = readSandboxScope(req);
+    let deactivated = [];
+    let deleted = [];
+    const storeSkipped = [];
+
+    if (toDeactivate.length) {
+      const reason = 'Deactivated — historical records retained';
+      const out = await deactivateStaffUsers(scope, toDeactivate, reason);
+      deactivated = Array.isArray(out?.deactivated) ? out.deactivated : [];
+      if (Array.isArray(out?.skipped)) {
+        for (const id of out.skipped) storeSkipped.push({ id: String(id), reason: 'deactivate_not_found' });
       }
-      toDelete.push(id);
     }
-    if (!toDelete.length) {
-      return res.json({ ok: true, deleted: [], skipped });
+
+    if (toDelete.length) {
+      const { deleted: removed, skipped: delSkipped } = await deleteStaffUsers(scope, toDelete);
+      deleted = Array.isArray(removed) ? removed : [];
+      if (Array.isArray(delSkipped)) {
+        for (const id of delSkipped) storeSkipped.push({ id: String(id), reason: 'not_found' });
+      }
     }
-    // Destructive path: hits staff_users directly on Supabase. The legacy
-    // writeJsonCollection('apg.users', kept) path is upsert-only by design,
-    // which is why cleanup needs its own primitive.
-    const { deleted, skipped: storeSkipped } = await deleteStaffUsers(readSandboxScope(req), toDelete);
-    const mergedSkipped = [
-      ...skipped,
-      ...(Array.isArray(storeSkipped) ? storeSkipped.map((id) => ({ id: String(id), reason: 'not_found' })) : []),
-    ];
-    if (!deleted.length) {
-      return res.json({ ok: true, deleted: [], skipped: mergedSkipped });
+
+    const mergedSkipped = [...skipped, ...storeSkipped];
+    if (!deleted.length && !deactivated.length) {
+      return res.json({ ok: true, deleted: [], deactivated: [], skipped: mergedSkipped });
     }
     await appendAuditLog(req, {
-      action: 'staff.bulk_deleted',
+      action: deactivated.length && !deleted.length ? 'staff.bulk_deactivated' : 'staff.bulk_deleted',
       entityType: 'user',
-      entityId: deleted.join(','),
-      after: { deleted, skipped: mergedSkipped },
+      entityId: [...deleted, ...deactivated].join(','),
+      after: { deleted, deactivated, skipped: mergedSkipped },
     });
     queueDatabaseBackup('users-cleanup');
-    return res.json({ ok: true, deleted, skipped: mergedSkipped });
+    return res.json({ ok: true, deleted, deactivated, skipped: mergedSkipped });
   } catch (error) {
     return res.status(500).json({ error: 'users_cleanup_failed', message: String(error?.message || error) });
   }

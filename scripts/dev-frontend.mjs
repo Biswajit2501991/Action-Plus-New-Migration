@@ -45,6 +45,9 @@ const securityHeadersEnabled = !['0', 'false', 'no'].includes(
 const cspReportOnly = ['1', 'true', 'yes'].includes(
   String(process.env.APG_CSP_REPORT_ONLY || '').toLowerCase(),
 );
+const v2VisitorsEnabled = ['1', 'true', 'yes'].includes(
+  String(process.env.V2_VISITORS_ENABLED || '').toLowerCase(),
+);
 
 function readBackendJwtExpiresIn() {
   if (process.env.JWT_EXPIRES_IN) return process.env.JWT_EXPIRES_IN;
@@ -397,9 +400,7 @@ const server = http.createServer((req, res) => {
       API_BASE_URL: apiBaseUrl,
       SUPERVISOR_URL: `http://127.0.0.1:${supervisorPort}`,
       SUPERVISOR_RELATIVE: SUPERVISOR_PROXY_PREFIX,
-      V2_VISITORS_ENABLED: ['1', 'true', 'yes'].includes(
-        String(process.env.V2_VISITORS_ENABLED || '').toLowerCase(),
-      ),
+      V2_VISITORS_ENABLED: v2VisitorsEnabled,
       V2_BASE_PATH: '/v2/',
       MEMBER_PHOTO_STORAGE_ENABLED: ['1', 'true', 'yes'].includes(
         String(process.env.MEMBER_PHOTO_STORAGE_ENABLED || '').toLowerCase(),
@@ -456,7 +457,7 @@ const server = http.createServer((req, res) => {
     return;
   }
 
-  if (reqPath === '/visitors' || reqPath.startsWith('/visitors?')) {
+  if (v2VisitorsEnabled && (reqPath === '/visitors' || reqPath.startsWith('/visitors?'))) {
     const u = new URL(req.url || '/', `http://${frontendHost}`);
     res.writeHead(302, { Location: `/v2/visitors${u.search}` });
     res.end();
