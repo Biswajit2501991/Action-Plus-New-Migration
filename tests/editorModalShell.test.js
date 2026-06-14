@@ -7,6 +7,7 @@ import {
   EDITOR_MODAL_Z_INDEX,
   PHOTO_PREVIEW_MODAL_Z_INDEX,
   PHOTO_PICKER_MODAL_Z_INDEX,
+  PAYMENT_QR_ZOOM_MODAL_Z_INDEX,
 } from '../src/features/modal/editorModalShell.js';
 
 describe('editorModalShell', () => {
@@ -25,6 +26,7 @@ describe('editorModalShell', () => {
     expect(EDITOR_MODAL_Z_INDEX).toBe(70);
     expect(PHOTO_PREVIEW_MODAL_Z_INDEX).toBe(78);
     expect(PHOTO_PICKER_MODAL_Z_INDEX).toBe(80);
+    expect(PAYMENT_QR_ZOOM_MODAL_Z_INDEX).toBe(82);
   });
 
   it('scrollEditorToTop resets main scroll pane', () => {

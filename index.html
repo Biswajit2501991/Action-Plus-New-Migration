@@ -216,6 +216,48 @@
       0%, 100% { background-color: rgba(244, 63, 94, 0.18); }
       50% { background-color: rgba(244, 63, 94, 0.30); }
     }
+    @keyframes apg-payment-qr-btn-border-flash {
+      0%, 100% {
+        border-color: #4ade80;
+        background-color: #ecfccb;
+        box-shadow: 0 0 0 2px rgba(74, 222, 128, 0.45);
+      }
+      50% {
+        border-color: #16a34a;
+        background-color: #bbf7d0;
+        box-shadow: 0 0 0 5px rgba(74, 222, 128, 0.75);
+      }
+    }
+    .apg-payment-qr-btn-flash {
+      border-width: 2px !important;
+      border-style: solid !important;
+      border-color: #4ade80 !important;
+      background-color: #ecfccb !important;
+      color: #166534 !important;
+      animation: apg-payment-qr-btn-border-flash 1.2s ease-in-out infinite !important;
+    }
+    .apg-payment-qr-btn-flash:hover {
+      background-color: #bbf7d0 !important;
+      color: #14532d !important;
+    }
+    html.dark .apg-payment-qr-btn-flash {
+      border-color: #4ade80 !important;
+      background-color: rgba(34, 197, 94, 0.22) !important;
+      color: #bbf7d0 !important;
+      animation: apg-payment-qr-btn-border-flash-dark 1.2s ease-in-out infinite !important;
+    }
+    @keyframes apg-payment-qr-btn-border-flash-dark {
+      0%, 100% {
+        border-color: rgba(74, 222, 128, 0.7);
+        background-color: rgba(34, 197, 94, 0.18);
+        box-shadow: 0 0 0 2px rgba(74, 222, 128, 0.25);
+      }
+      50% {
+        border-color: #4ade80;
+        background-color: rgba(34, 197, 94, 0.38);
+        box-shadow: 0 0 0 5px rgba(74, 222, 128, 0.45);
+      }
+    }
     html.dark .apg-dark-row-hover:hover {
       background: #16253d !important;
     }
@@ -14251,6 +14293,73 @@ function MobileMemberDetailView({ m, onBack, onEdit, onWelcome, onWhatsAppCall, 
       );
     }
 
+    function PaymentQrZoomPreviewModal({ open, onClose, src, title, subtitle = '' }) {
+      const [imgFailed, setImgFailed] = React.useState(false);
+      React.useEffect(() => {
+        if (!open) return undefined;
+        const bindEsc = window.__APG_MODULES?.bindModalEscapeKey;
+        return typeof bindEsc === 'function' ? bindEsc(onClose) : undefined;
+      }, [open, onClose]);
+      React.useEffect(() => { setImgFailed(false); }, [src, open]);
+      if (!open) return null;
+      const zoomZ = window.__APG_MODULES?.PAYMENT_QR_ZOOM_MODAL_Z_INDEX ?? 82;
+      const displayTitle = String(title || '').trim() || 'Payment QR';
+      const displaySubtitle = String(subtitle || '').trim();
+      return (
+        <ModalPortal>
+          <div
+            className="fixed inset-0 flex items-center justify-center apg-modal-backdrop p-3 sm:p-4"
+            style={{ zIndex: zoomZ }}
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="payment-qr-zoom-preview-title"
+            data-testid="payment-qr-zoom-preview-modal"
+            onClick={onClose}
+          >
+            <div
+              className="w-full max-w-lg rounded-3xl bg-white shadow-xl overflow-hidden flex flex-col max-h-[min(96dvh,900px)]"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <div className="flex items-center justify-between px-5 sm:px-6 py-4 border-b border-slate-100">
+                <h4 id="payment-qr-zoom-preview-title" className="text-lg font-semibold text-slate-900">Payment QR Preview</h4>
+                <button type="button" onClick={onClose} className="rounded-xl p-2 hover:bg-slate-100" aria-label="Close enlarged preview"><span>✕</span></button>
+              </div>
+              <div className="px-5 sm:px-6 py-4 flex flex-col items-center text-center gap-3 overflow-y-auto">
+                <div>
+                  <div className="text-base sm:text-lg font-semibold text-slate-900">{displayTitle}</div>
+                  {displaySubtitle ? (
+                    <div className="text-sm text-slate-600 mt-1">{displaySubtitle}</div>
+                  ) : null}
+                </div>
+                {src && !imgFailed ? (
+                  <img
+                    src={src}
+                    alt={displayTitle}
+                    decoding="async"
+                    className="w-[min(85vw,32rem)] h-[min(85vw,32rem)] max-h-[min(72dvh,32rem)] rounded-2xl object-contain border border-slate-200 bg-white shadow-sm"
+                  />
+                ) : (
+                  <div className="w-[min(85vw,32rem)] h-[min(85vw,32rem)] max-h-[min(72dvh,32rem)] rounded-2xl border border-dashed border-slate-300 bg-slate-50 flex items-center justify-center text-sm text-slate-500">
+                    QR image unavailable
+                  </div>
+                )}
+                <p className="text-xs text-slate-500">Scan with any UPI app</p>
+              </div>
+              <div className="flex justify-end px-5 sm:px-6 py-4 border-t border-slate-100">
+                <button
+                  type="button"
+                  onClick={onClose}
+                  className="rounded-xl border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-800 hover:bg-slate-50"
+                >
+                  Close
+                </button>
+              </div>
+            </div>
+          </div>
+        </ModalPortal>
+      );
+    }
+
     function PaymentQrViewerModal({
       open,
       onClose,
@@ -14264,11 +14373,16 @@ function MobileMemberDetailView({ m, onBack, onEdit, onWelcome, onWhatsAppCall, 
       onBranchChange,
     }) {
       const [imgFailed, setImgFailed] = React.useState(false);
+      const [zoomOpen, setZoomOpen] = React.useState(false);
       React.useEffect(() => {
-        if (!open) return undefined;
+        if (!open) {
+          setZoomOpen(false);
+          return undefined;
+        }
+        if (zoomOpen) return undefined;
         const bindEsc = window.__APG_MODULES?.bindModalEscapeKey;
         return typeof bindEsc === 'function' ? bindEsc(onClose) : undefined;
-      }, [open, onClose]);
+      }, [open, zoomOpen, onClose]);
       const previewZ = window.__APG_MODULES?.PHOTO_PREVIEW_MODAL_Z_INDEX ?? 78;
       const activeItems = typeof window.__APG_MODULES?.activePaymentQrItems === 'function'
         ? window.__APG_MODULES.activePaymentQrItems(items)
@@ -14278,6 +14392,7 @@ function MobileMemberDetailView({ m, onBack, onEdit, onWelcome, onWhatsAppCall, 
       const current = total > 0 ? activeItems[safeIndex] : null;
       const src = String(current?.qrImageUrl || '').trim();
       React.useEffect(() => { setImgFailed(false); }, [src, current?.id, open]);
+      React.useEffect(() => { setZoomOpen(false); }, [safeIndex, src, viewerBranchId]);
       if (!open) return null;
       return (
         <ModalPortal>
@@ -14288,7 +14403,7 @@ function MobileMemberDetailView({ m, onBack, onEdit, onWelcome, onWhatsAppCall, 
             aria-modal="true"
             aria-labelledby="payment-qr-viewer-title"
             data-testid="payment-qr-viewer-modal"
-            onClick={onClose}
+            onClick={zoomOpen ? undefined : onClose}
           >
             <div
               className="w-full max-w-md rounded-3xl bg-white shadow-xl overflow-hidden flex flex-col"
@@ -14324,12 +14439,23 @@ function MobileMemberDetailView({ m, onBack, onEdit, onWelcome, onWhatsAppCall, 
                       <div className="text-sm text-slate-600 mt-1">{current.branchLabel || ''}</div>
                     </div>
                     {src && !imgFailed ? (
-                      <img
-                        src={src}
-                        alt={current.qrName}
-                        className="h-56 w-56 rounded-2xl object-contain border border-slate-200 bg-white shadow-sm"
-                        onError={() => setImgFailed(true)}
-                      />
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setZoomOpen(true);
+                        }}
+                        className="rounded-2xl border border-slate-200 bg-white shadow-sm p-1 hover:border-blue-300 hover:shadow-md transition-all cursor-zoom-in focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-400"
+                        aria-label="Enlarge QR code for scanning"
+                        data-testid="payment-qr-zoom-trigger"
+                      >
+                        <img
+                          src={src}
+                          alt={current.qrName}
+                          className="h-56 w-56 rounded-xl object-contain pointer-events-none"
+                          onError={() => setImgFailed(true)}
+                        />
+                      </button>
                     ) : (
                       <div className="h-56 w-56 rounded-2xl border border-dashed border-slate-300 bg-slate-50 flex items-center justify-center text-sm text-slate-500">
                         QR image unavailable
@@ -14364,6 +14490,13 @@ function MobileMemberDetailView({ m, onBack, onEdit, onWelcome, onWhatsAppCall, 
               </div>
             </div>
           </div>
+          <PaymentQrZoomPreviewModal
+            open={zoomOpen}
+            onClose={() => setZoomOpen(false)}
+            src={src}
+            title={current?.qrName}
+            subtitle={current?.branchLabel || ''}
+          />
         </ModalPortal>
       );
     }
@@ -16075,7 +16208,7 @@ function DashboardView({ members, memberSyncPending = {}, onEdit, onStatusChange
                   <button
                     type="button"
                     onClick={onOpenPaymentQr}
-                    className={cx(MEMBER_UI.buttonBase, MEMBER_UI.buttonSecondary)}
+                    className={cx(MEMBER_UI.buttonBase, 'apg-payment-qr-btn-flash')}
                     data-testid="members-payment-qr-button"
                   >
                     Payment QR
@@ -24798,9 +24931,13 @@ function PTClientsPage({ members, users, settings, updateSetting, currentUser, a
         });
       };
       const performBulkStaffDelete = async () => {
-        if (!isBranchAdmin) return;
+        if (!isOwner) return;
         const ids = Array.from(selectedStaffIds).filter((id) => id && !PROTECTED_STAFF_IDS_FE.has(id));
         if (!ids.length) return;
+        const ok = window.confirm(
+          `Delete ${ids.length} selected staff member(s)?\n\nStaff with attendance, leave, PT, or audit history will be deactivated (blocked) instead of permanently removed.`,
+        );
+        if (!ok) return;
         const backend = typeof window !== 'undefined' ? window.__APG_BACKEND_JSON__ : null;
         if (!backend) { setBulkError('Backend is offline; cannot delete.'); return; }
         setBulkError('');
@@ -24809,15 +24946,33 @@ function PTClientsPage({ members, users, settings, updateSetting, currentUser, a
         try {
           const out = await backend('/users/cleanup', { method: 'POST', body: JSON.stringify({ userIds: ids }) });
           const removed = Array.isArray(out?.deleted) ? out.deleted : [];
+          const deactivated = Array.isArray(out?.deactivated) ? out.deactivated : [];
           const skipped = Array.isArray(out?.skipped) ? out.skipped : [];
-          setBulkResult({ removed, skipped });
-          if (removed.length && typeof setUsers === 'function') {
+          setBulkResult({ removed, deactivated, skipped });
+          if (typeof setUsers === 'function') {
             const removedSet = new Set(removed);
-            setUsers((prev) => (Array.isArray(prev) ? prev.filter((u) => !removedSet.has(u.id)) : prev));
+            const deactivatedSet = new Set(deactivated);
+            setUsers((prev) => {
+              if (!Array.isArray(prev)) return prev;
+              const now = new Date().toISOString();
+              return prev
+                .filter((u) => !removedSet.has(u.id))
+                .map((u) => (
+                  deactivatedSet.has(u.id)
+                    ? {
+                      ...u,
+                      blocked: true,
+                      blockedReason: 'Deactivated — historical records retained',
+                      blockedAt: now,
+                      sections: [],
+                    }
+                    : u
+                ));
+            });
           }
           setSelectedStaffIds(new Set());
           if (typeof logEvent === 'function') {
-            try { logEvent('staff.bulk_deleted', 'user', removed.join(','), { ids }, { removed, skipped }); } catch {}
+            try { logEvent('staff.bulk_deleted', 'user', [...removed, ...deactivated].join(','), { ids }, { removed, deactivated, skipped }); } catch {}
           }
         } catch (err) {
           setBulkError(String(err?.message || err));
@@ -25425,7 +25580,9 @@ function PTClientsPage({ members, users, settings, updateSetting, currentUser, a
 
       const handleDelete = async (u) => {
         if (!isOwner || u.id === 'owner') return;
-        const ok = window.confirm(`Delete staff "${u.id}"? This cannot be undone.`);
+        const ok = window.confirm(
+          `Delete staff "${u.id}"? Staff with historical records will be deactivated (blocked) instead of permanently removed.`,
+        );
         if (!ok) return;
         const previousUsers = Array.isArray(users) ? users : [];
         const previousStaff = Array.isArray(settings?.staff) ? settings.staff : [];
@@ -25449,6 +25606,23 @@ function PTClientsPage({ members, users, settings, updateSetting, currentUser, a
               body: JSON.stringify({ userIds: [u.id] }),
             });
             const deleted = Array.isArray(out?.deleted) ? out.deleted.map((id) => String(id || '').trim()) : [];
+            const deactivated = Array.isArray(out?.deactivated) ? out.deactivated.map((id) => String(id || '').trim()) : [];
+            if (deactivated.includes(String(u.id || '').trim())) {
+              const now = new Date().toISOString();
+              setUsers((prev) => (Array.isArray(prev) ? prev.map((row) => (
+                row.id === u.id
+                  ? {
+                    ...row,
+                    blocked: true,
+                    blockedReason: 'Deactivated — historical records retained',
+                    blockedAt: now,
+                    sections: [],
+                  }
+                  : row
+              )) : prev));
+              logEvent && logEvent('staff.deactivated', 'user', u.id, u, { reason: 'has_dependencies' });
+              return;
+            }
             if (!deleted.includes(String(u.id || '').trim())) {
               const skippedReason = Array.isArray(out?.skipped)
                 ? (out.skipped.find((s) => String(s?.id || '').trim() === String(u.id || '').trim())?.reason || '')
@@ -25745,7 +25919,9 @@ function PTClientsPage({ members, users, settings, updateSetting, currentUser, a
             )}
             {bulkResult && (
               <div className="mb-3 rounded-xl border border-emerald-300 bg-emerald-50 px-3 py-2 text-xs text-emerald-700" data-testid="staff-bulk-result">
-                Removed {bulkResult.removed.length} staff{bulkResult.skipped.length ? ` · skipped ${bulkResult.skipped.length} protected account(s)` : ''}.
+                {bulkResult.removed.length > 0 && <>Removed {bulkResult.removed.length} staff. </>}
+                {bulkResult.deactivated?.length > 0 && <>Deactivated {bulkResult.deactivated.length} staff (historical data retained). </>}
+                {bulkResult.skipped?.length > 0 && <>Skipped {bulkResult.skipped.length} protected account(s).</>}
               </div>
             )}
             <table className="min-w-full text-sm text-slate-900 hidden md:table">
@@ -25865,7 +26041,9 @@ function PTClientsPage({ members, users, settings, updateSetting, currentUser, a
                               <button onClick={() => toggleBlocked(u)} className={cx('hover:underline text-xs font-medium', u.blocked ? 'text-emerald-600' : 'text-amber-700')}>
                                 {u.blocked ? 'Unblock' : 'Block'}
                               </button>
-                              <button onClick={() => handleDelete(u)} className="text-rose-600 hover:underline text-xs font-medium">Delete</button>
+                              {isOwner && (
+                                <button onClick={() => handleDelete(u)} className="text-rose-600 hover:underline text-xs font-medium">Delete</button>
+                              )}
                             </>
                           )}
                           {u.id === currentUser?.id && (
@@ -25948,7 +26126,9 @@ function PTClientsPage({ members, users, settings, updateSetting, currentUser, a
                             <button onClick={() => toggleBlocked(u)} className={cx('rounded-lg border px-3 py-2 min-h-[44px] text-xs font-medium', u.blocked ? 'border-emerald-300 bg-emerald-50 text-emerald-700 hover:bg-emerald-100' : 'border-amber-300 bg-amber-50 text-amber-700 hover:bg-amber-100')}>
                               {u.blocked ? 'Unblock' : 'Block'}
                             </button>
-                            <button onClick={() => handleDelete(u)} className="rounded-lg border border-rose-300 bg-rose-50 px-3 py-2 min-h-[44px] text-xs font-medium text-rose-700 hover:bg-rose-100">Delete</button>
+                            {isOwner && (
+                              <button onClick={() => handleDelete(u)} className="rounded-lg border border-rose-300 bg-rose-50 px-3 py-2 min-h-[44px] text-xs font-medium text-rose-700 hover:bg-rose-100">Delete</button>
+                            )}
                           </>
                         )}
                         {u.id === currentUser?.id && (
