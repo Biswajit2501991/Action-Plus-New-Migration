@@ -9,6 +9,17 @@ import {
   patchLeaveRequestStatus,
   mergeApprovedLeaveIntoAttendance,
 } from '../features/leave/leaveApprovalSync.js';
+import {
+  buildStaffLoginAliasMap,
+  applyGlobalAdjustmentPreview,
+  buildLeaveBalancePreviewRows,
+  DEFAULT_ANNUAL_LEAVE_DAYS,
+} from '../features/leave/leaveBalance.js';
+import {
+  applyLeaveBalanceAdjustment,
+  fetchLeaveBalances,
+  previewLeaveBalanceAdjustment,
+} from '../features/leave/leaveBalanceApi.js';
 
 function iso(val) {
   const d = val instanceof Date ? val : new Date(val);
@@ -64,7 +75,28 @@ export default function LeaveTrackerPageModule({
   const [formSuccess, setFormSuccess] = React.useState('');
   const [submitting, setSubmitting] = React.useState(false);
   const [historyUserFilter, setHistoryUserFilter] = React.useState('');
+  const [leaveAdjustments, setLeaveAdjustments] = React.useState([]);
+  const [baseLeaveDays, setBaseLeaveDays] = React.useState(DEFAULT_ANNUAL_LEAVE_DAYS);
+  const [adjustmentDraft, setAdjustmentDraft] = React.useState('');
+  const [adjustmentReason, setAdjustmentReason] = React.useState('');
+  const [adjustmentPreview, setAdjustmentPreview] = React.useState(null);
+  const [adjustmentBusy, setAdjustmentBusy] = React.useState(false);
+  const [adjustmentError, setAdjustmentError] = React.useState('');
   const staff = (users || []).filter((u) => !u.blocked);
+  const aliasMap = React.useMemo(() => buildStaffLoginAliasMap(staff), [staff]);
+  const calendarYear = React.useMemo(() => new Date().getFullYear(), []);
+  const isMasterOwner = React.useMemo(() => {
+    const fn = typeof window !== 'undefined' ? window.__APG_MODULES?.authIsMasterOwnerUser : null;
+    if (typeof fn === 'function') return fn(currentUser);
+    const id = String(currentUser?.id || '').trim().toLowerCase();
+    const role = String(currentUser?.staffRole || currentUser?.role || '').trim().toLowerCase();
+    if (id === 'owner' || role === 'owner' || role === 'master_owner') return true;
+    const roles = Array.isArray(currentUser?.roles) ? currentUser.roles : [];
+    return roles.some((r) => {
+      const key = String(r || '').trim().toLowerCase();
+      return key === 'owner' || key === 'master_owner';
+    });
+  }, [currentUser]);
   const filteredLeaveRequests = React.useMemo(() => {
     if (focusLeaveRequestId) return leaveRequests.filter((r) => r.id === focusLeaveRequestId);
     if (focusLeaveUserId) return leaveRequests.filter((r) => leaveUserIdsMatch(r.userId, focusLeaveUserId));
@@ -74,6 +106,82 @@ export default function LeaveTrackerPageModule({
   React.useEffect(() => {
     if (!form.userId && currentUser?.id) setForm((v) => ({ ...v, userId: currentUser.id }));
   }, [currentUser, form.userId]);
+
+  const loadLeaveBalances = React.useCallback(async () => {
+    const backendJsonFn = typeof window !== 'undefined' ? window.__APG_BACKEND_JSON__ : null;
+    if (typeof backendJsonFn !== 'function') return;
+    try {
+      const res = await fetchLeaveBalances(backendJsonFn, { year: calendarYear });
+      setLeaveAdjustments(res.adjustments || []);
+      setBaseLeaveDays(Number(res.baseDays) || DEFAULT_ANNUAL_LEAVE_DAYS);
+    } catch {
+      /* keep local adjustments empty */
+    }
+  }, [calendarYear]);
+
+  React.useEffect(() => {
+    loadLeaveBalances();
+  }, [loadLeaveBalances]);
+
+  const runAdjustmentPreview = async (delta) => {
+    setAdjustmentError('');
+    const n = Number(delta);
+    if (!Number.isFinite(n) || n === 0) {
+      setAdjustmentPreview(null);
+      return;
+    }
+    const backendJsonFn = typeof window !== 'undefined' ? window.__APG_BACKEND_JSON__ : null;
+    if (typeof backendJsonFn === 'function' && isMasterOwner) {
+      setAdjustmentBusy(true);
+      try {
+        const res = await previewLeaveBalanceAdjustment(backendJsonFn, n, calendarYear);
+        setAdjustmentPreview({
+          adjustmentDays: n,
+          rows: Array.isArray(res?.rows) ? res.rows : [],
+        });
+      } catch (err) {
+        setAdjustmentError(String(err?.message || 'Preview failed.'));
+        setAdjustmentPreview(null);
+      } finally {
+        setAdjustmentBusy(false);
+      }
+      return;
+    }
+    const baseRows = buildLeaveBalancePreviewRows(staff, leaveRequests, leaveAdjustments, {
+      year: calendarYear,
+      baseDays: baseLeaveDays,
+    });
+    setAdjustmentPreview({
+      adjustmentDays: n,
+      rows: applyGlobalAdjustmentPreview(baseRows, n),
+    });
+  };
+
+  const applyAdjustment = async () => {
+    const n = Number(adjustmentDraft);
+    if (!Number.isFinite(n) || n === 0) return;
+    const backendJsonFn = typeof window !== 'undefined' ? window.__APG_BACKEND_JSON__ : null;
+    if (typeof backendJsonFn !== 'function') {
+      setAdjustmentError('Backend is unavailable. Cannot apply adjustment.');
+      return;
+    }
+    setAdjustmentBusy(true);
+    setAdjustmentError('');
+    try {
+      const res = await applyLeaveBalanceAdjustment(backendJsonFn, n, calendarYear, adjustmentReason);
+      if (res?.adjustment) {
+        setLeaveAdjustments((prev) => [...prev, res.adjustment]);
+      }
+      await loadLeaveBalances();
+      setAdjustmentDraft('');
+      setAdjustmentReason('');
+      setAdjustmentPreview(null);
+    } catch (err) {
+      setAdjustmentError(String(err?.message || 'Could not apply adjustment.'));
+    } finally {
+      setAdjustmentBusy(false);
+    }
+  };
 
   const submitLeave = async () => {
     if (submitting) return;
@@ -159,7 +267,12 @@ export default function LeaveTrackerPageModule({
     }
   };
 
-  const balanceFor = (userId) => annualLeaveBalanceRemaining(leaveRequests, userId);
+  const balanceFor = (userId) => annualLeaveBalanceRemaining(leaveRequests, userId, {
+    year: calendarYear,
+    baseDays: baseLeaveDays,
+    adjustments: leaveAdjustments,
+    aliasMap,
+  });
   const leaveHistoryRows = React.useMemo(() => {
     const cutoff = new Date();
     cutoff.setFullYear(cutoff.getFullYear() - 2);
@@ -252,6 +365,106 @@ export default function LeaveTrackerPageModule({
       {canViewAnnualLeaveBalance && (
       <div className={cardClass}>
         <h3 className={`text-base font-semibold mb-2 ${pageTextClass}`}>Annual Leave Balance</h3>
+        {isMasterOwner && (
+          <div className={`mb-4 rounded-2xl border p-3 space-y-3 ${isDarkMode ? 'border-slate-600 bg-slate-800/60' : 'border-slate-200 bg-slate-50'}`}>
+            <div className={`text-sm font-semibold ${pageTextClass}`}>Annual Leave Balance Control</div>
+            <div className={`text-xs ${mutedTextClass}`}>
+              Base allocation: {baseLeaveDays} days · Year: {calendarYear}
+            </div>
+            <div className="flex flex-wrap items-end gap-2">
+              <div>
+                <label className={`text-xs ${mutedTextClass}`}>Adjustment (days)</label>
+                <input
+                  type="number"
+                  value={adjustmentDraft}
+                  onChange={(e) => {
+                    setAdjustmentDraft(e.target.value);
+                    setAdjustmentPreview(null);
+                  }}
+                  placeholder="e.g. 2 or -1"
+                  className={`mt-1 w-28 rounded-xl border px-3 py-2 text-sm ${isDarkMode ? 'border-slate-600 bg-slate-900 text-slate-100' : 'border-slate-300 bg-white text-slate-900'}`}
+                />
+              </div>
+              <button
+                type="button"
+                disabled={adjustmentBusy}
+                onClick={() => runAdjustmentPreview(adjustmentDraft)}
+                className="rounded-full border border-blue-300 bg-blue-50 px-4 py-2 text-xs font-semibold text-blue-700 hover:bg-blue-100 disabled:opacity-50"
+              >
+                Preview Changes
+              </button>
+              <button
+                type="button"
+                disabled={adjustmentBusy}
+                onClick={() => { setAdjustmentDraft('2'); runAdjustmentPreview(2); }}
+                className="rounded-full border border-emerald-300 bg-emerald-50 px-3 py-2 text-xs font-semibold text-emerald-700"
+              >
+                +2
+              </button>
+              <button
+                type="button"
+                disabled={adjustmentBusy}
+                onClick={() => { setAdjustmentDraft('-1'); runAdjustmentPreview(-1); }}
+                className="rounded-full border border-rose-300 bg-rose-50 px-3 py-2 text-xs font-semibold text-rose-700"
+              >
+                -1
+              </button>
+            </div>
+            <input
+              value={adjustmentReason}
+              onChange={(e) => setAdjustmentReason(e.target.value)}
+              placeholder="Optional reason (audit log)"
+              className={`w-full rounded-xl border px-3 py-2 text-sm ${isDarkMode ? 'border-slate-600 bg-slate-900 text-slate-100' : 'border-slate-300 bg-white text-slate-900'}`}
+            />
+            {adjustmentError && (
+              <div className="rounded-xl border border-rose-200 bg-rose-50 px-3 py-2 text-xs text-rose-700">{adjustmentError}</div>
+            )}
+            {adjustmentPreview && Array.isArray(adjustmentPreview.rows) && adjustmentPreview.rows.length > 0 && (
+              <div className="space-y-2">
+                <div className={`text-xs font-semibold ${pageTextClass}`}>
+                  Preview ({adjustmentPreview.adjustmentDays > 0 ? '+' : ''}{adjustmentPreview.adjustmentDays} days) — {adjustmentPreview.rows.length} staff
+                </div>
+                <div className="overflow-x-auto max-h-48 overflow-y-auto rounded-xl border border-slate-200 dark:border-slate-600">
+                  <table className="min-w-full text-xs">
+                    <thead>
+                      <tr className={isDarkMode ? 'bg-slate-800 text-slate-200' : 'bg-white text-slate-600'}>
+                        <th className="px-2 py-2 text-left">Employee</th>
+                        <th className="px-2 py-2 text-right">Current</th>
+                        <th className="px-2 py-2 text-right">New</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {adjustmentPreview.rows.map((row) => (
+                        <tr key={row.userId || row.name} className={isDarkMode ? 'border-t border-slate-700' : 'border-t border-slate-100'}>
+                          <td className="px-2 py-2">{row.name}</td>
+                          <td className="px-2 py-2 text-right">{row.current}</td>
+                          <td className="px-2 py-2 text-right font-semibold">{row.next}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+                <div className="flex justify-end gap-2">
+                  <button
+                    type="button"
+                    onClick={() => { setAdjustmentPreview(null); setAdjustmentDraft(''); }}
+                    className={`rounded-full border px-4 py-2 text-xs font-medium ${isDarkMode ? 'border-slate-600 text-slate-200' : 'border-slate-300 text-slate-700'}`}
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="button"
+                    disabled={adjustmentBusy}
+                    onClick={applyAdjustment}
+                    className="rounded-full bg-blue-600 px-4 py-2 text-xs font-semibold text-white hover:bg-blue-700 disabled:opacity-50"
+                  >
+                    {adjustmentBusy ? 'Applying…' : 'Apply Changes'}
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
+        )}
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">
           {balanceStaff.map((s) => (
             <div key={s.id} className={`rounded-xl border px-3 py-2 text-sm flex items-center justify-between ${isDarkMode ? 'border-slate-700 bg-slate-800' : 'border-slate-200 bg-slate-50'}`}>

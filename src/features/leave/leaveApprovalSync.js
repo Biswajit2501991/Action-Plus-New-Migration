@@ -33,8 +33,9 @@ export function normalizeLeaveRequestFromApi(request, extras = {}) {
   const r = request && typeof request === 'object' ? request : {};
   const actionAt = extras.actionAt || r.actionAt || new Date().toISOString();
   const actionBy = extras.actionBy || r.actionBy || r.approvedBy || '';
-  const days = Number.isFinite(Number(r.days))
-    ? Number(r.days)
+  const rawDays = Number(r.days);
+  const days = Number.isFinite(rawDays) && rawDays > 0
+    ? rawDays
     : leaveDaysBetween(r.startDate, r.endDate);
   return {
     ...r,
@@ -59,17 +60,8 @@ export function mergeLeaveRequestIntoList(list, updated) {
   return [updated, ...base];
 }
 
-/** Annual leave allowance minus approved days used in the current calendar year. */
-export function annualLeaveBalanceRemaining(leaveRequests, userId, annualAllowance = 24) {
-  const year = new Date().getFullYear();
-  const key = String(userId || '').trim().toLowerCase();
-  const used = (Array.isArray(leaveRequests) ? leaveRequests : [])
-    .filter((r) => String(r?.status || '') === 'Approved'
-      && String(r?.userId || '').trim().toLowerCase() === key
-      && new Date(r.startDate).getFullYear() === year)
-    .reduce((sum, r) => sum + Number(normalizeLeaveRequestFromApi(r).days || 0), 0);
-  return Math.max(0, annualAllowance - used);
-}
+/** @deprecated import from leaveBalance.js — kept for registerApgModules compatibility */
+export { annualLeaveBalanceRemaining } from './leaveBalance.js';
 
 /**
  * Merge leave rows from GET /settings?scope=leave without clobbering valid cached rows
@@ -81,6 +73,9 @@ export function mergeLeaveRequestsFromPull(prev, remote) {
   const remoteList = remote.map((r) => normalizeLeaveRequestFromApi(r));
   if (!remoteList.length) return prevList.length ? prevList : remoteList;
   const byId = new Map();
+  for (const r of prevList) {
+    if (r?.id) byId.set(String(r.id), r);
+  }
   for (const r of remoteList) {
     if (r?.id) byId.set(String(r.id), r);
   }

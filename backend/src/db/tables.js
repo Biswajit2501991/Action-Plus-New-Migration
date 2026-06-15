@@ -34,6 +34,7 @@ export const T = {
   settings_app_config: 'settings_app_config',
   settings_staff_directory: 'settings_staff_directory',
   leave_requests: 'leave_requests',
+  leave_balance_adjustments: 'leave_balance_adjustments',
   staff_attendance_records: 'staff_attendance_records',
   member_payment_history: 'member_payment_history',
   member_paid_for_month: 'member_paid_for_month',

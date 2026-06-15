@@ -141,6 +141,8 @@ export const Access = {
   ptClientsWritePlan: (a) => a.ptClients.editPtPlan !== false,
   paymentQrView: (a) => a.__owner || a.paymentQr?.viewPaymentQr !== false,
   paymentQrManage: (a) => a.__owner || a.paymentQr?.managePaymentSettings === true,
+  leaveBalanceView: (a) => a.__owner || a.leave?.viewAnnualLeaveBalance !== false,
+  leaveBalanceManage: (a) => a.__owner,
 };
 
 export function invalidateStaffAccessCache(staffLoginId) {

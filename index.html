@@ -19485,9 +19485,7 @@ function PTClientsPage({ members, users, settings, updateSetting, currentUser, a
     }
 
     // ---- Leave Tracker Page (module-registered) ----
-    const LeaveTrackerPage = (window.__APG_MODULES__ && window.__APG_MODULES__.LeaveTrackerPageModule)
-      ? window.__APG_MODULES__.LeaveTrackerPageModule
-      : function LeaveTrackerFallback({ users = [], settings = {}, updateSetting, currentUser = null, access = {}, logEvent, theme = 'light', focusLeaveRequestId = '', focusLeaveUserId = '', onClearFocus }) {
+    function LeaveTrackerFallback({ users = [], settings = {}, updateSetting, currentUser = null, access = {}, logEvent, theme = 'light', focusLeaveRequestId = '', focusLeaveUserId = '', onClearFocus }) {
         const leaveAccess = normalizeAccess(access).leave;
         const canViewCreateLeaveRequest = leaveAccess?.viewCreateLeaveRequest !== false;
         const canViewLeaveRequests = leaveAccess?.viewLeaveRequests !== false;
@@ -19715,7 +19713,11 @@ function PTClientsPage({ members, users, settings, updateSetting, currentUser, a
         };
         const balanceFor = (userId) => {
           const calc = window.__APG_MODULES?.annualLeaveBalanceRemaining;
-          if (typeof calc === 'function') return calc(leaveRequests, userId);
+          const buildAlias = window.__APG_MODULES?.buildStaffLoginAliasMap;
+          const aliasMap = typeof buildAlias === 'function' ? buildAlias(users || []) : null;
+          if (typeof calc === 'function') {
+            return calc(leaveRequests, userId, { aliasMap, year: new Date().getFullYear() });
+          }
           const year = new Date().getFullYear();
           const key = String(userId || '').trim().toLowerCase();
           const used = (leaveRequests || [])
@@ -19885,6 +19887,28 @@ function PTClientsPage({ members, users, settings, updateSetting, currentUser, a
           </div>
         );
       };
+
+    /** Prod bundle runs before async module registration — resolve component at render time. */
+    function LeaveTrackerPage(props) {
+      const [, setModuleTick] = React.useState(
+        () => (window.__APG_MODULES__?.LeaveTrackerPageModule ? 1 : 0),
+      );
+      React.useEffect(() => {
+        if (window.__APG_MODULES__?.LeaveTrackerPageModule) return undefined;
+        const bump = () => setModuleTick((n) => n + 1);
+        window.addEventListener('apg-leave-tracker-ready', bump);
+        const timer = window.setInterval(() => {
+          if (window.__APG_MODULES__?.LeaveTrackerPageModule) bump();
+        }, 200);
+        return () => {
+          window.removeEventListener('apg-leave-tracker-ready', bump);
+          window.clearInterval(timer);
+        };
+      }, []);
+      const Module = window.__APG_MODULES__?.LeaveTrackerPageModule;
+      if (Module) return React.createElement(Module, props);
+      return React.createElement(LeaveTrackerFallback, props);
+    }
 
     const SETTINGS_LOOKUP_DESCRIPTIONS = {
       plans: 'Create and manage membership and subscription plans.',

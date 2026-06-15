@@ -19,6 +19,15 @@ import {
   mergeLeaveRequestsFromPull,
   leaveUserIdsMatch,
 } from '../features/leave/leaveApprovalSync.js';
+import {
+  buildStaffLoginAliasMap,
+  DEFAULT_ANNUAL_LEAVE_DAYS,
+} from '../features/leave/leaveBalance.js';
+import {
+  fetchLeaveBalances,
+  previewLeaveBalanceAdjustment,
+  applyLeaveBalanceAdjustment,
+} from '../features/leave/leaveBalanceApi.js';
 import { buildPtMonthCalendarCells } from '../features/pt/ptWorkoutCalendarGrid.js';
 import { isPtEligibleMember, isPtPlanName } from '../features/pt/ptEligibility.js';
 import LeaveApprovalNotificationCard from '../components/leave/LeaveApprovalNotificationCard.js';
@@ -384,6 +393,8 @@ async function loadLeaveTrackerModuleFromSource(source) {
 
 async function loadLeaveTrackerModuleFromPrebuilt() {
   const url = new URL('../../dist-legacy/modules/LeaveTrackerPageModule.js', import.meta.url);
+  const bust = typeof window !== 'undefined' ? window.__APG_ESM_CACHE_BUST : '';
+  if (bust) url.searchParams.set('v', String(bust));
   if (url.origin !== window.location.origin) throw new Error('prebuilt-cross-origin-blocked');
   const mod = await import(url.href);
   return mod.default || mod;
@@ -452,6 +463,11 @@ window.__APG_MODULES.normalizeLeaveRequestFromApi = normalizeLeaveRequestFromApi
 window.__APG_MODULES.mergeApprovedLeaveIntoAttendance = mergeApprovedLeaveIntoAttendance;
 window.__APG_MODULES.annualLeaveBalanceRemaining = annualLeaveBalanceRemaining;
 window.__APG_MODULES.mergeLeaveRequestsFromPull = mergeLeaveRequestsFromPull;
+window.__APG_MODULES.buildStaffLoginAliasMap = buildStaffLoginAliasMap;
+window.__APG_MODULES.DEFAULT_ANNUAL_LEAVE_DAYS = DEFAULT_ANNUAL_LEAVE_DAYS;
+window.__APG_MODULES.fetchLeaveBalances = fetchLeaveBalances;
+window.__APG_MODULES.previewLeaveBalanceAdjustment = previewLeaveBalanceAdjustment;
+window.__APG_MODULES.applyLeaveBalanceAdjustment = applyLeaveBalanceAdjustment;
 window.__APG_MODULES.leaveUserIdsMatch = leaveUserIdsMatch;
 window.__APG_MODULES.buildPtMonthCalendarCells = buildPtMonthCalendarCells;
 window.__APG_MODULES.isPtEligibleMember = isPtEligibleMember;
@@ -688,6 +704,9 @@ async function register() {
     window.__APG_RESOLVE_MODULES();
   }
   window.__APG_MODULES.LeaveTrackerPageModule = await loadLeaveTrackerModuleWithRetry(3);
+  if (window.__APG_MODULES.LeaveTrackerPageModule) {
+    window.dispatchEvent(new CustomEvent('apg-leave-tracker-ready'));
+  }
   emitTelemetry('info', 'ready', 'Module registration completed');
 }
 

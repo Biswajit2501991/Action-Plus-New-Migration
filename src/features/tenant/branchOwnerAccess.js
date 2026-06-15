@@ -11,7 +11,12 @@ export function authIsMasterOwnerUser(user) {
   const id = String(user.id || '').trim().toLowerCase();
   if (id === 'owner') return true;
   const role = String(user.staffRole || user.role || '').trim().toLowerCase();
-  return role === 'master_owner' || role === 'owner';
+  if (role === 'master_owner' || role === 'owner') return true;
+  const roles = Array.isArray(user.roles) ? user.roles : [];
+  return roles.some((r) => {
+    const key = String(r || '').trim().toLowerCase();
+    return key === 'owner' || key === 'master_owner';
+  });
 }
 
 export function authIsBranchOwnerUser(user) {

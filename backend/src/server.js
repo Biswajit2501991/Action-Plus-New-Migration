@@ -94,6 +94,7 @@ import brandingRouter from './routes/branding.js';
 import memberPhotosRouter from './routes/memberPhotos.js';
 import staffPhotosRouter from './routes/staffPhotos.js';
 import paymentQrRouter from './routes/paymentQr.js';
+import leaveBalanceRouter from './routes/leaveBalance.js';
 import publicPaymentQrRouter from './routes/publicPaymentQr.js';
 import {
   authIsOwner,
@@ -1497,6 +1498,7 @@ app.delete('/api/custom-templates/:id', requireAccess(Access.templatesWrite), as
 });
 
 app.use('/api/payment-qr', paymentQrRouter);
+app.use('/api/leave-balance', leaveBalanceRouter);
 
 // ----------------------------------------------------------------------------
 // Leave Requests — dedicated mutation surface that bypasses the owner-only

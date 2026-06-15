@@ -44,12 +44,21 @@ describe('leaveApprovalSync', () => {
     expect(mergeLeaveRequestsFromPull(prev, [])).toEqual([expect.objectContaining({ id: 'x', days: 1 })]);
   });
 
-  it('mergeLeaveRequestsFromPull replaces with normalized remote rows', () => {
+  it('mergeLeaveRequestsFromPull unions local rows missing from remote', () => {
     const prev = [{ id: 'old', userId: 'deep', status: 'Pending' }];
     const remote = [{ id: 'new', userId: 'deep', status: 'Approved', startDate: '2026-06-01', endDate: '2026-06-02' }];
     const merged = mergeLeaveRequestsFromPull(prev, remote);
+    expect(merged).toHaveLength(2);
+    expect(merged.find((r) => r.id === 'old')?.status).toBe('Pending');
+    expect(merged.find((r) => r.id === 'new')?.days).toBe(2);
+  });
+
+  it('mergeLeaveRequestsFromPull lets remote win when ids collide', () => {
+    const prev = [{ id: 'shared', userId: 'deep', status: 'Pending', days: 1 }];
+    const remote = [{ id: 'shared', userId: 'deep', status: 'Approved', startDate: '2026-06-01', endDate: '2026-06-02' }];
+    const merged = mergeLeaveRequestsFromPull(prev, remote);
     expect(merged).toHaveLength(1);
-    expect(merged[0].id).toBe('new');
+    expect(merged[0].status).toBe('Approved');
     expect(merged[0].days).toBe(2);
   });
 });
