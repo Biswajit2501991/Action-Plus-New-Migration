@@ -32,6 +32,7 @@ import {
   visitorRowToApp,
 } from './mappers.js';
 import { leaveDaysFromDateRange } from './leaveRequestsWrite.js';
+import { filterFinanceBulkWriteRows } from '../../../../src/features/finance/financeRowFilters.js';
 import { branchScopeAllowsMember, branchScopeAllowsMemberTransfer } from '../../auth/branchScope.js';
 import { hashPassword } from '../../auth/passwords.js';
 import { syncGymRowsByExternalId, syncMemberChildRows } from './collectionSync.js';
@@ -2359,6 +2360,9 @@ async function readFinanceSummary(branchScope, options = {}) {
     mapDbPaymentsToRecords,
     paymentInCalendarMonth,
   } = await import('../../services/financeSummaryService.js');
+  const { manualIncomeFinanceRows } = await import(
+    '../../../../src/features/finance/financeRowFilters.js'
+  );
 
   const emptyMonth = (monthKey) => ({
     monthKey,
@@ -2588,8 +2592,7 @@ async function readFinanceSummary(branchScope, options = {}) {
     (sum, p) => sum + Number(p.amount || 0),
     0,
   );
-  const collectedFromLedger = (ledgerFastPath ? collectedPaymentSum : Number(summary.memberPaymentsCollected || 0))
-    + manualIncome;
+  const collectedFromLedger = collectedPaymentSum + manualIncome;
   let serviceFromPayments = ledgerServiceSum;
   let serviceRevenueBasis = ledgerServiceSum > 0
     ? 'member_paid_for_month_active_ledger'
@@ -2619,8 +2622,8 @@ async function readFinanceSummary(branchScope, options = {}) {
         (sum, p) => sum + Number(p.amount || 0),
         0,
       );
-      const prevManual = (Array.isArray(financeRows) ? financeRows : [])
-        .filter((t) => t && t.type !== 'expense' && paymentInCalendarMonth(t.date, prevKey))
+      const prevManual = manualIncomeFinanceRows(financeRows)
+        .filter((t) => paymentInCalendarMonth(t.date, prevKey))
         .reduce((sum, t) => sum + Number(t.amount || 0), 0);
       return prevPaymentSum + prevManual;
     } catch {
@@ -2639,7 +2642,7 @@ async function readFinanceSummary(branchScope, options = {}) {
   const growthPct = prevMonthCollected > 0
     ? Math.round(((collectedFromLedger - prevMonthCollected) / prevMonthCollected) * 1000) / 10
     : (collectedFromLedger > 0 ? 100 : 0);
-  return {
+  const result = {
     ...summary,
     collectedRevenue: collectedFromLedger,
     serviceRevenue: serviceFromPayments + manualIncome,
@@ -2660,17 +2663,30 @@ async function readFinanceSummary(branchScope, options = {}) {
     dbServicePaymentRowsInMonth: serviceRecords.length,
     scopedMemberCount: memberPks.length,
   };
+  if (includeLines) {
+    const { buildCollectedPaymentLines } = await import(
+      '../../../../src/features/finance/financeSummaryDrilldown.js'
+    );
+    result.paymentLines = buildCollectedPaymentLines(collectedRecords, monthKey);
+  }
+  return result;
 }
 
 async function writeFinance(finance, scope) {
   const sb = getSupabase();
   const gid = gymId();
   const incoming = sandboxFilter(Array.isArray(finance) ? finance : [], scope);
+  const { rows: safeIncoming, strippedMirroredRows } = filterFinanceBulkWriteRows(incoming);
+  if (strippedMirroredRows > 0) {
+    console.warn(
+      `[finance] rejected ${strippedMirroredRows} billing-mirror row(s) from bulk write (use member_payment_history)`,
+    );
+  }
 
   const members = await fetchAll((from, to) => sb.from(T.members).select('id, member_code').eq('gym_id', gid).range(from, to));
   const codeToId = new Map((members || []).map((m) => [String(m.member_code), m.id]));
 
-  const rows = incoming.map((t) => appFinanceToRow(t, gid, t.memberId ? codeToId.get(String(t.memberId)) || null : null));
+  const rows = safeIncoming.map((t) => appFinanceToRow(t, gid, t.memberId ? codeToId.get(String(t.memberId)) || null : null));
   await syncGymRowsByExternalId(sb, T.finance_transactions, {
     gymId: gid,
     externalIdColumn: 'external_tx_id',

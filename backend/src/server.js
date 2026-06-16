@@ -17,12 +17,14 @@ import { visitorsHaveGymCodeColumn } from './db/supabase/visitorsSchema.js';
 import { memberPhotosStorageReady } from './services/memberPhoto/memberPhotoSchema.js';
 import { memberPhotoStorageEnabled } from './services/memberPhoto/storageConstants.js';
 import {
-  findOverlappingPendingLeave,
+  findOverlappingBlockingLeave,
   insertLeaveRequest,
   updateLeaveRequestByExternalId,
   deleteLeaveRequestsForUserIds,
   leaveDaysFromDateRange,
 } from './db/supabase/leaveRequestsWrite.js';
+import { findLeaveDateConflicts, formatLeaveOverlapError } from '../../src/features/leave/leaveOverlap.js';
+import { filterFinanceBulkWriteRows } from '../../src/features/finance/financeRowFilters.js';
 import { T } from './db/tables.js';
 import {
   dataBackendLabel,
@@ -1550,6 +1552,19 @@ async function assertStaffLoginExistsForLeave(staffLoginId) {
   return Boolean(data?.id);
 }
 
+async function rejectLeaveOverlap(res, overlap) {
+  const conflicts = Array.isArray(overlap?.conflicts) ? overlap.conflicts : [];
+  return res.status(409).json({
+    error: 'leave-overlap',
+    message: formatLeaveOverlapError(conflicts),
+    conflictDates: conflicts,
+  });
+}
+
+function findLeaveOverlapInList(userId, startDate, endDate, leaveRequests, excludeId = '') {
+  return findLeaveDateConflicts(startDate, endDate, leaveRequests, userId, { excludeId });
+}
+
 app.post('/api/leave-requests', async (req, res) => {
   try {
     const callerIsOwner = leaveRequestIsOwnerCaller(req);
@@ -1563,12 +1578,9 @@ app.post('/api/leave-requests', async (req, res) => {
       if (!staffOk) {
         return res.status(400).json({ error: 'invalid-userId', message: 'Staff user not found for this gym.' });
       }
-      const overlap = await findOverlappingPendingLeave(parsed.userId, parsed.startDate, parsed.endDate);
+      const overlap = await findOverlappingBlockingLeave(parsed.userId, parsed.startDate, parsed.endDate);
       if (overlap) {
-        return res.status(409).json({
-          error: 'leave-overlap',
-          message: 'You already applied leave for these dates.',
-        });
+        return rejectLeaveOverlap(res, overlap);
       }
       const request = {
         id: randomUUID(),
@@ -1589,6 +1601,10 @@ app.post('/api/leave-requests', async (req, res) => {
 
     const current = (await readScopedSettings(req)) || {};
     const existing = Array.isArray(current.leaveRequests) ? current.leaveRequests : [];
+    const overlap = findLeaveOverlapInList(parsed.userId, parsed.startDate, parsed.endDate, existing);
+    if (overlap.hasConflict) {
+      return rejectLeaveOverlap(res, overlap);
+    }
     const request = {
       id: randomUUID(),
       userId: parsed.userId,
@@ -2029,9 +2045,19 @@ app.put('/api/finance/bulk', requireAccess(Access.financeWrite), async (req, res
       });
     }
   }
+  let strippedMirroredRows = 0;
+  if (useSupabase()) {
+    const filtered = filterFinanceBulkWriteRows(incoming);
+    incoming = filtered.rows;
+    strippedMirroredRows = filtered.strippedMirroredRows;
+  }
   await writeScopedCollection(req, 'apg.finance', incoming);
   queueDatabaseBackup('finance-bulk');
-  res.json({ ok: true });
+  res.json({
+    ok: true,
+    acceptedRows: incoming.length,
+    strippedMirroredRows,
+  });
 });
 
 app.get('/api/sms-events', requireAccess(Access.smsRead), async (req, res) => {

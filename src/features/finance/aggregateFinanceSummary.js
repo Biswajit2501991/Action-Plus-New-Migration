@@ -3,6 +3,7 @@ import { buildMonthlyReconciliation } from './buildMonthlyReconciliation.js';
 import { buildFinanceLedgerRows } from './buildFinanceLedger.js';
 import { paymentCalendarDayKey, paymentInCalendarMonth } from './paymentCalendarMonth.js';
 import { paymentInPaidMonth, resolvePaidMonthForPayment, validatePaidMonthKey } from './derivePaidMonth.js';
+import { manualIncomeFinanceRows } from './financeRowFilters.js';
 
 /**
  * Build minimal ledger payment rows from DB/API payment records.
@@ -81,8 +82,10 @@ export function aggregateFinanceMonthSummary(input) {
   } = input;
   const key = String(monthKey || '').trim();
 
-  const manualIncome = (Array.isArray(financeTransactions) ? financeTransactions : [])
-    .filter((t) => t && t.type !== 'expense' && paymentInCalendarMonth(t.date, key))
+  const manualRowsSource = manualIncomeFinanceRows(financeTransactions);
+
+  const manualIncome = manualRowsSource
+    .filter((t) => paymentInCalendarMonth(t.date, key))
     .reduce((sum, t) => sum + Number(t.amount || 0), 0);
 
   const memberPaymentsCollected = sumCollectedFromPaymentRecords(paymentRecords, key);
@@ -92,8 +95,8 @@ export function aggregateFinanceMonthSummary(input) {
     (Array.isArray(paymentRecords) ? paymentRecords : []).filter((p) =>
       paymentInCalendarMonth(p.paidAt || p.receivedAt || p.date, key)),
   );
-  const manualRows = (Array.isArray(financeTransactions) ? financeTransactions : [])
-    .filter((t) => t && t.type !== 'expense' && paymentInCalendarMonth(t.date, key))
+  const manualRows = manualRowsSource
+    .filter((t) => paymentInCalendarMonth(t.date, key))
     .map((t) => ({
       id: t.id,
       type: 'income',

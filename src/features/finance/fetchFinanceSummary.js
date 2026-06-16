@@ -21,7 +21,9 @@ export async function fetchFinanceMonthSummaryWithRetry(backendJson, monthKey, o
   }
   const maxAttempts = Math.max(1, Number(options.maxAttempts) || DEFAULT_MAX_ATTEMPTS);
   const baseDelayMs = Math.max(100, Number(options.baseDelayMs) || DEFAULT_BASE_DELAY_MS);
-  const path = `/finance/summary?month=${encodeURIComponent(key)}`;
+  const includeLines = Boolean(options.includeLines);
+  const linesQuery = includeLines ? '&includeLines=1' : '';
+  const path = `/finance/summary?month=${encodeURIComponent(key)}${linesQuery}`;
   let lastErr;
   for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
     try {

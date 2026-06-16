@@ -1,12 +1,14 @@
+import { formatLeaveOverlapError } from './leaveOverlap.js';
+
 /**
  * User-facing message for POST /api/leave-requests failures.
- * @param {Error & { status?: number; apiError?: string }} err
+ * @param {Error & { status?: number; apiError?: string; conflictDates?: string[] }} err
  */
 export function leaveSubmitErrorMessage(err) {
   const code = String(err?.apiError || '').trim();
   const status = Number(err?.status || 0);
   if (status === 409 || code === 'leave-overlap') {
-    return 'You already applied leave for these dates.';
+    return formatLeaveOverlapError(err?.conflictDates);
   }
   if (code === 'invalid-userId') {
     return 'Staff account not found. Check the username with your owner.';

@@ -50,6 +50,36 @@ describe('aggregateFinanceMonthSummary', () => {
     expect(summary.collectedRevenue).toBe(0);
     expect(summary.serviceRevenue).toBe(900);
   });
+
+  it('excludes mirrored member billing rows from manual income (no double count)', () => {
+    const payments = [
+      { paidAt: '2026-06-10', amount: 1000, memberId: 'M1' },
+    ];
+    const financeTransactions = [
+      {
+        type: 'income',
+        date: '2026-06-10',
+        amount: 1000,
+        note: 'Imported from member billing record',
+        source: 'manual',
+      },
+      {
+        type: 'income',
+        date: '2026-06-12',
+        amount: 200,
+        note: 'PT sale',
+        source: 'manual',
+      },
+    ];
+    const summary = aggregateFinanceMonthSummary({
+      paymentRecords: payments,
+      financeTransactions,
+      monthKey: '2026-06',
+      settings: {},
+    });
+    expect(summary.collectedRevenue).toBe(1200);
+    expect(summary.manualIncomeCollected).toBe(200);
+  });
 });
 
 describe('financeSummaryDelta', () => {

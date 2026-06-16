@@ -14,12 +14,14 @@ import {
   applyGlobalAdjustmentPreview,
   buildLeaveBalancePreviewRows,
   DEFAULT_ANNUAL_LEAVE_DAYS,
+  resolveCanonicalLeaveUserId,
 } from '../features/leave/leaveBalance.js';
 import {
   applyLeaveBalanceAdjustment,
   fetchLeaveBalances,
   previewLeaveBalanceAdjustment,
 } from '../features/leave/leaveBalanceApi.js';
+import { findLeaveDateConflicts, formatLeaveOverlapError } from '../features/leave/leaveOverlap.js';
 
 function iso(val) {
   const d = val instanceof Date ? val : new Date(val);
@@ -77,6 +79,8 @@ export default function LeaveTrackerPageModule({
   const [historyUserFilter, setHistoryUserFilter] = React.useState('');
   const [leaveAdjustments, setLeaveAdjustments] = React.useState([]);
   const [baseLeaveDays, setBaseLeaveDays] = React.useState(DEFAULT_ANNUAL_LEAVE_DAYS);
+  const [balanceRows, setBalanceRows] = React.useState(null);
+  const [balanceReady, setBalanceReady] = React.useState(false);
   const [adjustmentDraft, setAdjustmentDraft] = React.useState('');
   const [adjustmentReason, setAdjustmentReason] = React.useState('');
   const [adjustmentPreview, setAdjustmentPreview] = React.useState(null);
@@ -109,13 +113,19 @@ export default function LeaveTrackerPageModule({
 
   const loadLeaveBalances = React.useCallback(async () => {
     const backendJsonFn = typeof window !== 'undefined' ? window.__APG_BACKEND_JSON__ : null;
-    if (typeof backendJsonFn !== 'function') return;
+    if (typeof backendJsonFn !== 'function') {
+      setBalanceReady(true);
+      return;
+    }
     try {
       const res = await fetchLeaveBalances(backendJsonFn, { year: calendarYear });
       setLeaveAdjustments(res.adjustments || []);
       setBaseLeaveDays(Number(res.baseDays) || DEFAULT_ANNUAL_LEAVE_DAYS);
+      setBalanceRows(Array.isArray(res.rows) ? res.rows : []);
     } catch {
-      /* keep local adjustments empty */
+      setBalanceRows(null);
+    } finally {
+      setBalanceReady(true);
     }
   }, [calendarYear]);
 
@@ -195,6 +205,13 @@ export default function LeaveTrackerPageModule({
       setFormError('End date cannot be before start date.');
       return;
     }
+    const overlap = findLeaveDateConflicts(form.startDate, form.endDate, leaveRequests, form.userId, {
+      aliasMap,
+    });
+    if (overlap.hasConflict) {
+      setFormError(formatLeaveOverlapError(overlap.conflicts));
+      return;
+    }
     setSubmitting(true);
     const days = leaveDaysBetween(form.startDate, form.endDate);
     const callerName = currentUser?.name || currentUser?.id || '';
@@ -267,12 +284,38 @@ export default function LeaveTrackerPageModule({
     }
   };
 
-  const balanceFor = (userId) => annualLeaveBalanceRemaining(leaveRequests, userId, {
-    year: calendarYear,
-    baseDays: baseLeaveDays,
-    adjustments: leaveAdjustments,
+  const balanceByStaffId = React.useMemo(() => {
+    const out = new Map();
+    for (const row of Array.isArray(balanceRows) ? balanceRows : []) {
+      const key = resolveCanonicalLeaveUserId(row?.userId, aliasMap);
+      if (!key) continue;
+      const n = Number(row?.balance);
+      if (Number.isFinite(n)) out.set(key, n);
+    }
+    return out;
+  }, [balanceRows, aliasMap]);
+
+  const balanceFor = React.useCallback((userId) => {
+    const key = resolveCanonicalLeaveUserId(userId, aliasMap);
+    if (balanceReady && balanceByStaffId.has(key)) {
+      return balanceByStaffId.get(key);
+    }
+    if (!balanceReady) return null;
+    return annualLeaveBalanceRemaining(leaveRequests, userId, {
+      year: calendarYear,
+      baseDays: baseLeaveDays,
+      adjustments: leaveAdjustments,
+      aliasMap,
+    });
+  }, [
     aliasMap,
-  });
+    balanceByStaffId,
+    balanceReady,
+    baseLeaveDays,
+    calendarYear,
+    leaveAdjustments,
+    leaveRequests,
+  ]);
   const leaveHistoryRows = React.useMemo(() => {
     const cutoff = new Date();
     cutoff.setFullYear(cutoff.getFullYear() - 2);
@@ -288,6 +331,7 @@ export default function LeaveTrackerPageModule({
   const balanceStaff = isOwnerView
     ? staff
     : staff.filter((s) => leaveUserIdsMatch(s.id, currentUser?.id));
+  const formStaffOptions = balanceStaff;
   const isDarkMode = theme === 'dark';
   const openNativeDatePicker = (e) => {
     e.stopPropagation();
@@ -311,10 +355,10 @@ export default function LeaveTrackerPageModule({
       {canViewCreateLeaveRequest && (
       <div className={cardClass}>
         <h3 className={`text-base font-semibold ${pageTextClass}`}>Create Leave Request</h3>
-        {formError && <div className="rounded-xl border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-700">{formError}</div>}
+        {formError && <div className="rounded-xl border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-700 whitespace-pre-line">{formError}</div>}
         {formSuccess && <div className="rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-700">{formSuccess}</div>}
         <div className="grid grid-cols-1 md:grid-cols-5 gap-3">
-          <div><label className={`text-xs ${isDarkMode ? 'text-slate-300' : 'text-slate-500'}`}>Staff</label><select value={form.userId} onChange={(e) => setForm((v) => ({ ...v, userId: e.target.value }))} className={`mt-1 w-full ${controlClass}`}>{staff.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}</select></div>
+          <div><label className={`text-xs ${isDarkMode ? 'text-slate-300' : 'text-slate-500'}`}>Staff</label><select value={form.userId} disabled={!isOwnerView && formStaffOptions.length <= 1} onChange={(e) => setForm((v) => ({ ...v, userId: e.target.value }))} className={`mt-1 w-full ${controlClass}`}>{formStaffOptions.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}</select></div>
           <div><label className={`text-xs ${isDarkMode ? 'text-slate-300' : 'text-slate-500'}`}>Type</label><select value={form.type} onChange={(e) => setForm((v) => ({ ...v, type: e.target.value }))} className={`mt-1 w-full ${controlClass}`}><option>Casual</option><option>Sick</option><option>Emergency</option><option>Unpaid</option></select></div>
           <div><label className={`text-xs ${isDarkMode ? 'text-slate-300' : 'text-slate-500'}`}>Start</label><input type="date" value={form.startDate} onFocus={openNativeDatePicker} onClick={openNativeDatePicker} onChange={(e) => setForm((v) => ({ ...v, startDate: e.target.value }))} className={`mt-1 w-full ${controlClass}`} /></div>
           <div><label className={`text-xs ${isDarkMode ? 'text-slate-300' : 'text-slate-500'}`}>End</label><input type="date" value={form.endDate} onFocus={openNativeDatePicker} onClick={openNativeDatePicker} onChange={(e) => setForm((v) => ({ ...v, endDate: e.target.value }))} className={`mt-1 w-full ${controlClass}`} /></div>
@@ -466,12 +510,15 @@ export default function LeaveTrackerPageModule({
           </div>
         )}
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">
-          {balanceStaff.map((s) => (
+          {balanceStaff.map((s) => {
+            const balanceValue = balanceFor(s.id);
+            return (
             <div key={s.id} className={`rounded-xl border px-3 py-2 text-sm flex items-center justify-between ${isDarkMode ? 'border-slate-700 bg-slate-800' : 'border-slate-200 bg-slate-50'}`}>
               <span>{s.name}</span>
-              <span className="font-semibold">{balanceFor(s.id)} days</span>
+              <span className="font-semibold">{balanceValue == null ? '…' : `${balanceValue} days`}</span>
             </div>
-          ))}
+            );
+          })}
         </div>
       </div>
       )}

@@ -19,6 +19,8 @@
     "local:health": "zsh scripts/health-check-after-boot.sh http://127.0.0.1:5501/index.html http://127.0.0.1:5501/index.html",
     "local:test": "npm test && npm run local:health",
     "health:check": "zsh scripts/health-check-after-boot.sh",
+    "health:daily": "zsh scripts/daily-health-ping.sh",
+    "health:alert:test": "zsh scripts/health-alert-test.sh",
     "watchdog:start": "zsh scripts/watchdog-autorestart.sh",
     "autostart:install": "zsh scripts/install-autostart-macos.sh",
     "autostart:uninstall": "zsh scripts/uninstall-autostart-macos.sh",

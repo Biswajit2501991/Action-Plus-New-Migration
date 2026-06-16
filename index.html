@@ -3688,15 +3688,20 @@ Phone: +91-7047157510`;
       if (!res.ok) {
         let detail = `backend-${res.status}`;
         let apiError = '';
+        let conflictDates = [];
         try {
           const body = await res.json();
           if (body?.error) apiError = String(body.error);
           if (body?.message) detail = String(body.message);
           else if (apiError) detail = apiError;
+          if (Array.isArray(body?.conflictDates)) {
+            conflictDates = body.conflictDates.filter((d) => typeof d === 'string');
+          }
         } catch {}
         const err = new Error(detail);
         err.status = res.status;
         if (apiError) err.apiError = apiError;
+        if (conflictDates.length) err.conflictDates = conflictDates;
         throw err;
       }
       const data = await res.json();
@@ -19496,9 +19501,35 @@ function PTClientsPage({ members, users, settings, updateSetting, currentUser, a
         const [form, setForm] = React.useState({ userId: currentUser?.id || '', type: 'Casual', startDate: iso(new Date()), endDate: iso(new Date()), reason: '' });
         const [formError, setFormError] = React.useState('');
         const [formSuccess, setFormSuccess] = React.useState('');
+        const [submittingLeave, setSubmittingLeave] = React.useState(false);
         const [historyUserFilter, setHistoryUserFilter] = React.useState('');
         const [leaveRequestPage, setLeaveRequestPage] = React.useState(1);
         const staff = (users || []).filter(u => !u.blocked);
+        const isOwnerLeaveView = currentUser?.id === 'owner' || currentUser?.id === 'manager';
+        const staffMatches = (a, b) => String(a || '').trim().toLowerCase() === String(b || '').trim().toLowerCase();
+        const formStaffOptions = isOwnerLeaveView ? staff : staff.filter((s) => staffMatches(s.id, currentUser?.id));
+        const [leaveBalanceRows, setLeaveBalanceRows] = React.useState(null);
+        const [leaveBalanceReady, setLeaveBalanceReady] = React.useState(false);
+        React.useEffect(() => {
+          const fetchFn = window.__APG_MODULES?.fetchLeaveBalances;
+          const backendJsonFn = typeof window !== 'undefined' ? window.__APG_BACKEND_JSON__ : null;
+          if (typeof fetchFn !== 'function' || typeof backendJsonFn !== 'function') {
+            setLeaveBalanceReady(true);
+            return undefined;
+          }
+          let cancelled = false;
+          fetchFn(backendJsonFn, { year: new Date().getFullYear() })
+            .then((res) => {
+              if (!cancelled) setLeaveBalanceRows(Array.isArray(res?.rows) ? res.rows : []);
+            })
+            .catch(() => {
+              if (!cancelled) setLeaveBalanceRows(null);
+            })
+            .finally(() => {
+              if (!cancelled) setLeaveBalanceReady(true);
+            });
+          return () => { cancelled = true; };
+        }, [currentUser?.id]);
         const filteredLeaveRequests = React.useMemo(() => {
           if (focusLeaveRequestId) return leaveRequests.filter((r) => r.id === focusLeaveRequestId);
           if (focusLeaveUserId) return leaveRequests.filter((r) => r.userId === focusLeaveUserId);
@@ -19599,6 +19630,7 @@ function PTClientsPage({ members, users, settings, updateSetting, currentUser, a
         // local settings via the FUNCTIONAL updater so we always reconcile
         // against the freshest in-memory snapshot.
         const submitLeave = async () => {
+          if (submittingLeave) return;
           setFormError('');
           setFormSuccess('');
           if (!form.userId || !form.startDate || !form.endDate) {
@@ -19609,10 +19641,22 @@ function PTClientsPage({ members, users, settings, updateSetting, currentUser, a
             setFormError('End date cannot be before start date.');
             return;
           }
+          const findConflicts = window.__APG_MODULES?.findLeaveDateConflicts;
+          const formatOverlap = window.__APG_MODULES?.formatLeaveOverlapError;
+          const buildAlias = window.__APG_MODULES?.buildStaffLoginAliasMap;
+          if (typeof findConflicts === 'function' && typeof formatOverlap === 'function') {
+            const aliasMap = typeof buildAlias === 'function' ? buildAlias(staff) : null;
+            const overlap = findConflicts(form.startDate, form.endDate, leaveRequests, form.userId, { aliasMap });
+            if (overlap?.hasConflict) {
+              setFormError(formatOverlap(overlap.conflicts));
+              return;
+            }
+          }
           if (typeof updateSetting !== 'function') {
             setFormError('Leave tracker save is temporarily unavailable. Please refresh.');
             return;
           }
+          setSubmittingLeave(true);
           const days = daysBetween(form.startDate, form.endDate);
           const callerName = currentUser?.name || currentUser?.id || '';
           const backendJsonFn = typeof window !== 'undefined' ? window.__APG_BACKEND_JSON__ : null;
@@ -19631,12 +19675,15 @@ function PTClientsPage({ members, users, settings, updateSetting, currentUser, a
               });
               request = resp && resp.request ? resp.request : null;
             } catch (err) {
-              const overlapMsg = (err?.status === 409 || err?.apiError === 'leave-overlap')
-                ? 'You already applied leave for these dates.'
-                : '';
-              setFormError(overlapMsg || (String(err?.message || '').trim() && !String(err.message).startsWith('backend-')
-                ? `Could not submit leave: ${err.message}`
-                : 'Could not submit leave request. Please try again.'));
+              const overlapFn = window.__APG_MODULES?.leaveSubmitErrorMessage;
+              setFormError(typeof overlapFn === 'function'
+                ? overlapFn(err)
+                : ((err?.status === 409 || err?.apiError === 'leave-overlap')
+                  ? 'Leave application already exists for one or more selected dates. Please review your existing leave requests before applying again.'
+                  : (String(err?.message || '').trim() && !String(err.message).startsWith('backend-')
+                    ? `Could not submit leave: ${err.message}`
+                    : 'Could not submit leave request. Please try again.')));
+              setSubmittingLeave(false);
               return;
             }
           }
@@ -19665,6 +19712,7 @@ function PTClientsPage({ members, users, settings, updateSetting, currentUser, a
           }
           setForm(v => ({ ...v, reason: '' }));
           setFormSuccess('Leave request submitted.');
+          setSubmittingLeave(false);
           setTimeout(() => setFormSuccess(''), 2000);
         };
         const updateStatus = async (id, status) => {
@@ -19712,17 +19760,25 @@ function PTClientsPage({ members, users, settings, updateSetting, currentUser, a
           }
         };
         const balanceFor = (userId) => {
-          const calc = window.__APG_MODULES?.annualLeaveBalanceRemaining;
+          const resolveCanonical = window.__APG_MODULES?.resolveCanonicalLeaveUserId;
           const buildAlias = window.__APG_MODULES?.buildStaffLoginAliasMap;
           const aliasMap = typeof buildAlias === 'function' ? buildAlias(users || []) : null;
+          const key = typeof resolveCanonical === 'function'
+            ? resolveCanonical(userId, aliasMap)
+            : String(userId || '').trim().toLowerCase();
+          if (leaveBalanceReady && Array.isArray(leaveBalanceRows)) {
+            const hit = leaveBalanceRows.find((row) => staffMatches(row?.userId, key));
+            if (hit && Number.isFinite(Number(hit.balance))) return Number(hit.balance);
+          }
+          if (!leaveBalanceReady) return null;
+          const calc = window.__APG_MODULES?.annualLeaveBalanceRemaining;
           if (typeof calc === 'function') {
             return calc(leaveRequests, userId, { aliasMap, year: new Date().getFullYear() });
           }
           const year = new Date().getFullYear();
-          const key = String(userId || '').trim().toLowerCase();
           const used = (leaveRequests || [])
             .filter((r) => String(r?.status || '') === 'Approved'
-              && String(r?.userId || '').trim().toLowerCase() === key
+              && staffMatches(r?.userId, key)
               && new Date(r.startDate).getFullYear() === year)
             .reduce((sum, r) => {
               const n = Number(r.days);
@@ -19756,14 +19812,14 @@ function PTClientsPage({ members, users, settings, updateSetting, currentUser, a
             {canViewCreateLeaveRequest && (
             <div className="rounded-3xl border border-slate-200 bg-white p-4 space-y-3 dark:border-slate-700 dark:bg-slate-900/85">
               <h3 className="text-base font-semibold text-slate-900 dark:text-slate-100">Create Leave Request</h3>
-              {formError && <div className="rounded-xl border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-700">{formError}</div>}
+              {formError && <div className="rounded-xl border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-700 whitespace-pre-line">{formError}</div>}
               {formSuccess && <div className="rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-700">{formSuccess}</div>}
               <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-5 gap-3">
-                <div className="min-w-0"><label className="text-xs text-slate-500 dark:text-slate-300">Staff</label><select value={form.userId} onChange={(e) => setForm(v => ({ ...v, userId: e.target.value }))} className="mt-1 w-full min-w-0 rounded-xl border border-slate-300 px-3 py-2 text-sm bg-white text-slate-900 dark:bg-slate-800 dark:text-slate-100 dark:border-slate-600">{staff.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}</select></div>
+                <div className="min-w-0"><label className="text-xs text-slate-500 dark:text-slate-300">Staff</label><select value={form.userId} disabled={!isOwnerLeaveView && formStaffOptions.length <= 1} onChange={(e) => setForm(v => ({ ...v, userId: e.target.value }))} className="mt-1 w-full min-w-0 rounded-xl border border-slate-300 px-3 py-2 text-sm bg-white text-slate-900 dark:bg-slate-800 dark:text-slate-100 dark:border-slate-600">{formStaffOptions.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}</select></div>
                 <div className="min-w-0"><label className="text-xs text-slate-500 dark:text-slate-300">Type</label><select value={form.type} onChange={(e) => setForm(v => ({ ...v, type: e.target.value }))} className="mt-1 w-full min-w-0 rounded-xl border border-slate-300 px-3 py-2 text-sm bg-white text-slate-900 dark:bg-slate-800 dark:text-slate-100 dark:border-slate-600"><option>Casual</option><option>Sick</option><option>Emergency</option><option>Unpaid</option></select></div>
                 <div className="min-w-0"><label className="text-xs text-slate-500 dark:text-slate-300">Start</label><input type="date" value={form.startDate} onChange={(e) => setForm(v => ({ ...v, startDate: e.target.value }))} className="mt-1 w-full min-w-0 rounded-xl border border-slate-300 px-3 py-2 text-sm bg-white text-slate-900 dark:bg-slate-800 dark:text-slate-100 dark:border-slate-600" /></div>
                 <div className="min-w-0"><label className="text-xs text-slate-500 dark:text-slate-300">End</label><input type="date" value={form.endDate} onChange={(e) => setForm(v => ({ ...v, endDate: e.target.value }))} className="mt-1 w-full min-w-0 rounded-xl border border-slate-300 px-3 py-2 text-sm bg-white text-slate-900 dark:bg-slate-800 dark:text-slate-100 dark:border-slate-600" /></div>
-                <div className="sm:col-span-2 xl:col-span-1 xl:self-end min-w-0"><button type="button" onClick={submitLeave} className="w-full rounded-full bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700">Submit</button></div>
+                <div className="sm:col-span-2 xl:col-span-1 xl:self-end min-w-0"><button type="button" disabled={submittingLeave} onClick={submitLeave} className={`w-full rounded-full px-4 py-2 text-sm font-medium text-white ${submittingLeave ? 'bg-blue-400 cursor-not-allowed' : 'bg-blue-600 hover:bg-blue-700'}`}>{submittingLeave ? 'Saving...' : 'Submit'}</button></div>
                 <div className="sm:col-span-2 xl:col-span-5 min-w-0"><input value={form.reason} onChange={(e) => setForm(v => ({ ...v, reason: e.target.value }))} placeholder="Reason for leave request" className="w-full min-w-0 rounded-xl border border-slate-300 px-3 py-2 text-sm bg-white text-slate-900 placeholder:text-slate-400 dark:bg-slate-800 dark:text-slate-100 dark:placeholder:text-slate-400 dark:border-slate-600" /></div>
               </div>
             </div>
@@ -19827,12 +19883,15 @@ function PTClientsPage({ members, users, settings, updateSetting, currentUser, a
             <div className="rounded-3xl border border-slate-200 bg-white p-4 dark:border-slate-700 dark:bg-slate-900/85">
               <h3 className="text-base font-semibold mb-2 text-slate-900 dark:text-slate-100">Annual Leave Balance</h3>
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">
-                {staff.map(s => (
+                {formStaffOptions.map(s => {
+                  const balanceValue = balanceFor(s.id);
+                  return (
                   <div key={s.id} className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-sm flex items-center justify-between text-slate-900 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100">
                     <span>{s.name}</span>
-                    <span className="font-semibold">{balanceFor(s.id)} days</span>
+                    <span className="font-semibold">{balanceValue == null ? '…' : `${balanceValue} days`}</span>
                   </div>
-                ))}
+                  );
+                })}
               </div>
             </div>
             )}
@@ -23303,6 +23362,10 @@ function PTClientsPage({ members, users, settings, updateSetting, currentUser, a
       const [showExpenseForm, setShowExpenseForm] = React.useState(false);
       const [showExpenseLedger, setShowExpenseLedger] = React.useState(false);
       const [showRevenueDrilldown, setShowRevenueDrilldown] = React.useState(false);
+      const [revenueDrilldownApi, setRevenueDrilldownApi] = React.useState(null);
+      const [revenueDrilldownApiMonth, setRevenueDrilldownApiMonth] = React.useState('');
+      const [revenueDrilldownLoading, setRevenueDrilldownLoading] = React.useState(false);
+      const [revenueDrilldownError, setRevenueDrilldownError] = React.useState('');
       const [serverSummary, setServerSummary] = React.useState(null);
       const serverSummaryStableRef = React.useRef(null);
       const [serverSummaryLoading, setServerSummaryLoading] = React.useState(false);
@@ -23322,6 +23385,8 @@ function PTClientsPage({ members, users, settings, updateSetting, currentUser, a
       const today = new Date();
       const financeBranchId = String(activeBranchId || '').trim() || 'default';
       const financeEpochEffectReadyRef = React.useRef(false);
+      const revenueDrilldownApiRef = React.useRef(null);
+      const revenueDrilldownFetchMonthRef = React.useRef('');
 
       const manualFinanceRows = React.useMemo(() => {
         const mapManual = window.__APG_MODULES?.mapManualFinanceLedgerRows;
@@ -23502,7 +23567,7 @@ function PTClientsPage({ members, users, settings, updateSetting, currentUser, a
           useEstimatedExpense,
         });
       }, [transactions, financeMonth, useEstimatedExpense, today]);
-      const revenueDrilldownRows = React.useMemo(() => {
+      const clientDrilldownRows = React.useMemo(() => {
         const classifyFn = window.__APG_MODULES?.classifyRevenueBucket;
         const ptSetFn = window.__APG_MODULES?.ptClientMemberIdSet;
         const ptIds = typeof ptSetFn === 'function' ? ptSetFn(settings, members) : new Set();
@@ -23515,7 +23580,84 @@ function PTClientsPage({ members, users, settings, updateSetting, currentUser, a
           const typeLabel = bucket === 'pt' ? 'PT' : (bucket === 'membership' ? 'Membership' : 'Other');
           return { ...r, runningTotal: running, typeLabel };
         });
-      }, [incomeRowsCollected, membersById, settings]);
+      }, [incomeRowsCollected, membersById, settings, members]);
+      const canReadFinance = canReadFinanceSummary(access, isOwner);
+      React.useEffect(() => {
+        revenueDrilldownApiRef.current = revenueDrilldownApi;
+      }, [revenueDrilldownApi]);
+      const revenueDrilldownRows = React.useMemo(() => {
+        if (useBackendFinanceTotals && revenueDrilldownApi && revenueDrilldownApiMonth === financeMonth) {
+          const buildFn = window.__APG_MODULES?.buildDrilldownRowsFromFinanceSummary;
+          const classifyFn = window.__APG_MODULES?.classifyRevenueBucket;
+          const ptSetFn = window.__APG_MODULES?.ptClientMemberIdSet;
+          const ptIds = typeof ptSetFn === 'function' ? ptSetFn(settings, members) : new Set();
+          if (typeof buildFn === 'function') {
+            return buildFn(revenueDrilldownApi, {
+              classifyRevenueBucket: classifyFn,
+              ptClientMemberIds: ptIds,
+              memberById: (id) => membersById.get(String(id)),
+            });
+          }
+        }
+        if (useBackendFinanceTotals && revenueDrilldownLoading) return [];
+        return clientDrilldownRows;
+      }, [useBackendFinanceTotals, revenueDrilldownApi, revenueDrilldownApiMonth, financeMonth, revenueDrilldownLoading, clientDrilldownRows, membersById, settings, members]);
+      const revenueDrilldownTotal = useBackendFinanceTotals
+        ? Number(revenue ?? 0)
+        : (clientDrilldownRows.length
+          ? Number(clientDrilldownRows[clientDrilldownRows.length - 1]?.runningTotal ?? 0)
+          : Number(clientCollected || 0));
+      React.useEffect(() => {
+        if (!showRevenueDrilldown || !useBackendFinanceTotals || !financeMonth || !canReadFinance) {
+          if (!showRevenueDrilldown) {
+            setRevenueDrilldownApi(null);
+            setRevenueDrilldownApiMonth('');
+            setRevenueDrilldownError('');
+            setRevenueDrilldownLoading(false);
+            revenueDrilldownApiRef.current = null;
+            revenueDrilldownFetchMonthRef.current = '';
+          }
+          return undefined;
+        }
+        let cancelled = false;
+        const monthChanged = revenueDrilldownFetchMonthRef.current !== financeMonth;
+        if (monthChanged) {
+          revenueDrilldownApiRef.current = null;
+          setRevenueDrilldownApi(null);
+          setRevenueDrilldownApiMonth('');
+        }
+        const hasCachedRows = !monthChanged && revenueDrilldownApiRef.current;
+        if (!hasCachedRows) {
+          setRevenueDrilldownLoading(true);
+        }
+        setRevenueDrilldownError('');
+        const fetchFn = window.__APG_MODULES?.fetchFinanceMonthSummaryWithRetry;
+        const run = async () => {
+          try {
+            const body = typeof fetchFn === 'function'
+              ? await fetchFn(backendJson, financeMonth, { includeLines: true })
+              : await backendJson(`/finance/summary?month=${encodeURIComponent(financeMonth)}&includeLines=1`);
+            if (cancelled) return;
+            const next = body && typeof body === 'object' ? body : null;
+            revenueDrilldownApiRef.current = next;
+            revenueDrilldownFetchMonthRef.current = financeMonth;
+            setRevenueDrilldownApiMonth(financeMonth);
+            setRevenueDrilldownApi(next);
+          } catch (err) {
+            if (cancelled) return;
+            if (!hasCachedRows) {
+              revenueDrilldownApiRef.current = null;
+              setRevenueDrilldownApi(null);
+              setRevenueDrilldownApiMonth('');
+            }
+            setRevenueDrilldownError(String(err?.message || err || 'Could not load income rows'));
+          } finally {
+            if (!cancelled) setRevenueDrilldownLoading(false);
+          }
+        };
+        void run();
+        return () => { cancelled = true; };
+      }, [showRevenueDrilldown, useBackendFinanceTotals, financeMonth, canReadFinance, financeMetricsEpoch]);
       const fetchFinanceServerSummary = React.useCallback((opts = {}) => {
         if (dataSyncMode !== 'backend' || !financeMonth || !canReadFinanceSummary(access, isOwner)) return undefined;
         const silent = Boolean(opts.silent);
@@ -23579,8 +23721,8 @@ function PTClientsPage({ members, users, settings, updateSetting, currentUser, a
       const revenueVerification = React.useMemo(() => {
         const deltaFn = window.__APG_MODULES?.financeSummaryDelta;
         if (!activeServerSummary || typeof deltaFn !== 'function') return null;
-        return deltaFn(activeServerSummary.collectedRevenue, revenue);
-      }, [activeServerSummary, revenue]);
+        return deltaFn(activeServerSummary.collectedRevenue, clientCollected);
+      }, [activeServerSummary, clientCollected]);
       const addExpenseRow = () => {
         if (!canFinanceManageExpenses) return;
         const amount = Number(expenseDraft.amount || 0);
@@ -24143,9 +24285,25 @@ function PTClientsPage({ members, users, settings, updateSetting, currentUser, a
             <div className="fixed inset-0 z-[80] flex items-center justify-center bg-black/50 p-4" onClick={() => setShowRevenueDrilldown(false)}>
               <div className={cx(cardBase, 'max-w-5xl w-full max-h-[85vh] overflow-hidden flex flex-col')} onClick={(e) => e.stopPropagation()}>
                 <div className="flex items-center justify-between mb-3">
-                  <h2 className="text-lg font-semibold text-slate-900 dark:text-slate-100">Collected Income — {financeMonthBounds.label}</h2>
+                  <div>
+                    <h2 className="text-lg font-semibold text-slate-900 dark:text-slate-100">Collected Income — {financeMonthBounds.label}</h2>
+                    <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
+                      {useBackendFinanceTotals
+                        ? 'Payment received this month (database verified · matches Collected Revenue card)'
+                        : 'Payment received this month (local ledger)'}
+                    </p>
+                  </div>
                   <button type="button" onClick={() => setShowRevenueDrilldown(false)} className="rounded-full border border-slate-300 px-3 py-1 text-sm">Close</button>
                 </div>
+                {revenueDrilldownLoading && useBackendFinanceTotals && !revenueDrilldownApi && (
+                  <div className="text-sm text-slate-500 dark:text-slate-400 mb-2">Loading income rows…</div>
+                )}
+                {revenueDrilldownLoading && useBackendFinanceTotals && revenueDrilldownApi && (
+                  <div className="text-xs text-slate-400 dark:text-slate-500 mb-2">Refreshing income rows…</div>
+                )}
+                {revenueDrilldownError && useBackendFinanceTotals && (
+                  <div className="text-sm text-amber-700 dark:text-amber-300 mb-2">{revenueDrilldownError} Showing local ledger rows.</div>
+                )}
                 <div className="overflow-auto flex-1">
                   <table className="min-w-full text-sm">
                     <thead>
@@ -24173,10 +24331,22 @@ function PTClientsPage({ members, users, settings, updateSetting, currentUser, a
                           <td className="px-2 py-2 text-right font-semibold">₹{r.runningTotal.toLocaleString('en-IN')}</td>
                         </tr>
                       ))}
-                      {revenueDrilldownRows.length === 0 && (
+                      {revenueDrilldownRows.length === 0 && !revenueDrilldownLoading && (
                         <tr><td colSpan={8} className="px-3 py-6 text-center text-slate-500">No collected income rows this month.</td></tr>
                       )}
                     </tbody>
+                    {revenueDrilldownRows.length > 0 && (
+                      <tfoot>
+                        <tr className="border-t-2 border-slate-300 dark:border-slate-600 bg-slate-50 dark:bg-slate-800/80">
+                          <td colSpan={7} className="px-2 py-3 text-right font-semibold text-slate-700 dark:text-slate-200">
+                            Total (matches Collected Revenue)
+                          </td>
+                          <td className="px-2 py-3 text-right font-bold text-emerald-700 dark:text-emerald-400">
+                            ₹{Number(revenueDrilldownTotal || 0).toLocaleString('en-IN')}
+                          </td>
+                        </tr>
+                      </tfoot>
+                    )}
                   </table>
                 </div>
               </div>
@@ -24524,7 +24694,7 @@ function PTClientsPage({ members, users, settings, updateSetting, currentUser, a
             ok: true,
             status: 200,
             month,
-            collectedRevenue: Number(body?.collectedRevenue ?? body?.dbLedgerActiveSum ?? 0),
+            collectedRevenue: Number(body?.collectedRevenue ?? 0),
             revenueBasis: body?.revenueBasis || '',
           });
         } catch (err) {

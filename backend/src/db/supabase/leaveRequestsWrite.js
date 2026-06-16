@@ -3,6 +3,7 @@ import { T } from '../tables.js';
 import { notifyCollectionChange } from '../../realtime/supabaseListener.js';
 import { getSupabase, gymId } from './client.js';
 import { fetchAll, toDate, toTs } from './utils.js';
+import { findLeaveDateConflicts } from '../../../../src/features/leave/leaveOverlap.js';
 
 export function appLeaveRequestToRow(gid, appRequest) {
   const r = appRequest && typeof appRequest === 'object' ? appRequest : {};
@@ -158,16 +159,22 @@ function chunkIds(arr, size) {
 }
 
 /**
- * Pending leave overlap for same staff user (optional block duplicate submissions).
+ * Blocking leave overlap for same staff user (Pending, Approved, Submitted, etc.).
+ * Rejected/Cancelled rows are ignored.
  */
-export async function findOverlappingPendingLeave(userId, startDate, endDate, excludeId = '') {
+export async function findOverlappingBlockingLeave(userId, startDate, endDate, excludeId = '') {
   const uid = String(userId || '').trim();
   const rows = await listLeaveRequestsForGym();
-  return rows.find((r) => {
-    if (String(r.id) === String(excludeId || '')) return false;
-    if (String(r.userId || '') !== uid) return false;
-    const st = String(r.status || '').toLowerCase();
-    if (st !== 'pending') return false;
-    return leaveDateRangesOverlap(startDate, endDate, r.startDate, r.endDate);
-  }) || null;
+  const result = findLeaveDateConflicts(startDate, endDate, rows, uid, { excludeId });
+  if (!result.hasConflict) return null;
+  return {
+    conflicts: result.conflicts,
+    request: result.overlappingRequest,
+  };
+}
+
+/** @deprecated Use findOverlappingBlockingLeave */
+export async function findOverlappingPendingLeave(userId, startDate, endDate, excludeId = '') {
+  const hit = await findOverlappingBlockingLeave(userId, startDate, endDate, excludeId);
+  return hit?.request || null;
 }

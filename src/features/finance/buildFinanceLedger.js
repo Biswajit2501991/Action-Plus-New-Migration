@@ -8,6 +8,7 @@ import {
   buildPaymentIncomeLedgerRows,
   mapManualFinanceLedgerRows,
 } from './financeLedger.js';
+import { manualIncomeFinanceRows } from './financeRowFilters.js';
 
 /**
  * @param {object[]} members
@@ -39,7 +40,7 @@ export function buildFinanceLedgerRows(members, financeTransactions, deps = {}) 
       today,
     })
     : [];
-  const manual = mapManualFinanceLedgerRows(financeTransactions).map((t) => ({
+  const manual = mapManualFinanceLedgerRows(manualIncomeFinanceRows(financeTransactions)).map((t) => ({
     ...t,
     date: (typeof calendarDateKey === 'function' ? calendarDateKey(t.date) : t.date) || t.date,
   }));

@@ -9,6 +9,12 @@ import {
   pickMemberBillingSource,
 } from '../features/members/memberBillingMerge.js';
 import { leaveSubmitErrorMessage } from '../features/leave/leaveSubmitError.js';
+import {
+  findLeaveDateConflicts,
+  formatLeaveConflictDate,
+  formatLeaveOverlapError,
+  isBlockingLeaveStatus,
+} from '../features/leave/leaveOverlap.js';
 import { createLeaveApprovalHandlers } from '../features/leave/leaveApprovalHandlers.js';
 import {
   patchLeaveRequestStatus,
@@ -21,6 +27,7 @@ import {
 } from '../features/leave/leaveApprovalSync.js';
 import {
   buildStaffLoginAliasMap,
+  resolveCanonicalLeaveUserId,
   DEFAULT_ANNUAL_LEAVE_DAYS,
 } from '../features/leave/leaveBalance.js';
 import {
@@ -227,6 +234,11 @@ import {
   fetchFinanceYearSummaryWithRetry,
   collectedTrendFromYearSummary,
 } from '../features/finance/fetchFinanceSummary.js';
+import {
+  buildCollectedPaymentLines,
+  buildDrilldownRowsFromFinanceSummary,
+  sumDrilldownRowAmounts,
+} from '../features/finance/financeSummaryDrilldown.js';
 import {
   getCachedFinanceMonthSummary,
   getCachedFinanceYearSummary,
@@ -456,6 +468,10 @@ window.__APG_MODULES.pickMemberBillingSource = pickMemberBillingSource;
 window.__APG_MODULES.mergeMemberPatchResponse = mergeMemberPatchResponse;
 window.__APG_MODULES.toCalendarDateKey = toCalendarDateKey;
 window.__APG_MODULES.leaveSubmitErrorMessage = leaveSubmitErrorMessage;
+window.__APG_MODULES.findLeaveDateConflicts = findLeaveDateConflicts;
+window.__APG_MODULES.formatLeaveOverlapError = formatLeaveOverlapError;
+window.__APG_MODULES.formatLeaveConflictDate = formatLeaveConflictDate;
+window.__APG_MODULES.isBlockingLeaveStatus = isBlockingLeaveStatus;
 window.__APG_MODULES.createLeaveApprovalHandlers = createLeaveApprovalHandlers;
 window.__APG_MODULES.patchLeaveRequestStatus = patchLeaveRequestStatus;
 window.__APG_MODULES.mergeLeaveRequestIntoList = mergeLeaveRequestIntoList;
@@ -463,6 +479,7 @@ window.__APG_MODULES.normalizeLeaveRequestFromApi = normalizeLeaveRequestFromApi
 window.__APG_MODULES.mergeApprovedLeaveIntoAttendance = mergeApprovedLeaveIntoAttendance;
 window.__APG_MODULES.annualLeaveBalanceRemaining = annualLeaveBalanceRemaining;
 window.__APG_MODULES.mergeLeaveRequestsFromPull = mergeLeaveRequestsFromPull;
+window.__APG_MODULES.resolveCanonicalLeaveUserId = resolveCanonicalLeaveUserId;
 window.__APG_MODULES.buildStaffLoginAliasMap = buildStaffLoginAliasMap;
 window.__APG_MODULES.DEFAULT_ANNUAL_LEAVE_DAYS = DEFAULT_ANNUAL_LEAVE_DAYS;
 window.__APG_MODULES.fetchLeaveBalances = fetchLeaveBalances;
@@ -618,6 +635,9 @@ window.__APG_MODULES.ANCHORED_POPOVER_LAYER_CLASS = ANCHORED_POPOVER_LAYER_CLASS
 window.__APG_MODULES.ANCHORED_POPOVER_Z_INDEX = ANCHORED_POPOVER_Z_INDEX;
 window.__APG_MODULES.HeaderDatePicker = HeaderDatePicker;
 window.__APG_MODULES.fetchFinanceMonthSummaryWithRetry = fetchFinanceMonthSummaryWithRetry;
+window.__APG_MODULES.buildCollectedPaymentLines = buildCollectedPaymentLines;
+window.__APG_MODULES.buildDrilldownRowsFromFinanceSummary = buildDrilldownRowsFromFinanceSummary;
+window.__APG_MODULES.sumDrilldownRowAmounts = sumDrilldownRowAmounts;
 window.__APG_MODULES.fetchFinanceYearSummaryWithRetry = fetchFinanceYearSummaryWithRetry;
 window.__APG_MODULES.collectedTrendFromYearSummary = collectedTrendFromYearSummary;
 window.__APG_MODULES.getCachedFinanceMonthSummary = getCachedFinanceMonthSummary;
