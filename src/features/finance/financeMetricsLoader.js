@@ -4,10 +4,15 @@ import {
 } from './fetchFinanceSummary.js';
 import {
   getCachedFinanceMonthSummary,
+  getCachedFinanceMonthSummaryWithLines,
   getCachedFinanceYearSummary,
   setCachedFinanceMonthSummary,
+  setCachedFinanceMonthSummaryWithLines,
   setCachedFinanceYearSummary,
 } from './financeMetricsCache.js';
+
+/** Default TTL for income-lines cache (5 minutes). */
+export const FINANCE_LINES_CACHE_TTL_MS = 5 * 60 * 1000;
 
 /**
  * Cache-first month summary. Network only on miss or force.
@@ -24,6 +29,24 @@ export async function loadFinanceMonthSummaryCached(backendJson, branchId, month
   }
   const data = await fetchFinanceMonthSummaryWithRetry(backendJson, monthKey);
   setCachedFinanceMonthSummary(branchId, monthKey, data);
+  return { data, fromCache: false };
+}
+
+/**
+ * Cache-first month summary with paymentLines (View Income drilldown).
+ * @param {(path: string) => Promise<unknown>} backendJson
+ * @param {string} branchId
+ * @param {string} monthKey
+ * @param {{ force?: boolean }} [options]
+ */
+export async function loadFinanceMonthSummaryWithLinesCached(backendJson, branchId, monthKey, options = {}) {
+  const force = Boolean(options.force);
+  if (!force) {
+    const cached = getCachedFinanceMonthSummaryWithLines(branchId, monthKey);
+    if (cached) return { data: cached, fromCache: true };
+  }
+  const data = await fetchFinanceMonthSummaryWithRetry(backendJson, monthKey, { includeLines: true });
+  setCachedFinanceMonthSummaryWithLines(branchId, monthKey, data);
   return { data, fromCache: false };
 }
 

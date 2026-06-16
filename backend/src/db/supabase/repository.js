@@ -2525,14 +2525,8 @@ async function readFinanceSummary(branchScope, options = {}) {
     const fromIso = `${year}-01-01T00:00:00.000Z`;
     const toExclusiveIso = `${year + 1}-01-01T00:00:00.000Z`;
     const collectedRecords = await loadPaymentsInRange(fromIso, toExclusiveIso);
-    const serviceRecords = await loadPaymentsForServiceYear(year);
-    const paymentById = new Map();
-    for (const p of [...collectedRecords, ...serviceRecords]) {
-      paymentById.set(String(p.id || ''), p);
-    }
-    const paymentRecords = [...paymentById.values()].filter((p) => p.id);
     const months = buildYearReconciliationFromRecords(
-      paymentRecords,
+      collectedRecords,
       financeRows,
       year,
       settings,
@@ -2630,15 +2624,23 @@ async function readFinanceSummary(branchScope, options = {}) {
       return 0;
     }
   })();
-  const expenseProfit = summary.expenses != null
-    ? {
-      expense: summary.expenses,
-      actualExpense: summary.actualExpenses,
-      profit: collectedFromLedger - Number(summary.expenses || 0),
-      expenseSubtitle: summary.expenseSubtitle,
-      useEstimateFallback: summary.useEstimateFallback,
-    }
-    : { expense: 0, profit: collectedFromLedger, expenseSubtitle: '', useEstimateFallback: false };
+  const expenseLedgerRows = (Array.isArray(financeRows) ? financeRows : [])
+    .filter((t) => t && t.type === 'expense' && paymentInCalendarMonth(t.date, monthKey))
+    .map((t) => ({
+      type: 'expense',
+      date: String(t.date || '').slice(0, 10),
+      amount: Number(t.amount || 0),
+      status: 'posted',
+      category: t.category || '',
+    }));
+  const { resolveMonthExpenseAndProfit } = await import(
+    '../../../../src/features/finance/buildFinanceKpis.js'
+  );
+  const expenseProfit = resolveMonthExpenseAndProfit(
+    expenseLedgerRows,
+    collectedFromLedger,
+    settings?.financeUseEstimatedExpense !== false,
+  );
   const growthPct = prevMonthCollected > 0
     ? Math.round(((collectedFromLedger - prevMonthCollected) / prevMonthCollected) * 1000) / 10
     : (collectedFromLedger > 0 ? 100 : 0);
@@ -2648,7 +2650,11 @@ async function readFinanceSummary(branchScope, options = {}) {
     serviceRevenue: serviceFromPayments + manualIncome,
     memberPaymentsCollected: collectedPaymentSum,
     memberPaymentsService: ledgerServiceSum || serviceFromPayments,
+    expenses: expenseProfit.expense,
+    actualExpenses: expenseProfit.actualExpense,
     profit: expenseProfit.profit,
+    expenseSubtitle: expenseProfit.expenseSubtitle,
+    useEstimateFallback: expenseProfit.useEstimateFallback,
     revenueGrowthPct: growthPct,
     prevMonthCollected,
     collectedRevenueBasis: 'payment_transaction_date_utc_calendar',

@@ -23370,6 +23370,8 @@ function PTClientsPage({ members, users, settings, updateSetting, currentUser, a
       const serverSummaryStableRef = React.useRef(null);
       const [serverSummaryLoading, setServerSummaryLoading] = React.useState(false);
       const [serverSummaryError, setServerSummaryError] = React.useState('');
+      const [yearReconciliationRows, setYearReconciliationRows] = React.useState(null);
+      const yearReconciliationStableRef = React.useRef(null);
       const [expenseMonthFilter, setExpenseMonthFilter] = React.useState('');
       const [financeMonth, setFinanceMonth] = React.useState(() => {
         const n = new Date();
@@ -23385,6 +23387,7 @@ function PTClientsPage({ members, users, settings, updateSetting, currentUser, a
       const today = new Date();
       const financeBranchId = String(activeBranchId || '').trim() || 'default';
       const financeEpochEffectReadyRef = React.useRef(false);
+      const yearReconciliationEpochReadyRef = React.useRef(false);
       const revenueDrilldownApiRef = React.useRef(null);
       const revenueDrilldownFetchMonthRef = React.useRef('');
 
@@ -23517,12 +23520,18 @@ function PTClientsPage({ members, users, settings, updateSetting, currentUser, a
       const serviceRevenue = useBackendFinanceTotals
         ? (activeServerSummary ? serverServiceRaw : 0)
         : clientService;
-      const expense = financeKpis?.expense ?? 0;
-      const expenseSubtitle = financeKpis?.expenseSubtitle ?? '';
+      const expense = useBackendFinanceTotals && activeServerSummary
+        ? Number(activeServerSummary.expenses ?? 0)
+        : (financeKpis?.expense ?? 0);
+      const expenseSubtitle = useBackendFinanceTotals && activeServerSummary?.expenseSubtitle
+        ? String(activeServerSummary.expenseSubtitle)
+        : (financeKpis?.expenseSubtitle ?? '');
       const profit = useBackendFinanceTotals && activeServerSummary && activeServerSummary.profit != null
         ? Number(activeServerSummary.profit)
         : (financeKpis?.profit ?? 0);
-      const hasExpenseRows = financeKpis?.hasExpenseRows ?? false;
+      const hasExpenseRows = useBackendFinanceTotals && activeServerSummary
+        ? Number(activeServerSummary.actualExpenses || 0) > 0
+        : (financeKpis?.hasExpenseRows ?? false);
       const revenueGrowthPct = useBackendFinanceTotals && activeServerSummary && typeof activeServerSummary.revenueGrowthPct === 'number'
         ? Number(activeServerSummary.revenueGrowthPct)
         : (financeKpis?.revenueGrowthPct ?? 0);
@@ -23559,14 +23568,37 @@ function PTClientsPage({ members, users, settings, updateSetting, currentUser, a
           : { categories: [], total: 0 };
       }, [reportingMonthLedger]);
       const monthlyReconciliation = React.useMemo(() => {
+        const reconciliationYear = parseInt(String(financeMonth || '').slice(0, 4), 10) || today.getFullYear();
+        const apiRows = yearReconciliationRows ?? yearReconciliationStableRef.current;
+        if (useBackendFinanceTotals && Array.isArray(apiRows) && apiRows.length) {
+          const mapped = apiRows.map((row) => ({
+            monthKey: String(row.monthKey || ''),
+            label: String(row.label || row.monthKey || ''),
+            incomeCollected: Number(row.incomeCollected ?? 0),
+            expenses: Number(row.expenses ?? 0),
+            profit: Number(row.profit ?? 0),
+          }));
+          if (activeServerSummary && financeMonth) {
+            return mapped.map((row) => (
+              row.monthKey === financeMonth
+                ? {
+                  ...row,
+                  incomeCollected: Number(activeServerSummary.collectedRevenue ?? row.incomeCollected),
+                  expenses: Number(activeServerSummary.expenses ?? row.expenses),
+                  profit: Number(activeServerSummary.profit ?? row.profit),
+                }
+                : row
+            ));
+          }
+          return mapped;
+        }
         const buildFn = window.__APG_MODULES?.buildMonthlyReconciliation;
-        const year = parseInt(String(financeMonth || '').slice(0, 4), 10) || today.getFullYear();
         if (typeof buildFn !== 'function') return [];
-        return buildFn(transactions, year, {
+        return buildFn(transactions, reconciliationYear, {
           monthLabels: MONTHS,
           useEstimatedExpense,
         });
-      }, [transactions, financeMonth, useEstimatedExpense, today]);
+      }, [useBackendFinanceTotals, yearReconciliationRows, activeServerSummary, financeMonth, transactions, useEstimatedExpense, today]);
       const clientDrilldownRows = React.useMemo(() => {
         const classifyFn = window.__APG_MODULES?.classifyRevenueBucket;
         const ptSetFn = window.__APG_MODULES?.ptClientMemberIdSet;
@@ -23632,11 +23664,18 @@ function PTClientsPage({ members, users, settings, updateSetting, currentUser, a
         }
         setRevenueDrilldownError('');
         const fetchFn = window.__APG_MODULES?.fetchFinanceMonthSummaryWithRetry;
+        const loadLinesFn = window.__APG_MODULES?.loadFinanceMonthSummaryWithLinesCached;
         const run = async () => {
           try {
-            const body = typeof fetchFn === 'function'
-              ? await fetchFn(backendJson, financeMonth, { includeLines: true })
-              : await backendJson(`/finance/summary?month=${encodeURIComponent(financeMonth)}&includeLines=1`);
+            const monthResult = typeof loadLinesFn === 'function'
+              ? await loadLinesFn(backendJson, financeBranchId, financeMonth, { force: false })
+              : {
+                data: typeof fetchFn === 'function'
+                  ? await fetchFn(backendJson, financeMonth, { includeLines: true })
+                  : await backendJson(`/finance/summary?month=${encodeURIComponent(financeMonth)}&includeLines=1`),
+                fromCache: false,
+              };
+            const body = monthResult?.data ?? monthResult;
             if (cancelled) return;
             const next = body && typeof body === 'object' ? body : null;
             revenueDrilldownApiRef.current = next;
@@ -23718,6 +23757,58 @@ function PTClientsPage({ members, users, settings, updateSetting, currentUser, a
         }
         return fetchFinanceServerSummary({ silent: true, force: true });
       }, [financeMetricsEpoch, financeMonth, dataSyncMode, access, isOwner, fetchFinanceServerSummary]);
+      const fetchYearReconciliation = React.useCallback((opts = {}) => {
+        if (dataSyncMode !== 'backend' || !financeMonth || !canReadFinanceSummary(access, isOwner)) return undefined;
+        const year = parseInt(String(financeMonth || '').slice(0, 4), 10);
+        if (!year) return undefined;
+        const force = Boolean(opts.force);
+        const loadYearFn = window.__APG_MODULES?.loadFinanceYearSummaryCached;
+        let cancelled = false;
+        const run = async () => {
+          try {
+            const yearResult = typeof loadYearFn === 'function'
+              ? await loadYearFn(backendJson, financeBranchId, year, { force })
+              : { data: await backendJson(`/finance/summary?year=${encodeURIComponent(String(year))}`), fromCache: false };
+            if (cancelled) return;
+            const months = Array.isArray(yearResult?.data?.months) ? yearResult.data.months : [];
+            yearReconciliationStableRef.current = months;
+            setYearReconciliationRows(months);
+          } catch {
+            if (!cancelled) {
+              yearReconciliationStableRef.current = null;
+              setYearReconciliationRows(null);
+            }
+          }
+        };
+        void run();
+        return () => { cancelled = true; };
+      }, [dataSyncMode, financeMonth, access, isOwner, financeBranchId]);
+      React.useEffect(() => {
+        if (dataSyncMode !== 'backend' || !financeMonth || !canReadFinanceSummary(access, isOwner)) {
+          yearReconciliationStableRef.current = null;
+          setYearReconciliationRows(null);
+          return undefined;
+        }
+        const year = parseInt(String(financeMonth).slice(0, 4), 10);
+        const getYear = window.__APG_MODULES?.getCachedFinanceYearSummary;
+        if (year && typeof getYear === 'function') {
+          const cached = getYear(financeBranchId, year);
+          if (cached?.months) {
+            yearReconciliationStableRef.current = cached.months;
+            setYearReconciliationRows(cached.months);
+            return undefined;
+          }
+        }
+        return fetchYearReconciliation();
+      }, [financeMonth, dataSyncMode, access, isOwner, financeBranchId, fetchYearReconciliation]);
+      React.useEffect(() => {
+        if (dataSyncMode !== 'backend' || !financeMonth || !canReadFinanceSummary(access, isOwner)) return undefined;
+        if (!yearReconciliationEpochReadyRef.current) {
+          yearReconciliationEpochReadyRef.current = true;
+          return undefined;
+        }
+        return fetchYearReconciliation({ force: true });
+      }, [financeMetricsEpoch, financeMonth, dataSyncMode, access, isOwner, fetchYearReconciliation]);
       const revenueVerification = React.useMemo(() => {
         const deltaFn = window.__APG_MODULES?.financeSummaryDelta;
         if (!activeServerSummary || typeof deltaFn !== 'function') return null;
@@ -24218,7 +24309,7 @@ function PTClientsPage({ members, users, settings, updateSetting, currentUser, a
                     <div className="text-lg font-bold text-indigo-700 dark:text-indigo-300">
                       ₹{Number(serverSummary.serviceRevenue || 0).toLocaleString('en-IN')}
                     </div>
-                    <div>{Number(serverSummary.dbLedgerServiceSum || serverSummary.servicePaymentCount || 0)} ledger rows</div>
+                    <div>{Number(serverSummary.dbServicePaymentRowsInMonth || serverSummary.servicePaymentCount || 0)} ledger rows</div>
                   </div>
                   <div>
                     <span className="text-slate-500">Screen collected (ledger)</span>
@@ -24571,7 +24662,12 @@ function PTClientsPage({ members, users, settings, updateSetting, currentUser, a
             <div className="fixed inset-0 z-[70] flex items-center justify-center apg-modal-backdrop p-3">
               <div className="w-full max-w-4xl rounded-3xl bg-white dark:bg-slate-900 p-5 shadow-xl space-y-4 max-h-[88vh] overflow-hidden flex flex-col dark:text-slate-100">
                 <div className="flex items-center justify-between">
-                  <h3 className="text-lg font-semibold text-slate-900 dark:text-slate-100">Staff Added Expenses</h3>
+                  <div>
+                    <h3 className="text-lg font-semibold text-slate-900 dark:text-slate-100">Staff Added Expenses</h3>
+                    <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
+                      Logged staff expense rows only. The Expenses card may show a 26% estimate when no rows are saved for the month.
+                    </p>
+                  </div>
                   <button onClick={() => setShowExpenseLedger(false)} className="rounded-xl p-2 text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-800">✕</button>
                 </div>
                 <div className="flex items-center gap-3 flex-wrap">

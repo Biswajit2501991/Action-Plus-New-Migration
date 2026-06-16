@@ -241,8 +241,10 @@ import {
 } from '../features/finance/financeSummaryDrilldown.js';
 import {
   getCachedFinanceMonthSummary,
+  getCachedFinanceMonthSummaryWithLines,
   getCachedFinanceYearSummary,
   setCachedFinanceMonthSummary,
+  setCachedFinanceMonthSummaryWithLines,
   setCachedFinanceYearSummary,
   invalidateFinanceMetrics,
   clearFinanceMetricsCache,
@@ -251,6 +253,7 @@ import {
 } from '../features/finance/financeMetricsCache.js';
 import {
   loadFinanceMonthSummaryCached,
+  loadFinanceMonthSummaryWithLinesCached,
   loadFinanceYearSummaryCached,
 } from '../features/finance/financeMetricsLoader.js';
 import {
@@ -641,14 +644,17 @@ window.__APG_MODULES.sumDrilldownRowAmounts = sumDrilldownRowAmounts;
 window.__APG_MODULES.fetchFinanceYearSummaryWithRetry = fetchFinanceYearSummaryWithRetry;
 window.__APG_MODULES.collectedTrendFromYearSummary = collectedTrendFromYearSummary;
 window.__APG_MODULES.getCachedFinanceMonthSummary = getCachedFinanceMonthSummary;
+window.__APG_MODULES.getCachedFinanceMonthSummaryWithLines = getCachedFinanceMonthSummaryWithLines;
 window.__APG_MODULES.getCachedFinanceYearSummary = getCachedFinanceYearSummary;
 window.__APG_MODULES.setCachedFinanceMonthSummary = setCachedFinanceMonthSummary;
+window.__APG_MODULES.setCachedFinanceMonthSummaryWithLines = setCachedFinanceMonthSummaryWithLines;
 window.__APG_MODULES.setCachedFinanceYearSummary = setCachedFinanceYearSummary;
 window.__APG_MODULES.invalidateFinanceMetrics = invalidateFinanceMetrics;
 window.__APG_MODULES.clearFinanceMetricsCache = clearFinanceMetricsCache;
 window.__APG_MODULES.dispatchFinanceMetricsInvalidate = dispatchFinanceMetricsInvalidate;
 window.__APG_MODULES.subscribeFinanceMetricsInvalidation = subscribeFinanceMetricsInvalidation;
 window.__APG_MODULES.loadFinanceMonthSummaryCached = loadFinanceMonthSummaryCached;
+window.__APG_MODULES.loadFinanceMonthSummaryWithLinesCached = loadFinanceMonthSummaryWithLinesCached;
 window.__APG_MODULES.loadFinanceYearSummaryCached = loadFinanceYearSummaryCached;
 window.__APG_MODULES.PASSWORD_RESET_STATUS = PASSWORD_RESET_STATUS;
 window.__APG_MODULES.passwordResetStatusFromRecord = passwordResetStatusFromRecord;

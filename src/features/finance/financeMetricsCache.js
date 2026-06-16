@@ -4,9 +4,10 @@
  */
 
 const monthCache = new Map();
+const monthLinesCache = new Map();
 const yearCache = new Map();
 
-const SESSION_PREFIX = 'apg.financeMetrics.v1';
+const SESSION_PREFIX = 'apg.financeMetrics.v2';
 const BC_CHANNEL = 'apg-finance-metrics';
 
 let broadcastChannel = null;
@@ -25,6 +26,10 @@ function yearCacheKey(branchId, year) {
 
 function sessionMonthKey(branchId, monthKey) {
   return `${SESSION_PREFIX}:m:${monthCacheKey(branchId, monthKey)}`;
+}
+
+function sessionMonthLinesKey(branchId, monthKey) {
+  return `${SESSION_PREFIX}:ml:${monthCacheKey(branchId, monthKey)}`;
 }
 
 function sessionYearKey(branchId, year) {
@@ -122,6 +127,30 @@ export function setCachedFinanceMonthSummary(branchId, monthKey, data) {
   writeSessionJson(sessionMonthKey(branchId, monthKey), entry);
 }
 
+/**
+ * Month summary with paymentLines (View Income drilldown). Separate from card cache.
+ * @param {string} branchId
+ * @param {string} monthKey YYYY-MM
+ */
+export function getCachedFinanceMonthSummaryWithLines(branchId, monthKey) {
+  const key = monthCacheKey(branchId, monthKey);
+  const hit = monthLinesCache.get(key);
+  if (hit?.data) return hit.data;
+  const session = readSessionJson(sessionMonthLinesKey(branchId, monthKey));
+  if (session?.data) {
+    monthLinesCache.set(key, { data: session.data, fetchedAt: session.fetchedAt || Date.now() });
+    return session.data;
+  }
+  return null;
+}
+
+export function setCachedFinanceMonthSummaryWithLines(branchId, monthKey, data) {
+  const key = monthCacheKey(branchId, monthKey);
+  const entry = { data, fetchedAt: Date.now() };
+  monthLinesCache.set(key, entry);
+  writeSessionJson(sessionMonthLinesKey(branchId, monthKey), entry);
+}
+
 export function setCachedFinanceYearSummary(branchId, year, data) {
   const key = yearCacheKey(branchId, year);
   const entry = { data, fetchedAt: Date.now() };
@@ -147,10 +176,14 @@ export function invalidateFinanceMetrics(options = {}) {
     for (const k of [...monthCache.keys()]) {
       if (k.startsWith(`${branchId}:`)) monthCache.delete(k);
     }
+    for (const k of [...monthLinesCache.keys()]) {
+      if (k.startsWith(`${branchId}:`)) monthLinesCache.delete(k);
+    }
     for (const k of [...yearCache.keys()]) {
       if (k.startsWith(`${branchId}:`)) yearCache.delete(k);
     }
     removeSessionByPrefix(`${SESSION_PREFIX}:m:${branchId}:`);
+    removeSessionByPrefix(`${SESSION_PREFIX}:ml:${branchId}:`);
     removeSessionByPrefix(`${SESSION_PREFIX}:y:${branchId}:`);
   } else {
     const months = Array.isArray(options.months) ? options.months : [];
@@ -158,8 +191,11 @@ export function invalidateFinanceMetrics(options = {}) {
     for (const monthKey of months) {
       const mk = String(monthKey || '').trim();
       if (!mk) continue;
-      monthCache.delete(monthCacheKey(branchId, mk));
+      const mkKey = monthCacheKey(branchId, mk);
+      monthCache.delete(mkKey);
+      monthLinesCache.delete(mkKey);
       try { sessionStorage.removeItem(sessionMonthKey(branchId, mk)); } catch { /* ignore */ }
+      try { sessionStorage.removeItem(sessionMonthLinesKey(branchId, mk)); } catch { /* ignore */ }
       const y = mk.slice(0, 4);
       if (y) {
         yearCache.delete(yearCacheKey(branchId, y));
@@ -186,6 +222,7 @@ export function clearFinanceMetricsCache(branchId) {
     return;
   }
   monthCache.clear();
+  monthLinesCache.clear();
   yearCache.clear();
   removeSessionByPrefix(SESSION_PREFIX);
   postInvalidation({ all: true, broadcast: false, reason: 'global-clear' });

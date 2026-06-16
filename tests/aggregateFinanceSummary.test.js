@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import {
   aggregateFinanceMonthSummary,
+  buildYearCollectedReconciliationFromPayments,
   financeSummaryDelta,
   sumCollectedFromPaymentRecords,
   sumServiceRevenueFromPaymentRecords,
@@ -79,6 +80,40 @@ describe('aggregateFinanceMonthSummary', () => {
     });
     expect(summary.collectedRevenue).toBe(1200);
     expect(summary.manualIncomeCollected).toBe(200);
+  });
+});
+
+describe('buildYearCollectedReconciliationFromPayments', () => {
+  it('matches month summary collected + expense basis per month', () => {
+    const payments = [
+      { paidAt: '2026-06-10', amount: 1000, memberId: 'M1' },
+      { paidAt: '2026-05-04', amount: 500, memberId: 'M2' },
+    ];
+    const financeTransactions = [
+      {
+        type: 'income',
+        date: '2026-06-12',
+        amount: 200,
+        note: 'PT sale',
+        source: 'manual',
+      },
+    ];
+    const monthSummary = aggregateFinanceMonthSummary({
+      paymentRecords: payments,
+      financeTransactions,
+      monthKey: '2026-06',
+      settings: { financeUseEstimatedExpense: true },
+    });
+    const yearRows = buildYearCollectedReconciliationFromPayments(
+      payments,
+      financeTransactions,
+      2026,
+      { financeUseEstimatedExpense: true },
+    );
+    const jun = yearRows.find((r) => r.monthKey === '2026-06');
+    expect(jun.incomeCollected).toBe(monthSummary.collectedRevenue);
+    expect(jun.expenses).toBe(monthSummary.expenses);
+    expect(jun.profit).toBe(monthSummary.profit);
   });
 });
 

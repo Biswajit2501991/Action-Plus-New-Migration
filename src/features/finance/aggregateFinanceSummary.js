@@ -258,6 +258,66 @@ export function aggregateYearReconciliation(paymentRecords, financeTransactions,
   });
 }
 
+function pad2(n) {
+  return String(n).padStart(2, '0');
+}
+
+/**
+ * Year reconciliation using the same collected-revenue basis as GET /finance/summary?month=.
+ * Payment sum by paid_at calendar month + manual income (mirrors excluded) + expense estimate.
+ * @param {object[]} paymentRecords collected payments (any month in year)
+ * @param {object[]} financeTransactions
+ * @param {number|string} year
+ * @param {object} settings
+ * @param {{ monthLabels?: string[] }} [options]
+ */
+export function buildYearCollectedReconciliationFromPayments(
+  paymentRecords,
+  financeTransactions,
+  year,
+  settings,
+  options = {},
+) {
+  const y = Number(year);
+  if (!y) return [];
+  const labels = Array.isArray(options.monthLabels) ? options.monthLabels : [];
+  const useEstimatedExpense = settings?.financeUseEstimatedExpense !== false;
+  const manualRows = manualIncomeFinanceRows(financeTransactions);
+  const financeRows = Array.isArray(financeTransactions) ? financeTransactions : [];
+  const rows = [];
+  for (let m = 1; m <= 12; m += 1) {
+    const monthKey = `${y}-${pad2(m)}`;
+    const paymentSum = sumCollectedFromPaymentRecords(paymentRecords, monthKey);
+    const manualIncome = manualRows
+      .filter((t) => paymentInCalendarMonth(t.date, monthKey))
+      .reduce((sum, t) => sum + Number(t.amount || 0), 0);
+    const collectedFromLedger = paymentSum + manualIncome;
+    const expenseLedgerRows = financeRows
+      .filter((t) => t && t.type === 'expense' && paymentInCalendarMonth(t.date, monthKey))
+      .map((t) => ({
+        type: 'expense',
+        date: String(t.date || '').slice(0, 10),
+        amount: Number(t.amount || 0),
+        status: 'posted',
+        category: t.category || '',
+      }));
+    const expenseProfit = resolveMonthExpenseAndProfit(
+      expenseLedgerRows,
+      collectedFromLedger,
+      useEstimatedExpense,
+    );
+    rows.push({
+      monthKey,
+      label: labels[m - 1] ? `${labels[m - 1]} ${y}` : monthKey,
+      incomeCollected: collectedFromLedger,
+      expenses: expenseProfit.expense,
+      actualExpenses: expenseProfit.actualExpense,
+      profit: expenseProfit.profit,
+    });
+  }
+  return rows;
+}
+
 /** Compare server payment sum vs client collected KPI. */
 export function financeSummaryDelta(serverCollected, clientCollected) {
   const server = Number(serverCollected || 0);

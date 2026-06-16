@@ -1,6 +1,6 @@
 import {
   aggregateFinanceMonthSummary,
-  aggregateYearReconciliation,
+  buildYearCollectedReconciliationFromPayments,
 } from '../../../src/features/finance/aggregateFinanceSummary.js';
 import { calendarMonthPaidAtBounds, paymentInCalendarMonth } from '../../../src/features/finance/paymentCalendarMonth.js';
 
@@ -45,5 +45,10 @@ export function buildMonthSummaryFromRecords(paymentRecords, financeRows, monthK
 }
 
 export function buildYearReconciliationFromRecords(paymentRecords, financeRows, year, settings) {
-  return aggregateYearReconciliation(paymentRecords, financeRows, year, settings);
+  return buildYearCollectedReconciliationFromPayments(
+    paymentRecords,
+    financeRows,
+    year,
+    settings,
+  );
 }
