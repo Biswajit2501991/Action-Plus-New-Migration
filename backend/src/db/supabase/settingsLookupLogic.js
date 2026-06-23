@@ -58,3 +58,37 @@ export function shouldSkipLookupCategorySync(wantList, haveRows) {
   const have = Array.isArray(haveRows) ? haveRows : [];
   return want.length === 0 && have.length > 0;
 }
+
+/**
+ * Duplicate check for lookup insert. Same label may exist on different branches.
+ * @returns {object|null}
+ */
+export function findActiveLookupDuplicate(existingRows, {
+  value,
+  createdByGymCodeId = null,
+  createdByRole = null,
+}) {
+  const val = String(value || '').trim();
+  if (!val) return null;
+  const rows = (Array.isArray(existingRows) ? existingRows : [])
+    .filter((r) => r.is_active !== false && String(r.value || '').trim() === val);
+
+  const branch = String(createdByGymCodeId || '').trim();
+  const role = String(createdByRole || '').trim().toLowerCase();
+
+  for (const row of rows) {
+    const rowBranch = String(row.created_by_gym_code_id || '').trim();
+    const rowRole = String(row.created_by_role || '').trim().toLowerCase();
+
+    if (branch) {
+      if (rowBranch === branch) return row;
+      continue;
+    }
+
+    if (!rowBranch || rowRole === 'master_owner' || rowRole === 'owner') return row;
+    if (!role || role === 'master_owner' || role === 'owner') {
+      if (!rowBranch) return row;
+    }
+  }
+  return null;
+}

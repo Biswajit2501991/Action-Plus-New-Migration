@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   applySettingsConfigJson,
+  findActiveLookupDuplicate,
   preserveNonEmptyLookups,
   shouldSkipLookupCategorySync,
   stripSettingsLookupKeys,
@@ -92,5 +93,32 @@ describe('shouldSkipLookupCategorySync', () => {
 
   it('allows sync when payload has values', () => {
     expect(shouldSkipLookupCategorySync(['Cash'], [{ id: 1 }])).toBe(false);
+  });
+});
+
+describe('findActiveLookupDuplicate', () => {
+  const branchA = 'branch-a';
+  const branchB = 'branch-b';
+
+  it('allows same plan name on different branches', () => {
+    const rows = [
+      { id: 1, value: 'Plan B', created_by_gym_code_id: branchA, created_by_role: 'branch_owner', is_active: true },
+    ];
+    expect(findActiveLookupDuplicate(rows, {
+      value: 'Plan B',
+      createdByGymCodeId: branchB,
+      createdByRole: 'branch_owner',
+    })).toBeNull();
+  });
+
+  it('detects duplicate on the same branch', () => {
+    const rows = [
+      { id: 1, value: 'Plan B', created_by_gym_code_id: branchB, created_by_role: 'branch_owner', is_active: true },
+    ];
+    expect(findActiveLookupDuplicate(rows, {
+      value: 'Plan B',
+      createdByGymCodeId: branchB,
+      createdByRole: 'branch_owner',
+    })?.id).toBe(1);
   });
 });

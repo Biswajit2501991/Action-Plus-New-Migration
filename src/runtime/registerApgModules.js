@@ -39,6 +39,15 @@ import {
   isRecordNewWithinHours,
   NEW_RECORD_BADGE_HOURS,
 } from '../lib/isRecordNewWithinHours.js';
+import {
+  clearSettingsLookups,
+  filterUsersForActiveBranchDisplay,
+  mergeSettingsLookupsForBranchReplace,
+  mergeSettingsLookupList,
+  scopeSettingsForActiveBranch,
+  SETTINGS_LOOKUP_KEYS,
+  staffFilterOptionsForActiveBranch,
+} from '../features/settings/settingsBranchScope.js';
 import { buildPtMonthCalendarCells } from '../features/pt/ptWorkoutCalendarGrid.js';
 import { isPtEligibleMember, isPtPlanName } from '../features/pt/ptEligibility.js';
 import LeaveApprovalNotificationCard from '../components/leave/LeaveApprovalNotificationCard.js';
@@ -625,6 +634,13 @@ window.__APG_MODULES.syncAllStaffPhotoUrls = syncAllStaffPhotoUrls;
 window.__APG_MODULES.buildHeaderBranchSwitcherModel = buildHeaderBranchSwitcherModel;
 window.__APG_MODULES.activeBranchIdsForDataScope = activeBranchIdsForDataScope;
 window.__APG_MODULES.shouldReplaceBranchDataOnHydrate = shouldReplaceBranchDataOnHydrate;
+window.__APG_MODULES.SETTINGS_LOOKUP_KEYS = SETTINGS_LOOKUP_KEYS;
+window.__APG_MODULES.scopeSettingsForActiveBranch = scopeSettingsForActiveBranch;
+window.__APG_MODULES.mergeSettingsLookupsForBranchReplace = mergeSettingsLookupsForBranchReplace;
+window.__APG_MODULES.mergeSettingsLookupList = mergeSettingsLookupList;
+window.__APG_MODULES.clearSettingsLookups = clearSettingsLookups;
+window.__APG_MODULES.filterUsersForActiveBranchDisplay = filterUsersForActiveBranchDisplay;
+window.__APG_MODULES.staffFilterOptionsForActiveBranch = staffFilterOptionsForActiveBranch;
 window.__APG_MODULES.mergeMembersAfterBranchReplace = mergeMembersAfterBranchReplace;
 window.__APG_MODULES.mergeVisitorsAfterBranchReplace = mergeVisitorsAfterBranchReplace;
 window.__APG_MODULES.scopeMembersToUserBranch = scopeMembersToUserBranch;

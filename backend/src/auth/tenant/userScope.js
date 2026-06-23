@@ -4,14 +4,16 @@ import {
   authIsBranchOwner,
   authIsMasterOwner,
   resolveAllowedBranchIds,
+  resolveReadBranchIds,
 } from './scopedAuth.js';
 
 const PROTECTED_STAFF_IDS = new Set(['bis', 'raja', 'owner']);
 
 export function filterUsersForAuth(users, auth) {
   const list = Array.isArray(users) ? users : [];
-  if (authHasGlobalBranchRead(auth)) return list;
-  const allowed = new Set(resolveAllowedBranchIds(auth) || []);
+  const readIds = resolveReadBranchIds(auth);
+  if (readIds === null) return list;
+  const allowed = new Set(readIds);
   if (!allowed.size) return [];
   return list.filter((u) => {
     const login = String(u?.id || '').trim().toLowerCase();
@@ -30,7 +32,8 @@ export function sanitizeUsersBulkForAuth(users, auth) {
   const list = Array.isArray(users) ? users : [];
   if (authHasGlobalBranchRead(auth)) return list;
   if (!authIsBranchOwner(auth)) return list;
-  const allowed = new Set(resolveAllowedBranchIds(auth) || []);
+  const readIds = resolveReadBranchIds(auth);
+  const allowed = new Set(readIds === null ? [] : readIds);
   return list
     .filter((u) => {
       const login = String(u?.id || '').trim().toLowerCase();

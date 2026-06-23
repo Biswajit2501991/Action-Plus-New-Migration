@@ -64,6 +64,7 @@ import {
   toDate,
   toTs,
 } from './utils.js';
+import { filterSettingsLookupRowsForAuth } from './settingsLookupBranchFilter.js';
 import { stripVisitorGymCodeColumn, visitorsHaveGymCodeColumn } from './visitorsSchema.js';
 import { syncStaffUserAccess, syncStaffUserSections } from './staffUserSync.js';
 import {
@@ -73,6 +74,7 @@ import {
 } from './paymentIds.js';
 import {
   applySettingsConfigJson,
+  findActiveLookupDuplicate,
   preserveNonEmptyLookups,
   shouldSkipLookupCategorySync,
 } from './settingsLookupLogic.js';
@@ -1521,6 +1523,22 @@ async function settingsLookupHasBranchColumn(sb) {
   return settingsLookupBranchColumnKnown;
 }
 
+/** HQ gym_codes.id for this gym — fallback when owner adds config without active branch. */
+export async function resolveDefaultLookupGymCodeId(sb = null) {
+  const client = sb || getSupabase();
+  const gid = gymId();
+  const { data: hq } = await client
+    .from(T.gym_codes)
+    .select('id')
+    .eq('gym_id', gid)
+    .eq('code', 'HQ')
+    .maybeSingle();
+  if (hq?.id) return String(hq.id);
+  const rows = await fetchAll((from, to) =>
+    client.from(T.gym_codes).select('id').eq('gym_id', gid).order('code').limit(1).range(from, to));
+  return rows[0]?.id ? String(rows[0].id) : '';
+}
+
 function authIsMasterOwnerLike(auth) {
   const role = String(auth?.staffRole || auth?.staff_role || auth?.role || '').trim().toLowerCase();
   const id = String(auth?.userId || '').trim().toLowerCase();
@@ -1601,16 +1619,7 @@ async function readSettings(scope, options = {}) {
 
   let lookups = Array.isArray(lookupsRaw) ? lookupsRaw : [];
   const auth = options?.auth || null;
-  if (auth && !authIsMasterOwnerLike(auth)) {
-    const allowed = new Set(authAllowedBranchIds(auth));
-    lookups = lookups.filter((row) => {
-      const createdRole = String(row?.created_by_role || '').trim().toLowerCase();
-      if (createdRole !== 'branch_owner') return true; // keep global/master values visible
-      const rowBranch = String(row?.created_by_gym_code_id || '').trim();
-      if (!rowBranch) return false;
-      return allowed.has(rowBranch);
-    });
-  }
+  lookups = filterSettingsLookupRowsForAuth(lookups, auth);
 
   const settings = buildSettingsObject({
     lookups,
@@ -1778,7 +1787,7 @@ function resolveLookupCategory(categoryOrKey) {
 async function syncLookupValues(sb, gid, settings) {
   const s = settings && typeof settings === 'object' ? settings : {};
   const existing = await fetchAll((from, to) =>
-    sb.from(T.settings_lookup_values).select('id, category, value, sort_order, is_active').eq('gym_id', gid).range(from, to),
+    sb.from(T.settings_lookup_values).select('id, category, value, sort_order, is_active, created_by_role, created_by_gym_code_id').eq('gym_id', gid).range(from, to),
   );
   const active = (existing || []).filter((r) => r.is_active !== false);
   const toDeleteIds = [];
@@ -1796,7 +1805,13 @@ async function syncLookupValues(sb, gid, settings) {
     const haveByValue = new Map(have.map((r) => [String(r.value || '').trim(), r]));
     for (const row of have) {
       const val = String(row.value || '').trim();
-      if (!wantSet.has(val)) toDeleteIds.push(row.id);
+      if (!wantSet.has(val)) {
+        const role = String(row.created_by_role || '').trim().toLowerCase();
+        const rowBranch = String(row.created_by_gym_code_id || '').trim();
+        // Never bulk-delete branch-scoped lookup rows (Option A safety).
+        if (role === 'branch_owner' || rowBranch) continue;
+        toDeleteIds.push(row.id);
+      }
     }
     let sortBase = have.reduce((max, r) => Math.max(max, Number(r.sort_order || 0)), -1) + 1;
     wantList.forEach((value, idx) => {
@@ -1838,16 +1853,31 @@ export async function addSettingsLookupValue(_scope, {
 
   const sb = getSupabase();
   const gid = gymId();
-  const { data: dup } = await sb
-    .from(T.settings_lookup_values)
-    .select('id')
-    .eq('gym_id', gid)
-    .eq('category', resolved.category)
-    .eq('value', val)
-    .eq('is_active', true)
-    .maybeSingle();
+  const dupCandidates = await fetchAll((from, to) =>
+    sb
+      .from(T.settings_lookup_values)
+      .select('id, created_by_role, created_by_gym_code_id, is_active')
+      .eq('gym_id', gid)
+      .eq('category', resolved.category)
+      .eq('value', val)
+      .eq('is_active', true)
+      .range(from, to),
+  );
+  const dup = findActiveLookupDuplicate(dupCandidates, {
+    value: val,
+    createdByGymCodeId,
+    createdByRole,
+  });
   if (dup?.id) {
     return { ok: true, category: resolved.key, value: val, duplicate: true };
+  }
+
+  const lookupHasBranchCol = await settingsLookupHasBranchColumn(sb);
+  const branchId = String(createdByGymCodeId || '').trim();
+  if (lookupHasBranchCol && !branchId) {
+    const err = new Error('lookup_branch_required');
+    err.status = 400;
+    throw err;
   }
 
   const rows = await fetchAll((from, to) =>
@@ -1870,14 +1900,14 @@ export async function addSettingsLookupValue(_scope, {
   };
   if (createdByRole) insertRow.created_by_role = String(createdByRole);
   if (createdByStaffLoginId) insertRow.created_by_staff_login_id = String(createdByStaffLoginId);
-  if (createdByGymCodeId && await settingsLookupHasBranchColumn(sb)) {
+  if (lookupHasBranchCol) {
+    insertRow.created_by_gym_code_id = branchId;
+  } else if (createdByGymCodeId) {
     insertRow.created_by_gym_code_id = String(createdByGymCodeId);
   }
   let { error } = await sb.from(T.settings_lookup_values).insert(insertRow);
   if (error && /created_by_gym_code_id/i.test(String(error.message || ''))) {
-    const fallback = { ...insertRow };
-    delete fallback.created_by_gym_code_id;
-    ({ error } = await sb.from(T.settings_lookup_values).insert(fallback));
+    throw error;
   }
   if (error) throw error;
   notifyCollectionChange('settings');
@@ -1902,16 +1932,18 @@ export async function deleteSettingsLookupValue(_scope, {
   const sb = getSupabase();
   const gid = gymId();
   const lookupHasBranchCol = await settingsLookupHasBranchColumn(sb);
+  const reqBranch = String(requesterGymCodeId || '').trim();
   let existing = null;
   let findErr = null;
   if (lookupHasBranchCol) {
-    ({ data: existing, error: findErr } = await sb
+    let q = sb
       .from(T.settings_lookup_values)
       .select('id, created_by_role, created_by_staff_login_id, created_by_gym_code_id')
       .eq('gym_id', gid)
       .eq('category', resolved.category)
-      .eq('value', val)
-      .maybeSingle());
+      .eq('value', val);
+    if (reqBranch) q = q.eq('created_by_gym_code_id', reqBranch);
+    ({ data: existing, error: findErr } = await q.maybeSingle());
   } else {
     ({ data: existing, error: findErr } = await sb
       .from(T.settings_lookup_values)
@@ -1929,7 +1961,6 @@ export async function deleteSettingsLookupValue(_scope, {
   const requesterRoleNorm = String(requesterRole || '').trim().toLowerCase();
   const isMasterRequester = requesterRoleNorm === 'master_owner';
   if (!isMasterRequester) {
-    // Legacy/null + explicit owner-created rows are read-only for non-owner staff.
     if (!createdRole || createdRole === 'master_owner' || createdRole === 'owner') {
       const err = new Error('lookup-delete-owner-protected');
       err.status = 403;
@@ -1976,7 +2007,9 @@ async function writeSettings(settings, scope) {
     existing,
   );
 
-  await syncLookupValues(sb, gid, s);
+  // Lookups are branch-scoped and must only change via POST/DELETE /api/settings/lookups.
+  // Bulk PUT carries the active branch's filtered lists and must not gym-wide diff-delete rows.
+  // await syncLookupValues(sb, gid, s);
 
   // Branch-scoped WhatsApp templates are not rewritten via settings bulk (PATCH per branch/key).
 

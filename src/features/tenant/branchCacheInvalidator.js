@@ -3,6 +3,7 @@
  */
 
 import { invalidateAllBranchBrandingExcept } from '../branding/branchBrandingCache.js';
+import { clearSettingsLookups } from '../settings/settingsBranchScope.js';
 
 /**
  * @param {object} handlers - React setters and refs from App root
@@ -21,6 +22,11 @@ export function invalidateCachesForBranchSwitch(handlers, nextBranchId) {
   // Branch-scoped hydrate replaces the in-memory list after the JWT switches.
   if (typeof handlers.setBackendHydrated === 'function') handlers.setBackendHydrated(false);
   if (typeof handlers.setTemplatesBranchId === 'function' && id) handlers.setTemplatesBranchId(id);
+
+  if (typeof handlers.setSettings === 'function') {
+    const clearFn = handlers.clearSettingsLookups || clearSettingsLookups;
+    handlers.setSettings((prev) => (typeof clearFn === 'function' ? clearFn(prev) : prev));
+  }
 
   if (handlers.whatsappTemplatesByBranch && typeof handlers.setWhatsappTemplatesByBranch === 'function') {
     handlers.setWhatsappTemplatesByBranch((prev) => {

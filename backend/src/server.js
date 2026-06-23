@@ -84,7 +84,10 @@ import { isOwnerAuth } from './middleware/requireOwner.js';
 import { requireBranchAdmin } from './middleware/requireBranchAdmin.js';
 import { requireStaffManagementRead, requireStaffManagementWrite } from './middleware/requireStaffManagement.js';
 import { filterUsersForAuth, sanitizeUsersBulkForAuth } from './auth/tenant/userScope.js';
-import { LOOKUP_CREATED_BY } from './auth/tenant/roles.js';
+import {
+  resolveLookupDeleteRequesterForAuth,
+  resolveLookupProvenanceForAuth,
+} from './auth/tenant/lookupProvenance.js';
 import { authIsBranchOwner, authIsMasterOwner, authUsesGlobalDataRead, authHasGlobalBranchRead, resolveActiveBranchId, resolveReadBranchIds } from './auth/tenant/scopedAuth.js';
 import { Access, getStaffAccessForUser } from './auth/accessControl.js';
 import { canReadSettingsScope } from './db/supabase/settingsBranchFilter.js';
@@ -1186,15 +1189,24 @@ app.post('/api/settings/lookups', requireSettingsLookupAdd, async (req, res) => 
     if (!value || value.length > 120) {
       return res.status(400).json({ error: 'invalid_value', message: 'Lookup value is required (max 120 chars)' });
     }
-    const createdByRole = isOwnerAuth(req.auth) || authIsMasterOwner(req.auth)
-      ? LOOKUP_CREATED_BY.MASTER_OWNER
-      : (authIsBranchOwner(req.auth) ? LOOKUP_CREATED_BY.BRANCH_OWNER : LOOKUP_CREATED_BY.STAFF);
+    const { createdByRole, createdByGymCodeId: provenanceBranch } = resolveLookupProvenanceForAuth(req.auth);
+    let createdByGymCodeId = provenanceBranch;
+    if (!createdByGymCodeId) {
+      const { resolveDefaultLookupGymCodeId } = await import('./db/supabase/repository.js');
+      createdByGymCodeId = await resolveDefaultLookupGymCodeId(getSupabase());
+    }
+    if (!createdByGymCodeId) {
+      return res.status(400).json({
+        error: 'lookup_branch_required',
+        message: 'Select a branch before adding configuration values.',
+      });
+    }
     const saved = await addSettingsLookup(readSandboxScope(req), {
       category,
       value,
       createdByRole,
       createdByStaffLoginId: req.auth?.userId || null,
-      createdByGymCodeId: req.auth?.gymCodeId || null,
+      createdByGymCodeId,
     });
     await appendAuditLog(req, {
       action: 'settings.lookup.added',
@@ -1206,8 +1218,9 @@ app.post('/api/settings/lookups', requireSettingsLookupAdd, async (req, res) => 
     return res.json(saved);
   } catch (error) {
     const msg = String(error?.message || error);
-    if (msg === 'invalid_lookup_category' || msg === 'invalid_lookup_value') {
-      return res.status(400).json({ error: msg });
+    const status = Number(error?.status) || (msg === 'lookup_branch_required' ? 400 : 500);
+    if (msg === 'invalid_lookup_category' || msg === 'invalid_lookup_value' || msg === 'lookup_branch_required') {
+      return res.status(status).json({ error: msg, message: String(error?.message || msg) });
     }
     return res.status(500).json({ error: 'settings_lookup_add_failed', message: msg });
   }
@@ -1223,15 +1236,18 @@ app.delete('/api/settings/lookups', requireSettingsLookupDelete, async (req, res
     if (!value) {
       return res.status(400).json({ error: 'invalid_value', message: 'Lookup value is required' });
     }
-    const requesterRole = isOwnerAuth(req.auth) || authIsMasterOwner(req.auth)
-      ? LOOKUP_CREATED_BY.MASTER_OWNER
-      : (authIsBranchOwner(req.auth) ? LOOKUP_CREATED_BY.BRANCH_OWNER : LOOKUP_CREATED_BY.STAFF);
+    const { requesterRole, requesterGymCodeId: provenanceBranch } = resolveLookupDeleteRequesterForAuth(req.auth);
+    let requesterGymCodeId = provenanceBranch;
+    if (!requesterGymCodeId) {
+      const { resolveDefaultLookupGymCodeId } = await import('./db/supabase/repository.js');
+      requesterGymCodeId = await resolveDefaultLookupGymCodeId(getSupabase());
+    }
     const result = await deleteSettingsLookup(readSandboxScope(req), {
       category,
       value,
       requesterRole,
       requesterStaffLoginId: req.auth?.userId || null,
-      requesterGymCodeId: req.auth?.gymCodeId || null,
+      requesterGymCodeId,
     });
     await appendAuditLog(req, {
       action: 'settings.lookup.removed',
