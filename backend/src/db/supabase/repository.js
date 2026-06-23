@@ -65,6 +65,7 @@ import {
   toTs,
 } from './utils.js';
 import { filterSettingsLookupRowsForAuth } from './settingsLookupBranchFilter.js';
+import { settingsLookupHasBranchColumn } from './settingsLookupBranchId.js';
 import { stripVisitorGymCodeColumn, visitorsHaveGymCodeColumn } from './visitorsSchema.js';
 import { syncStaffUserAccess, syncStaffUserSections } from './staffUserSync.js';
 import {
@@ -1505,24 +1506,6 @@ async function fetchAppConfigRow(sb, gid) {
   return data?.[0] ?? null;
 }
 
-let settingsLookupBranchColumnKnown = null;
-async function settingsLookupHasBranchColumn(sb) {
-  if (settingsLookupBranchColumnKnown != null) return settingsLookupBranchColumnKnown;
-  const { data, error } = await sb
-    .from('information_schema.columns')
-    .select('column_name')
-    .eq('table_schema', 'public')
-    .eq('table_name', T.settings_lookup_values)
-    .eq('column_name', 'created_by_gym_code_id')
-    .limit(1);
-  if (error) {
-    settingsLookupBranchColumnKnown = false;
-    return false;
-  }
-  settingsLookupBranchColumnKnown = Boolean((data || []).length);
-  return settingsLookupBranchColumnKnown;
-}
-
 /** HQ gym_codes.id for this gym — fallback when owner adds config without active branch. */
 export async function resolveDefaultLookupGymCodeId(sb = null) {
   const client = sb || getSupabase();
@@ -1933,30 +1916,26 @@ export async function deleteSettingsLookupValue(_scope, {
   const gid = gymId();
   const lookupHasBranchCol = await settingsLookupHasBranchColumn(sb);
   const reqBranch = String(requesterGymCodeId || '').trim();
-  let existing = null;
-  let findErr = null;
-  if (lookupHasBranchCol) {
-    let q = sb
-      .from(T.settings_lookup_values)
-      .select('id, created_by_role, created_by_staff_login_id, created_by_gym_code_id')
-      .eq('gym_id', gid)
-      .eq('category', resolved.category)
-      .eq('value', val);
-    if (reqBranch) q = q.eq('created_by_gym_code_id', reqBranch);
-    ({ data: existing, error: findErr } = await q.maybeSingle());
-  } else {
-    ({ data: existing, error: findErr } = await sb
-      .from(T.settings_lookup_values)
-      .select('id, created_by_role, created_by_staff_login_id')
-      .eq('gym_id', gid)
-      .eq('category', resolved.category)
-      .eq('value', val)
-      .maybeSingle());
+  if (lookupHasBranchCol && !reqBranch) {
+    const err = new Error('lookup_branch_required');
+    err.status = 400;
+    throw err;
   }
-  if (findErr) throw findErr;
-  if (!existing?.id) {
+  let findQ = sb
+    .from(T.settings_lookup_values)
+    .select('id, created_by_role, created_by_staff_login_id, created_by_gym_code_id')
+    .eq('gym_id', gid)
+    .eq('category', resolved.category)
+    .eq('value', val)
+    .eq('is_active', true);
+  if (lookupHasBranchCol && reqBranch) {
+    findQ = findQ.eq('created_by_gym_code_id', reqBranch);
+  }
+  const candidates = await fetchAll((from, to) => findQ.range(from, to));
+  if (!candidates.length) {
     return { ok: true, category: resolved.key, value: val, deleted: 0 };
   }
+  const existing = candidates[0];
   const createdRole = String(existing.created_by_role || '').trim().toLowerCase();
   const requesterRoleNorm = String(requesterRole || '').trim().toLowerCase();
   const isMasterRequester = requesterRoleNorm === 'master_owner';
@@ -1983,10 +1962,11 @@ export async function deleteSettingsLookupValue(_scope, {
       }
     }
   }
+  const ids = candidates.map((row) => row.id).filter(Boolean);
   const { data, error } = await sb
     .from(T.settings_lookup_values)
     .delete()
-    .eq('id', existing.id)
+    .in('id', ids)
     .select('id');
   if (error) throw error;
   notifyCollectionChange('settings');

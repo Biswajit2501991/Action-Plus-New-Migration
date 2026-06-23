@@ -1260,8 +1260,9 @@ app.delete('/api/settings/lookups', requireSettingsLookupDelete, async (req, res
     return res.json(result);
   } catch (error) {
     const msg = String(error?.message || error);
-    if (msg === 'invalid_lookup_category' || msg === 'invalid_lookup_value') {
-      return res.status(400).json({ error: msg });
+    const status = Number(error?.status) || (msg === 'lookup_branch_required' ? 400 : 500);
+    if (msg === 'invalid_lookup_category' || msg === 'invalid_lookup_value' || msg === 'lookup_branch_required') {
+      return res.status(status).json({ error: msg, message: String(error?.message || msg) });
     }
     if (msg === 'lookup-delete-master-protected' || msg === 'lookup-delete-not-owned' || msg === 'lookup-delete-owner-protected') {
       return res.status(403).json({ error: msg });
