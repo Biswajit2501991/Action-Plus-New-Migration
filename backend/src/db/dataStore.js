@@ -647,6 +647,16 @@ export async function createAuditLog(scope, entry, branchScope = null) {
   return { ok: true, created: true, log: stamped };
 }
 
+/** Full audit log row with before/after (not slim list projection). */
+export async function readAuditLogById(scope, logId, branchScope = null) {
+  const id = String(logId || '').trim();
+  if (!id) return null;
+  if (useSupabase()) return supabaseStore.readAuditLogById(id, scope, branchScope);
+  const rows = await kvStore.readJsonCollection('apg.logs', []);
+  const found = (Array.isArray(rows) ? rows : []).find((l) => String(l?.id || '') === id);
+  return found || null;
+}
+
 /**
  * Owner-only delete of audit_log rows whose timestamp is inside
  * [startIso, endIso]. On Supabase this is a single SQL DELETE; on sqlite we

@@ -1,5 +1,6 @@
 import { describe, it, expect, vi } from 'vitest';
 import {
+  fetchAuditLogDetail,
   fetchAuditLogsFromBackend,
   parseAuditLogsRequestedLimit,
   AUDIT_LOGS_PAGE_SIZE,
@@ -17,6 +18,17 @@ describe('parseAuditLogsRequestedLimit', () => {
 
   it('caps at 50000', () => {
     expect(parseAuditLogsRequestedLimit('limit=999999')).toBe(50000);
+  });
+});
+
+describe('fetchAuditLogDetail', () => {
+  it('requests full log by id', async () => {
+    const backendJson = vi.fn(async (path) => {
+      expect(path).toBe('/logs/log-uuid-1');
+      return { id: 'log-uuid-1', before: { a: 1 }, after: { a: 2 } };
+    });
+    const row = await fetchAuditLogDetail(backendJson, 'log-uuid-1');
+    expect(row.after).toEqual({ a: 2 });
   });
 });
 

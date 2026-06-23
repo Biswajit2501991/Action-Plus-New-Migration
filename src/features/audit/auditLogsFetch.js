@@ -23,6 +23,19 @@ export function parseAuditLogsRequestedLimit(baseQuery) {
  * @param {(path: string, init?: object) => Promise<unknown>} backendJson
  * @param {string} [baseQuery]
  */
+/**
+ * Fetch one audit log with before/after JSON (list view omits blobs).
+ * @param {(path: string, init?: object) => Promise<unknown>} backendJson
+ * @param {string} logId external_log_id / client UUID
+ */
+export async function fetchAuditLogDetail(backendJson, logId) {
+  const id = String(logId || '').trim();
+  if (!id) throw new Error('log_id_required');
+  const detail = await backendJson(`/logs/${encodeURIComponent(id)}`);
+  if (!detail || typeof detail !== 'object') throw new Error('invalid_log_detail');
+  return detail;
+}
+
 export async function fetchAuditLogsFromBackend(backendJson, baseQuery) {
   const query = String(baseQuery || DEFAULT_AUDIT_LOGS_QUERY);
   const pageSize = AUDIT_LOGS_PAGE_SIZE;

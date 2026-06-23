@@ -8564,7 +8564,7 @@ Please pay by: ${formattedLastDate}`;
                     const base = prevAll && typeof prevAll === 'object' ? { ...prevAll } : {};
                     delete base[toSave.memberId];
                     return base;
-                  });
+                  }, { memberId: toSave.memberId });
                 }
               }
               if (deferSuccessToastForPayMonthPatch) {
@@ -9851,16 +9851,20 @@ Please pay by: ${formattedLastDate}`;
       // backend hydration because the literal form captured stale closures of
       // `settings[key]`. The functional form guarantees we merge against the
       // freshest in-memory state, regardless of SSE / debounced bulk PUTs.
-      const updateSettingValue = (key, valueOrFn) => {
-        const before = settings ? settings[key] : undefined;
+      const updateSettingValue = (key, valueOrFn, auditOptions = {}) => {
         setSettings(prev => {
           const baseline = prev ? prev[key] : undefined;
           const nextValue = typeof valueOrFn === 'function'
             ? valueOrFn(baseline)
             : valueOrFn;
-          // Log only when we can resolve a deterministic next value.
           try {
-            logEvent('settings.updated', 'settings', key, before, nextValue);
+            const buildPayload = window.__APG_MODULES?.buildSettingsAuditPayload;
+            const payload = typeof buildPayload === 'function'
+              ? buildPayload(key, baseline, nextValue, auditOptions)
+              : { entityId: key, before: baseline ?? null, after: nextValue ?? null };
+            if (payload) {
+              logEvent('settings.updated', 'settings', payload.entityId, payload.before, payload.after);
+            }
           } catch {}
           return { ...prev, [key]: nextValue };
         });
@@ -11195,6 +11199,12 @@ Please pay by: ${formattedLastDate}`;
                     setToast(`Logs refresh failed: ${err?.message || err}`);
                     setTimeout(() => setToast(''), 2000);
                   }
+                }}
+                dataSyncMode={dataSyncMode}
+                onLogDetailLoaded={(detail) => {
+                  const id = String(detail?.id || '').trim();
+                  if (!id) return;
+                  setLogs((prev) => prev.map((l) => (l.id === id ? { ...l, ...detail } : l)));
                 }}
               />
             )}
@@ -18318,7 +18328,7 @@ function PTClientsPage({ members, users, settings, updateSetting, currentUser, a
               ...base,
               [memberId]: { ...winner, focusByDate, updatedAt: savedTs >= localTs ? (saved.updatedAt || local.updatedAt) : (local.updatedAt || saved.updatedAt) },
             };
-          });
+          }, { audit: false });
           return saved;
         }).catch((err) => {
           if (!saveOpts.silentErrors) {
@@ -18498,7 +18508,7 @@ function PTClientsPage({ members, users, settings, updateSetting, currentUser, a
             updatedBy: currentUser?.name || currentUser?.id || '',
           };
           return { ...base, [memberId]: nextProfile };
-        });
+        }, { memberId });
         if (nextProfile) schedulePtProfileSave(memberId, nextProfile, mode, saveOpts);
       };
       const saveProfilePatch = async (patch, mode = 'workout', sectionKey, successMessage) => {
@@ -18519,7 +18529,7 @@ function PTClientsPage({ members, users, settings, updateSetting, currentUser, a
               updatedBy: currentUser?.name || currentUser?.id || '',
             };
             return { ...base, [memberId]: nextProfile };
-          });
+          }, { memberId });
           if (dataSyncMode === 'backend' && backendHydrated && nextProfile) {
             await schedulePtProfileSave(memberId, nextProfile, mode, {
               immediate: true,
@@ -18569,16 +18579,15 @@ function PTClientsPage({ members, users, settings, updateSetting, currentUser, a
           updatedBy: currentUser?.name || currentUser?.id || '',
         };
         try {
+          updateSetting('ptClientProfiles', (prevAll) => {
+            const base = prevAll && typeof prevAll === 'object' ? prevAll : {};
+            return { ...base, [memberId]: nextProfile };
+          }, { memberId });
           if (dataSyncMode === 'backend' && backendHydrated) {
             await schedulePtProfileSave(memberId, nextProfile, 'workout', {
               immediate: true,
               waitForBackend: true,
               silentErrors: true,
-            });
-          } else {
-            updateSetting('ptClientProfiles', (prevAll) => {
-              const base = prevAll && typeof prevAll === 'object' ? prevAll : {};
-              return { ...base, [memberId]: nextProfile };
             });
           }
           setFocusScheduleDraft(null);
@@ -21001,7 +21010,7 @@ function PTClientsPage({ members, users, settings, updateSetting, currentUser, a
     }
 
     // ---- Logs Page ----
-    function LogsPage({ logs, currentUser, onClearLogs, access, displayTimeZone = 'IST', onRefreshLogs }) {
+    function LogsPage({ logs, currentUser, onClearLogs, access, displayTimeZone = 'IST', onRefreshLogs, dataSyncMode = 'local', onLogDetailLoaded }) {
       const [filter, setFilter] = React.useState('');
       const logsAccess = normalizeAccess(access).logs;
       const canViewLogs = logsAccess?.viewLogs !== false;
@@ -21022,6 +21031,7 @@ function PTClientsPage({ members, users, settings, updateSetting, currentUser, a
       const [entityFilter, setEntityFilter] = React.useState('');
       const [timeRange, setTimeRange] = React.useState('all');
       const [expandedId, setExpandedId] = React.useState('');
+      const [expandedDetail, setExpandedDetail] = React.useState({});
       const [page, setPage] = React.useState(1);
       const pageSize = 25;
       const sinceTs = React.useMemo(() => {
@@ -21058,6 +21068,49 @@ function PTClientsPage({ members, users, settings, updateSetting, currentUser, a
       const safePage = page > totalPages ? 1 : page;
       const start = (safePage - 1) * pageSize;
       const pageRows = filtered.slice(start, start + pageSize);
+      const resolveLogEntry = React.useCallback((entry) => {
+        if (!entry?.id) return entry;
+        const detail = expandedDetail[entry.id];
+        if (detail?.data) return { ...entry, ...detail.data };
+        return entry;
+      }, [expandedDetail]);
+      React.useEffect(() => {
+        if (!expandedId || dataSyncMode !== 'backend' || !hasBackendAuth()) return undefined;
+        const cached = expandedDetail[expandedId];
+        if (cached?.data || cached?.loading) return undefined;
+        const fetchFn = window.__APG_MODULES?.fetchAuditLogDetail;
+        if (typeof fetchFn !== 'function') return undefined;
+        let cancelled = false;
+        setExpandedDetail((prev) => {
+          const existing = prev[expandedId];
+          if (existing?.data || existing?.loading) return prev;
+          return {
+            ...prev,
+            [expandedId]: { loading: true, error: '', data: null },
+          };
+        });
+        fetchFn(backendJson, expandedId)
+          .then((detail) => {
+            if (cancelled || !detail) return;
+            setExpandedDetail((prev) => ({
+              ...prev,
+              [expandedId]: { loading: false, error: '', data: detail },
+            }));
+            if (typeof onLogDetailLoaded === 'function') onLogDetailLoaded(detail);
+          })
+          .catch((err) => {
+            if (cancelled) return;
+            setExpandedDetail((prev) => ({
+              ...prev,
+              [expandedId]: {
+                loading: false,
+                error: String(err?.message || err || 'Could not load log detail'),
+                data: null,
+              },
+            }));
+          });
+        return () => { cancelled = true; };
+      }, [expandedId, dataSyncMode, onLogDetailLoaded]);
       const flattenForDiff = React.useCallback((value, prefix = '', out = {}) => {
         if (value === null || value === undefined) return out;
         if (Array.isArray(value)) {
@@ -21148,6 +21201,11 @@ function PTClientsPage({ members, users, settings, updateSetting, currentUser, a
         }
         if (act === 'settings.updated') {
           const key = l.entityId || '';
+          if (key.startsWith('ptClientProfiles:')) {
+            const memberCode = key.slice('ptClientProfiles:'.length);
+            const focus = a.focusArea || b.focusArea || '';
+            return [`PT client ${memberCode}`, focus].filter(Boolean).join(' · ');
+          }
           return key ? `Setting “${key}”` : 'Settings';
         }
         if (act === 'visitor.created' || act === 'visitor.updated') {
@@ -21430,17 +21488,28 @@ function PTClientsPage({ members, users, settings, updateSetting, currentUser, a
                         {logEntrySummary(l) || '—'}
                       </td>
                     </tr>
-                    {expandedId === l.id && (
+                    {expandedId === l.id && (() => {
+                      const entry = resolveLogEntry(l);
+                      const detailState = expandedDetail[l.id];
+                      const detailLoading = Boolean(detailState?.loading);
+                      const detailError = String(detailState?.error || '').trim();
+                      return (
                       <tr className="bg-slate-50 border-b border-slate-200">
                         <td colSpan={6} className="px-3 py-2">
-                          {logEntrySummary(l) ? (
+                          {logEntrySummary(entry) ? (
                             <div className="mb-2 rounded-lg border border-slate-200 bg-white px-2 py-1.5 text-xs text-slate-800">
                               <span className="font-semibold text-slate-500">Summary: </span>
-                              {logEntrySummary(l)}
+                              {logEntrySummary(entry)}
                             </div>
                           ) : null}
+                          {detailLoading ? (
+                            <div className="mb-2 text-xs text-slate-500">Loading before/after details…</div>
+                          ) : null}
+                          {detailError ? (
+                            <div className="mb-2 text-xs text-rose-600">{detailError}</div>
+                          ) : null}
                           {(() => {
-                            const changes = getChangedFields(l);
+                            const changes = getChangedFields(entry);
                             if (!changes.length) return null;
                             return (
                               <div className="mb-2 rounded-xl border border-emerald-200 bg-emerald-50 p-2">
@@ -21460,16 +21529,17 @@ function PTClientsPage({ members, users, settings, updateSetting, currentUser, a
                           <div className="grid grid-cols-1 md:grid-cols-2 gap-2 text-xs">
                             <div className="rounded-xl bg-slate-900 text-slate-100 p-2 overflow-auto">
                               <div className="text-slate-300 mb-1">before</div>
-                              <pre>{JSON.stringify(l.before || {}, null, 2)}</pre>
+                              <pre>{JSON.stringify(entry.before ?? null, null, 2)}</pre>
                             </div>
                             <div className="rounded-xl bg-slate-900 text-slate-100 p-2 overflow-auto">
                               <div className="text-slate-300 mb-1">after</div>
-                              <pre>{JSON.stringify(l.after || {}, null, 2)}</pre>
+                              <pre>{JSON.stringify(entry.after ?? null, null, 2)}</pre>
                             </div>
                           </div>
                         </td>
                       </tr>
-                    )}
+                      );
+                    })()}
                   </React.Fragment>
                 ))}
                 {pageRows.length === 0 && (
@@ -21478,34 +21548,24 @@ function PTClientsPage({ members, users, settings, updateSetting, currentUser, a
               </tbody>
             </table>
             <div className="md:hidden divide-y divide-slate-200">
-              {pageRows.map(l => (
-                <div key={l.id} className="p-3">
+              {pageRows.map(l => {
+                const entry = resolveLogEntry(l);
+                const detailState = expandedDetail[l.id];
+                const detailLoading = Boolean(detailState?.loading);
+                const detailError = String(detailState?.error || '').trim();
+                const isExpanded = expandedId === l.id;
+                return (
+                <div
+                  key={l.id}
+                  className="p-3 cursor-pointer hover:bg-slate-50"
+                  onClick={() => setExpandedId(prev => prev === l.id ? '' : l.id)}
+                >
                   {logEntrySummary(l) ? (
                     <div className="mb-2 rounded-lg border border-slate-200 bg-slate-50 p-2 text-xs text-slate-800">
                       <span className="font-semibold text-slate-600">Summary: </span>
                       {logEntrySummary(l)}
                     </div>
                   ) : null}
-                  {(() => {
-                    const changes = getChangedFields(l);
-                    if (!changes.length) return null;
-                    return (
-                      <div className="mb-2 rounded-lg border border-emerald-200 bg-emerald-50 p-2 text-xs">
-                        <div className="font-semibold text-emerald-700 mb-1">Changed ({changes.length})</div>
-                        <div className="space-y-1 max-h-28 overflow-auto">
-                          {changes.map((c) => (
-                            <div key={`${l.id}-m-${c.key}`} className="truncate">
-                              <span className="font-semibold text-emerald-800">{c.key}</span>
-                              <span className="text-slate-500">: </span>
-                              <span className="text-rose-700">{prettyDiffValue(c.before)}</span>
-                              <span className="text-slate-500"> → </span>
-                              <span className="text-emerald-700">{prettyDiffValue(c.after)}</span>
-                            </div>
-                          ))}
-                        </div>
-                      </div>
-                    );
-                  })()}
                   <div className="flex items-center justify-between gap-2">
                     <div className="font-medium text-slate-900 truncate">{l.actor || 'Unknown'}</div>
                     <span className="inline-flex max-w-[140px] shrink-0 truncate rounded-full bg-blue-100 px-2 py-0.5 text-xs font-semibold text-blue-700" title={l.action}>
@@ -21514,18 +21574,51 @@ function PTClientsPage({ members, users, settings, updateSetting, currentUser, a
                   </div>
                   <div className="text-xs text-slate-500 mt-1">{formatDateTimeTz(l.ts, displayTimeZone)} <span className="text-[10px] uppercase">{displayTimeZone}</span></div>
                   <div className="text-xs text-slate-600 mt-1">Entity: {l.entityType} / {l.entityId}</div>
-                  <div className="mt-2 grid grid-cols-1 gap-2 text-xs">
-                    <div className="rounded-lg bg-slate-900 text-slate-100 p-2 overflow-auto">
-                      <div className="text-slate-300 mb-1">before</div>
-                      <pre>{JSON.stringify(l.before || {}, null, 2)}</pre>
+                  {isExpanded ? (
+                    <div className="mt-2" onClick={(e) => e.stopPropagation()}>
+                      {detailLoading ? (
+                        <div className="mb-2 text-xs text-slate-500">Loading before/after details…</div>
+                      ) : null}
+                      {detailError ? (
+                        <div className="mb-2 text-xs text-rose-600">{detailError}</div>
+                      ) : null}
+                      {(() => {
+                        const changes = getChangedFields(entry);
+                        if (!changes.length) return null;
+                        return (
+                          <div className="mb-2 rounded-lg border border-emerald-200 bg-emerald-50 p-2 text-xs">
+                            <div className="font-semibold text-emerald-700 mb-1">Changed ({changes.length})</div>
+                            <div className="space-y-1 max-h-28 overflow-auto">
+                              {changes.map((c) => (
+                                <div key={`${l.id}-m-${c.key}`} className="truncate">
+                                  <span className="font-semibold text-emerald-800">{c.key}</span>
+                                  <span className="text-slate-500">: </span>
+                                  <span className="text-rose-700">{prettyDiffValue(c.before)}</span>
+                                  <span className="text-slate-500"> → </span>
+                                  <span className="text-emerald-700">{prettyDiffValue(c.after)}</span>
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                        );
+                      })()}
+                      <div className="grid grid-cols-1 gap-2 text-xs">
+                        <div className="rounded-lg bg-slate-900 text-slate-100 p-2 overflow-auto">
+                          <div className="text-slate-300 mb-1">before</div>
+                          <pre>{JSON.stringify(entry.before ?? null, null, 2)}</pre>
+                        </div>
+                        <div className="rounded-lg bg-slate-900 text-slate-100 p-2 overflow-auto">
+                          <div className="text-slate-300 mb-1">after</div>
+                          <pre>{JSON.stringify(entry.after ?? null, null, 2)}</pre>
+                        </div>
+                      </div>
                     </div>
-                    <div className="rounded-lg bg-slate-900 text-slate-100 p-2 overflow-auto">
-                      <div className="text-slate-300 mb-1">after</div>
-                      <pre>{JSON.stringify(l.after || {}, null, 2)}</pre>
-                    </div>
-                  </div>
+                  ) : (
+                    <div className="mt-2 text-xs text-slate-500">Tap to view before/after details</div>
+                  )}
                 </div>
-              ))}
+                );
+              })}
               {pageRows.length === 0 && (
                 <div className="p-4 text-center text-slate-500 text-sm">No log entries</div>
               )}

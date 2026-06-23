@@ -99,6 +99,7 @@ import {
   membersListFromServerDelta,
 } from '../features/members/memberListSync.js';
 import {
+  fetchAuditLogDetail,
   fetchAuditLogsFromBackend,
   DEFAULT_AUDIT_LOGS_QUERY,
   AUDIT_LOGS_PAGE_SIZE,
@@ -106,6 +107,7 @@ import {
   parseAuditLogsRequestedLimit,
 } from '../features/audit/auditLogsFetch.js';
 import { mergeAuditLogs, AUDIT_LOGS_LIST_MERGE_LIMIT } from '../features/audit/auditLogMerge.js';
+import { buildSettingsAuditPayload } from '../features/audit/settingsAuditLog.js';
 import {
   scrollEditorToTop,
   bindModalEscapeKey,
@@ -534,6 +536,8 @@ window.__APG_MODULES.sanitizeMembersForDisplay = sanitizeMembersForDisplay;
 window.__APG_MODULES.membersListFromServerHydrate = membersListFromServerHydrate;
 window.__APG_MODULES.membersListFromServerDelta = membersListFromServerDelta;
 window.__APG_MODULES.fetchAuditLogsFromBackend = fetchAuditLogsFromBackend;
+window.__APG_MODULES.fetchAuditLogDetail = fetchAuditLogDetail;
+window.__APG_MODULES.buildSettingsAuditPayload = buildSettingsAuditPayload;
 window.__APG_MODULES.mergeAuditLogs = mergeAuditLogs;
 window.__APG_MODULES.DEFAULT_AUDIT_LOGS_QUERY = DEFAULT_AUDIT_LOGS_QUERY;
 window.__APG_MODULES.AUDIT_LOGS_PAGE_SIZE = AUDIT_LOGS_PAGE_SIZE;

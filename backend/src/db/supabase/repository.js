@@ -2795,6 +2795,26 @@ async function readLogs(scope, options = {}, branchScope = null) {
   return sandboxFilter(rows.map((row) => logRowToApp(row, { slim })), scope);
 }
 
+/** Full single audit row (includes before_json / after_json). */
+export async function readAuditLogById(logId, scope, branchScope = null) {
+  const extId = String(logId || '').trim();
+  if (!extId) return null;
+  const sb = getSupabase();
+  const gid = gymId();
+  const gymScoped = await auditLogsHasGymColumn(sb);
+  const branchColReady = await auditLogsHasBranchColumn(sb);
+  let q = sb.from(T.audit_logs).select('*').eq('external_log_id', extId).limit(1);
+  if (gymScoped) q = q.eq('gym_id', gid);
+  q = applyAuditLogBranchReadFilter(q, branchScope, branchColReady);
+  const { data, error } = await q;
+  if (error) throw new Error(`audit_logs read: ${error.message}`);
+  const row = Array.isArray(data) ? data[0] : null;
+  if (!row) return null;
+  const app = logRowToApp(row, { slim: false });
+  const filtered = sandboxFilter([app], scope);
+  return filtered[0] || null;
+}
+
 async function writeLogs(logs, scope) {
   const sb = getSupabase();
   const gid = gymId();

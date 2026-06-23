@@ -1897,6 +1897,32 @@ app.get('/api/logs', requireAccess(Access.logsRead), async (req, res) => {
   res.json(logs.filter((l) => logMatchesBranchScope(l, branchScope)));
 });
 
+app.get('/api/logs/:logId', requireAccess(Access.logsRead), async (req, res) => {
+  try {
+    const logId = String(req.params.logId || '').trim();
+    if (!logId) {
+      return res.status(400).json({ error: 'log_id_required' });
+    }
+    const { readAuditLogById } = await import('./db/dataStore.js');
+    const log = await readAuditLogById(readSandboxScope(req), logId, buildBranchScope(req));
+    if (!log) {
+      return res.status(404).json({ error: 'log_not_found' });
+    }
+    if (!authUsesGlobalDataRead(req.auth)) {
+      const branchScope = await loadBranchScope(getSupabase(), req.auth);
+      if (!logMatchesBranchScope(log, branchScope)) {
+        return res.status(404).json({ error: 'log_not_found' });
+      }
+    }
+    return res.json(log);
+  } catch (error) {
+    return res.status(500).json({
+      error: 'log_read_failed',
+      message: String(error?.message || error),
+    });
+  }
+});
+
 app.post('/api/logs', requireAccess(Access.logsAppend), async (req, res) => {
   const body = req.body && typeof req.body === 'object' ? req.body : {};
   const branchScope = buildBranchScope(req);
