@@ -13,7 +13,7 @@ function cacheKey(scope, options = {}) {
   const staffAccess = options.staffAccess || null;
   const role = String(auth?.staffRole || auth?.staff_role || auth?.role || '').trim().toLowerCase();
   const login = String(auth?.userId || '').trim().toLowerCase();
-  const branch = String(auth?.gymCodeId || auth?.gym_code_id || '').trim();
+  const branch = String(auth?.activeBranchId || auth?.active_branch_id || auth?.gymCodeId || auth?.gym_code_id || '').trim();
   const assigned = (Array.isArray(auth?.allowedBranchIds) ? auth.allowedBranchIds : [])
     .map((x) => String(x || '').trim())
     .filter(Boolean)

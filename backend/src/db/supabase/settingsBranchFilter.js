@@ -5,6 +5,7 @@ import {
 } from '../../auth/tenant/scopedAuth.js';
 import { isAccessAllowed } from '../../auth/accessControl.js';
 import { T } from '../tables.js';
+import { filterSettingsStaffForAuth } from './settingsLookupBranchFilter.js';
 
 /**
  * Branch IDs for sensitive settings slices (leave, PT). null = all branches (master, no active slice).
@@ -232,6 +233,17 @@ export async function applySettingsBranchFilter(settings, auth, staffAccess, set
 
   if (needsRoleFilter && Array.isArray(out.roleTemplates)) {
     out = { ...out, roleTemplates: filterRoleTemplatesForAuth(out.roleTemplates, auth) };
+  }
+
+  if (needsRoleFilter && Array.isArray(out.staff) && out.staff.length && readIds !== null && readIds.length) {
+    const [staffMap, aliasMap] = await Promise.all([
+      loadStaffBranchByLogin(deps.sb, deps.gid, deps.fetchAll),
+      loadStaffLoginAliasMap(deps.sb, deps.gid, deps.fetchAll),
+    ]);
+    out = {
+      ...out,
+      staff: filterSettingsStaffForAuth(out.staff, auth, staffMap, aliasMap),
+    };
   }
 
   return out;

@@ -2985,6 +2985,8 @@ Phone: +91-7047157510`;
       delete out.staffAttendance;
       // PT profiles sync via PATCH /api/pt-client-profiles/:memberId (staff + owner).
       delete out.ptClientProfiles;
+      // Lookups sync only via POST/DELETE /api/settings/lookups (branch-scoped).
+      SETTINGS_LOOKUP_KEYS.forEach((k) => { delete out[k]; });
       return out;
     };
     /** Strip photos + nested child rows from bulk PUT; include child data only for pending members. */
@@ -3033,13 +3035,30 @@ Phone: +91-7047157510`;
       return JSON.stringify(pick);
     };
     const mergeSettingsLookupList = (prevList, remoteList, lookupGuardActive) => {
+      const fn = window.__APG_MODULES?.mergeSettingsLookupList;
+      if (typeof fn === 'function') return fn(prevList, remoteList, lookupGuardActive);
       const prev = Array.isArray(prevList) ? prevList : [];
       const remote = Array.isArray(remoteList) ? remoteList : null;
       if (lookupGuardActive && prev.length) return prev;
       if (remote === null && prev.length) return prev;
-      // Never let an empty remote pull wipe a populated list (legacy config_json / race).
       if (remote && remote.length === 0 && prev.length > 0) return prev;
-      if (remote !== null) return remote;
+      if (remote !== null) {
+        const seen = new Set();
+        const out = [];
+        for (const v of remote) {
+          const s = String(v || '').trim();
+          if (!s || seen.has(s)) continue;
+          seen.add(s);
+          out.push(s);
+        }
+        for (const v of prev) {
+          const s = String(v || '').trim();
+          if (!s || seen.has(s)) continue;
+          seen.add(s);
+          out.push(s);
+        }
+        return out;
+      }
       return prev;
     };
     const mergeSettingsRoleTemplates = (prevList, remoteList) => {
@@ -3071,8 +3090,29 @@ Phone: +91-7047157510`;
       }
       return out;
     };
-    const mergeSettingsPull = (prev, remote, lookupGuardActive) => {
+    const mergeSettingsPull = (prev, remote, lookupGuardActive, replaceLookups = false) => {
       if (!remote || typeof remote !== 'object') return prev;
+      if (replaceLookups) {
+        const replaceFn = window.__APG_MODULES?.mergeSettingsLookupsForBranchReplace;
+        if (typeof replaceFn === 'function') {
+          const merged = replaceFn(prev, remote);
+          merged.roleTemplates = mergeSettingsRoleTemplates(prev?.roleTemplates, remote.roleTemplates);
+          if (Array.isArray(remote.leaveRequests)) {
+            const mergeLeave = window.__APG_MODULES?.mergeLeaveRequestsFromPull;
+            merged.leaveRequests = typeof mergeLeave === 'function'
+              ? mergeLeave(prev?.leaveRequests, remote.leaveRequests)
+              : remote.leaveRequests;
+          }
+          if (remote.ptClientProfiles && typeof remote.ptClientProfiles === 'object') {
+            merged.ptClientProfiles = mergePtClientProfiles(prev?.ptClientProfiles, remote.ptClientProfiles);
+          }
+          const remoteAttendance = Array.isArray(remote.staffAttendance) ? remote.staffAttendance : [];
+          if (remoteAttendance.length > 0) {
+            merged.staffAttendance = mergeStaffAttendanceRecords(prev?.staffAttendance, remoteAttendance);
+          }
+          return merged;
+        }
+      }
       const merged = { ...prev, ...remote };
       SETTINGS_LOOKUP_KEYS.forEach((k) => {
         merged[k] = mergeSettingsLookupList(prev?.[k], remote[k], lookupGuardActive);
@@ -5007,6 +5047,11 @@ Phone: +91-7047157510`;
         } catch {}
         return buildDefaultSettings();
       });
+      const branchScopedSettings = React.useMemo(() => {
+        const scopeFn = window.__APG_MODULES?.scopeSettingsForActiveBranch;
+        if (typeof scopeFn === 'function') return scopeFn(settings, authoritativeActiveBranchId);
+        return settings;
+      }, [settings, authoritativeActiveBranchId]);
       const customTemplatesFeatureEnabled = React.useMemo(() => {
         const fn = window.__APG_MODULES?.isCustomTemplatesEnabled;
         if (typeof fn === 'function') return fn(settings);
@@ -5300,7 +5345,7 @@ Phone: +91-7047157510`;
           console.warn('[attendance] pull failed:', err?.message || err);
         }
       }, [dataSyncMode]);
-      const hydrateSettingsFromBackend = React.useCallback(async () => {
+      const hydrateSettingsFromBackend = React.useCallback(async (hydrateOpts = {}) => {
         try {
           const [core, leave] = await Promise.all([
             fetchSettingsScope('hydrate-bg', 'core'),
@@ -5313,11 +5358,14 @@ Phone: +91-7047157510`;
           if (Object.keys(remoteSettings).length === 0) return;
           settingsSkipNextBulkRef.current = true;
           settingsLookupGuardUntilRef.current = Date.now() + 15000;
+          const replaceLookups = typeof window.__APG_MODULES?.shouldReplaceBranchDataOnHydrate === 'function'
+            ? window.__APG_MODULES.shouldReplaceBranchDataOnHydrate(hydrateOpts)
+            : hydrateOpts.replaceBranchData === true || hydrateOpts.branchContextReplace === true;
           const tMerge = performance.now();
           setSettings((prev) => {
             const withoutStalePt = { ...(prev && typeof prev === 'object' ? prev : {}) };
             delete withoutStalePt.ptClientProfiles;
-            return mergeSettingsPull(withoutStalePt, remoteSettings, false);
+            return mergeSettingsPull(withoutStalePt, remoteSettings, false, replaceLookups);
           });
           apgLoadTimingRecord('hydrate-bg', 'merge:settings (CPU)', performance.now() - tMerge, apgLoadTimingPayloadMeta(remoteSettings));
         } catch {}
@@ -5485,7 +5533,7 @@ Phone: +91-7047157510`;
             setBackendHydrated(true);
             apgLoadTimingMark('backendHydrated (dashboard unblocked)');
             apgLoadTimingFinish('critical hydrate', performance.now() - tHydrate);
-            hydrateSettingsFromBackend().catch(() => {});
+            hydrateSettingsFromBackend(opts).catch(() => {});
             hydrateDeferredCollections(authUser, opts).catch(() => {});
           } finally {
             backendHydrateInFlightRef.current = null;
@@ -5543,6 +5591,8 @@ Phone: +91-7047157510`;
               setBackendHydrated,
               setTemplatesBranchId,
               setWhatsappTemplatesByBranch,
+              setSettings,
+              clearSettingsLookups: window.__APG_MODULES?.clearSettingsLookups,
               whatsappTemplatesByBranch,
               branchTemplateWarnShownRef,
             },
@@ -6126,7 +6176,7 @@ Phone: +91-7047157510`;
                   setOfflineQueueCount((c) => Math.max(0, c - 1));
                 }
               } else if (row.entity === 'settings') {
-                await backendJson('/settings/bulk', { method: 'PUT', body: JSON.stringify({ settings: row.payload || {} }) });
+                await backendJson('/settings/bulk', { method: 'PUT', body: JSON.stringify({ settings: settingsForBulkSync(row.payload || {}) }) });
                 await deleteQueuedSnapshot('settings');
                 setOfflineQueueCount((c) => Math.max(0, c - 1));
               } else if (row.entity === 'logs') {
@@ -6825,11 +6875,11 @@ Phone: +91-7047157510`;
         setVisitorNotificationFocusId(visitorId);
       };
       const expenseCategories = React.useMemo(() => {
-        const list = Array.isArray(settings?.expenseCategories) && settings.expenseCategories.length
-          ? settings.expenseCategories
+        const list = Array.isArray(branchScopedSettings?.expenseCategories) && branchScopedSettings.expenseCategories.length
+          ? branchScopedSettings.expenseCategories
           : ['General'];
         return list;
-      }, [settings?.expenseCategories]);
+      }, [branchScopedSettings?.expenseCategories]);
       const [quickExpenseDraft, setQuickExpenseDraft] = React.useState({
         date: iso(new Date()),
         amount: '',
@@ -9681,14 +9731,14 @@ Please pay by: ${formattedLastDate}`;
             address: '',
             staff: user?.name || '',
             amount,
-            plan: extractCsvField(row, 'plan') || (settings.plans?.[0] || 'Basic Plan'),
+            plan: extractCsvField(row, 'plan') || (branchScopedSettings.plans?.[0] || 'Basic Plan'),
             joiningDate,
             billingDate,
             nextPaymentDate: nextPaymentDateFromBillingDate(billingDate),
             paymentBy: paymentByFromBillingDate(billingDate),
             status,
             holdDuration: status === 'Hold' ? holdDuration : '',
-            paymentMethod: settings.paymentMethods?.[0] || 'Cash',
+            paymentMethod: branchScopedSettings.paymentMethods?.[0] || 'Cash',
             remark: 'Imported via CSV',
             photo: '',
             attachments: [],
@@ -9696,7 +9746,7 @@ Please pay by: ${formattedLastDate}`;
             updatedBy: user?.name || user?.id || '',
           },
         };
-      }, [extractCsvField, members.length, settings.plans, settings.paymentMethods, user]);
+      }, [extractCsvField, members.length, branchScopedSettings.plans, branchScopedSettings.paymentMethods, user]);
       const openCsvImportDialog = () => {
         if (!canViewMembers || (!canAddMembers && !canEditMembers)) {
           setToast('CSV import requires Members access.');
@@ -9979,6 +10029,13 @@ Please pay by: ${formattedLastDate}`;
         }
         return Array.isArray(visitors) ? visitors : [];
       }, [user, visitors, authoritativeActiveBranchId]);
+      const branchScopedUsers = React.useMemo(() => {
+        const filterFn = window.__APG_MODULES?.filterUsersForActiveBranchDisplay;
+        if (typeof filterFn === 'function') {
+          return filterFn(user, users, authoritativeActiveBranchId);
+        }
+        return Array.isArray(users) ? users.filter((u) => !u?.blocked) : [];
+      }, [user, users, authoritativeActiveBranchId]);
       // Derived lists and search
       const filteredMembers = React.useMemo(() => {
         if (dashMode === 'summary') return [];
@@ -10814,7 +10871,7 @@ Please pay by: ${formattedLastDate}`;
                   financeTransactions={financeTransactions}
                   dataSyncMode={dataSyncMode}
                   settings={settings}
-                  masterPlans={Array.isArray(settings?.plans) ? settings.plans : []}
+                  masterPlans={Array.isArray(branchScopedSettings?.plans) ? branchScopedSettings.plans : []}
                   access={normalizeAccess(user?.access)}
                   isOwner={user?.id === 'owner'}
                   currentUserRole={currentUserRole}
@@ -10852,7 +10909,7 @@ Please pay by: ${formattedLastDate}`;
                   onBack={() => setDashMode('summary')}
                   onEdit={canEditMembers ? tryOpenEditMember : null}
                   onStatusChange={canEditMembers ? quickStatus : null}
-                  holdOptions={settings.holdDurations}
+                  holdOptions={branchScopedSettings.holdDurations}
                   logs={logs}
                   onWelcome={sendWelcomeEmail}
                   onWhatsAppCall={sendWhatsAppCall}
@@ -10860,11 +10917,11 @@ Please pay by: ${formattedLastDate}`;
                   onAddAttachment={addMemberAttachment}
                   onQuickFieldEdit={(payload) => setQuickFieldEdit(payload)}
                   editOptions={{
-                    plans: settings.plans || [],
-                    statuses: settings.statuses || [],
-                    paymentMethods: settings.paymentMethods || [],
-                    holdDurations: settings.holdDurations || [],
-                    genders: settings.genders || [],
+                    plans: branchScopedSettings.plans || [],
+                    statuses: branchScopedSettings.statuses || [],
+                    paymentMethods: branchScopedSettings.paymentMethods || [],
+                    holdDurations: branchScopedSettings.holdDurations || [],
+                    genders: branchScopedSettings.genders || [],
                   }}
                   isOwner={String(user?.id || '').trim().toLowerCase() === 'owner' || String(user?.role || '').trim().toLowerCase() === 'owner'}
                   currentUserRole={currentUserRole}
@@ -10919,7 +10976,7 @@ Please pay by: ${formattedLastDate}`;
                     memberSyncPending={memberSyncPending}
                     onEdit={canEditMembers ? tryOpenEditMember : null}
                     onStatusChange={canEditMembers ? quickStatus : null}
-                    holdOptions={settings.holdDurations}
+                    holdOptions={branchScopedSettings.holdDurations}
                     logs={logs}
                     filters={filters}
                     billingMonthOptions={billingMonthOptions}
@@ -10934,11 +10991,11 @@ Please pay by: ${formattedLastDate}`;
                     onAddAttachment={addMemberAttachment}
                     onQuickFieldEdit={(payload) => setQuickFieldEdit(payload)}
                     editOptions={{
-                      plans: settings.plans || [],
-                      statuses: settings.statuses || [],
-                      paymentMethods: settings.paymentMethods || [],
-                      holdDurations: settings.holdDurations || [],
-                      genders: settings.genders || [],
+                      plans: branchScopedSettings.plans || [],
+                      statuses: branchScopedSettings.statuses || [],
+                      paymentMethods: branchScopedSettings.paymentMethods || [],
+                      holdDurations: branchScopedSettings.holdDurations || [],
+                      genders: branchScopedSettings.genders || [],
                     }}
                     isOwner={String(user?.id || '').trim().toLowerCase() === 'owner' || String(user?.role || '').trim().toLowerCase() === 'owner'}
                     currentUserRole={currentUserRole}
@@ -10990,7 +11047,7 @@ Please pay by: ${formattedLastDate}`;
             )}
             {activeTab === 'Settings' && (
               <SettingsPage
-                settings={settings}
+                settings={branchScopedSettings}
                 updateSetting={updateSettingValue}
                 members={branchScopedMembers}
                 users={users}
@@ -11579,12 +11636,12 @@ Please pay by: ${formattedLastDate}`;
                 setMembers((prev) => prev.map((m) => (m.memberId === memberId ? { ...m, photo } : m)));
                 patchMemberPhoto(memberId, photo);
               }}
-              planOptions={settings.plans}
-              statusOptions={settings.statuses}
-              holdOptions={settings.holdDurations}
-              paymentOptions={settings.paymentMethods}
+              planOptions={branchScopedSettings.plans}
+              statusOptions={branchScopedSettings.statuses}
+              holdOptions={branchScopedSettings.holdDurations}
+              paymentOptions={branchScopedSettings.paymentMethods}
               canEditFormNo={user && user.id === 'owner'}
-              settings={settings}
+              settings={branchScopedSettings}
               currentUser={user}
               gymCodes={gymCodes}
               gymCodeLabel={gymCodeLabel}
@@ -11614,7 +11671,7 @@ Please pay by: ${formattedLastDate}`;
                   linkSearch: '',
                 });
               }}
-              settings={settings}
+              settings={branchScopedSettings}
               staffName={user.name}
               currentUser={user}
               members={branchScopedMembers}
@@ -11807,16 +11864,18 @@ Please pay by: ${formattedLastDate}`;
           )}
 
           {/* Filter Panel for advanced filtering on members */}
-          {filterOpen && (
+            {filterOpen && (
             <FilterPanel
               open={filterOpen}
               onClose={() => setFilterOpen(false)}
               filters={filters}
               setFilters={setFilters}
               clearFilters={clearFilters}
-              settings={settings}
-              users={users}
-              members={members}
+              settings={branchScopedSettings}
+              users={branchScopedUsers}
+              members={branchScopedMembers}
+              currentUser={user}
+              activeBranchId={authoritativeActiveBranchId}
             />
           )}
           {quickExpenseOpen && (
@@ -20228,24 +20287,24 @@ function PTClientsPage({ members, users, settings, updateSetting, currentUser, a
         return () => window.removeEventListener('apg:module-loader', onTelemetry);
       }, []);
       const persistLookupMutation = async (key, mutateLocal, { apiCall, buildNextSettings }) => {
-        touchSettingsLookupGuard(10000);
+        touchSettingsLookupGuard(30000);
         if (dataSyncMode === 'backend' && backendJson) {
           setLookupBusyKey(key);
           setLookupError('');
           try {
             await apiCall();
             mutateLocal();
-            touchSettingsLookupGuard(6000);
+            touchSettingsLookupGuard(30000);
           } catch (err) {
             const status = Number(err?.status || 0);
             if (status === 404 && typeof buildNextSettings === 'function') {
               try {
                 await backendJson('/settings/bulk', {
                   method: 'PUT',
-                  body: JSON.stringify({ settings: buildNextSettings() }),
+                  body: JSON.stringify({ settings: settingsForBulkSync(buildNextSettings()) }),
                 });
                 mutateLocal();
-                touchSettingsLookupGuard(6000);
+                touchSettingsLookupGuard(30000);
               } catch (bulkErr) {
                 setLookupError(
                   'Settings API not found (404). Restart the backend (Backend tab → Restart), then try again. '
@@ -27215,7 +27274,7 @@ function PTClientsPage({ members, users, settings, updateSetting, currentUser, a
     // the members list. It supports filtering by plan, status, billing month,
     // payment method, staff, and by joining/billing date ranges. Filters are
     // local to the panel until the user applies them.
-    function FilterPanel({ open, onClose, filters, setFilters, clearFilters, settings, users = [], members = [] }) {
+    function FilterPanel({ open, onClose, filters, setFilters, clearFilters, settings, users = [], members = [], currentUser = null, activeBranchId = '' }) {
       const uniqueStrings = (list) => {
         const seen = new Set();
         return (Array.isArray(list) ? list : []).map((x) => String(x || '').trim()).filter((v) => {
@@ -27228,11 +27287,17 @@ function PTClientsPage({ members, users, settings, updateSetting, currentUser, a
       const statusOptions = React.useMemo(() => uniqueStrings(settings?.statuses), [settings?.statuses]);
       const paymentMethodOptions = React.useMemo(() => uniqueStrings(settings?.paymentMethods), [settings?.paymentMethods]);
       const staffOptions = React.useMemo(() => {
+        const staffFn = window.__APG_MODULES?.staffFilterOptionsForActiveBranch;
+        if (typeof staffFn === 'function') {
+          return staffFn({
+            users,
+            members,
+            settingsStaff: settings?.staff,
+            user: currentUser,
+            activeBranchId,
+          });
+        }
         const names = new Set();
-        (settings?.staff || []).forEach((st) => {
-          const n = String(st?.name || st?.id || '').trim();
-          if (n) names.add(n);
-        });
         (members || []).forEach((m) => {
           const n = String(m?.staff || '').trim();
           if (n) names.add(n);
@@ -27242,7 +27307,7 @@ function PTClientsPage({ members, users, settings, updateSetting, currentUser, a
           if (n) names.add(n);
         });
         return Array.from(names).sort((a, b) => a.localeCompare(b));
-      }, [settings?.staff, members, users]);
+      }, [settings?.staff, members, users, currentUser, activeBranchId]);
       const initial = {
         plan: '',
         status: '',
