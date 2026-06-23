@@ -15,10 +15,13 @@ export function filterUsersForAuth(users, auth) {
   if (readIds === null) return list;
   const allowed = new Set(readIds);
   if (!allowed.size) return [];
+  const masterCanSeeProtected = authHasGlobalBranchRead(auth);
   return list.filter((u) => {
     const login = String(u?.id || '').trim().toLowerCase();
-    if (PROTECTED_STAFF_IDS.has(login)) return false;
-    if (normalizeStaffRole(u?.staffRole, u?.id) === STAFF_ROLES.MASTER_OWNER) return false;
+    if (PROTECTED_STAFF_IDS.has(login)) return masterCanSeeProtected;
+    if (normalizeStaffRole(u?.staffRole, u?.id) === STAFF_ROLES.MASTER_OWNER) {
+      return masterCanSeeProtected;
+    }
     const branch = String(u?.gymCodeId || '').trim();
     return branch && allowed.has(branch);
   });

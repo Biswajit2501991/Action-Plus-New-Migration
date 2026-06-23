@@ -64,13 +64,24 @@ describe('userScope', () => {
     expect(filterUsersForAuth(users, auth)).toEqual([{ id: 'a', gymCodeId: 'b1' }]);
   });
 
-  it('master owner with active branch sees only that branch staff', () => {
+  it('master owner with active branch sees that branch staff plus protected seed accounts', () => {
     const auth = { userId: 'owner', staffRole: 'master_owner', activeBranchId: 'b2', gymCodeId: 'b2' };
     const users = [
       { id: 'a', gymCodeId: 'b1' },
       { id: 'b', gymCodeId: 'b2' },
+      { id: 'Raja', name: 'Raja', gymCodeId: 'hq' },
+      { id: 'owner', staffRole: 'master_owner', gymCodeId: 'hq' },
     ];
-    expect(filterUsersForAuth(users, auth)).toEqual([{ id: 'b', gymCodeId: 'b2' }]);
+    expect(filterUsersForAuth(users, auth).map((u) => u.id)).toEqual(['b', 'Raja', 'owner']);
+  });
+
+  it('branch owner still cannot see protected seed accounts', () => {
+    const auth = { userId: 'bo1', staffRole: 'branch_owner', allowedBranchIds: ['b1'], activeBranchId: 'b1', gymCodeId: 'b1' };
+    const users = [
+      { id: 'a', gymCodeId: 'b1' },
+      { id: 'Raja', name: 'Raja', gymCodeId: 'b1' },
+    ];
+    expect(filterUsersForAuth(users, auth)).toEqual([{ id: 'a', gymCodeId: 'b1' }]);
   });
 });
 

@@ -1024,7 +1024,10 @@ app.put('/api/users/bulk', requireStaffManagementWrite, async (req, res) => {
 // Master-owner-only staff delete/deactivate. Protected seed owners (Bis, Raja),
 // any user whose role is 'owner', or the requester themselves are skipped.
 // Staff with historical dependencies are deactivated (blocked) instead of hard-deleted.
-const PROTECTED_STAFF_IDS = new Set(['Bis', 'Raja', 'owner']);
+const PROTECTED_STAFF_IDS = new Set(['bis', 'raja', 'owner']);
+function isProtectedStaffLogin(id) {
+  return PROTECTED_STAFF_IDS.has(String(id || '').trim().toLowerCase());
+}
 app.post('/api/users/cleanup', requireMasterOwner, async (req, res) => {
   try {
     const incoming = Array.isArray(req.body?.userIds) ? req.body.userIds : [];
@@ -1052,7 +1055,7 @@ app.post('/api/users/cleanup', requireMasterOwner, async (req, res) => {
           || String(user?.staffRole || '').toLowerCase() === 'master_owner'
           || String(user?.staffRole || '').toLowerCase() === 'branch_owner')
         : false;
-      const isProtected = PROTECTED_STAFF_IDS.has(id) || isOwnerRow || (requesterId && id === requesterId);
+      const isProtected = isProtectedStaffLogin(id) || isOwnerRow || (requesterId && id === requesterId);
       if (isProtected) {
         skipped.push({ id, reason: isOwnerRow ? 'owner_role' : (id === requesterId ? 'self' : 'seed_account') });
         continue;
