@@ -13098,7 +13098,10 @@ function Sidebar({ user, active, onSelect, theme, setTheme, layoutMode = 'classi
                       <div className="flex items-center gap-2 min-w-0">
                         <Avatar name={m.name} photo={m.photo} member={m} className="h-9 w-9 rounded-xl" />
                         <div className="min-w-0">
-                          <div className="truncate text-sm font-semibold text-slate-900">{m.name}</div>
+                          <div className="flex min-w-0 items-center gap-1.5">
+                            <div className="truncate text-sm font-semibold text-slate-900">{m.name}</div>
+                            <NewRecordBadge timestamp={m.createdAt} />
+                          </div>
                           <div className="truncate text-[11px] text-slate-500">{m.mobile || '-'}</div>
                         </div>
                       </div>
@@ -13802,7 +13805,10 @@ function MemberRowDesktopView({ m, selectable, selected, onSelectToggle, onToggl
             fineHighlight ? 'font-semibold' : (billingToday ? 'font-semibold' : '')
           )}>
             <Avatar name={m.name} photo={m.photo} member={m} className="h-6 w-6" />
-            <span className="truncate">{m.name}</span>
+            <div className="flex min-w-0 items-center gap-1.5">
+              <span className="truncate">{m.name}</span>
+              <NewRecordBadge timestamp={m.createdAt} />
+            </div>
           </div>
           <div className="col-span-1 truncate">{m.plan}</div>
           <div className="col-span-1">{fmt(m.billingDate)}</div>
@@ -13887,6 +13893,7 @@ function MemberRowDesktopView({ m, selectable, selected, onSelectToggle, onToggl
                 )}
                 <Avatar name={m.name} photo={m.photo} member={m} className="h-9 w-9 rounded-xl" />
                 <span className={cx('font-semibold truncate', fineHighlight ? 'text-rose-700' : (billingToday ? 'text-emerald-700' : 'text-slate-900'))}>{m.name}</span>
+                <NewRecordBadge timestamp={m.createdAt} />
                 {syncPending && (
                   <span className="inline-flex shrink-0 items-center rounded-full border border-amber-200 bg-amber-50 px-1.5 py-0.5 text-[9px] font-semibold text-amber-800" title="Saving to server — other devices may briefly show older data until sync completes.">
                     Sync pending…
@@ -14735,6 +14742,24 @@ function MobileMemberDetailView({ m, onBack, onEdit, onWelcome, onWhatsAppCall, 
             </div>
           </div>
         </ModalPortal>
+      );
+    }
+
+    function NewRecordBadge({ timestamp, hours = 48 }) {
+      const isNewFn = window.__APG_MODULES?.isRecordNewWithinHours;
+      let isNew = false;
+      if (typeof isNewFn === 'function') {
+        isNew = isNewFn(timestamp, hours);
+      } else {
+        const ms = parseApgTimeMs(timestamp);
+        const windowMs = (Number(hours) > 0 ? Number(hours) : 48) * 60 * 60 * 1000;
+        isNew = ms > 0 && (Date.now() - ms) < windowMs;
+      }
+      if (!isNew) return null;
+      return (
+        <span className="inline-flex shrink-0 items-center rounded-md bg-[#EF4444] px-1.5 py-0.5 text-[10px] font-semibold leading-none text-white">
+          New
+        </span>
       );
     }
 
@@ -17252,7 +17277,7 @@ function EditMemberModal({ member, onClose, onSave, onPersistInjuryNotes = null,
                         className={cx('border-b border-slate-200 hover:bg-slate-50 cursor-pointer', expanded ? 'bg-blue-50/40' : '')}
                         onClick={() => setExpandedId((prev) => (prev === v.id ? '' : v.id))}
                       >
-                        <td className="px-3 py-2">{v.id}</td><td className="px-3 py-2">{v.fullName}</td><td className="px-3 py-2">{v.mobile}</td><td className="px-3 py-2">{v.email}</td><td className="px-3 py-2">{v.gender}</td><td className="px-3 py-2">{fmt(v.addedAt)}</td><td className="px-3 py-2"><div className="flex flex-wrap items-center gap-1.5"><span>{v.status || 'New'}</span>{calledToday && <span className="inline-flex items-center rounded-full border border-emerald-300 bg-emerald-50 px-2 py-0.5 text-[10px] font-semibold text-emerald-700">Called Today</span>}</div></td>
+                        <td className="px-3 py-2">{v.id}</td><td className="px-3 py-2"><div className="flex min-w-0 items-center gap-1.5"><span className="truncate">{v.fullName}</span><NewRecordBadge timestamp={v.addedAt} /></div></td><td className="px-3 py-2">{v.mobile}</td><td className="px-3 py-2">{v.email}</td><td className="px-3 py-2">{v.gender}</td><td className="px-3 py-2">{fmt(v.addedAt)}</td><td className="px-3 py-2"><div className="flex flex-wrap items-center gap-1.5"><span>{v.status || 'New'}</span>{calledToday && <span className="inline-flex items-center rounded-full border border-emerald-300 bg-emerald-50 px-2 py-0.5 text-[10px] font-semibold text-emerald-700">Called Today</span>}</div></td>
                         <td className="px-3 py-2"><div className="flex items-center gap-2 flex-wrap">
                           <button onClick={(e) => { e.stopPropagation(); onEditVisitor(v); }} className="rounded-full border border-indigo-300 bg-indigo-50 px-2.5 py-1 text-xs text-indigo-700">Edit</button>
                           <button onClick={(e) => { e.stopPropagation(); onDeleteVisitor(v.id); }} className="rounded-full border border-rose-300 bg-rose-50 px-2.5 py-1 text-xs text-rose-700">Delete</button>

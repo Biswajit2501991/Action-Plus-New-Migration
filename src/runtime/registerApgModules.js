@@ -35,6 +35,10 @@ import {
   previewLeaveBalanceAdjustment,
   applyLeaveBalanceAdjustment,
 } from '../features/leave/leaveBalanceApi.js';
+import {
+  isRecordNewWithinHours,
+  NEW_RECORD_BADGE_HOURS,
+} from '../lib/isRecordNewWithinHours.js';
 import { buildPtMonthCalendarCells } from '../features/pt/ptWorkoutCalendarGrid.js';
 import { isPtEligibleMember, isPtPlanName } from '../features/pt/ptEligibility.js';
 import LeaveApprovalNotificationCard from '../components/leave/LeaveApprovalNotificationCard.js';
@@ -470,6 +474,8 @@ window.__APG_MODULES.shouldShowSmsSentBadge = shouldShowSmsSentBadge;
 window.__APG_MODULES.pickMemberBillingSource = pickMemberBillingSource;
 window.__APG_MODULES.mergeMemberPatchResponse = mergeMemberPatchResponse;
 window.__APG_MODULES.toCalendarDateKey = toCalendarDateKey;
+window.__APG_MODULES.isRecordNewWithinHours = isRecordNewWithinHours;
+window.__APG_MODULES.NEW_RECORD_BADGE_HOURS = NEW_RECORD_BADGE_HOURS;
 window.__APG_MODULES.leaveSubmitErrorMessage = leaveSubmitErrorMessage;
 window.__APG_MODULES.findLeaveDateConflicts = findLeaveDateConflicts;
 window.__APG_MODULES.formatLeaveOverlapError = formatLeaveOverlapError;
