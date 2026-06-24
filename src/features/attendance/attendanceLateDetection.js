@@ -2,7 +2,7 @@
  * Compare first login ISO timestamp against branch shift start (HH:MM).
  * @param {string|Date|null|undefined} firstLoginAtIso
  * @param {string|null|undefined} shiftStartTime - "HH:MM" or "HH:MM:SS"
- * @param {{ graceMinutes?: number }} [options]
+ * @param {{ graceMinutes?: number, shiftTimezone?: string|null }} [options]
  * @returns {boolean}
  */
 export function isLoginLateForShift(firstLoginAtIso, shiftStartTime, options = {}) {
@@ -15,11 +15,44 @@ export function isLoginLateForShift(firstLoginAtIso, shiftStartTime, options = {
   const hours = Number(match[1]);
   const minutes = Number(match[2]);
   if (!Number.isFinite(hours) || !Number.isFinite(minutes)) return false;
-  const login = new Date(loginMs);
-  const shiftStart = new Date(login);
-  shiftStart.setHours(hours, minutes, 0, 0);
+  const shiftMinutes = (hours * 60) + minutes;
+
+  const tzAlias = {
+    IST: 'Asia/Kolkata',
+    AEST: 'Australia/Sydney',
+  };
+  const tzRaw = String(options?.shiftTimezone || '').trim();
+  const timeZone = tzAlias[tzRaw] || tzRaw || null;
+
+  let loginMinutes = null;
+  if (timeZone) {
+    try {
+      const login = new Date(loginMs);
+      const parts = new Intl.DateTimeFormat('en-GB', {
+        timeZone,
+        hour: '2-digit',
+        minute: '2-digit',
+        hour12: false,
+      }).formatToParts(login);
+      const pick = (type) => parts.find((p) => p.type === type)?.value || '';
+      const hh = Number(pick('hour'));
+      const mm = Number(pick('minute'));
+      if (Number.isFinite(hh) && Number.isFinite(mm)) {
+        loginMinutes = (hh * 60) + mm;
+      }
+    } catch {
+      loginMinutes = null;
+    }
+  }
+
+  if (!Number.isFinite(loginMinutes)) {
+    const login = new Date(loginMs);
+    loginMinutes = (login.getHours() * 60) + login.getMinutes();
+  }
+
   const graceMs = Math.max(0, Number(options.graceMinutes) || 0) * 60 * 1000;
-  return loginMs > shiftStart.getTime() + graceMs;
+  const diffMs = (loginMinutes - shiftMinutes) * 60 * 1000;
+  return diffMs > graceMs;
 }
 
 /**

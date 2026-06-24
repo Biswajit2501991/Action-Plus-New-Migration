@@ -91,4 +91,11 @@ describe('attendanceLateDetection', () => {
     expect(isLoginLateForShift(onTime.toISOString(), '09:30')).toBe(false);
     expect(isLoginLateForShift(late.toISOString(), null)).toBe(false);
   });
+
+  it('uses branch timezone for late detection', () => {
+    // 09:20 IST on same date.
+    expect(isLoginLateForShift('2026-06-24T03:50:00.000Z', '09:30', { shiftTimezone: 'IST' })).toBe(false);
+    // 09:40 IST on same date.
+    expect(isLoginLateForShift('2026-06-24T04:10:00.000Z', '09:30', { shiftTimezone: 'IST' })).toBe(true);
+  });
 });

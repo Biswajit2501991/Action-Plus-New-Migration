@@ -4977,6 +4977,7 @@ Phone: +91-7047157510`;
       const [gymCodes, setGymCodes] = React.useState([]);
       const [gymCodesError, setGymCodesError] = React.useState('');
       const [lateNotePrompt, setLateNotePrompt] = React.useState(null);
+      const [lateNoteEligibleKey, setLateNoteEligibleKey] = React.useState('');
       const [branchBranding, setBranchBranding] = React.useState(() => {
         const fn = window.__APG_MODULES?.defaultClientBranding;
         return typeof fn === 'function' ? fn() : { displayName: 'Action Plus Gym', logoUrl: './assets/action-plus-logo.png' };
@@ -7385,8 +7386,10 @@ Phone: +91-7047157510`;
         const resolveShift = window.__APG_MODULES?.resolveBranchShiftConfig;
         const isLateFn = window.__APG_MODULES?.isLoginLateForShift;
         if (typeof resolveShift !== 'function' || typeof isLateFn !== 'function') return;
-        const { shiftStartTime } = resolveShift(gymCodes, gymCodeId);
-        if (!shiftStartTime || !isLateFn(nowIso, shiftStartTime)) return;
+        const { shiftStartTime, shiftTimezone } = resolveShift(gymCodes, gymCodeId);
+        if (!shiftStartTime || !isLateFn(nowIso, shiftStartTime, { shiftTimezone })) return;
+        const key = `${iso(nowIso)}__${String(authUser?.id || '').trim().toLowerCase()}`;
+        setLateNoteEligibleKey(key);
         setLateNotePrompt({
           staffLoginId: authUser.id,
           attendanceDate: iso(nowIso),
@@ -10924,6 +10927,7 @@ Please pay by: ${formattedLastDate}`;
                     gymCodes={gymCodes}
                     backendJson={backendJson}
                     dataSyncMode={dataSyncMode}
+                    lateNoteEligibleKey={lateNoteEligibleKey}
                     onAddNote={promptLateNoteFromDashboard}
                   />
                 </div>
@@ -19223,13 +19227,14 @@ function PTClientsPage({ members, users, settings, updateSetting, currentUser, a
     }
 
     // ---- Late note header control (no Attendance tab required) ----
-    function LateAttendanceNoteHeaderButton({ user, settings, gymCodes, backendJson, dataSyncMode, onAddNote }) {
+    function LateAttendanceNoteHeaderButton({ user, settings, gymCodes, backendJson, dataSyncMode, lateNoteEligibleKey = '', onAddNote }) {
       const notesEnabled = window.__APG_MODULES?.isAttendanceNotesEnabled?.(settings) === true;
       const canSubmit = normalizeAccess(user?.access).attendance?.submitOwnLateNote !== false;
       const [selfRecord, setSelfRecord] = React.useState(null);
       const [selfRecordReady, setSelfRecordReady] = React.useState(false);
       const [hasNote, setHasNote] = React.useState(null);
       const today = iso(new Date());
+      const lateEligibleToday = lateNoteEligibleKey === `${today}__${String(user?.id || '').trim().toLowerCase()}`;
       const localRec = React.useMemo(() => (
         (Array.isArray(settings?.staffAttendance) ? settings.staffAttendance : [])
           .find((r) => iso(r.date) === today && r.userId === user?.id)
@@ -19243,7 +19248,12 @@ function PTClientsPage({ members, users, settings, updateSetting, currentUser, a
       const loginAt = activeRecord?.firstLoginAt || user?.lastLoginAt || '';
       const isLate = React.useMemo(() => {
         const fn = window.__APG_MODULES?.isLoginLateForShift;
-        return Boolean(loginAt && shiftCfg?.shiftStartTime && typeof fn === 'function' && fn(loginAt, shiftCfg.shiftStartTime));
+        return Boolean(
+          loginAt
+          && shiftCfg?.shiftStartTime
+          && typeof fn === 'function'
+          && fn(loginAt, shiftCfg.shiftStartTime, { shiftTimezone: shiftCfg?.shiftTimezone }),
+        );
       }, [loginAt, shiftCfg?.shiftStartTime]);
       React.useEffect(() => {
         if (!notesEnabled || !canSubmit || dataSyncMode !== 'backend' || typeof backendJson !== 'function' || !user?.id) {
@@ -19288,7 +19298,7 @@ function PTClientsPage({ members, users, settings, updateSetting, currentUser, a
           .catch(() => { if (!cancelled) setHasNote(false); });
         return () => { cancelled = true; };
       }, [notesEnabled, canSubmit, isLate, dataSyncMode, backendJson, user?.id, today, settings?.attendanceNotesEnabled]);
-      if (!notesEnabled || !canSubmit || !selfRecordReady || !isLate) return null;
+      if (!notesEnabled || !canSubmit || !selfRecordReady || (!isLate && !lateEligibleToday && hasNote !== true)) return null;
       const isEditingExisting = hasNote === true;
       return (
         <button
