@@ -103,26 +103,30 @@ export async function insertAttendanceNote(input) {
     updated_at: now,
     expires_at: retentionExpiresAt(now),
   };
-  const { data: existing, error: existingError } = await sb
+  const keyQuery = sb
     .from(T.attendance_notes)
     .select('id')
     .eq('gym_id', gid)
     .eq('staff_login_id', row.staff_login_id)
     .eq('attendance_date', row.attendance_date)
-    .order('updated_at', { ascending: false })
-    .limit(1)
-    .maybeSingle();
+    .order('updated_at', { ascending: false });
+
+  const { data: existingRows, error: existingError } = await keyQuery;
   if (existingError) rethrowAttendanceNotesDbError(existingError, 'upsert.lookup');
 
-  if (existing?.id) {
+  if (Array.isArray(existingRows) && existingRows.length) {
     const { data, error } = await sb
       .from(T.attendance_notes)
       .update(row)
-      .eq('id', existing.id)
-      .select('*')
-      .single();
+      .eq('gym_id', gid)
+      .eq('staff_login_id', row.staff_login_id)
+      .eq('attendance_date', row.attendance_date)
+      .select('*');
     if (error) rethrowAttendanceNotesDbError(error, 'upsert.update');
-    return noteRowToApp(data);
+    const latest = Array.isArray(data)
+      ? [...data].sort((a, b) => String(b.updated_at || '').localeCompare(String(a.updated_at || '')))[0]
+      : null;
+    if (latest) return noteRowToApp(latest);
   }
 
   const { data, error } = await sb
@@ -154,7 +158,7 @@ export async function readAttendanceNotesInRange(query) {
     .gte('attendance_date', startDate)
     .lte('attendance_date', endDate)
     .gt('expires_at', new Date().toISOString())
-    .order('created_at', { ascending: false });
+    .order('updated_at', { ascending: false });
 
   if (staffLoginId) q = q.eq('staff_login_id', staffLoginId);
   if (gymCodeIds?.length) q = q.in('gym_code_id', gymCodeIds);
@@ -180,7 +184,7 @@ export async function readLatestAttendanceNote({ staffLoginId, attendanceDate, g
     .eq('staff_login_id', uid)
     .eq('attendance_date', date)
     .gt('expires_at', new Date().toISOString())
-    .order('created_at', { ascending: false })
+    .order('updated_at', { ascending: false })
     .limit(1);
 
   const gymCodeIdList = Array.isArray(gymCodeIds)

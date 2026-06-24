@@ -3055,10 +3055,18 @@ async function upsertAttendanceRow(sb, gid, appRecord) {
     onConflict: 'gym_id,external_record_id',
   });
   if (!error) return;
-  await sb.from(T.staff_attendance_records)
-    .delete()
+  // Preserve internal row id to avoid cascading deletes in child tables (attendance_notes FK).
+  const patch = { ...row };
+  delete patch.created_at;
+  const { data: updated, error: updErr } = await sb
+    .from(T.staff_attendance_records)
+    .update(patch)
     .eq('gym_id', gid)
-    .eq('external_record_id', row.external_record_id);
+    .eq('external_record_id', row.external_record_id)
+    .select('id')
+    .maybeSingle();
+  if (updErr) throw new Error(`staff_attendance_records: ${updErr.message}`);
+  if (updated?.id) return;
   const { error: insErr } = await sb.from(T.staff_attendance_records).insert(row);
   if (insErr) throw new Error(`staff_attendance_records: ${insErr.message}`);
 }
