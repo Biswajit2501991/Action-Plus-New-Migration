@@ -8,11 +8,20 @@ function normalizeCode(raw) {
 export async function listGymCodes() {
   const sb = getSupabase();
   const gid = gymId();
-  const { data, error } = await sb
+  const fullSelect = 'id, gym_id, code, name, display_name, logo_url, branding_updated_at, shift_start_time, shift_timezone, created_at';
+  const baseSelect = 'id, gym_id, code, name, display_name, logo_url, branding_updated_at, created_at';
+  let { data, error } = await sb
     .from(T.gym_codes)
-    .select('id, gym_id, code, name, display_name, logo_url, branding_updated_at, created_at')
+    .select(fullSelect)
     .eq('gym_id', gid)
     .order('code', { ascending: true });
+  if (error && /shift_start|shift_timezone|column/i.test(String(error.message || ''))) {
+    ({ data, error } = await sb
+      .from(T.gym_codes)
+      .select(baseSelect)
+      .eq('gym_id', gid)
+      .order('code', { ascending: true }));
+  }
   if (error) throw new Error(error.message);
   return (data || []).map((row) => ({
     id: row.id,
@@ -21,8 +30,41 @@ export async function listGymCodes() {
     branchName: row.name,
     displayName: row.display_name || null,
     logoUrl: row.logo_url || null,
+    shiftStartTime: row.shift_start_time ? String(row.shift_start_time).slice(0, 5) : null,
+    shiftTimezone: row.shift_timezone || 'IST',
     createdAt: row.created_at,
   }));
+}
+
+export async function updateGymCodeShift(id, { shiftStartTime, shiftTimezone }) {
+  const sb = getSupabase();
+  const gid = gymId();
+  const codeId = String(id || '').trim();
+  if (!codeId) throw new Error('id-required');
+  const patch = { shift_timezone: String(shiftTimezone || 'IST').trim() || 'IST' };
+  const time = String(shiftStartTime || '').trim();
+  if (time) {
+    const match = time.match(/^(\d{1,2}):(\d{2})/);
+    if (!match) throw new Error('invalid-shift-time');
+    patch.shift_start_time = `${match[1].padStart(2, '0')}:${match[2]}:00`;
+  } else {
+    patch.shift_start_time = null;
+  }
+  const { data, error } = await sb
+    .from(T.gym_codes)
+    .update(patch)
+    .eq('gym_id', gid)
+    .eq('id', codeId)
+    .select('id, code, name, shift_start_time, shift_timezone')
+    .single();
+  if (error) throw new Error(error.message);
+  return {
+    id: data.id,
+    code: data.code,
+    name: data.name,
+    shiftStartTime: data.shift_start_time ? String(data.shift_start_time).slice(0, 5) : null,
+    shiftTimezone: data.shift_timezone || 'IST',
+  };
 }
 
 export async function createGymCode({ code, name }) {

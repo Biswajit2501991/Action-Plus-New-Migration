@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import { requireOwner } from '../middleware/requireOwner.js';
-import { createGymCode, deleteGymCode, listGymCodes } from '../services/gymCodesService.js';
+import { createGymCode, deleteGymCode, listGymCodes, updateGymCodeShift } from '../services/gymCodesService.js';
 import {
   resolveBrandingForAuth,
   updateBranchBranding,
@@ -77,6 +77,22 @@ router.post('/:id/branding/logo', requireOwner, async (req, res) => {
   } catch (err) {
     const status = err.status || 500;
     res.status(status).json({ error: err.message || 'branding-logo-upload-failed' });
+  }
+});
+
+router.patch('/:id/shift', requireOwner, async (req, res) => {
+  try {
+    const updated = await updateGymCodeShift(req.params.id, {
+      shiftStartTime: req.body?.shiftStartTime ?? req.body?.shift_start_time,
+      shiftTimezone: req.body?.shiftTimezone ?? req.body?.shift_timezone,
+    });
+    res.json({ ok: true, gymCode: updated });
+  } catch (err) {
+    const msg = err.message || '';
+    if (msg === 'invalid-shift-time' || msg === 'id-required') {
+      return res.status(400).json({ error: msg });
+    }
+    res.status(500).json({ error: 'gym-codes-shift-update-failed', message: msg });
   }
 });
 

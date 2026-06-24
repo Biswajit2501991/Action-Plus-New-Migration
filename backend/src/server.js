@@ -38,7 +38,12 @@ import {
   punchStaffAttendance,
   upsertStaffAttendanceRecords,
   readStaffAttendanceInRange,
+  readStaffAttendanceSelfToday,
   deleteAttendanceRecordsInRange,
+  createAttendanceNote,
+  listAttendanceNotes,
+  latestAttendanceNote,
+  cleanupExpiredAttendanceNotes,
   readWhatsappTemplates,
   writeWhatsappTemplate,
   readCustomTemplates,
@@ -1818,6 +1823,18 @@ app.get('/api/attendance/records', requireAccess((a) => a.attendance?.viewAttend
   }
 });
 
+app.get('/api/attendance/records/self/today', requireAccess(Access.attendanceNoteSelf), async (req, res) => {
+  try {
+    const record = await readStaffAttendanceSelfToday(readSandboxScope(req), req.auth.userId);
+    return res.json({ ok: true, record: record || null });
+  } catch (error) {
+    return res.status(500).json({
+      error: 'attendance_self_today_failed',
+      message: String(error?.message || error),
+    });
+  }
+});
+
 app.post('/api/attendance/punch', requireAccess(Access.attendancePunch), async (req, res) => {
   try {
     const punchType = String(req.body?.type || 'login').toLowerCase();
@@ -1873,6 +1890,74 @@ app.post('/api/attendance/cleanup', requireMasterOwner, async (req, res) => {
     return res.json({ ok: true, deleted, startDate, endDate });
   } catch (error) {
     return res.status(500).json({ error: 'attendance_cleanup_failed', message: String(error?.message || error) });
+  }
+});
+
+app.post('/api/attendance/notes', requireAccess(Access.attendanceNoteSelf), async (req, res) => {
+  try {
+    const note = await createAttendanceNote(req.auth, req.body || {});
+    await appendAuditLog(req, {
+      action: 'attendance.note.created',
+      entityType: 'attendance_note',
+      entityId: note.id,
+      after: {
+        staffLoginId: note.staffLoginId,
+        attendanceDate: note.attendanceDate,
+        noteCategory: note.noteCategory,
+      },
+    });
+    queueDatabaseBackup('attendance-note');
+    return res.json({ ok: true, note });
+  } catch (error) {
+    const status = error?.status || 500;
+    return res.status(status).json({
+      error: error?.message || 'attendance_note_create_failed',
+      message: String(error?.message || error),
+    });
+  }
+});
+
+app.get('/api/attendance/notes', requireAccess((a) => a.attendance?.viewAttendance !== false), async (req, res) => {
+  try {
+    const notes = await listAttendanceNotes(req.auth, req.query || {});
+    return res.json({ ok: true, notes });
+  } catch (error) {
+    const status = error?.status || 500;
+    return res.status(status).json({
+      error: error?.message || 'attendance_notes_read_failed',
+      message: String(error?.message || error),
+    });
+  }
+});
+
+app.get('/api/attendance/notes/latest', requireAccess(Access.attendanceNoteSelf), async (req, res) => {
+  try {
+    const note = await latestAttendanceNote(req.auth, req.query || {});
+    return res.json({ ok: true, note: note || null });
+  } catch (error) {
+    const status = error?.status || 500;
+    return res.status(status).json({
+      error: error?.message || 'attendance_note_latest_failed',
+      message: String(error?.message || error),
+    });
+  }
+});
+
+app.post('/api/attendance/notes/cleanup', requireMasterOwner, async (req, res) => {
+  try {
+    const result = await cleanupExpiredAttendanceNotes();
+    await appendAuditLog(req, {
+      action: 'attendance.notes.cleanup',
+      entityType: 'attendance_note',
+      entityId: 'expired',
+      after: result,
+    });
+    return res.json({ ok: true, ...result });
+  } catch (error) {
+    return res.status(500).json({
+      error: 'attendance_notes_cleanup_failed',
+      message: String(error?.message || error),
+    });
   }
 });
 

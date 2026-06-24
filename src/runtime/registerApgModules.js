@@ -143,6 +143,29 @@ import {
   canManageCustomTemplatesFeatureFlag,
 } from '../features/whatsapp/customTemplatesFeature.js';
 import {
+  ATTENDANCE_NOTES_FEATURE_FLAG_KEY,
+  ATTENDANCE_NOTE_CATEGORIES,
+  ATTENDANCE_NOTE_CATEGORY_LABELS,
+  ATTENDANCE_NOTE_MAX_LENGTH,
+  isAttendanceNotesEnabled,
+  normalizeAttendanceNotesEnabled,
+} from '../features/attendance/attendanceNotesFeature.js';
+import {
+  sanitizeAttendanceNoteText,
+  validateAttendanceNotePayload,
+  formatAttendanceNoteBadge,
+} from '../features/attendance/attendanceNotesValidation.js';
+import {
+  isLoginLateForShift,
+  resolveBranchShiftConfig,
+} from '../features/attendance/attendanceLateDetection.js';
+import {
+  createAttendanceNoteApi,
+  fetchAttendanceNotesApi,
+  fetchLatestAttendanceNoteApi,
+  fetchSelfAttendanceTodayApi,
+} from '../features/attendance/attendanceNotesClient.js';
+import {
   RESERVED_SYSTEM_TEMPLATE_CODES,
   customTemplateHistoryKey,
   isCustomTemplateHistoryKey,
@@ -478,6 +501,8 @@ window.__APG_MODULES.ALL_SECTIONS = permissions.ALL_SECTIONS;
 window.__APG_MODULES.DASHBOARD_CHILD_PERMISSIONS = permissions.DASHBOARD_CHILD_PERMISSIONS;
 window.__APG_MODULES.DEFAULT_ACCESS = permissions.DEFAULT_ACCESS;
 window.__APG_MODULES.normalizeAccess = permissions.normalizeAccess;
+window.__APG_MODULES.canSubmitOwnLateNote = permissions.canSubmitOwnLateNote;
+window.__APG_MODULES.ATTENDANCE_SECTION_PERMISSION_KEYS = permissions.ATTENDANCE_SECTION_PERMISSION_KEYS;
 window.__APG_MODULES.sectionsWithRoleDefaults = permissions.sectionsWithRoleDefaults;
 window.__APG_MODULES.PAYMENT_QR_CHILD_PERMISSIONS = permissions.PAYMENT_QR_CHILD_PERMISSIONS;
 window.__APG_MODULES.reminderSentForCurrentBilling = reminderSentForCurrentBilling;
@@ -574,6 +599,21 @@ window.__APG_MODULES.CUSTOM_TEMPLATES_FEATURE_FLAG_KEY = CUSTOM_TEMPLATES_FEATUR
 window.__APG_MODULES.isCustomTemplatesEnabled = isCustomTemplatesEnabled;
 window.__APG_MODULES.normalizeCustomTemplatesEnabled = normalizeCustomTemplatesEnabled;
 window.__APG_MODULES.canManageCustomTemplatesFeatureFlag = canManageCustomTemplatesFeatureFlag;
+window.__APG_MODULES.ATTENDANCE_NOTES_FEATURE_FLAG_KEY = ATTENDANCE_NOTES_FEATURE_FLAG_KEY;
+window.__APG_MODULES.ATTENDANCE_NOTE_CATEGORIES = ATTENDANCE_NOTE_CATEGORIES;
+window.__APG_MODULES.ATTENDANCE_NOTE_CATEGORY_LABELS = ATTENDANCE_NOTE_CATEGORY_LABELS;
+window.__APG_MODULES.ATTENDANCE_NOTE_MAX_LENGTH = ATTENDANCE_NOTE_MAX_LENGTH;
+window.__APG_MODULES.isAttendanceNotesEnabled = isAttendanceNotesEnabled;
+window.__APG_MODULES.normalizeAttendanceNotesEnabled = normalizeAttendanceNotesEnabled;
+window.__APG_MODULES.sanitizeAttendanceNoteText = sanitizeAttendanceNoteText;
+window.__APG_MODULES.validateAttendanceNotePayload = validateAttendanceNotePayload;
+window.__APG_MODULES.formatAttendanceNoteBadge = formatAttendanceNoteBadge;
+window.__APG_MODULES.isLoginLateForShift = isLoginLateForShift;
+window.__APG_MODULES.resolveBranchShiftConfig = resolveBranchShiftConfig;
+window.__APG_MODULES.createAttendanceNoteApi = createAttendanceNoteApi;
+window.__APG_MODULES.fetchAttendanceNotesApi = fetchAttendanceNotesApi;
+window.__APG_MODULES.fetchLatestAttendanceNoteApi = fetchLatestAttendanceNoteApi;
+window.__APG_MODULES.fetchSelfAttendanceTodayApi = fetchSelfAttendanceTodayApi;
 window.__APG_MODULES.RESERVED_SYSTEM_TEMPLATE_CODES = RESERVED_SYSTEM_TEMPLATE_CODES;
 window.__APG_MODULES.isValidCustomTemplateCode = isValidCustomTemplateCode;
 window.__APG_MODULES.customTemplateHistoryKey = customTemplateHistoryKey;

@@ -2475,7 +2475,9 @@
       { key: 'viewAttendance', label: 'View Attendance Dashboard' },
       { key: 'markAllPresent', label: 'Mark All Present' },
       { key: 'editAttendance', label: 'Edit Status / Notes' },
+      { key: 'submitOwnLateNote', label: 'Submit own late-arrival note (no Attendance tab required)' },
     ];
+    const ATTENDANCE_SECTION_PERMISSION_KEYS = ['viewAttendance', 'markAllPresent', 'editAttendance'];
     const LOGS_CHILD_PERMISSIONS = [
       { key: 'viewLogs', label: 'View Audit Logs' },
       { key: 'exportLogs', label: 'Export Logs CSV' },
@@ -2550,6 +2552,7 @@
         viewAttendance: true,
         markAllPresent: true,
         editAttendance: true,
+        submitOwnLateNote: true,
       },
       logs: {
         viewLogs: true,
@@ -2627,6 +2630,7 @@
         viewAttendance: access?.attendance?.viewAttendance !== false,
         markAllPresent: access?.attendance?.markAllPresent !== false,
         editAttendance: access?.attendance?.editAttendance !== false,
+        submitOwnLateNote: access?.attendance?.submitOwnLateNote !== false,
       },
       logs: {
         viewLogs: access?.logs?.viewLogs !== false,
@@ -4781,6 +4785,7 @@ Phone: +91-7047157510`;
       acknowledgementUnder18Template: ACKNOWLEDGEMENT_UNDER18_TEMPLATE_DEFAULT,
       gmailWelcomeTemplate: GMAIL_WELCOME_TEMPLATE_DEFAULT,
       customTemplatesEnabled: false,
+      attendanceNotesEnabled: false,
       paymentQrInReminderEnabled: false,
     });
     const buildOwnerOnlyUser = () => ({
@@ -4971,6 +4976,7 @@ Phone: +91-7047157510`;
       // Gym Codes (branches) — Phase 2 multi-tenant isolation.
       const [gymCodes, setGymCodes] = React.useState([]);
       const [gymCodesError, setGymCodesError] = React.useState('');
+      const [lateNotePrompt, setLateNotePrompt] = React.useState(null);
       const [branchBranding, setBranchBranding] = React.useState(() => {
         const fn = window.__APG_MODULES?.defaultClientBranding;
         return typeof fn === 'function' ? fn() : { displayName: 'Action Plus Gym', logoUrl: './assets/action-plus-logo.png' };
@@ -7295,7 +7301,7 @@ Phone: +91-7047157510`;
       }, [holdActivationPrompt, quickFieldEdit, editMember, members, addOpen, visitorFormOpen, visitorEdit, historyState.canUndo, undoHistory]);
 
       const pushAttendancePunch = async (punchType, authUser, nowIso) => {
-        if (dataSyncMode !== 'backend' || !hasBackendAuth() || !authUser?.id) return;
+        if (dataSyncMode !== 'backend' || !hasBackendAuth() || !authUser?.id) return null;
         try {
           const result = await backendJson('/attendance/punch', {
             method: 'POST',
@@ -7312,7 +7318,10 @@ Phone: +91-7047157510`;
               staffAttendance: mergeStaffAttendanceRecords(prev?.staffAttendance, [result.record]),
             }));
           }
-        } catch {}
+          return result?.record || null;
+        } catch {
+          return null;
+        }
       };
       const pushAttendanceRecords = async (records) => {
         if (dataSyncMode !== 'backend' || !hasBackendAuth() || !Array.isArray(records) || records.length === 0) return;
@@ -7365,6 +7374,43 @@ Phone: +91-7047157510`;
             updatedBy: currentActor,
           };
           return { ...prevObj, staffAttendance: [created, ...records] };
+        });
+      };
+      const maybePromptLateAttendanceNote = (authUser, nowIso, punchRecord) => {
+        const enabledFn = window.__APG_MODULES?.isAttendanceNotesEnabled;
+        if (typeof enabledFn !== 'function' || !enabledFn(settings)) return;
+        const access = normalizeAccess(authUser?.access || user?.access);
+        if (access?.attendance?.submitOwnLateNote === false) return;
+        const gymCodeId = String(authUser?.gymCodeId || authUser?.activeBranchId || user?.gymCodeId || user?.activeBranchId || '').trim();
+        const resolveShift = window.__APG_MODULES?.resolveBranchShiftConfig;
+        const isLateFn = window.__APG_MODULES?.isLoginLateForShift;
+        if (typeof resolveShift !== 'function' || typeof isLateFn !== 'function') return;
+        const { shiftStartTime } = resolveShift(gymCodes, gymCodeId);
+        if (!shiftStartTime || !isLateFn(nowIso, shiftStartTime)) return;
+        setLateNotePrompt({
+          staffLoginId: authUser.id,
+          attendanceDate: iso(nowIso),
+          nowIso,
+          gymCodeId,
+          attendanceRecordId: punchRecord?.id || null,
+        });
+      };
+      const openLateNotePromptForUser = (authUser, punchRecord = null) => {
+        const nowIso = new Date().toISOString();
+        maybePromptLateAttendanceNote(authUser, nowIso, punchRecord);
+      };
+      const promptLateNoteFromDashboard = (selfRecord = null) => {
+        if (!user?.id) return;
+        const today = iso(new Date());
+        const rec = selfRecord || (Array.isArray(settings?.staffAttendance) ? settings.staffAttendance : [])
+          .find((r) => iso(r.date) === today && r.userId === user.id);
+        const loginAt = rec?.firstLoginAt || user?.lastLoginAt || new Date().toISOString();
+        setLateNotePrompt({
+          staffLoginId: user.id,
+          attendanceDate: today,
+          nowIso: loginAt,
+          gymCodeId: String(user.gymCodeId || user.activeBranchId || '').trim(),
+          attendanceRecordId: rec?.id || null,
         });
       };
       const markLogoutAttendance = (authUser, nowIso) => {
@@ -7472,7 +7518,10 @@ Phone: +91-7047157510`;
             lastLoginAt: nowIso,
           } : u)));
           markLoginAttendance(sessionUser, nowIso);
-          pushAttendancePunch('login', sessionUser, nowIso);
+          void (async () => {
+            const punchRecord = await pushAttendancePunch('login', sessionUser, nowIso);
+            maybePromptLateAttendanceNote(loginUser, nowIso, punchRecord);
+          })();
           setActiveTab('Dashboard');
           setDashMode('summary');
           logEvent('auth.login', 'user', id, null, { id }, sessionUser.name || id);
@@ -7775,7 +7824,8 @@ Phone: +91-7047157510`;
               }];
             });
             markLoginAttendance(rec, nowIso);
-            pushAttendancePunch('login', rec, nowIso);
+            const punchRecord = await pushAttendancePunch('login', rec, nowIso);
+            maybePromptLateAttendanceNote(rec, nowIso, punchRecord);
             setActiveTab('Dashboard');
             setDashMode('summary');
             apgLoadTimingMark('authSessionReady (login UI shown)');
@@ -7794,7 +7844,10 @@ Phone: +91-7047157510`;
         setUser({ ...sessionUser, gymCodeId: sessionUser.gymCodeId || rec.gymCodeId || '', lastLoginAt: nowIso });
         setUsers((prev) => prev.map((u) => (authUserIdsMatch(u.id, rec.id) ? { ...prepareStaffUser({ ...u, ...sessionUser }), gymCodeId: sessionUser.gymCodeId || rec.gymCodeId || u.gymCodeId || '', lastLoginAt: nowIso } : u)));
         markLoginAttendance(sessionUser, nowIso);
-        pushAttendancePunch('login', sessionUser, nowIso);
+        void (async () => {
+          const punchRecord = await pushAttendancePunch('login', sessionUser, nowIso);
+          maybePromptLateAttendanceNote(sessionUser, nowIso, punchRecord);
+        })();
         setActiveTab('Dashboard');
         setDashMode('summary');
         writeAuthSession(rec.id, parsed.token || '');
@@ -10865,6 +10918,14 @@ Please pay by: ${formattedLastDate}`;
                       {tab}
                     </button>
                   ))}
+                  <LateAttendanceNoteHeaderButton
+                    user={user}
+                    settings={settings}
+                    gymCodes={gymCodes}
+                    backendJson={backendJson}
+                    dataSyncMode={dataSyncMode}
+                    onAddNote={promptLateNoteFromDashboard}
+                  />
                 </div>
               </div>
             </div>
@@ -11302,6 +11363,9 @@ Please pay by: ${formattedLastDate}`;
                 currentUser={user}
                 access={normalizeAccess(user?.access)}
                 displayTimeZone={displayTimeZone}
+                gymCodes={gymCodes}
+                backendJson={backendJson}
+                dataSyncMode={dataSyncMode}
               />
             )}
             {activeTab === 'Leave Tracker' && (
@@ -11541,6 +11605,14 @@ Please pay by: ${formattedLastDate}`;
                 </div>
               </div>
             </div>
+          )}
+          {lateNotePrompt && (
+            <AttendanceLateNoteModal
+              prompt={lateNotePrompt}
+              onClose={() => setLateNotePrompt(null)}
+              backendJson={backendJson}
+              dataSyncMode={dataSyncMode}
+            />
           )}
           {holdActivationPrompt && (
             <div className="fixed inset-0 z-[75] flex items-center justify-center apg-modal-backdrop p-4">
@@ -19150,11 +19222,185 @@ function PTClientsPage({ members, users, settings, updateSetting, currentUser, a
       );
     }
 
+    // ---- Late note header control (no Attendance tab required) ----
+    function LateAttendanceNoteHeaderButton({ user, settings, gymCodes, backendJson, dataSyncMode, onAddNote }) {
+      const notesEnabled = window.__APG_MODULES?.isAttendanceNotesEnabled?.(settings) === true;
+      const canSubmit = normalizeAccess(user?.access).attendance?.submitOwnLateNote !== false;
+      const [selfRecord, setSelfRecord] = React.useState(null);
+      const [selfRecordReady, setSelfRecordReady] = React.useState(false);
+      const [hasNote, setHasNote] = React.useState(null);
+      const today = iso(new Date());
+      const localRec = React.useMemo(() => (
+        (Array.isArray(settings?.staffAttendance) ? settings.staffAttendance : [])
+          .find((r) => iso(r.date) === today && r.userId === user?.id)
+      ), [settings?.staffAttendance, today, user?.id]);
+      const gymCodeId = String(user?.gymCodeId || user?.activeBranchId || '').trim();
+      const shiftCfg = React.useMemo(() => {
+        const fn = window.__APG_MODULES?.resolveBranchShiftConfig;
+        return typeof fn === 'function' ? fn(gymCodes, gymCodeId) : { shiftStartTime: null };
+      }, [gymCodes, gymCodeId]);
+      const activeRecord = selfRecord || localRec || null;
+      const loginAt = activeRecord?.firstLoginAt || user?.lastLoginAt || '';
+      const isLate = React.useMemo(() => {
+        const fn = window.__APG_MODULES?.isLoginLateForShift;
+        return Boolean(loginAt && shiftCfg?.shiftStartTime && typeof fn === 'function' && fn(loginAt, shiftCfg.shiftStartTime));
+      }, [loginAt, shiftCfg?.shiftStartTime]);
+      React.useEffect(() => {
+        if (!notesEnabled || !canSubmit || dataSyncMode !== 'backend' || typeof backendJson !== 'function' || !user?.id) {
+          setSelfRecord(null);
+          setSelfRecordReady(false);
+          return undefined;
+        }
+        let cancelled = false;
+        const fetchSelf = window.__APG_MODULES?.fetchSelfAttendanceTodayApi;
+        if (typeof fetchSelf !== 'function') {
+          setSelfRecord(localRec || null);
+          setSelfRecordReady(true);
+          return undefined;
+        }
+        fetchSelf(backendJson)
+          .then((record) => {
+            if (cancelled) return;
+            setSelfRecord(record || localRec || null);
+            setSelfRecordReady(true);
+          })
+          .catch(() => {
+            if (!cancelled) {
+              setSelfRecord(localRec || null);
+              setSelfRecordReady(true);
+            }
+          });
+        return () => { cancelled = true; };
+      }, [notesEnabled, canSubmit, dataSyncMode, backendJson, user?.id, localRec, settings?.attendanceNotesEnabled]);
+      React.useEffect(() => {
+        if (!notesEnabled || !canSubmit || !isLate || dataSyncMode !== 'backend' || typeof backendJson !== 'function' || !user?.id) {
+          setHasNote(null);
+          return undefined;
+        }
+        let cancelled = false;
+        const fetchLatest = window.__APG_MODULES?.fetchLatestAttendanceNoteApi;
+        if (typeof fetchLatest !== 'function') {
+          setHasNote(false);
+          return undefined;
+        }
+        fetchLatest(backendJson, { staffLoginId: user.id, date: today })
+          .then((note) => { if (!cancelled) setHasNote(Boolean(note)); })
+          .catch(() => { if (!cancelled) setHasNote(false); });
+        return () => { cancelled = true; };
+      }, [notesEnabled, canSubmit, isLate, dataSyncMode, backendJson, user?.id, today, settings?.attendanceNotesEnabled]);
+      if (!notesEnabled || !canSubmit || !selfRecordReady || !isLate || hasNote === true) return null;
+      return (
+        <button
+          type="button"
+          title="Add a short reason for your manager"
+          onClick={() => onAddNote(activeRecord)}
+          data-testid="late-attendance-note-header-btn"
+          className="inline-flex items-center gap-1.5 rounded-full px-3 py-1.5 text-xs font-semibold border border-amber-400 bg-amber-50 text-amber-900 hover:bg-amber-100 transition-colors shadow-[inset_0_1px_0_rgba(255,255,255,0.8)]"
+        >
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="h-3.5 w-3.5 shrink-0" aria-hidden="true">
+            <path d="M12 20h9" />
+            <path d="M16.5 3.5a2.12 2.12 0 013 3L7 19l-4 1 1-4 12.5-12.5z" />
+          </svg>
+          Add Late Note
+        </button>
+      );
+    }
+
+    // ---- Attendance late-note modal (structured notes; legacy note column unchanged) ----
+    function AttendanceLateNoteModal({ prompt, onClose, backendJson, dataSyncMode }) {
+      const [category, setCategory] = React.useState('traffic');
+      const [noteText, setNoteText] = React.useState('');
+      const [saving, setSaving] = React.useState(false);
+      const [error, setError] = React.useState('');
+      const categories = window.__APG_MODULES?.ATTENDANCE_NOTE_CATEGORIES || [];
+      const labels = window.__APG_MODULES?.ATTENDANCE_NOTE_CATEGORY_LABELS || {};
+      const maxLen = Number(window.__APG_MODULES?.ATTENDANCE_NOTE_MAX_LENGTH) || 250;
+      if (!prompt) return null;
+      const submit = async () => {
+        setError('');
+        setSaving(true);
+        try {
+          const validate = window.__APG_MODULES?.validateAttendanceNotePayload;
+          const createApi = window.__APG_MODULES?.createAttendanceNoteApi;
+          if (typeof validate !== 'function' || typeof createApi !== 'function') {
+            throw new Error('Attendance notes module not loaded');
+          }
+          validate({ noteCategory: category, note: noteText });
+          if (dataSyncMode !== 'backend' || typeof backendJson !== 'function') {
+            throw new Error('Backend sync required to save attendance notes');
+          }
+          await createApi(backendJson, {
+            staffLoginId: prompt.staffLoginId,
+            attendanceDate: prompt.attendanceDate,
+            attendanceRecordId: prompt.attendanceRecordId || null,
+            noteCategory: category,
+            note: noteText,
+          });
+          onClose();
+        } catch (err) {
+          setError(String(err?.message || err || 'save-failed'));
+        } finally {
+          setSaving(false);
+        }
+      };
+      return (
+        <div className="fixed inset-0 z-[120] flex items-center justify-center bg-black/40 p-4" data-testid="attendance-late-note-modal">
+          <div className="w-full max-w-md rounded-2xl bg-white p-4 shadow-xl space-y-3">
+            <div className="flex items-start justify-between gap-2">
+              <div>
+                <h2 className="text-lg font-semibold text-slate-900">Late arrival note</h2>
+                <p className="text-sm text-slate-600 mt-1">You logged in after branch shift start. Add a short reason (stored 60 days).</p>
+              </div>
+              <button
+                type="button"
+                onClick={onClose}
+                aria-label="Close late note popup"
+                className="rounded-md p-1 text-slate-500 hover:bg-slate-100 hover:text-slate-700"
+                data-testid="attendance-late-note-close"
+              >
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="h-4 w-4" aria-hidden="true">
+                  <path d="M18 6L6 18" />
+                  <path d="M6 6l12 12" />
+                </svg>
+              </button>
+            </div>
+            <div>
+              <label className="text-xs text-slate-500">Category</label>
+              <select value={category} onChange={(e) => setCategory(e.target.value)} className="mt-1 w-full rounded-xl border border-slate-300 px-3 py-2 text-sm">
+                {categories.map((c) => (
+                  <option key={c} value={c}>{labels[c] || c}</option>
+                ))}
+              </select>
+            </div>
+            <div>
+              <label className="text-xs text-slate-500">Note</label>
+              <textarea
+                value={noteText}
+                onChange={(e) => setNoteText(e.target.value)}
+                maxLength={maxLen}
+                rows={3}
+                placeholder="Brief reason for late login"
+                className="mt-1 w-full rounded-xl border border-slate-300 px-3 py-2 text-sm"
+                data-testid="attendance-late-note-text"
+              />
+            </div>
+            {error && <div className="text-sm text-rose-600">{error}</div>}
+            <div className="flex justify-end gap-2">
+              <button type="button" onClick={onClose} className="rounded-full border border-slate-300 px-4 py-2 text-sm">Skip</button>
+              <button type="button" disabled={saving} onClick={submit} className="rounded-full bg-blue-600 px-4 py-2 text-sm font-medium text-white disabled:opacity-50" data-testid="attendance-late-note-save">Save note</button>
+            </div>
+          </div>
+        </div>
+      );
+    }
+
     // ---- Attendance Page ----
-    function AttendancePage({ users, settings, updateSetting, syncAttendanceRecords, refreshStaffAttendance, currentUser, access, displayTimeZone = 'IST' }) {
+    function AttendancePage({ users, settings, updateSetting, syncAttendanceRecords, refreshStaffAttendance, currentUser, access, displayTimeZone = 'IST', gymCodes = [], backendJson = null, dataSyncMode = 'local' }) {
       const [date, setDate] = React.useState(iso(new Date()));
       const [expandedStaffId, setExpandedStaffId] = React.useState('');
       const [historyPageByStaff, setHistoryPageByStaff] = React.useState({});
+      const [attendanceNotes, setAttendanceNotes] = React.useState([]);
+      const notesEnabled = window.__APG_MODULES?.isAttendanceNotesEnabled?.(settings) === true;
       // Phase 4: paginated "Attendance Records" table + owner-only date-range
       // cleanup. State sits at the page level so the modal can drive a refresh
       // of the same records list it just truncated.
@@ -19170,6 +19416,39 @@ function PTClientsPage({ members, users, settings, updateSetting, currentUser, a
         }
         refreshStaffAttendance({ startDate: iso(start), endDate: end });
       }, [refreshStaffAttendance, isOwnerForAttendance]);
+      React.useEffect(() => {
+        if (!notesEnabled || dataSyncMode !== 'backend' || typeof backendJson !== 'function') {
+          setAttendanceNotes([]);
+          return undefined;
+        }
+        let cancelled = false;
+        const end = iso(new Date());
+        const start = new Date();
+        start.setMonth(start.getMonth() - 2);
+        const fetchFn = window.__APG_MODULES?.fetchAttendanceNotesApi;
+        if (typeof fetchFn !== 'function') return undefined;
+        fetchFn(backendJson, { startDate: iso(start), endDate: end })
+          .then((rows) => { if (!cancelled) setAttendanceNotes(Array.isArray(rows) ? rows : []); })
+          .catch(() => { if (!cancelled) setAttendanceNotes([]); });
+        return () => { cancelled = true; };
+      }, [notesEnabled, dataSyncMode, backendJson, settings?.staffAttendance?.length, date]);
+      const latestNoteByStaffDate = React.useMemo(() => {
+        const out = new Map();
+        (attendanceNotes || []).forEach((n) => {
+          const staffId = String(n.staffLoginId || '').trim();
+          const key = `${String(n.attendanceDate || '').slice(0, 10)}__${staffId.toLowerCase()}`;
+          if (!staffId || out.has(key)) return;
+          out.set(key, n);
+        });
+        return out;
+      }, [attendanceNotes]);
+      const noteLookupKey = (recordDate, userId) => (
+        `${iso(recordDate)}__${String(userId || '').trim().toLowerCase()}`
+      );
+      const formatNoteBadge = (noteRow) => {
+        const fn = window.__APG_MODULES?.formatAttendanceNoteBadge;
+        return typeof fn === 'function' ? fn(noteRow) : (noteRow?.note || '');
+      };
       const [recordsPage, setRecordsPage] = React.useState(1);
       const RECORDS_PAGE_SIZE = 10;
       const [clearModalOpen, setClearModalOpen] = React.useState(false);
@@ -19298,6 +19577,15 @@ function PTClientsPage({ members, users, settings, updateSetting, currentUser, a
                           {rec.firstLoginAt ? `In ${formatDateTimeTz(rec.firstLoginAt, displayTimeZone)}` : ''}{rec.firstLoginAt && rec.lastLogoutAt ? ' · ' : ''}{rec.lastLogoutAt ? `Out ${formatDateTimeTz(rec.lastLogoutAt, displayTimeZone)}` : ''}
                         </span>
                       )}
+                      {notesEnabled && (() => {
+                        const noteRow = latestNoteByStaffDate.get(noteLookupKey(date, s.id));
+                        if (!noteRow) return null;
+                        return (
+                          <span className="rounded-full border border-amber-200 bg-amber-50 px-2 py-0.5 text-[10px] font-semibold text-amber-800 max-w-[180px] truncate" title={noteRow.note}>
+                            {formatNoteBadge(noteRow)}
+                          </span>
+                        );
+                      })()}
                       <span className="text-xs font-semibold text-slate-500 dark:text-slate-400">{isOpen ? 'Hide' : 'Expand'}</span>
                     </div>
                   </button>
@@ -19324,9 +19612,19 @@ function PTClientsPage({ members, users, settings, updateSetting, currentUser, a
                           <div className="mt-1 rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-700">{rec.lastLogoutAt ? <>{formatDateTimeTz(rec.lastLogoutAt, displayTimeZone)} <span className="text-[10px] uppercase">{displayTimeZone}</span></> : '—'}</div>
                         </div>
                         <div className="lg:col-span-4">
-                          <label className="text-xs text-slate-500">Note</label>
+                          <label className="text-xs text-slate-500">Note {notesEnabled ? '(legacy — leave sync / admin)' : ''}</label>
                           <input disabled={!canEditAttendance} value={rec.note || ''} onChange={(e) => canEditAttendance && upsert(s.id, { note: e.target.value })} placeholder="Reason / shift notes" className="mt-1 w-full rounded-xl border border-slate-300 px-3 py-2 text-sm disabled:opacity-60 disabled:bg-slate-100" />
                         </div>
+                        {notesEnabled && (() => {
+                          const noteRow = latestNoteByStaffDate.get(noteLookupKey(date, s.id));
+                          if (!noteRow) return null;
+                          return (
+                            <div className="lg:col-span-4">
+                              <label className="text-xs text-slate-500">Structured note</label>
+                              <div className="mt-1 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900">{noteRow.note}</div>
+                            </div>
+                          );
+                        })()}
                         {rec.autoMarked && rec.autoPresentWindowUntil && (
                           <div className="lg:col-span-4">
                             <div className="inline-flex rounded-full border border-emerald-300 bg-emerald-50 px-2 py-0.5 text-[10px] font-semibold text-emerald-700">
@@ -19442,6 +19740,7 @@ function PTClientsPage({ members, users, settings, updateSetting, currentUser, a
                         <th className="px-2 py-2 text-left">First Login</th>
                         <th className="px-2 py-2 text-left">Last Logout</th>
                         <th className="px-2 py-2 text-left">Updated</th>
+                        {notesEnabled && <th className="px-2 py-2 text-left">Note</th>}
                       </tr>
                     </thead>
                     <tbody>
@@ -19455,11 +19754,20 @@ function PTClientsPage({ members, users, settings, updateSetting, currentUser, a
                           <td className="px-2 py-1.5 whitespace-nowrap text-slate-600 dark:text-slate-300">{r.firstLoginAt ? formatDateTimeTz(r.firstLoginAt, displayTimeZone) : '—'}</td>
                           <td className="px-2 py-1.5 whitespace-nowrap text-slate-600 dark:text-slate-300">{r.lastLogoutAt ? formatDateTimeTz(r.lastLogoutAt, displayTimeZone) : '—'}</td>
                           <td className="px-2 py-1.5 whitespace-nowrap text-slate-500 dark:text-slate-400">{r.updatedAt ? formatDateTimeTz(r.updatedAt, displayTimeZone) : '—'}</td>
+                          {notesEnabled && (() => {
+                            const noteRow = latestNoteByStaffDate.get(noteLookupKey(r.date, r.userId));
+                            const legacy = String(r.note || '').trim();
+                            const badge = noteRow ? formatNoteBadge(noteRow) : '';
+                            const text = [badge, legacy].filter(Boolean).join(legacy && badge ? ' · ' : '');
+                            return (
+                              <td className="px-2 py-1.5 text-slate-600 dark:text-slate-300 max-w-[200px] truncate" title={noteRow?.note || legacy || ''}>{text || '—'}</td>
+                            );
+                          })()}
                         </tr>
                       ))}
                       {pageRecords.length === 0 && (
                         <tr>
-                          <td colSpan={6} className="px-2 py-3 text-center text-slate-500 dark:text-slate-400">No attendance records.</td>
+                          <td colSpan={notesEnabled ? 7 : 6} className="px-2 py-3 text-center text-slate-500 dark:text-slate-400">No attendance records.</td>
                         </tr>
                       )}
                     </tbody>
@@ -20142,6 +20450,7 @@ function PTClientsPage({ members, users, settings, updateSetting, currentUser, a
       const [gymCodeError, setGymCodeError] = React.useState('');
       const [gymCodeBusy, setGymCodeBusy] = React.useState(false);
       const [brandingDrafts, setBrandingDrafts] = React.useState({});
+      const [shiftDrafts, setShiftDrafts] = React.useState({});
       const saveBranchBranding = async (branchRow, { displayName, logoDataUrl, clearLogo = false }) => {
         if (!backendJson || !branchRow?.id) return;
         setGymCodeBusy(true);
@@ -20164,6 +20473,26 @@ function PTClientsPage({ members, users, settings, updateSetting, currentUser, a
           await refreshBranchBranding(branchRow.id);
         } catch (err) {
           setGymCodeError(String(err?.message || err || 'Failed to save branch branding.'));
+        } finally {
+          setGymCodeBusy(false);
+        }
+      };
+      const saveBranchShift = async (branchRow) => {
+        if (!backendJson || !branchRow?.id) return;
+        const draft = shiftDrafts[branchRow.id] || {};
+        setGymCodeBusy(true);
+        setGymCodeError('');
+        try {
+          await backendJson(`/gym-codes/${encodeURIComponent(branchRow.id)}/shift`, {
+            method: 'PATCH',
+            body: JSON.stringify({
+              shiftStartTime: draft.shiftStartTime ?? branchRow.shiftStartTime ?? '',
+              shiftTimezone: draft.shiftTimezone ?? branchRow.shiftTimezone ?? 'IST',
+            }),
+          });
+          await refreshGymCodes();
+        } catch (err) {
+          setGymCodeError(String(err?.message || err || 'Failed to save shift start time.'));
         } finally {
           setGymCodeBusy(false);
         }
@@ -20539,18 +20868,23 @@ function PTClientsPage({ members, users, settings, updateSetting, currentUser, a
                       <th className="px-3 py-2 font-medium">Code</th>
                       <th className="px-3 py-2 font-medium">Branch Name</th>
                       <th className="px-3 py-2 font-medium">Display / Logo</th>
+                      <th className="px-3 py-2 font-medium">Shift start</th>
                       <th className="px-3 py-2 font-medium">Created</th>
                       <th className="px-3 py-2 font-medium text-right">Actions</th>
                     </tr>
                   </thead>
                   <tbody>
                     {(gymCodes || []).length === 0 && (
-                      <tr><td colSpan="5" className="px-3 py-4 text-center text-slate-400">No branches yet. Add your first above.</td></tr>
+                      <tr><td colSpan="6" className="px-3 py-4 text-center text-slate-400">No branches yet. Add your first above.</td></tr>
                     )}
                     {(gymCodes || []).map((c) => {
                       const resolveFn = window.__APG_MODULES?.resolveClientBranchBranding;
                       const brand = typeof resolveFn === 'function' ? resolveFn(c) : { displayName: c.displayName || '', logoUrl: c.logoUrl || '' };
                       const draft = brandingDrafts[c.id] || { displayName: c.displayName || brand.displayName || '' };
+                      const shiftDraft = shiftDrafts[c.id] || {
+                        shiftStartTime: c.shiftStartTime || '',
+                        shiftTimezone: c.shiftTimezone || 'IST',
+                      };
                       return (
                       <tr key={c.id} className="border-t border-slate-100 align-top" data-testid={`gym-code-row-${c.code}`}>
                         <td className="px-3 py-2 font-mono font-semibold">{c.code}</td>
@@ -20596,6 +20930,29 @@ function PTClientsPage({ members, users, settings, updateSetting, currentUser, a
                               data-testid={`gym-code-branding-save-${c.code}`}
                             >
                               Save branding
+                            </button>
+                          </div>
+                        </td>
+                        <td className="px-3 py-2">
+                          <div className="flex flex-col gap-2 min-w-[140px]">
+                            <input
+                              type="time"
+                              value={shiftDraft.shiftStartTime || ''}
+                              onChange={(e) => setShiftDrafts((prev) => ({
+                                ...prev,
+                                [c.id]: { ...shiftDraft, shiftStartTime: e.target.value },
+                              }))}
+                              className="w-full rounded-lg border border-slate-300 px-2 py-1 text-xs"
+                              data-testid={`gym-code-shift-start-${c.code}`}
+                            />
+                            <button
+                              type="button"
+                              disabled={gymCodeBusy}
+                              onClick={() => saveBranchShift(c)}
+                              className="self-start rounded-lg bg-slate-800 px-2 py-1 text-[10px] font-semibold text-white hover:bg-slate-900 disabled:opacity-50"
+                              data-testid={`gym-code-shift-save-${c.code}`}
+                            >
+                              Save shift
                             </button>
                           </div>
                         </td>
@@ -20880,6 +21237,33 @@ function PTClientsPage({ members, users, settings, updateSetting, currentUser, a
               </div>
               <div className="text-xs text-slate-500">
                 Disabled by default. Also available under WhatsApp SMS → WhatsApp Template.
+              </div>
+            </div>
+          )}
+          {isOwnerForCodes && (
+            <div
+              className="apg-settings-nav-item rounded-2xl border border-blue-200 bg-blue-50/40 p-4 space-y-2"
+              data-testid="settings-panel-attendance-notes-flag"
+            >
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <div className="min-w-0">
+                  <div className="text-sm font-semibold text-slate-900">Attendance Notes</div>
+                  <p className="text-sm text-slate-600 mt-1">
+                    Structured late-login notes (60-day retention). Legacy attendance note field stays for leave sync and admin text.
+                  </p>
+                </div>
+                <label className="inline-flex items-center gap-2 text-sm font-semibold text-slate-800 shrink-0">
+                  <input
+                    type="checkbox"
+                    checked={settings.attendanceNotesEnabled === true}
+                    onChange={(e) => updateSetting('attendanceNotesEnabled', Boolean(e.target.checked))}
+                    data-testid="attendance-notes-feature-flag"
+                  />
+                  Enable
+                </label>
+              </div>
+              <div className="text-xs text-slate-500">
+                Off by default until migrations run and smoke tests pass. Set per-branch shift start under Gym Codes.
               </div>
             </div>
           )}
@@ -25956,7 +26340,12 @@ function PTClientsPage({ members, users, settings, updateSetting, currentUser, a
           const nextSections = hasSection ? f.sections.filter(s => s !== 'Attendance') : [...f.sections, 'Attendance'];
           const nextAccess = {
             ...normalizeAccess(f.access),
-            attendance: ATTENDANCE_CHILD_PERMISSIONS.reduce((acc, p) => ({ ...acc, [p.key]: hasSection ? false : true }), {}),
+            attendance: ATTENDANCE_CHILD_PERMISSIONS.reduce((acc, p) => ({
+              ...acc,
+              [p.key]: p.key === 'submitOwnLateNote'
+                ? (hasSection ? (normalizeAccess(f.access).attendance?.submitOwnLateNote !== false) : true)
+                : (hasSection ? false : true),
+            }), {}),
           };
           return { ...f, sections: nextSections, access: nextAccess };
         });
@@ -25965,7 +26354,7 @@ function PTClientsPage({ members, users, settings, updateSetting, currentUser, a
         setForm(f => {
           const normalized = normalizeAccess(f.access);
           const next = { ...normalized, attendance: { ...normalized.attendance, [key]: !(normalized.attendance[key] !== false) } };
-          const shouldEnable = Object.values(next.attendance).some(Boolean);
+          const shouldEnable = ATTENDANCE_SECTION_PERMISSION_KEYS.some((k) => next.attendance[k] !== false);
           const hasSection = f.sections.includes('Attendance');
           const nextSections = shouldEnable ? (hasSection ? f.sections : [...f.sections, 'Attendance']) : f.sections.filter(s => s !== 'Attendance');
           return { ...f, sections: nextSections, access: next };
@@ -26028,7 +26417,7 @@ function PTClientsPage({ members, users, settings, updateSetting, currentUser, a
                 leave: { viewCreateLeaveRequest: false, viewLeaveRequests: false, viewAnnualLeaveBalance: false, viewLeaveHistory: false },
                 members: { viewMembers: false, viewVisitors: false, addMembers: false, editMembers: false, deleteMembers: false },
                 ptClients: { viewPtClients: false, editPtPlan: false, editPtWorkout: false, uploadDietDocuments: false },
-                attendance: { viewAttendance: false, markAllPresent: false, editAttendance: false },
+                attendance: { viewAttendance: false, markAllPresent: false, editAttendance: false, submitOwnLateNote: true },
                 logs: { viewLogs: false, exportLogs: false, clearLogs: false },
                 support: { viewSupportTemplates: false, editSupportTemplates: false },
                 backend: { viewBackendPage: false, controlBackendProcesses: false },

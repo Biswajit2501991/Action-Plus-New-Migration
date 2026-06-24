@@ -1072,3 +1072,36 @@ export async function readFinanceSummary(branchScope, options = {}) {
     scopedMemberCount: members.length,
   };
 }
+
+/** Attendance structured notes (Supabase only). */
+export async function createAttendanceNote(auth, body) {
+  if (!useSupabase()) {
+    throw Object.assign(new Error('attendance-notes-supabase-only'), { status: 503 });
+  }
+  const { createAttendanceNoteForAuth } = await import('../services/attendance/attendanceNotesService.js');
+  return createAttendanceNoteForAuth(auth, body);
+}
+
+export async function listAttendanceNotes(auth, query) {
+  if (!useSupabase()) return [];
+  const { listAttendanceNotesForAuth } = await import('../services/attendance/attendanceNotesService.js');
+  return listAttendanceNotesForAuth(auth, query);
+}
+
+export async function latestAttendanceNote(auth, query) {
+  if (!useSupabase()) return null;
+  const { latestAttendanceNoteForAuth } = await import('../services/attendance/attendanceNotesService.js');
+  return latestAttendanceNoteForAuth(auth, query);
+}
+
+export async function cleanupExpiredAttendanceNotes() {
+  if (!useSupabase()) return { deleted: 0 };
+  const { cleanupExpiredAttendanceNotesForGym } = await import('../services/attendance/attendanceNotesService.js');
+  return cleanupExpiredAttendanceNotesForGym();
+}
+
+export async function readStaffAttendanceSelfToday(scope, userId) {
+  if (!useSupabase()) return null;
+  const { readStaffAttendanceForUserToday } = await import('./supabase/repository.js');
+  return readStaffAttendanceForUserToday(scope, userId);
+}

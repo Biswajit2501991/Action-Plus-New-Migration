@@ -1693,6 +1693,7 @@ function buildSettingsObject({ lookups, templates, configRow, staffDir, roles, l
     fineSmsImmediateRoles: [],
     financeUseEstimatedExpense: true,
     customTemplatesEnabled: false,
+    attendanceNotesEnabled: false,
     paymentQrInReminderEnabled: false,
   };
 
@@ -2018,6 +2019,7 @@ async function writeSettings(settings, scope) {
     gmailWelcomeTemplate: s.gmailWelcomeTemplate || null,
     smsTemplatePresetVersion: s.smsTemplatePresetVersion || null,
     customTemplatesEnabled: s.customTemplatesEnabled === true,
+    attendanceNotesEnabled: s.attendanceNotesEnabled === true,
     paymentQrInReminderEnabled: s.paymentQrInReminderEnabled === true,
   };
   await sb.from(T.settings_app_config).delete().eq('gym_id', gid);
@@ -3190,6 +3192,24 @@ export async function readStaffAttendanceInRange(_scope, { startDate, endDate })
       .order('attendance_date', { ascending: false })
       .range(from, to));
   return (rows || []).map((r) => attendanceRowToApp(r));
+}
+
+/** Today's attendance row for one staff member (self-service; no dashboard access required). */
+export async function readStaffAttendanceForUserToday(_scope, userId) {
+  const sb = getSupabase();
+  const gid = gymId();
+  const uid = String(userId || '').trim();
+  if (!uid) return null;
+  const today = new Date().toISOString().slice(0, 10);
+  const { data, error } = await sb
+    .from(T.staff_attendance_records)
+    .select(ATTENDANCE_LIST_COLUMNS)
+    .eq('gym_id', gid)
+    .eq('staff_login_id', uid)
+    .eq('attendance_date', today)
+    .maybeSingle();
+  if (error) throw new Error(`staff_attendance_records self today: ${error.message}`);
+  return data ? attendanceRowToApp(data) : null;
 }
 
 /** Upsert one or more attendance rows without wiping the gym table. */

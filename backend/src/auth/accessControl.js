@@ -70,6 +70,7 @@ export function normalizeAccess(access) {
       viewAttendance: access?.attendance?.viewAttendance !== false,
       markAllPresent: access?.attendance?.markAllPresent !== false,
       editAttendance: access?.attendance?.editAttendance !== false,
+      submitOwnLateNote: access?.attendance?.submitOwnLateNote !== false,
     },
     logs: {
       viewLogs: access?.logs?.viewLogs !== false,
@@ -134,6 +135,8 @@ export const Access = {
   settingsRead: () => true,
   /** Record own login/logout punch (any authenticated staff). */
   attendancePunch: () => true,
+  /** Submit or read own late-arrival note without Attendance dashboard access. */
+  attendanceNoteSelf: (a) => a.attendance?.submitOwnLateNote !== false,
   /** Upsert attendance rows from Attendance page. */
   attendanceWrite: (a) => a.attendance.editAttendance !== false || a.attendance.markAllPresent !== false,
   ptClientsRead: (a) => a.ptClients.viewPtClients !== false,

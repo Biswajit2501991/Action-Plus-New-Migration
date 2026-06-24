@@ -77,6 +77,7 @@ export const ATTENDANCE_CHILD_PERMISSIONS = [
   { key: 'viewAttendance', label: 'View Attendance Dashboard' },
   { key: 'markAllPresent', label: 'Mark All Present' },
   { key: 'editAttendance', label: 'Edit Status / Notes' },
+  { key: 'submitOwnLateNote', label: 'Submit own late-arrival note (no Attendance tab required)' },
 ];
 
 export const LOGS_CHILD_PERMISSIONS = [
@@ -161,6 +162,7 @@ export const DEFAULT_ACCESS = {
     viewAttendance: true,
     markAllPresent: true,
     editAttendance: true,
+    submitOwnLateNote: true,
   },
   logs: {
     viewLogs: true,
@@ -180,6 +182,17 @@ export const DEFAULT_ACCESS = {
     managePaymentSettings: false,
   },
 };
+
+/** Attendance tab visibility — not required for late-note self submit. */
+export const ATTENDANCE_SECTION_PERMISSION_KEYS = [
+  'viewAttendance',
+  'markAllPresent',
+  'editAttendance',
+];
+
+export function canSubmitOwnLateNote(access) {
+  return access?.attendance?.submitOwnLateNote !== false;
+}
 
 export function normalizeAccess(access) {
   return {
@@ -243,6 +256,7 @@ export function normalizeAccess(access) {
       viewAttendance: access?.attendance?.viewAttendance !== false,
       markAllPresent: access?.attendance?.markAllPresent !== false,
       editAttendance: access?.attendance?.editAttendance !== false,
+      submitOwnLateNote: access?.attendance?.submitOwnLateNote !== false,
     },
     logs: {
       viewLogs: access?.logs?.viewLogs !== false,

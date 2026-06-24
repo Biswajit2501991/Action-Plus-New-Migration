@@ -39,6 +39,7 @@ begin
     'settings_staff_directory',
     'leave_requests',
     'staff_attendance_records',
+    'attendance_notes',
     'pt_client_profiles',
     'visitors',
     'finance_transactions',
