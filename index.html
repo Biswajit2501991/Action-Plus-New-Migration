@@ -19288,11 +19288,12 @@ function PTClientsPage({ members, users, settings, updateSetting, currentUser, a
           .catch(() => { if (!cancelled) setHasNote(false); });
         return () => { cancelled = true; };
       }, [notesEnabled, canSubmit, isLate, dataSyncMode, backendJson, user?.id, today, settings?.attendanceNotesEnabled]);
-      if (!notesEnabled || !canSubmit || !selfRecordReady || !isLate || hasNote === true) return null;
+      if (!notesEnabled || !canSubmit || !selfRecordReady || !isLate) return null;
+      const isEditingExisting = hasNote === true;
       return (
         <button
           type="button"
-          title="Add a short reason for your manager"
+          title={isEditingExisting ? 'Update your late note for today' : 'Add a short reason for your manager'}
           onClick={() => onAddNote(activeRecord)}
           data-testid="late-attendance-note-header-btn"
           className="inline-flex items-center gap-1.5 rounded-full px-3 py-1.5 text-xs font-semibold border border-amber-400 bg-amber-50 text-amber-900 hover:bg-amber-100 transition-colors shadow-[inset_0_1px_0_rgba(255,255,255,0.8)]"
@@ -19301,7 +19302,7 @@ function PTClientsPage({ members, users, settings, updateSetting, currentUser, a
             <path d="M12 20h9" />
             <path d="M16.5 3.5a2.12 2.12 0 013 3L7 19l-4 1 1-4 12.5-12.5z" />
           </svg>
-          Add Late Note
+          {isEditingExisting ? 'Edit Late Note' : 'Add Late Note'}
         </button>
       );
     }
@@ -19345,7 +19346,15 @@ function PTClientsPage({ members, users, settings, updateSetting, currentUser, a
       };
       return (
         <div className="fixed inset-0 z-[120] flex items-center justify-center bg-black/40 p-4" data-testid="attendance-late-note-modal">
-          <div className="w-full max-w-md rounded-2xl bg-white p-4 shadow-xl space-y-3">
+          <div className="relative w-full max-w-md">
+            <div className="pointer-events-none absolute -inset-3 rounded-3xl bg-blue-400/30 blur-xl animate-pulse" />
+            <div className="pointer-events-none absolute -inset-1 rounded-3xl border border-blue-300/90 shadow-[0_0_24px_rgba(59,130,246,0.75),0_0_64px_rgba(59,130,246,0.45)] animate-pulse" />
+            <span className="pointer-events-none absolute -left-2 top-8 h-1.5 w-1.5 rounded-full bg-blue-300 shadow-[0_0_10px_rgba(147,197,253,0.95)] animate-ping" />
+            <span className="pointer-events-none absolute -right-2 top-14 h-1.5 w-1.5 rounded-full bg-blue-300 shadow-[0_0_10px_rgba(147,197,253,0.95)] animate-ping [animation-delay:300ms]" />
+            <span className="pointer-events-none absolute left-14 -top-2 h-1 w-1 rounded-full bg-blue-200 shadow-[0_0_8px_rgba(191,219,254,0.95)] animate-ping [animation-delay:600ms]" />
+            <span className="pointer-events-none absolute right-16 -bottom-2 h-1 w-1 rounded-full bg-blue-200 shadow-[0_0_8px_rgba(191,219,254,0.95)] animate-ping [animation-delay:900ms]" />
+
+            <div className="relative w-full rounded-2xl border border-blue-100 bg-white p-4 shadow-xl space-y-3">
             <div className="flex items-start justify-between gap-2">
               <div>
                 <h2 className="text-lg font-semibold text-slate-900">Late arrival note</h2>
@@ -19389,6 +19398,7 @@ function PTClientsPage({ members, users, settings, updateSetting, currentUser, a
               <button type="button" onClick={onClose} className="rounded-full border border-slate-300 px-4 py-2 text-sm">Skip</button>
               <button type="button" disabled={saving} onClick={submit} className="rounded-full bg-blue-600 px-4 py-2 text-sm font-medium text-white disabled:opacity-50" data-testid="attendance-late-note-save">Save note</button>
             </div>
+          </div>
           </div>
         </div>
       );
