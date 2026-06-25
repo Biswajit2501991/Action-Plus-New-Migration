@@ -45,20 +45,31 @@ export class StaffManagementPage extends BasePage {
     // Phase 2 multi-tenant: a gym code is required for non-owner staff. Pick the first real branch.
     const gymCodeSelect = modal.getByTestId('staff-gym-code-select');
     if (await gymCodeSelect.isVisible().catch(() => false)) {
-      // Wait until /api/gym-codes hydrate populates real options (more than the placeholder).
-      await this.page.waitForFunction(
-        () => {
-          const sel = document.querySelector('[data-testid="staff-gym-code-select"]') as HTMLSelectElement | null;
-          if (!sel) return false;
-          return Array.from(sel.options).filter((o) => o.value && o.value !== '').length > 0;
-        },
-        undefined,
-        { timeout: 15_000 },
-      );
-      const optionValues = await gymCodeSelect.locator('option').evaluateAll((opts) =>
-        opts.map((o) => (o as HTMLOptionElement).value).filter((v) => v && v !== ''),
-      );
-      await gymCodeSelect.selectOption(optionValues[0]);
+      let optionValues: string[] = [];
+      for (let i = 0; i < 30; i += 1) {
+        optionValues = await gymCodeSelect.locator('option').evaluateAll((opts) =>
+          opts.map((o) => (o as HTMLOptionElement).value).filter((v) => v && v !== ''),
+        );
+        if (optionValues.length) break;
+        // Multi-branch owner mode: default-branch select stays empty until at
+        // least one assigned-branch checkbox is checked.
+        const branchList = modal.getByTestId('staff-assigned-branches');
+        if (await branchList.isVisible().catch(() => false)) {
+          const branchBoxes = branchList.getByRole('checkbox');
+          if (await branchBoxes.first().isVisible().catch(() => false)) {
+            const checkedStates = await branchBoxes.evaluateAll((nodes) =>
+              nodes.map((node) => Boolean((node as HTMLInputElement).checked)),
+            );
+            if (!checkedStates.some(Boolean)) {
+              await branchBoxes.first().check();
+            }
+          }
+        }
+        await this.page.waitForTimeout(500);
+      }
+      if (optionValues.length) {
+        await gymCodeSelect.selectOption(optionValues[0]);
+      }
     }
     if (input.sections?.length) {
       for (const section of input.sections) {

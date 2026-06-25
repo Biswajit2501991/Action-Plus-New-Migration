@@ -4819,17 +4819,34 @@ Phone: +91-7047157510`;
       const [toast, setToast] = React.useState('');
       const sessionTouchRef = React.useRef(0);
       const [dataSyncMode, setDataSyncMode] = React.useState('checking');
+      const [backendDegraded, setBackendDegraded] = React.useState(false);
+      const [wasBackendThisSession, setWasBackendThisSession] = React.useState(false);
+      const wasBackendThisSessionRef = React.useRef(false);
+      const dataSyncModeRef = React.useRef(dataSyncMode);
+      const userRef = React.useRef(user);
+      React.useEffect(() => { dataSyncModeRef.current = dataSyncMode; }, [dataSyncMode]);
+      React.useEffect(() => { userRef.current = user; }, [user]);
+      React.useEffect(() => {
+        if (dataSyncMode === 'backend') {
+          wasBackendThisSessionRef.current = true;
+          setWasBackendThisSession(true);
+        }
+      }, [dataSyncMode]);
       const [lastHeartbeatAt, setLastHeartbeatAt] = React.useState('');
-      const syncBadgeTone = dataSyncMode === 'backend'
-        ? 'border-emerald-300 bg-emerald-50 text-emerald-700'
-        : dataSyncMode === 'local'
-          ? 'border-amber-300 bg-amber-50 text-amber-700'
-          : 'border-slate-300 bg-slate-50 text-slate-600';
-      const syncBadgeLabel = dataSyncMode === 'backend'
-        ? `Backend Sync: Connected${lastHeartbeatAt ? ` • Last heartbeat: ${lastHeartbeatAt}` : ''}`
-        : dataSyncMode === 'local'
-          ? `Backend Sync: Local only${lastHeartbeatAt ? ` • Last heartbeat: ${lastHeartbeatAt}` : ''}`
-          : 'Backend Sync: Checking...';
+      const syncBadgeTone = backendDegraded
+        ? 'border-amber-300 bg-amber-50 text-amber-700'
+        : dataSyncMode === 'backend'
+          ? 'border-emerald-300 bg-emerald-50 text-emerald-700'
+          : dataSyncMode === 'local'
+            ? 'border-amber-300 bg-amber-50 text-amber-700'
+            : 'border-slate-300 bg-slate-50 text-slate-600';
+      const syncBadgeLabel = backendDegraded
+        ? `Backend Sync: Connection issue (retrying)${lastHeartbeatAt ? ` • Last OK: ${lastHeartbeatAt}` : ''}`
+        : dataSyncMode === 'backend'
+          ? `Backend Sync: Connected${lastHeartbeatAt ? ` • Last heartbeat: ${lastHeartbeatAt}` : ''}`
+          : dataSyncMode === 'local'
+            ? `Backend Sync: Local only${lastHeartbeatAt ? ` • Last heartbeat: ${lastHeartbeatAt}` : ''}`
+            : 'Backend Sync: Checking...';
       const openedFromFileProtocol = (() => {
         try {
           return window.location?.protocol === 'file:';
@@ -4975,6 +4992,8 @@ Phone: +91-7047157510`;
       });
       // Gym Codes (branches) — Phase 2 multi-tenant isolation.
       const [gymCodes, setGymCodes] = React.useState([]);
+      const gymCodesRef = React.useRef(gymCodes);
+      React.useEffect(() => { gymCodesRef.current = gymCodes; }, [gymCodes]);
       const [gymCodesError, setGymCodesError] = React.useState('');
       const [lateNotePrompt, setLateNotePrompt] = React.useState(null);
       const [lateNoteEligibleKey, setLateNoteEligibleKey] = React.useState('');
@@ -4988,6 +5007,7 @@ Phone: +91-7047157510`;
         if (typeof fn === 'function' && user) return String(fn(user, gymCodes) || '').trim();
         return String(user?.activeBranchId || user?.gymCodeId || '').trim();
       }, [user, gymCodes, branchContextRev, user?.activeBranchId, user?.gymCodeId]);
+      const userAccess = React.useMemo(() => normalizeAccess(user?.access), [user?.access]);
       React.useEffect(() => {
         const onLegacyRefresh = (ev) => {
           const detail = ev?.detail || {};
@@ -5117,9 +5137,13 @@ Phone: +91-7047157510`;
         if (!user?.id) return;
         refreshBranchBranding(authoritativeActiveBranchId).catch(() => {});
       }, [user?.id, authoritativeActiveBranchId, refreshBranchBranding]);
+      const whatsappTemplatesFetchRef = React.useRef({ branchId: '', inFlight: false });
       const fetchBranchWhatsappTemplates = React.useCallback(async (branchId) => {
         const id = String(branchId || '').trim();
-        if (!id || dataSyncMode !== 'backend' || !canFetchWhatsappTemplates(user)) return;
+        const sessionUser = userRef.current;
+        if (!id || dataSyncMode !== 'backend' || !canFetchWhatsappTemplates(sessionUser)) return;
+        if (whatsappTemplatesFetchRef.current.inFlight && whatsappTemplatesFetchRef.current.branchId === id) return;
+        whatsappTemplatesFetchRef.current = { branchId: id, inFlight: true };
         setTemplatesBranchLoading(true);
         try {
           const res = await backendJson(`/whatsapp-templates?gymCodeId=${encodeURIComponent(id)}`);
@@ -5132,12 +5156,14 @@ Phone: +91-7047157510`;
         } catch {
           /* keep defaults in memory */
         } finally {
+          whatsappTemplatesFetchRef.current = { branchId: id, inFlight: false };
           setTemplatesBranchLoading(false);
         }
-      }, [dataSyncMode, user]);
+      }, [dataSyncMode]);
       const fetchBranchCustomTemplates = React.useCallback(async (branchId) => {
         const id = String(branchId || '').trim();
-        if (!id || dataSyncMode !== 'backend' || !canFetchWhatsappTemplates(user) || !customTemplatesFeatureEnabled) return;
+        const sessionUser = userRef.current;
+        if (!id || dataSyncMode !== 'backend' || !canFetchWhatsappTemplates(sessionUser) || !customTemplatesFeatureEnabled) return;
         setCustomTemplatesLoading(true);
         try {
           const res = await backendJson(`/custom-templates?gymCodeId=${encodeURIComponent(id)}`);
@@ -5152,7 +5178,7 @@ Phone: +91-7047157510`;
         } finally {
           setCustomTemplatesLoading(false);
         }
-      }, [dataSyncMode, user, customTemplatesFeatureEnabled]);
+      }, [dataSyncMode, customTemplatesFeatureEnabled]);
       const fetchBranchTemplateData = React.useCallback(async (branchId) => {
         const tasks = [fetchBranchWhatsappTemplates(branchId)];
         if (customTemplatesFeatureEnabled) tasks.push(fetchBranchCustomTemplates(branchId));
@@ -5317,9 +5343,16 @@ Phone: +91-7047157510`;
         refreshGymCodes().catch(() => {});
       }, [user?.id, dataSyncMode, refreshGymCodes]);
       // Self-heal stale sessions that only kept a single gymCodeId (no multi-branch arrays).
+      const branchSelfHealDoneRef = React.useRef(false);
       React.useEffect(() => {
-        if (!user?.id || dataSyncMode !== 'backend' || !hasBackendAuth()) return;
+        if (!user?.id) {
+          branchSelfHealDoneRef.current = false;
+          return;
+        }
+        if (dataSyncMode !== 'backend' || !hasBackendAuth()) return;
         if (normalizeBranchIdList(user).length > 1) return;
+        if (branchSelfHealDoneRef.current) return;
+        branchSelfHealDoneRef.current = true;
         let cancelled = false;
         (async () => {
           const data = await revalidateAuthSessionFromServer().catch(() => null);
@@ -5533,7 +5566,7 @@ Phone: +91-7047157510`;
               if (typeof syncFn === 'function') syncFn(authRefresh.user.id, authRefresh);
               const applyFn = window.__APG_MODULES?.applyAuthoritativeBranchToUser;
               if (typeof applyFn === 'function') {
-                setUser((prev) => applyFn(prev, gymCodes));
+                setUser((prev) => applyFn(prev, gymCodesRef.current));
               }
             }
             hydrateCompletedAtRef.current = Date.now();
@@ -5548,7 +5581,7 @@ Phone: +91-7047157510`;
         })();
         backendHydrateInFlightRef.current = run;
         return run;
-      }, [hydrateDeferredCollections, hydrateSettingsFromBackend, user?.id, gymCodes]);
+      }, [hydrateDeferredCollections, hydrateSettingsFromBackend, user?.id]);
       const switchActiveBranch = React.useCallback(async (gymCodeId) => {
         const id = String(gymCodeId || '').trim();
         if (!id || !user || branchSwitching) return;
@@ -5657,14 +5690,22 @@ Phone: +91-7047157510`;
           alive = false;
         };
       }, []);
+      const autoHydrateDoneRef = React.useRef(false);
       React.useEffect(() => {
-        if (!user?.id || dataSyncMode !== 'backend' || !hasBackendAuth()) return;
+        if (!user?.id) {
+          autoHydrateDoneRef.current = false;
+          return;
+        }
+        if (dataSyncMode !== 'backend' || !hasBackendAuth()) return;
+        if (autoHydrateDoneRef.current) return;
         let alive = true;
+        autoHydrateDoneRef.current = true;
         (async () => {
           try {
             await hydrateFromBackend();
           } catch {
             if (!alive) return;
+            autoHydrateDoneRef.current = false;
             setBackendHydrated(false);
           }
         })();
@@ -5676,6 +5717,15 @@ Phone: +91-7047157510`;
       React.useEffect(() => {
         let alive = true;
         let inFlight = false;
+        const shouldStayOnBackendAfterHeartbeatFailure = () => {
+          if (openedFromFileProtocol) return false;
+          try {
+            if (window.location?.protocol === 'file:') return false;
+          } catch {}
+          const u = userRef.current;
+          if (!u?.id || !hasBackendAuth()) return false;
+          return dataSyncModeRef.current === 'backend' || wasBackendThisSessionRef.current;
+        };
         const checkBackendHealth = async () => {
           if (!alive || inFlight) return;
           inFlight = true;
@@ -5691,15 +5741,24 @@ Phone: +91-7047157510`;
             if (!alive) return;
             if (res.ok) {
               setDataSyncMode('backend');
+              setBackendDegraded(false);
               setLastHeartbeatAt(new Date().toLocaleTimeString([], { hour12: false }));
+            } else if (shouldStayOnBackendAfterHeartbeatFailure()) {
+              setBackendDegraded(true);
             } else {
               setDataSyncMode('local');
+              setBackendDegraded(false);
               setBackendHydrated(false);
             }
           } catch {
             if (!alive) return;
-            setDataSyncMode('local');
-            setBackendHydrated(false);
+            if (shouldStayOnBackendAfterHeartbeatFailure()) {
+              setBackendDegraded(true);
+            } else {
+              setDataSyncMode('local');
+              setBackendDegraded(false);
+              setBackendHydrated(false);
+            }
           } finally {
             clearTimeout(timer);
             inFlight = false;
@@ -5711,7 +5770,7 @@ Phone: +91-7047157510`;
           alive = false;
           clearInterval(heartbeat);
         };
-      }, []);
+      }, [openedFromFileProtocol]);
       // Supabase live sync: SSE from backend (postgres_changes → push). Fallback polling stays slower when connected.
       React.useEffect(() => {
         if (dataSyncMode !== 'backend' || !user?.id) {
@@ -6839,7 +6898,7 @@ Phone: +91-7047157510`;
       }, [settings?.leaveRequests]);
       // Tentative join = local calendar today; not gated on callBackRequired; hide after mark-called today or Converted.
       const callbackNotifications = React.useMemo(() => {
-        const canSeeVisitors = normalizeAccess(user?.access).members?.viewVisitors !== false;
+        const canSeeVisitors = userAccess.members?.viewVisitors !== false;
         if (!canSeeVisitors) return [];
         const scopedVisitors = typeof window.__APG_MODULES?.filterVisitorsForUser === 'function'
           ? window.__APG_MODULES.filterVisitorsForUser(user, visitors)
@@ -6871,7 +6930,7 @@ Phone: +91-7047157510`;
       const pendingNotificationCount = leaveNotifications.length + callbackNotifications.length + passwordResetNotifications.length;
       const openVisitorFromNotification = (visitorId) => {
         if (!visitorId) return;
-        if (normalizeAccess(user?.access).members?.viewVisitors === false) return;
+        if (userAccess.members?.viewVisitors === false) return;
         setNotificationOpen(false);
         if (apgV2VisitorsEnabled()) {
           apgGoToV2Visitors(visitorId);
@@ -7010,12 +7069,11 @@ Phone: +91-7047157510`;
       }, []);
       const canViewSectionByAccess = React.useCallback((sectionKey) => {
         if (isOwnerStaffUser(user)) return true;
-        const access = normalizeAccess(user?.access);
-        if (sectionKey === 'Attendance') return access?.attendance?.viewAttendance !== false;
-        if (sectionKey === 'Logs') return access?.logs?.viewLogs !== false;
-        if (sectionKey === 'Support') return access?.support?.viewSupportTemplates !== false;
+        if (sectionKey === 'Attendance') return userAccess?.attendance?.viewAttendance !== false;
+        if (sectionKey === 'Logs') return userAccess?.logs?.viewLogs !== false;
+        if (sectionKey === 'Support') return userAccess?.support?.viewSupportTemplates !== false;
         return true;
-      }, [user]);
+      }, [user, userAccess]);
       const dashboardTopTabs = React.useMemo(() => {
         const ordered = ['Dashboard', 'Members', 'PT Clients', 'WhatsApp SMS', 'Finance', 'Staff', 'Attendance', 'Leave Tracker', 'Settings', 'Logs', 'Support', 'Backend'];
         const allowed = isOwnerStaffUser(user)
@@ -7030,14 +7088,14 @@ Phone: +91-7047157510`;
       }, [activeTab, dashboardTopTabs]);
 
       React.useEffect(() => {
-        const derivedMembersAccess = normalizeAccess(user?.access).members;
+        const derivedMembersAccess = userAccess.members;
         const canAdd = derivedMembersAccess?.addMembers !== false;
         const fabVisible = user && user.sections && user.sections.includes('Members') && canAdd && !addOpen && !editMember;
         if (!fabVisible) return;
         setShowAddMemberLabel(true);
         const timer = setTimeout(() => setShowAddMemberLabel(false), 5000);
         return () => clearTimeout(timer);
-      }, [user, addOpen, editMember]);
+      }, [user, userAccess, addOpen, editMember]);
       React.useEffect(() => {
         const onDocClick = () => setNotificationOpen(false);
         if (!notificationOpen) return;
@@ -7513,6 +7571,8 @@ Phone: +91-7047157510`;
             });
           }
           setBackendHydrated(false);
+          const clearFinanceFn = window.__APG_MODULES?.clearFinanceMetricsCache;
+          if (typeof clearFinanceFn === 'function') clearFinanceFn();
           setUser(loginUser);
           setUsers((prev) => prev.map((u) => (u.id === rec.id ? {
             ...prepareStaffUser({ ...u, ...sessionUser }),
@@ -9554,7 +9614,7 @@ Please pay by: ${formattedLastDate}`;
         return true;
       };
       const openAddSelector = () => {
-        if (normalizeAccess(user?.access).members?.viewVisitors === false) {
+        if (userAccess.members?.viewVisitors === false) {
           setAddOpen(true);
           return;
         }
@@ -10082,6 +10142,23 @@ Please pay by: ${formattedLastDate}`;
         () => filterMembersExcludingTombstonesInline(scopeMembersForDisplay(members)),
         [members, scopeMembersForDisplay],
       );
+      const reservedDeletedMemberIds = React.useMemo(() => {
+        const out = new Set();
+        const list = Array.isArray(logs) ? logs : [];
+        for (const row of list) {
+          if (String(row?.action || '').trim().toLowerCase() !== 'member.deleted') continue;
+          const entity = String(row?.entityId || row?.entity_id || '').trim();
+          if (entity) out.add(entity);
+          const after = row?.after && typeof row.after === 'object' ? row.after : null;
+          const afterId = String(after?.memberId || '').trim();
+          if (afterId) out.add(afterId);
+        }
+        for (const id of readDeleteTombstonesInline()) {
+          const trimmed = String(id || '').trim();
+          if (trimmed) out.add(trimmed);
+        }
+        return out;
+      }, [logs]);
       const branchScopedVisitors = React.useMemo(() => {
         const scopeFn = window.__APG_MODULES?.scopeVisitorsToUserBranch;
         if (typeof scopeFn === 'function') {
@@ -10152,14 +10229,14 @@ Please pay by: ${formattedLastDate}`;
 
       const canDeleteMembers = React.useMemo(() => {
         if (!user) return false;
-        const membersAccess = normalizeAccess(user?.access).members;
+        const membersAccess = userAccess.members;
         if (membersAccess?.deleteMembers === false) return false;
         const masterFn = window.__APG_MODULES?.authIsMasterOwnerUser;
         if (typeof masterFn === 'function' && masterFn(user)) return true;
         const branchFn = window.__APG_MODULES?.authIsBranchOwnerUser;
         if (typeof branchFn === 'function' && branchFn(user)) return true;
         return user?.id === 'owner' && membersAccess?.deleteMembers !== false;
-      }, [user]);
+      }, [user, userAccess]);
       const isOwnerUser = React.useMemo(() => {
         if (!user) return false;
         const masterFn = window.__APG_MODULES?.authIsMasterOwnerUser;
@@ -10206,7 +10283,7 @@ Please pay by: ${formattedLastDate}`;
         );
       }
 
-      const membersAccess = normalizeAccess(user?.access).members;
+      const membersAccess = userAccess.members;
       const canViewMembers = membersAccess?.viewMembers !== false;
       const canViewVisitors = membersAccess?.viewVisitors !== false;
       const canAddMembers = membersAccess?.addMembers !== false;
@@ -10221,7 +10298,7 @@ Please pay by: ${formattedLastDate}`;
             }
           : {};
       }
-      const financeAccess = normalizeAccess(user?.access).finance;
+      const financeAccess = userAccess.finance;
       const canManageExpenses = financeAccess?.manageExpenses !== false;
       const canViewPaymentQr = typeof window.__APG_MODULES?.canViewPaymentQr === 'function'
         ? window.__APG_MODULES.canViewPaymentQr(user)
@@ -10939,9 +11016,10 @@ Please pay by: ${formattedLastDate}`;
                   members={branchScopedMembers}
                   financeTransactions={financeTransactions}
                   dataSyncMode={dataSyncMode}
+                  preferServerFinance={wasBackendThisSession}
                   settings={settings}
                   masterPlans={Array.isArray(branchScopedSettings?.plans) ? branchScopedSettings.plans : []}
-                  access={normalizeAccess(user?.access)}
+                  access={userAccess}
                   isOwner={user?.id === 'owner'}
                   currentUserRole={currentUserRole}
                   fineRuleConfig={fineRuleConfig}
@@ -11105,7 +11183,7 @@ Please pay by: ${formattedLastDate}`;
                 settings={settings}
                 updateSetting={updateSettingValue}
                 currentUser={user}
-                access={normalizeAccess(user?.access)}
+                access={userAccess}
                 displayTimeZone={displayTimeZone}
                 memberSyncPending={memberSyncPending}
                 theme={theme}
@@ -11120,7 +11198,7 @@ Please pay by: ${formattedLastDate}`;
                 updateSetting={updateSettingValue}
                 members={branchScopedMembers}
                 users={users}
-                access={normalizeAccess(user?.access)}
+                access={userAccess}
                 storageInfo={storageInfo}
                 backendStorageInfo={backendStorageInfo}
                 dataSyncMode={dataSyncMode}
@@ -11232,7 +11310,7 @@ Please pay by: ${formattedLastDate}`;
               <LogsPage
                 logs={logs}
                 currentUser={user}
-                access={normalizeAccess(user?.access)}
+                access={userAccess}
                 displayTimeZone={displayTimeZone}
                 onClearLogs={async () => {
                   if (!(user && user.id === 'owner')) return;
@@ -11283,7 +11361,7 @@ Please pay by: ${formattedLastDate}`;
                 smsEvents={smsEvents}
                 logEvent={logEvent}
                 currentUser={user}
-                access={normalizeAccess(user?.access)}
+                access={userAccess}
                 displayTimeZone={displayTimeZone}
                 memberSyncPending={memberSyncPending}
                 markMemberAwaitingBackendSync={markMemberAwaitingBackendSync}
@@ -11328,7 +11406,7 @@ Please pay by: ${formattedLastDate}`;
                 financeTransactions={financeTransactions}
                 setFinanceTransactions={setFinanceTransactions}
                 updateSetting={updateSettingValue}
-                access={normalizeAccess(user?.access)}
+                access={userAccess}
                 isOwner={isOwnerUser}
                 displayTimeZone={displayTimeZone}
                 theme={theme}
@@ -11365,7 +11443,7 @@ Please pay by: ${formattedLastDate}`;
                 syncAttendanceRecords={pushAttendanceRecords}
                 refreshStaffAttendance={pullStaffAttendance}
                 currentUser={user}
-                access={normalizeAccess(user?.access)}
+                access={userAccess}
                 displayTimeZone={displayTimeZone}
                 gymCodes={gymCodes}
                 backendJson={backendJson}
@@ -11379,7 +11457,7 @@ Please pay by: ${formattedLastDate}`;
                 updateSetting={updateSettingValue}
                 currentUser={user}
                 theme={theme}
-                access={normalizeAccess(user?.access)}
+                access={userAccess}
                 logEvent={logEvent}
                 focusLeaveRequestId={leaveTrackerFocus.requestId}
                 focusLeaveUserId={leaveTrackerFocus.userId}
@@ -11390,7 +11468,7 @@ Please pay by: ${formattedLastDate}`;
               <SupportPage
                 settings={settings}
                 updateSetting={updateSettingValue}
-                access={normalizeAccess(user?.access)}
+                access={userAccess}
                 currentUser={user}
                 gymCodes={gymCodes}
                 gymCodeLabel={gymCodeLabel}
@@ -11404,7 +11482,7 @@ Please pay by: ${formattedLastDate}`;
               />
             )}
             {activeTab === 'Backend' && (
-              <BackendPage setToast={setToast} access={normalizeAccess(user?.access)} />
+              <BackendPage setToast={setToast} access={userAccess} />
             )}
           </main>
           <nav className="md:hidden fixed bottom-0 inset-x-0 w-full z-30 border-t border-slate-200 bg-white/95 backdrop-blur px-3 pb-[max(0.65rem,env(safe-area-inset-bottom))] pt-2 shadow-[0_-6px_24px_rgba(15,23,42,0.08)]">
@@ -11767,6 +11845,7 @@ Please pay by: ${formattedLastDate}`;
               gymCodes={gymCodes}
               hqGymCodeId={hqGymCodeId}
               gymCodeLabel={gymCodeLabel}
+              reservedMemberIds={reservedDeletedMemberIds}
             />
           )}
           {addTypeOpen && (
@@ -12560,6 +12639,7 @@ Please pay by: ${formattedLastDate}`;
     // ---- Sidebar Component ----
 function Sidebar({ user, active, onSelect, theme, setTheme, layoutMode = 'classic', setLayoutMode = () => {}, onLogout, onUndo, onRedo, canUndo, canRedo, mobileOpen, onCloseMobile, membersView = 'all', setMembersView, financeView = 'transactions', setFinanceView, canManagePaymentQrSettings = false, branchBranding = null }) {
       const brand = branchBranding || (window.__APG_MODULES?.defaultClientBranding?.() || { displayName: 'Action Plus Gym', logoUrl: './assets/action-plus-logo.png' });
+      const userAccess = React.useMemo(() => normalizeAccess(user?.access), [user?.access]);
       const NAV = [
         { key: 'Dashboard', label: 'Dashboard', icon: 'home', group: '' },
         { key: 'Members', label: 'Members', icon: 'users', group: 'MEMBERS & CLIENTS' },
@@ -12576,10 +12656,9 @@ function Sidebar({ user, active, onSelect, theme, setTheme, layoutMode = 'classi
       ];
       const allowedSections = user && user.sections ? user.sections : ALL_SECTIONS;
       const canViewSectionByAccess = (sectionKey) => {
-        const access = normalizeAccess(user?.access);
-        if (sectionKey === 'Attendance') return access?.attendance?.viewAttendance !== false;
-        if (sectionKey === 'Logs') return access?.logs?.viewLogs !== false;
-        if (sectionKey === 'Support') return access?.support?.viewSupportTemplates !== false;
+        if (sectionKey === 'Attendance') return userAccess?.attendance?.viewAttendance !== false;
+        if (sectionKey === 'Logs') return userAccess?.logs?.viewLogs !== false;
+        if (sectionKey === 'Support') return userAccess?.support?.viewSupportTemplates !== false;
         return true;
       };
       const navItems = NAV.filter(item => (allowedSections.includes(item.key) || item.key === 'Support' || item.key === 'Logs') && canViewSectionByAccess(item.key));
@@ -12618,7 +12697,7 @@ function Sidebar({ user, active, onSelect, theme, setTheme, layoutMode = 'classi
           localStorage.setItem('apg.sidebar.collapsed.default', collapsed ? '1' : '0');
         } catch {}
       }, [collapsed, sidebarCollapseStorageKey]);
-      const canViewVisitors = normalizeAccess(user?.access).members?.viewVisitors !== false;
+      const canViewVisitors = userAccess.members?.viewVisitors !== false;
       const sectionOrder = ['', 'MEMBERS & CLIENTS', 'COMMUNICATION', 'OPERATIONS', 'FINANCE', 'STAFF & MANAGEMENT', 'SYSTEM'];
       const groupedNav = React.useMemo(() => {
         const map = {};
@@ -12927,7 +13006,7 @@ function Sidebar({ user, active, onSelect, theme, setTheme, layoutMode = 'classi
     }
 
     // ---- Dashboard Summary Component ----
-    function DashboardSummary({ members, financeTransactions = [], dataSyncMode = 'local', settings = {}, access, isOwner = false, currentUserRole = '', fineRuleConfig, onSelectStatus, onAddNew, onAddExpense, onSearch, onOpenMember, onWelcome, onOpenFilters, masterPlans = [], anyFilterActive = false, activeBranchId = '', financeMetricsEpoch = 0 }) {
+    function DashboardSummary({ members, financeTransactions = [], dataSyncMode = 'local', preferServerFinance = false, settings = {}, access, isOwner = false, currentUserRole = '', fineRuleConfig, onSelectStatus, onAddNew, onAddExpense, onSearch, onOpenMember, onWelcome, onOpenFilters, masterPlans = [], anyFilterActive = false, activeBranchId = '', financeMetricsEpoch = 0 }) {
       const counts = React.useMemo(() => {
         const sanitize = window.__APG_MODULES?.sanitizeMembersForDisplay;
         const scoped = typeof sanitize === 'function' ? sanitize(members) : members;
@@ -12939,6 +13018,8 @@ function Sidebar({ user, active, onSelect, theme, setTheme, layoutMode = 'classi
           Cancelled: list.filter(m => m.status === 'Cancelled').length,
         };
       }, [members]);
+      const canReadFinance = React.useMemo(() => canReadFinanceSummary(access, isOwner), [access, isOwner]);
+      const useServerFinance = dataSyncMode === 'backend' || preferServerFinance;
       const [q, setQ] = React.useState('');
       const [field, setField] = React.useState('all');
       const [showTrendHistory, setShowTrendHistory] = React.useState(false);
@@ -12993,7 +13074,7 @@ function Sidebar({ user, active, onSelect, theme, setTheme, layoutMode = 'classi
         return cached;
       }, [financeBranchId, todayMonthKey]);
       const fetchDashboardMonthRevenue = React.useCallback((opts = {}) => {
-        if (dataSyncMode !== 'backend' || !todayMonthKey || !canReadFinanceSummary(access, isOwner)) return undefined;
+        if (!useServerFinance || !todayMonthKey || !canReadFinance) return undefined;
         const silent = Boolean(opts.silent);
         const force = Boolean(opts.force);
         const loadMonthFn = window.__APG_MODULES?.loadFinanceMonthSummaryCached;
@@ -13033,9 +13114,9 @@ function Sidebar({ user, active, onSelect, theme, setTheme, layoutMode = 'classi
         };
         void run();
         return () => { cancelled = true; };
-      }, [dataSyncMode, todayMonthKey, access, isOwner, financeBranchId]);
+      }, [useServerFinance, todayMonthKey, canReadFinance, financeBranchId]);
       React.useEffect(() => {
-        if (dataSyncMode !== 'backend' || !todayMonthKey || !canReadFinanceSummary(access, isOwner)) {
+        if (!useServerFinance || !todayMonthKey || !canReadFinance) {
           dbMonthSummaryStableRef.current = null;
           setDbMonthSummary(null);
           setDbYearTrend(null);
@@ -13046,24 +13127,24 @@ function Sidebar({ user, active, onSelect, theme, setTheme, layoutMode = 'classi
         const cached = hydrateDashboardFinanceFromCache();
         if (!cached) return fetchDashboardMonthRevenue();
         return undefined;
-      }, [dataSyncMode, todayMonthKey, access, isOwner, financeBranchId, hydrateDashboardFinanceFromCache, fetchDashboardMonthRevenue]);
+      }, [useServerFinance, todayMonthKey, canReadFinance, financeBranchId, hydrateDashboardFinanceFromCache, fetchDashboardMonthRevenue]);
       React.useEffect(() => {
-        if (dataSyncMode !== 'backend' || !todayMonthKey || !canReadFinanceSummary(access, isOwner)) return undefined;
+        if (!useServerFinance || !todayMonthKey || !canReadFinance) return undefined;
         if (!dashboardFinanceEpochEffectReadyRef.current) {
           dashboardFinanceEpochEffectReadyRef.current = true;
           return undefined;
         }
         return fetchDashboardMonthRevenue({ silent: true, force: true });
-      }, [financeMetricsEpoch, dataSyncMode, todayMonthKey, access, isOwner, fetchDashboardMonthRevenue]);
+      }, [financeMetricsEpoch, useServerFinance, todayMonthKey, canReadFinance, fetchDashboardMonthRevenue]);
       const dashboardSummaryFromDb = dbMonthSummary ?? dbMonthSummaryStableRef.current;
-      const monthlyRevenue = dataSyncMode === 'backend'
+      const monthlyRevenue = useServerFinance
         ? (dashboardSummaryFromDb != null ? Number(dashboardSummaryFromDb.collectedRevenue ?? 0) : null)
         : (cfoKpis?.collectedRevenue ?? 0);
-      const growthRate = dataSyncMode === 'backend'
-        ? Number(dashboardSummaryFromDb?.revenueGrowthPct ?? 0)
+      const growthRate = useServerFinance
+        ? (dashboardSummaryFromDb != null ? Number(dashboardSummaryFromDb.revenueGrowthPct ?? 0) : 0)
         : (cfoKpis?.revenueGrowthPct ?? 0);
-      const dashboardProfit = dataSyncMode === 'backend' && dashboardSummaryFromDb
-        ? Number(dashboardSummaryFromDb.profit ?? 0)
+      const dashboardProfit = useServerFinance
+        ? (dashboardSummaryFromDb != null ? Number(dashboardSummaryFromDb.profit ?? 0) : null)
         : (cfoKpis?.profit ?? 0);
       const collectedRevenueEntries = React.useMemo(
         () => buildCollectedRevenueEntries(members, todayKey),
@@ -13118,7 +13199,7 @@ function Sidebar({ user, active, onSelect, theme, setTheme, layoutMode = 'classi
       const monthTrend = React.useMemo(() => allMonthTrend.slice(-6), [allMonthTrend]);
       const historicalTrend = React.useMemo(() => allMonthTrend.slice(0, -6), [allMonthTrend]);
       const serverMonthTrend = React.useMemo(() => {
-        if (dataSyncMode !== 'backend' || !Array.isArray(dbYearTrend) || !dbYearTrend.length) return null;
+        if (!useServerFinance || !Array.isArray(dbYearTrend) || !dbYearTrend.length) return null;
         const recent = dbYearTrend.slice(-6);
         const collected = dashboardSummaryFromDb != null
           ? Number(dashboardSummaryFromDb.collectedRevenue ?? 0)
@@ -13129,13 +13210,17 @@ function Sidebar({ user, active, onSelect, theme, setTheme, layoutMode = 'classi
             ? { ...slot, total: collected }
             : slot
         ));
-      }, [dataSyncMode, dbYearTrend, dashboardSummaryFromDb, todayMonthKey]);
+      }, [useServerFinance, dbYearTrend, dashboardSummaryFromDb, todayMonthKey]);
       const serverHistoricalTrend = React.useMemo(() => {
-        if (dataSyncMode !== 'backend' || !Array.isArray(dbYearTrend) || dbYearTrend.length <= 6) return [];
+        if (!useServerFinance || !Array.isArray(dbYearTrend) || dbYearTrend.length <= 6) return [];
         return dbYearTrend.slice(0, -6);
-      }, [dataSyncMode, dbYearTrend]);
-      const monthTrendDisplay = serverMonthTrend || monthTrend;
-      const historicalTrendDisplay = serverMonthTrend ? serverHistoricalTrend : historicalTrend;
+      }, [useServerFinance, dbYearTrend]);
+      const monthTrendDisplay = useServerFinance
+        ? (Array.isArray(serverMonthTrend) && serverMonthTrend.length ? serverMonthTrend : [])
+        : monthTrend;
+      const historicalTrendDisplay = useServerFinance
+        ? (Array.isArray(serverMonthTrend) && serverMonthTrend.length ? serverHistoricalTrend : [])
+        : historicalTrend;
       const maxTrend = Math.max(1, ...monthTrendDisplay.map(x => x.total));
       const maxHistoricalTrend = Math.max(1, ...historicalTrendDisplay.map(x => x.total));
       const planDistributionOpts = React.useMemo(() => ({
@@ -13348,21 +13433,21 @@ function Sidebar({ user, active, onSelect, theme, setTheme, layoutMode = 'classi
                       : `₹${Number(monthlyRevenue || 0).toLocaleString('en-IN')}`}
                   </div>
                   <div className="mt-1 text-xs text-emerald-700">
-                    {dataSyncMode === 'backend'
+                    {useServerFinance
                       ? 'Active members · Payment received this month (DB)'
                       : 'Client ledger · Payment received this month'}
                     {growthRate >= 0 ? ' · +' : ' · '}{growthRate}% vs last month
-                    {dataSyncMode === 'backend' && dashboardSummaryFromDb?.prevMonthCollected != null
+                    {useServerFinance && dashboardSummaryFromDb?.prevMonthCollected != null
                       ? ` · Prev ₹${Number(dashboardSummaryFromDb.prevMonthCollected).toLocaleString('en-IN')}`
-                      : (cfoKpis?.ytdCollected ? ` · YTD ₹${cfoKpis.ytdCollected.toLocaleString('en-IN')}` : '')}
+                      : (!useServerFinance && cfoKpis?.ytdCollected ? ` · YTD ₹${cfoKpis.ytdCollected.toLocaleString('en-IN')}` : '')}
                   </div>
                   {dbMonthSummaryError && monthlyRevenue == null && (
                     <div className="mt-1 text-xs text-rose-600">{dbMonthSummaryError}</div>
                   )}
-                  {(dashboardProfit != null || cfoKpis) && (
+                  {(useServerFinance ? dashboardProfit != null : Boolean(cfoKpis)) && (
                     <div className="mt-1 text-xs text-slate-600">
-                      Profit (est.): ₹{Number(dashboardProfit || cfoKpis?.profit || 0).toLocaleString('en-IN')}
-                      {dataSyncMode !== 'backend' && cfoKpis?.profitGrowthPct !== 0
+                      Profit (est.): ₹{Number(useServerFinance ? (dashboardProfit ?? 0) : (cfoKpis?.profit || 0)).toLocaleString('en-IN')}
+                      {!useServerFinance && cfoKpis?.profitGrowthPct !== 0
                         ? ` · ${cfoKpis.profitGrowthPct >= 0 ? '+' : ''}${cfoKpis.profitGrowthPct}% vs last month`
                         : ''}
                     </div>
@@ -17473,7 +17558,7 @@ function EditMemberModal({ member, onClose, onSave, onPersistInjuryNotes = null,
     }
 
     // ---- Add Member Wizard ----
-    function AddMemberWizard({ open, onClose, onSave, onFamilyMobileDuplicate = null, settings, staffName, currentUser = null, members, canEditFormNo, smartDefaults = {}, prefillData = null, gymCodes = [], hqGymCodeId = null, gymCodeLabel = () => '—' }) {
+    function AddMemberWizard({ open, onClose, onSave, onFamilyMobileDuplicate = null, settings, staffName, currentUser = null, members, canEditFormNo, smartDefaults = {}, prefillData = null, gymCodes = [], hqGymCodeId = null, gymCodeLabel = () => '—', reservedMemberIds = null }) {
       const isOwnerWizard = String(currentUser?.id || '').toLowerCase() === 'owner'
         || (Array.isArray(currentUser?.roles) && currentUser.roles.includes('owner'));
       const branchOpts = { hqGymCodeId, gymCodes };
@@ -17646,18 +17731,35 @@ function EditMemberModal({ member, onClose, onSave, onPersistInjuryNotes = null,
         try {
           const fn = window.__APG_MODULES?.nextBranchFormNumber;
           const branchId = String(form.assignedGymCodeId || '').trim();
-          const next = typeof fn === 'function'
+          const baseNext = typeof fn === 'function'
             ? fn(members || [], branchId)
             : (members || [])
               .filter((m) => String(m?.assignedGymCodeId || '').trim() === branchId)
               .map((m) => Number(m?.formNo))
               .filter((n) => Number.isFinite(n) && n > 0)
               .reduce((acc, n) => Math.max(acc, n), 0) + 1;
+          const yearSuffix = String(new Date().getFullYear()).slice(-2);
+          const branchTokenResolver = window.__APG_MODULES?.branchCodeToken;
+          const buildMemberId = window.__APG_MODULES?.buildBranchMemberId;
+          const branchToken = typeof branchTokenResolver === 'function'
+            ? branchTokenResolver(gymCodes, branchId)
+            : 'BR';
+          const reservedSet = reservedMemberIds instanceof Set ? reservedMemberIds : new Set(
+            Array.isArray(reservedMemberIds) ? reservedMemberIds.map((x) => String(x || '').trim()).filter(Boolean) : [],
+          );
+          let next = Number(baseNext) > 0 ? Number(baseNext) : 1;
+          for (let i = 0; i < 1000; i += 1) {
+            const candidateMemberId = typeof buildMemberId === 'function'
+              ? buildMemberId(next, yearSuffix, branchToken)
+              : `APG-${next}/${yearSuffix}-${branchToken}`;
+            if (!reservedSet.has(String(candidateMemberId || '').trim())) break;
+            next += 1;
+          }
           setForm(f => ({ ...f, formNo: String(next) }));
         } catch {
           setForm(f => ({ ...f, formNo: '1' }));
         }
-      }, [open, members, form.assignedGymCodeId]);
+      }, [open, members, form.assignedGymCodeId, gymCodes, reservedMemberIds]);
       // Auto update billing and payment dates when joiningDate changes
       React.useEffect(() => {
         if (form.joiningDate) {
@@ -17994,9 +18096,16 @@ function EditMemberModal({ member, onClose, onSave, onPersistInjuryNotes = null,
         const memberId = typeof buildMemberId === 'function'
           ? buildMemberId(form.formNo, yearSuffix, branchToken)
           : `APG-${form.formNo}/${yearSuffix}-${branchToken}`;
+        const reservedSet = reservedMemberIds instanceof Set ? reservedMemberIds : new Set(
+          Array.isArray(reservedMemberIds) ? reservedMemberIds.map((x) => String(x || '').trim()).filter(Boolean) : [],
+        );
         const duplicateMemberId = (members || []).some(m => String(m.memberId || '').trim() === memberId);
-        if (duplicateMemberId) {
-          goToStepAndFocus(1, 'add-member-formNo', 'Generated member ID already exists. Please change Form Number.', 5);
+        const deletedMemberIdConflict = reservedSet.has(memberId);
+        if (duplicateMemberId || deletedMemberIdConflict) {
+          const msg = deletedMemberIdConflict
+            ? 'Generated member ID was used by a deleted member. Please increase Form Number.'
+            : 'Generated member ID already exists. Please change Form Number.';
+          goToStepAndFocus(1, 'add-member-formNo', msg, 5);
           return;
         }
         const payMonth = payMonthLabel(addMonths(form.billingDate, 1));
@@ -19229,7 +19338,8 @@ function PTClientsPage({ members, users, settings, updateSetting, currentUser, a
     // ---- Late note header control (no Attendance tab required) ----
     function LateAttendanceNoteHeaderButton({ user, settings, gymCodes, backendJson, dataSyncMode, lateNoteEligibleKey = '', onAddNote }) {
       const notesEnabled = window.__APG_MODULES?.isAttendanceNotesEnabled?.(settings) === true;
-      const canSubmit = normalizeAccess(user?.access).attendance?.submitOwnLateNote !== false;
+      const userAccess = React.useMemo(() => normalizeAccess(user?.access), [user?.access]);
+      const canSubmit = userAccess.attendance?.submitOwnLateNote !== false;
       const [selfRecord, setSelfRecord] = React.useState(null);
       const [selfRecordReady, setSelfRecordReady] = React.useState(false);
       const [hasNote, setHasNote] = React.useState(null);
@@ -24194,7 +24304,7 @@ function PTClientsPage({ members, users, settings, updateSetting, currentUser, a
           return { ...r, runningTotal: running, typeLabel };
         });
       }, [incomeRowsCollected, membersById, settings, members]);
-      const canReadFinance = canReadFinanceSummary(access, isOwner);
+      const canReadFinance = React.useMemo(() => canReadFinanceSummary(access, isOwner), [access, isOwner]);
       React.useEffect(() => {
         revenueDrilldownApiRef.current = revenueDrilldownApi;
       }, [revenueDrilldownApi]);
@@ -24279,7 +24389,7 @@ function PTClientsPage({ members, users, settings, updateSetting, currentUser, a
         return () => { cancelled = true; };
       }, [showRevenueDrilldown, useBackendFinanceTotals, financeMonth, canReadFinance, financeMetricsEpoch]);
       const fetchFinanceServerSummary = React.useCallback((opts = {}) => {
-        if (dataSyncMode !== 'backend' || !financeMonth || !canReadFinanceSummary(access, isOwner)) return undefined;
+        if (dataSyncMode !== 'backend' || !financeMonth || !canReadFinance) return undefined;
         const silent = Boolean(opts.silent);
         const force = Boolean(opts.force);
         const loadMonthFn = window.__APG_MODULES?.loadFinanceMonthSummaryCached;
@@ -24307,7 +24417,7 @@ function PTClientsPage({ members, users, settings, updateSetting, currentUser, a
         };
         void run();
         return () => { cancelled = true; };
-      }, [financeMonth, dataSyncMode, access, isOwner, financeBranchId]);
+      }, [financeMonth, dataSyncMode, canReadFinance, financeBranchId]);
       const hydrateFinanceSummaryFromCache = React.useCallback(() => {
         const getMonth = window.__APG_MODULES?.getCachedFinanceMonthSummary;
         if (typeof getMonth !== 'function' || !financeMonth) return null;
@@ -24320,7 +24430,7 @@ function PTClientsPage({ members, users, settings, updateSetting, currentUser, a
         return cached;
       }, [financeBranchId, financeMonth]);
       React.useEffect(() => {
-        if (dataSyncMode !== 'backend' || !financeMonth || !canReadFinanceSummary(access, isOwner)) {
+        if (dataSyncMode !== 'backend' || !financeMonth || !canReadFinance) {
           serverSummaryStableRef.current = null;
           setServerSummary(null);
           setServerSummaryError('');
@@ -24329,17 +24439,17 @@ function PTClientsPage({ members, users, settings, updateSetting, currentUser, a
         const cached = hydrateFinanceSummaryFromCache();
         if (!cached) return fetchFinanceServerSummary();
         return undefined;
-      }, [financeMonth, dataSyncMode, access, isOwner, financeBranchId, hydrateFinanceSummaryFromCache, fetchFinanceServerSummary]);
+      }, [financeMonth, dataSyncMode, canReadFinance, financeBranchId, hydrateFinanceSummaryFromCache, fetchFinanceServerSummary]);
       React.useEffect(() => {
-        if (dataSyncMode !== 'backend' || !financeMonth || !canReadFinanceSummary(access, isOwner)) return undefined;
+        if (dataSyncMode !== 'backend' || !financeMonth || !canReadFinance) return undefined;
         if (!financeEpochEffectReadyRef.current) {
           financeEpochEffectReadyRef.current = true;
           return undefined;
         }
         return fetchFinanceServerSummary({ silent: true, force: true });
-      }, [financeMetricsEpoch, financeMonth, dataSyncMode, access, isOwner, fetchFinanceServerSummary]);
+      }, [financeMetricsEpoch, financeMonth, dataSyncMode, canReadFinance, fetchFinanceServerSummary]);
       const fetchYearReconciliation = React.useCallback((opts = {}) => {
-        if (dataSyncMode !== 'backend' || !financeMonth || !canReadFinanceSummary(access, isOwner)) return undefined;
+        if (dataSyncMode !== 'backend' || !financeMonth || !canReadFinance) return undefined;
         const year = parseInt(String(financeMonth || '').slice(0, 4), 10);
         if (!year) return undefined;
         const force = Boolean(opts.force);
@@ -24363,9 +24473,9 @@ function PTClientsPage({ members, users, settings, updateSetting, currentUser, a
         };
         void run();
         return () => { cancelled = true; };
-      }, [dataSyncMode, financeMonth, access, isOwner, financeBranchId]);
+      }, [dataSyncMode, financeMonth, canReadFinance, financeBranchId]);
       React.useEffect(() => {
-        if (dataSyncMode !== 'backend' || !financeMonth || !canReadFinanceSummary(access, isOwner)) {
+        if (dataSyncMode !== 'backend' || !financeMonth || !canReadFinance) {
           yearReconciliationStableRef.current = null;
           setYearReconciliationRows(null);
           return undefined;
@@ -24381,15 +24491,15 @@ function PTClientsPage({ members, users, settings, updateSetting, currentUser, a
           }
         }
         return fetchYearReconciliation();
-      }, [financeMonth, dataSyncMode, access, isOwner, financeBranchId, fetchYearReconciliation]);
+      }, [financeMonth, dataSyncMode, canReadFinance, financeBranchId, fetchYearReconciliation]);
       React.useEffect(() => {
-        if (dataSyncMode !== 'backend' || !financeMonth || !canReadFinanceSummary(access, isOwner)) return undefined;
+        if (dataSyncMode !== 'backend' || !financeMonth || !canReadFinance) return undefined;
         if (!yearReconciliationEpochReadyRef.current) {
           yearReconciliationEpochReadyRef.current = true;
           return undefined;
         }
         return fetchYearReconciliation({ force: true });
-      }, [financeMetricsEpoch, financeMonth, dataSyncMode, access, isOwner, fetchYearReconciliation]);
+      }, [financeMetricsEpoch, financeMonth, dataSyncMode, canReadFinance, fetchYearReconciliation]);
       const revenueVerification = React.useMemo(() => {
         const deltaFn = window.__APG_MODULES?.financeSummaryDelta;
         if (!activeServerSummary || typeof deltaFn !== 'function') return null;

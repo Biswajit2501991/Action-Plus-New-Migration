@@ -41,8 +41,9 @@ test.describe('@critical Role template anti-duplicate', () => {
       color: 'bg-amber-50 border-amber-200',
     }];
     await putRoleTemplates(ownerToken, single);
-    const { roleTemplates: _rt, ...rest } = before;
-    await putSettingsBulk(ownerToken, { ...rest, fineSmsGraceDays: Number(before.fineSmsGraceDays || 0) });
+    // Use minimal bulk payload: this scenario verifies role-template dedupe is
+    // unaffected by unrelated settings writes, not full snapshot rewrite cost.
+    await putSettingsBulk(ownerToken, { fineSmsGraceDays: Number(before.fineSmsGraceDays || 0) });
     const after = (await getSettings(ownerToken)) as { roleTemplates?: Array<{ title?: string }> };
     const frontDesk = (after.roleTemplates || []).filter((r) => r.title === 'Front Desk Manager');
     expect(frontDesk.length).toBe(1);

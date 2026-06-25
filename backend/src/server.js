@@ -681,15 +681,18 @@ app.put('/api/members/bulk', requireAccess(Access.membersWrite), async (req, res
     }
   }
   const rawWithoutDeleted = raw.filter((m) => !deletedSet.has(String(m?.memberId || '').trim()));
-  const incoming = filterRowsForStaffWrite(rawWithoutDeleted, req.auth);
   try {
-    assertBranchWriteAllowed(incoming, req.auth);
+    // Validate against caller payload BEFORE staff-scope filtering so explicit
+    // cross-branch smuggling attempts are rejected with 403 instead of silently
+    // dropped and reported as success.
+    assertBranchWriteAllowed(rawWithoutDeleted, req.auth);
   } catch (err) {
     return res.status(err.status || 403).json({
       error: err.message,
       detail: err.detail || null,
     });
   }
+  const incoming = filterRowsForStaffWrite(rawWithoutDeleted, req.auth);
   // Defense-in-depth: prevent non-owner callers from quietly stripping payment
   // entries out of the snapshot. Slim bulk sync omits paymentHistory; guard only
   // runs when paymentHistory is present in the payload (pending member sync).

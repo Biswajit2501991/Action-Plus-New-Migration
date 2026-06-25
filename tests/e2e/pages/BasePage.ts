@@ -9,7 +9,7 @@ export class BasePage {
   }
 
   sidebarTab(name: string): Locator {
-    return this.page.getByRole('button', { name, exact: true });
+    return this.page.getByRole('navigation').getByRole('button', { name, exact: true });
   }
 
   async openTab(tabName: string) {

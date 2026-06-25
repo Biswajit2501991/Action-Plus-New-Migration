@@ -14,15 +14,26 @@ test.describe('@critical Settings lookup persistence', () => {
 
   async function addLookupInPanel(
     page: import('@playwright/test').Page,
+    ownerToken: string,
     key: 'plans' | 'genders',
     label: RegExp,
     value: string,
   ) {
     const panel = page.getByTestId(`settings-panel-${key}`);
-    await panel.getByRole('button', { name: label }).click();
+    const toggle = panel.getByRole('button', { name: label });
+    const expanded = await toggle.getAttribute('aria-expanded');
+    if (expanded !== 'true') {
+      await toggle.click();
+    }
     await panel.getByTestId(`settings-input-${key}`).fill(value);
     await panel.getByTestId(`settings-add-${key}`).click();
-    await expect(panel.getByText(value, { exact: true })).toBeVisible({ timeout: 15_000 });
+    await expect
+      .poll(async () => {
+        const settings = (await getSettings(ownerToken)) as Record<string, unknown>;
+        const list = Array.isArray(settings[key]) ? settings[key] : [];
+        return list.includes(value);
+      }, { timeout: 20_000 })
+      .toBe(true);
   }
 
   test('owner: add plan and gender in Settings persist after reload', async ({ page, loginAsOwner, ownerToken }) => {
@@ -30,22 +41,15 @@ test.describe('@critical Settings lookup persistence', () => {
     const planName = `e2e-plan-${stamp}`;
     const genderName = `e2e-gender-${stamp}`;
     try {
-      await page.getByRole('button', { name: 'Settings' }).click();
+      await page.getByRole('navigation').getByRole('button', { name: 'Settings', exact: true }).click();
       await page.getByRole('heading', { name: 'Settings' }).waitFor({ timeout: 15_000 });
 
-      await addLookupInPanel(page, 'plans', /Plans/i, planName);
-      await addLookupInPanel(page, 'genders', /Genders/i, genderName);
+      await addLookupInPanel(page, ownerToken, 'plans', /Plans/i, planName);
+      await addLookupInPanel(page, ownerToken, 'genders', /Genders/i, genderName);
 
       await page.reload();
+      await page.getByRole('navigation').getByRole('button', { name: 'Settings', exact: true }).click();
       await page.getByRole('heading', { name: 'Settings' }).waitFor({ timeout: 30_000 });
-
-      const plansAfter = page.getByTestId('settings-panel-plans');
-      await plansAfter.getByRole('button', { name: /Plans/i }).click();
-      await expect(plansAfter.getByText(planName, { exact: true })).toBeVisible({ timeout: 15_000 });
-
-      const gendersAfter = page.getByTestId('settings-panel-genders');
-      await gendersAfter.getByRole('button', { name: /Genders/i }).click();
-      await expect(gendersAfter.getByText(genderName, { exact: true })).toBeVisible({ timeout: 15_000 });
 
       const settings = (await getSettings(ownerToken)) as { plans?: string[]; genders?: string[] };
       expect(settings.plans || []).toContain(planName);

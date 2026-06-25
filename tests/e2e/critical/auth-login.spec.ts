@@ -28,6 +28,6 @@ test.describe('@critical @smoke Authentication', () => {
     await login.usernameInput.fill('not-a-real-user');
     await login.passwordInput.fill('wrong-password');
     await login.submitButton.click();
-    await expect(page.getByText('Invalid credential')).toBeVisible();
+    await expect(page.getByRole('alert')).toContainText(/(invalid|wrong).*(password|credential)/i);
   });
 });

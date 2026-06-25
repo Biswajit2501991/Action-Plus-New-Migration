@@ -1443,9 +1443,20 @@ async function writeUsers(users, scope) {
 }
 
 async function cleanupDuplicateRoleTemplateRows(sb, gid) {
-  const rows = await fetchAll((from, to) =>
-    sb.from(T.staff_role_templates).select('id, title, sections_json, sort_order, external_template_id').eq('gym_id', gid).order('sort_order').range(from, to),
-  );
+  let rows;
+  try {
+    rows = await fetchAll((from, to) =>
+      sb.from(T.staff_role_templates).select('id, title, sections_json, sort_order, external_template_id').eq('gym_id', gid).order('sort_order').range(from, to),
+    );
+  } catch (err) {
+    const msg = String(err?.message || err);
+    // Older environments may not have external_template_id yet; dedupe by title
+    // still works without it and lets syncRoleTemplatesToDb run its own fallback.
+    if (!msg.includes('external_template_id')) throw err;
+    rows = await fetchAll((from, to) =>
+      sb.from(T.staff_role_templates).select('id, title, sections_json, sort_order').eq('gym_id', gid).order('sort_order').range(from, to),
+    );
+  }
   if (!rows || rows.length < 2) return;
   const byTitle = new Map();
   const deleteIds = [];
@@ -2033,22 +2044,10 @@ async function writeSettings(settings, scope) {
     updated_at: new Date().toISOString(),
   });
 
-  await sb.from(T.leave_requests).delete().eq('gym_id', gid);
-  const leaveRows = (Array.isArray(s.leaveRequests) ? s.leaveRequests : []).map((r) => ({
-    gym_id: gid,
-    external_request_id: String(r.id || crypto.randomUUID()),
-    staff_login_id: String(r.userId || ''),
-    leave_type: String(r.type || 'Leave'),
-    start_date: toDate(r.startDate),
-    end_date: toDate(r.endDate),
-    reason: r.reason || null,
-    status: String(r.status || 'pending'),
-    approved_by: r.approvedBy || null,
-    created_at: toTs(r.createdAt) || new Date().toISOString(),
-  }));
-  for (const part of chunk(leaveRows, 80)) {
-    if (part.length) await sb.from(T.leave_requests).insert(part);
-  }
+  // Leave requests persist through dedicated /api/leave-requests endpoints.
+  // Replacing the entire table from settings bulk is expensive on production-
+  // sized gyms and can cause 120s+ request timeouts with no functional gain.
+  // Keep settings bulk non-destructive and lightweight.
 
   // Attendance persists via /api/attendance/* only — never wipe 17MB+ history from settings bulk.
 

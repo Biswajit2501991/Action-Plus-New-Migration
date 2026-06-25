@@ -63,7 +63,7 @@ test.describe('@critical WhatsApp template branch scope + support picker', () =>
   test('UI: owner support page shows branch switcher + template picker', async ({ page, loginAsOwner }) => {
     await loginAsOwner;
 
-    await page.getByRole('button', { name: 'Support' }).click();
+    await page.getByRole('navigation').getByRole('button', { name: 'Support', exact: true }).click();
     await expect(page.getByRole('heading', { name: 'Support Templates' })).toBeVisible();
 
     const branchSelect = page.getByTestId('support-template-branch-select');
@@ -115,7 +115,7 @@ test.describe('@critical WhatsApp template branch scope + support picker', () =>
     await loginPage.goto();
     await loginPage.login(String(staff.id), staffPassword);
 
-    await page.getByRole('button', { name: 'Support' }).click();
+    await page.getByRole('navigation').getByRole('button', { name: 'Support', exact: true }).click();
     await expect(page.getByRole('heading', { name: 'Support Templates' })).toBeVisible();
     await expect(page.getByTestId('support-template-branch-select')).toHaveCount(0);
     await expect(page.getByTestId('support-template-key-select')).toBeVisible();
