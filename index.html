@@ -19459,7 +19459,12 @@ function PTClientsPage({ members, users, settings, updateSetting, currentUser, a
           });
           onClose();
         } catch (err) {
-          setError(String(err?.message || err || 'save-failed'));
+          const msg = String(err?.message || err || 'save-failed');
+          if (msg.includes('attendance-notes-feature-disabled')) {
+            setError('Attendance notes are disabled on the server. Ask the owner to enable Settings → Attendance Notes, then try again.');
+          } else {
+            setError(msg);
+          }
         } finally {
           setSaving(false);
         }
@@ -21386,7 +21391,22 @@ function PTClientsPage({ members, users, settings, updateSetting, currentUser, a
                   <input
                     type="checkbox"
                     checked={settings.attendanceNotesEnabled === true}
-                    onChange={(e) => updateSetting('attendanceNotesEnabled', Boolean(e.target.checked))}
+                    onChange={async (e) => {
+                      const enabled = Boolean(e.target.checked);
+                      updateSetting('attendanceNotesEnabled', enabled);
+                      if (dataSyncMode === 'backend' && typeof backendJson === 'function') {
+                        try {
+                          await backendJson('/settings/bulk', {
+                            method: 'PUT',
+                            body: JSON.stringify({
+                              settings: settingsForBulkSync({ ...settings, attendanceNotesEnabled: enabled }),
+                            }),
+                          });
+                        } catch {
+                          /* debounced settings bulk may retry; owner can toggle again if needed */
+                        }
+                      }
+                    }}
                     data-testid="attendance-notes-feature-flag"
                   />
                   Enable
