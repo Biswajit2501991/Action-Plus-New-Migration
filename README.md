@@ -136,13 +136,19 @@ Production for this project is Cloudflare-routed at:
 GitHub Pages is not used as the production deployment source.
 See `PROD_DEPLOYMENT.md` for the authoritative release and rollback process.
 
-### Daily Production Startup (One Command)
+### Daily Production Startup
 
-From project root:
+**Background (recommended — close terminal anytime):**
 
-- `npm run prod:start`
+```bash
+npm run prod:daemon
+```
 
-Health check:
+**Foreground (terminal must stay open):**
+
+```bash
+npm run prod:start
+```
 
 - `npm run prod:health`
 
@@ -150,7 +156,7 @@ Health check:
 
 Use this when production is running on your machine and you still want to test changes locally.
 
-1. Keep production as-is (`npm run prod:start`).
+1. Keep production as-is (`npm run prod:daemon`).
 2. Start isolated local stack in another terminal:
    - `npm run dev:all:isolated`
 3. Open isolated local app:
@@ -205,15 +211,17 @@ In Cloudflare Zero Trust dashboard:
 - If your local machine sleeps or internet disconnects, remote users cannot access.
 - Keep backend bound locally; expose frontend only for safer setup.
 
-### Auto-start on macOS Login/Reboot
+### Auto-start on macOS Login/Reboot (24/7 resilience)
 
-To automatically start app + tunnel after login:
+To automatically start app + tunnel after login and recover after sleep or network loss:
 
 1. Install launch agent:
    - `npm run autostart:install`
 2. Optional — keep the Mac awake while the tunnel runs (recommended for `app.gymactionplus.com`):
-   - Add `APG_CAFFEINATE=1` to `.env` (uses `caffeinate` on macOS; works on battery or AC)
-3. Check logs if needed:
+   - Add `APG_CAFFEINATE=1` to `.env` or `.env.prod` (uses `caffeinate` on macOS; works on battery or AC)
+3. Check status anytime:
+   - `npm run autostart:status`
+4. Check logs if needed:
    - `~/Library/Logs/com.actionplus.gym/autostart.out.log`
    - `~/Library/Logs/com.actionplus.gym/autostart.err.log`
    - `logs/health-check.log` (single post-boot `OK/FAIL` line)
@@ -230,7 +238,15 @@ npm run autostart:install
 
 Stop any manually started prod stack (`npm run prod:start`) before installing autostart, so ports `5501` / `4010` are free.
 
-This uses `launchd` with label `com.actionplus.gym.autostart` and runs `npm run dev:all:tunnel` plus the health watchdog (`scripts/watchdog-autorestart.sh`). The local supervisor (`scripts/apg-supervisor.mjs`) auto-restarts the backend if it crashes.
+This uses `launchd` with label `com.actionplus.gym.autostart` and runs `npm run dev:all:tunnel` plus the health watchdog (`scripts/watchdog-autorestart.sh`). The watchdog:
+
+- Polls local + public health every 30s
+- Restarts the stack after repeated failures (no manual `npm run prod:start`)
+- Detects **laptop wake from sleep** (long gap between checks) and forces recovery
+- Detects **network restored** after outage and forces recovery
+- Under launchd, calls `launchctl kickstart` to relaunch the full stack
+
+The local supervisor (`scripts/apg-supervisor.mjs`) auto-restarts the backend if it crashes.
 You can also run health check manually with `npm run health:check`.
 You can run the watchdog manually with `npm run watchdog:start`.
 

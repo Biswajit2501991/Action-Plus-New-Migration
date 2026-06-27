@@ -17,15 +17,44 @@ PUBLIC_URL="${APP_PUBLIC_URL:-https://app.gymactionplus.com}"
 LOCAL_API_URL="${LOCAL_API_URL:-http://127.0.0.1:5501/api/health}"
 CHECK_INTERVAL_SECONDS="${WATCHDOG_INTERVAL_SECONDS:-30}"
 MAX_FAIL_STREAK="${WATCHDOG_MAX_FAIL_STREAK:-2}"
+# Gap larger than this between loop iterations ⇒ laptop likely woke from sleep.
+WAKE_GAP_SECONDS="${WATCHDOG_WAKE_GAP_SECONDS:-$((CHECK_INTERVAL_SECONDS * 2 + 20))}"
 
 ts() { health_monitor_ts; }
 log() { health_monitor_append "$LOG_FILE" "$*"; }
 
-log "watchdog started local_api=$LOCAL_API_URL public_url=$PUBLIC_URL interval=${CHECK_INTERVAL_SECONDS}s fail_streak=${MAX_FAIL_STREAK}"
+log "watchdog started local_api=$LOCAL_API_URL public_url=$PUBLIC_URL interval=${CHECK_INTERVAL_SECONDS}s fail_streak=${MAX_FAIL_STREAK} wake_gap=${WAKE_GAP_SECONDS}s"
 fail_streak=0
 alert_state="$(health_monitor_alert_state)"
+last_loop_ts=0
+network_was_down=0
 
 while true; do
+  now_ts="$(date +%s)"
+  if [[ "$last_loop_ts" -gt 0 ]]; then
+    gap=$((now_ts - last_loop_ts))
+    if [[ "$gap" -ge "$WAKE_GAP_SECONDS" ]]; then
+      log "wake_or_pause_detected gap=${gap}s — forcing recovery check"
+      fail_streak=$MAX_FAIL_STREAK
+    fi
+  fi
+  last_loop_ts=$now_ts
+
+  if health_monitor_network_reachable; then
+    if [[ "$network_was_down" -eq 1 ]]; then
+      log "network_restored — forcing recovery check"
+      fail_streak=$MAX_FAIL_STREAK
+    fi
+    network_was_down=0
+  else
+    if [[ "$network_was_down" -eq 0 ]]; then
+      log "network_unavailable — waiting for connectivity"
+    fi
+    network_was_down=1
+    sleep "$CHECK_INTERVAL_SECONDS"
+    continue
+  fi
+
   local_code="$(health_monitor_code "$LOCAL_API_URL")"
   public_code="$(health_monitor_code "$PUBLIC_URL")"
   ok_local=0
@@ -57,26 +86,7 @@ while true; do
         log "down_alert_sent local=$local_code public=$public_code"
       fi
       log "restart_triggered streak=$fail_streak local=$local_code public=$public_code"
-      pkill -f "scripts/dev-frontend.mjs|scripts/apg-supervisor.mjs|scripts/dev-all-with-tunnel.mjs|scripts/dev-all.mjs|cloudflared|node src/server.js" || true
-      sleep 3
-      if [[ "${APG_LAUNCHD_MANAGED:-}" == "1" ]]; then
-        log "restart_delegated_to_launchd (APG_LAUNCHD_MANAGED=1)"
-      elif [[ "$(uname -s)" == Darwin && -n "${APG_CAFFEINATE:-}" ]]; then
-        case "${APG_CAFFEINATE}" in
-          1|y|Y|yes|YES|true|TRUE)
-            if command -v caffeinate >/dev/null 2>&1; then
-              caffeinate -dims -- npm run dev:all:tunnel >>"$LOG_FILE" 2>&1 &
-            else
-              npm run dev:all:tunnel >>"$LOG_FILE" 2>&1 &
-            fi
-            ;;
-          *) npm run dev:all:tunnel >>"$LOG_FILE" 2>&1 & ;;
-        esac
-        log "restart_launched dev:all:tunnel"
-      else
-        npm run dev:all:tunnel >>"$LOG_FILE" 2>&1 &
-        log "restart_launched dev:all:tunnel"
-      fi
+      health_monitor_restart_stack "$LOG_FILE" "health_fail"
       fail_streak=0
     fi
   fi

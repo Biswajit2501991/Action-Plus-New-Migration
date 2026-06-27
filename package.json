@@ -6,8 +6,9 @@
   "scripts": {
     "start:local": "ENV_FILE=.env.local npm run dev:all:isolated",
     "start:local:tunnel": "ENV_FILE=.env.local node scripts/dev-all-isolated-with-tunnel.mjs",
-    "start:prod": "ENV_FILE=.env.prod npm run prod:start",
+    "start:prod": "ENV_FILE=.env.prod npm run prod:daemon",
     "prod:start": "node scripts/bootstrap-and-run.mjs",
+    "prod:daemon": "zsh scripts/start-prod-daemon.sh",
     "dev:all": "node scripts/dev-all.mjs",
     "dev:all:isolated": "node scripts/dev-all-isolated.mjs",
     "dev:web": "node scripts/dev-frontend.mjs",
@@ -24,6 +25,7 @@
     "watchdog:start": "zsh scripts/watchdog-autorestart.sh",
     "autostart:install": "zsh scripts/install-autostart-macos.sh",
     "autostart:uninstall": "zsh scripts/uninstall-autostart-macos.sh",
+    "autostart:status": "zsh scripts/autostart-status.sh",
     "dev:supervisor": "node scripts/apg-supervisor.mjs",
     "icon:refresh": "zsh scripts/refresh-icon-cache.sh",
     "backfill:payments:dry": "node backend/scripts/backfill-member-payment-history.js --dry-run",

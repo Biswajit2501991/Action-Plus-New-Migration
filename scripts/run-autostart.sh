@@ -37,15 +37,9 @@ if [[ ! -v APG_CAFFEINATE ]]; then
 fi
 
 stop_stale_stack() {
-  pkill -f "scripts/dev-frontend.mjs" 2>/dev/null || true
-  pkill -f "scripts/apg-supervisor.mjs" 2>/dev/null || true
-  pkill -f "scripts/dev-all-with-tunnel.mjs" 2>/dev/null || true
-  pkill -f "scripts/dev-all.mjs" 2>/dev/null || true
-  pkill -f "cloudflared tunnel" 2>/dev/null || true
-  pkill -f "src/server.js" 2>/dev/null || true
-  sleep 2
-  lsof -ti :4000 -ti :5501 -ti :4010 2>/dev/null | xargs kill -9 2>/dev/null || true
-  sleep 1
+  # shellcheck disable=SC1091
+  source "$APP_ROOT/scripts/health-monitor-lib.sh"
+  health_monitor_stop_stale_stack
 }
 
 caf_on=0

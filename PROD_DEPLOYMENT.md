@@ -28,20 +28,52 @@ This project uses **Cloudflare-routed hosting** as the production source of trut
    - Open `https://app.gymactionplus.com/`
    - Smoke test login, dashboard, member updates, and settings.
 
-## Daily Startup (One Command)
+## Daily Startup
 
-From project root, run:
+**Background (recommended — safe to close terminal):**
 
-- `npm run prod:start`
+```bash
+npm run prod:daemon
+```
 
-What it does:
+**Foreground (terminal must stay open):**
 
-- verifies/install dependencies when missing
-- runs DB migrate + seed safely
-- starts frontend + backend + Cloudflare tunnel
-- opens the app locally for quick verification
+```bash
+npm run prod:start
+```
 
-Optional (recommended): set `APG_CAFFEINATE=1` in `.env` to reduce sleep interruptions on macOS.
+What `prod:daemon` does:
+
+- registers/uses macOS **launchd** (`com.actionplus.gym.autostart`)
+- starts frontend + backend + Cloudflare tunnel + health watchdog
+- survives terminal close, login/reboot (with `autostart:install`), sleep/network recovery
+
+One-time install (login + reboot auto-start):
+
+```bash
+npm run autostart:install
+```
+
+Status: `npm run autostart:status`
+
+Optional (recommended): set `APG_CAFFEINATE=1` in `.env.prod` to reduce sleep interruptions on macOS.
+
+## 24/7 auto-recovery (sleep + network)
+
+With `npm run autostart:install`, the stack runs under **launchd** (`KeepAlive`) and a **watchdog** (`scripts/watchdog-autorestart.sh`):
+
+| Event | Behaviour |
+|-------|-----------|
+| Login / reboot | launchd starts app + tunnel + watchdog |
+| Process crash | launchd `KeepAlive` restarts autostart script |
+| Laptop wakes from sleep | Watchdog detects time gap → health check → auto-restart if unhealthy |
+| Network drops | Watchdog waits; when connectivity returns → auto-restart if unhealthy |
+| Health fails 2× (30s interval) | Kills stale processes + `launchctl kickstart` relaunch |
+
+Check: `npm run autostart:status`  
+Logs: `logs/watchdog.log`
+
+**Note:** If the Mac is fully powered off or the lid is closed for extended sleep with no network, remote users cannot reach the app until the Mac wakes and recovery completes (~1 minute).
 
 ## Daily Health Check
 

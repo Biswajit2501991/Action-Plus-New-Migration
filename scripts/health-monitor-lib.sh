@@ -29,6 +29,58 @@ health_monitor_code() {
   curl -L -s -o /dev/null -w '%{http_code}' --max-time 12 "$url" 2>/dev/null || echo "000"
 }
 
+# Basic outbound connectivity (not app health).
+health_monitor_network_reachable() {
+  curl -s -o /dev/null --max-time 5 https://1.1.1.1/cdn-cgi/trace 2>/dev/null && return 0
+  ping -c 1 -W 2 1.1.1.1 >/dev/null 2>&1 && return 0
+  return 1
+}
+
+health_monitor_stop_stale_stack() {
+  pkill -f "scripts/dev-frontend.mjs" 2>/dev/null || true
+  pkill -f "scripts/apg-supervisor.mjs" 2>/dev/null || true
+  pkill -f "scripts/dev-all-with-tunnel.mjs" 2>/dev/null || true
+  pkill -f "scripts/dev-all.mjs" 2>/dev/null || true
+  pkill -f "cloudflared tunnel" 2>/dev/null || true
+  pkill -f "src/server.js" 2>/dev/null || true
+  sleep 2
+  lsof -ti :4000 -ti :5501 -ti :4010 2>/dev/null | xargs kill -9 2>/dev/null || true
+  sleep 1
+}
+
+health_monitor_kickstart_launchd_autostart() {
+  local label="${APG_AUTOSTART_LABEL:-com.actionplus.gym.autostart}"
+  launchctl kickstart -k "gui/$(id -u)/$label" 2>/dev/null || true
+}
+
+# Kill stale processes and relaunch stack (launchd kickstart when managed).
+health_monitor_restart_stack() {
+  local log_file="$1"
+  local reason="$2"
+  health_monitor_append "$log_file" "restart_stack reason=$reason"
+  health_monitor_stop_stale_stack
+  if [[ "${APG_LAUNCHD_MANAGED:-}" == "1" ]]; then
+    health_monitor_kickstart_launchd_autostart
+    health_monitor_append "$log_file" "restart_delegated_to_launchd kickstart"
+    return 0
+  fi
+  if [[ "$(uname -s)" == Darwin && -n "${APG_CAFFEINATE:-}" ]]; then
+    case "${APG_CAFFEINATE}" in
+      1|y|Y|yes|YES|true|TRUE)
+        if command -v caffeinate >/dev/null 2>&1; then
+          caffeinate -dims -- npm run dev:all:tunnel >>"$log_file" 2>&1 &
+        else
+          npm run dev:all:tunnel >>"$log_file" 2>&1 &
+        fi
+        ;;
+      *) npm run dev:all:tunnel >>"$log_file" 2>&1 & ;;
+    esac
+  else
+    npm run dev:all:tunnel >>"$log_file" 2>&1 &
+  fi
+  health_monitor_append "$log_file" "restart_launched dev:all:tunnel"
+}
+
 health_monitor_append() {
   local file="$1"
   shift
