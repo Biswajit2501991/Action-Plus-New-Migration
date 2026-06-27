@@ -96,6 +96,19 @@ describe('resolveMemberAvatarSrc', () => {
     expect(src).toBe('');
     global.window = prev;
   });
+
+  it('shows legacy photo_url inline when version is 0', () => {
+    const prev = global.window;
+    global.window = { __APG_ENV__: { MEMBER_PHOTO_STORAGE_ENABLED: true } };
+    const src = resolveMemberAvatarSrc({
+      memberId: 'M11',
+      hasPhoto: true,
+      photoVersion: 0,
+      photo: 'https://cdn.example/legacy.jpg',
+    });
+    expect(src).toBe('https://cdn.example/legacy.jpg');
+    global.window = prev;
+  });
 });
 
 describe('memberPhotoStorageEnabled env', () => {

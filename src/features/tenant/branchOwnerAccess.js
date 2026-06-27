@@ -1,5 +1,3 @@
-import { authIsOwnerUser } from '../branch/branchAccess.js';
-
 export const STAFF_ROLES = {
   STAFF: 'staff',
   BRANCH_OWNER: 'branch_owner',

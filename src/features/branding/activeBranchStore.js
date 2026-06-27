@@ -149,9 +149,22 @@ export function syncActiveBranchFromAuthPayload(userId, data = {}) {
     ? data.assignedBranchIds
     : (Array.isArray(authUser.assignedBranchIds) ? authUser.assignedBranchIds : snapshot.assignedBranchIds);
 
+  const nextActiveBranchId = fromAuth || snapshot.activeBranchId || '';
+  const allowedSig = JSON.stringify(allowed || []);
+  const assignedSig = JSON.stringify(assigned || []);
+  const prevAllowedSig = JSON.stringify(snapshot.allowedBranchIds || []);
+  const prevAssignedSig = JSON.stringify(snapshot.assignedBranchIds || []);
+  if (
+    snapshot.userId === uid
+    && snapshot.activeBranchId === nextActiveBranchId
+    && prevAllowedSig === allowedSig
+    && prevAssignedSig === assignedSig
+  ) {
+    return getActiveBranchSnapshot();
+  }
   snapshot = {
     userId: uid,
-    activeBranchId: fromAuth || snapshot.activeBranchId || '',
+    activeBranchId: nextActiveBranchId,
     allowedBranchIds: allowed,
     assignedBranchIds: assigned,
     revision: snapshot.revision,

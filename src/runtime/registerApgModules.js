@@ -68,6 +68,7 @@ import {
   allowedBranchIdsForUser,
   userCanAccessBranch,
   canDeleteMemberForUser,
+  activeBranchIdsForDataScope,
 } from '../features/tenant/branchOwnerAccess.js';
 import {
   resolveDefaultAssignedGymCodeId,
@@ -260,7 +261,6 @@ import {
   resolveBranchBranding,
   resolveBrandingForActiveUser,
 } from '../features/branding/branchBrandingCache.js';
-import { activeBranchIdsForDataScope } from '../features/tenant/branchOwnerAccess.js';
 import {
   measureAnchoredPopoverCoords,
   ANCHORED_POPOVER_LAYER_CLASS,
@@ -407,13 +407,82 @@ async function resolveMemberPhotoApi() {
   return memberPhotoApiInitial;
 }
 
+let memberPhotoBatchInFlight = null;
+let memberPhotoBatchLastSig = '';
+let memberPhotoModulesReadyEmitted = false;
+let lastMembersHydratedForPhotos = null;
+
 function registerMemberPhotoModules(api) {
   window.__APG_MODULES.memberPhotoStorageEnabled = api.memberPhotoStorageEnabled;
+  window.__APG_MODULES.isMemberPhotoStorageActive = api.isMemberPhotoStorageActive;
   window.__APG_MODULES.uploadMemberPhotoApi = api.uploadMemberPhotoApi;
   window.__APG_MODULES.deleteMemberPhotoApi = api.deleteMemberPhotoApi;
   window.__APG_MODULES.batchFetchMemberPhotoUrls = api.batchFetchMemberPhotoUrls;
   window.__APG_MODULES.syncAllMemberPhotoUrls = api.syncAllMemberPhotoUrls;
+  window.__APG_MODULES.runMemberPhotoBatchSync = api.runMemberPhotoBatchSync;
   window.__APG_MODULES.memberIdsNeedingPhotoUrlsAll = api.memberIdsNeedingPhotoUrlsAll;
+  if (typeof window !== 'undefined' && !memberPhotoModulesReadyEmitted) {
+    memberPhotoModulesReadyEmitted = true;
+    window.dispatchEvent(new CustomEvent('apg:member-photo-modules-ready'));
+  }
+}
+
+/** Global entry — hydrate + React effects call this (retries, logs failures). */
+export function syncMemberPhotosFromList(members, backendJson, options = {}) {
+  const force = options.force === true;
+  if (!window.__APG_ENV__?.MEMBER_PHOTO_STORAGE_ENABLED) {
+    return Promise.resolve({ skipped: true, reason: 'storage-disabled' });
+  }
+  const json = typeof backendJson === 'function'
+    ? backendJson
+    : (typeof window.__APG_BACKEND_JSON__ === 'function' ? window.__APG_BACKEND_JSON__ : null);
+  const run = window.__APG_MODULES?.runMemberPhotoBatchSync
+    || window.__APG_MODULES?.syncAllMemberPhotoUrls;
+  const needFn = window.__APG_MODULES?.memberIdsNeedingPhotoUrlsAll;
+  if (typeof json !== 'function' || typeof run !== 'function' || typeof needFn !== 'function') {
+    console.warn('[apg] member photo batch skipped: modules-not-ready');
+    return Promise.resolve({ skipped: true, reason: 'modules-not-ready' });
+  }
+  const list = Array.isArray(members) ? members : [];
+  const sig = needFn(list).join('|');
+  if (!sig) {
+    return Promise.resolve({ skipped: true, reason: 'none-needed', members: list.length });
+  }
+  if (!force && sig === memberPhotoBatchLastSig && memberPhotoBatchInFlight) {
+    return memberPhotoBatchInFlight;
+  }
+  memberPhotoBatchLastSig = sig;
+  memberPhotoBatchInFlight = run(list, json, options)
+    .then((result) => {
+      console.info('[apg] member photo batch complete', result);
+      return result;
+    })
+    .catch((err) => {
+      memberPhotoBatchLastSig = '';
+      console.warn('[apg] member photo batch failed', err?.message || err);
+      throw err;
+    })
+    .finally(() => {
+      memberPhotoBatchInFlight = null;
+    });
+  return memberPhotoBatchInFlight;
+}
+
+function onMembersHydratedForPhotoSync(ev) {
+  const members = ev?.detail?.members;
+  if (!Array.isArray(members)) return;
+  lastMembersHydratedForPhotos = members;
+  syncMemberPhotosFromList(members).catch(() => {});
+}
+
+if (typeof window !== 'undefined') {
+  window.__APG_SYNC_MEMBER_PHOTOS__ = syncMemberPhotosFromList;
+  window.addEventListener('apg:members-hydrated', onMembersHydratedForPhotoSync);
+}
+
+// Register immediately so hydrate photo sync never races async module init.
+if (memberPhotoApiHasSyncExports(memberPhotoApiInitial)) {
+  registerMemberPhotoModules(memberPhotoApiInitial);
 }
 
 function emitTelemetry(level, code, message, meta = {}) {
@@ -788,6 +857,9 @@ async function register() {
   emitTelemetry('info', 'init', 'Module registration started');
   const memberPhotoApi = await resolveMemberPhotoApi();
   registerMemberPhotoModules(memberPhotoApi);
+  if (Array.isArray(lastMembersHydratedForPhotos) && lastMembersHydratedForPhotos.length) {
+    syncMemberPhotosFromList(lastMembersHydratedForPhotos, undefined, { force: true }).catch(() => {});
+  }
   if (!memberPhotoApiHasSyncExports(memberPhotoApi)) {
     emitTelemetry('warn', 'member-photo-api-partial', 'memberPhotoApi loaded without photo sync exports (stale cache?)');
   }

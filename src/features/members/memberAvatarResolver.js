@@ -23,6 +23,8 @@ export function resolveMemberAvatarSrc(member) {
     const cached = getCachedMemberPhotoUrl(id, version);
     if (cached) return cached;
     if (inline.startsWith('data:')) return inline;
+    // Legacy photo_url rows (version 0) — no signed URL batch needed.
+    if (inline.startsWith('http') && version === 0) return inline;
     return '';
   }
 

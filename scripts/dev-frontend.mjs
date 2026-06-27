@@ -265,7 +265,7 @@ function staticCacheControlForPath(reqPath, ext) {
     return 'no-cache, must-revalidate';
   }
   if (reqPath.startsWith('/src/')) {
-    return 'no-cache, must-revalidate';
+    return 'no-store, no-cache, must-revalidate';
   }
   if (reqPath === '/app.bundle.js' || reqPath.startsWith('/modules/')) {
     return 'public, max-age=31536000, immutable';
@@ -292,6 +292,9 @@ function streamFile(req, res, filePath, reqPath) {
     'Last-Modified': stat.mtime.toUTCString(),
     ETag: `W/"${stat.size}-${Math.trunc(stat.mtimeMs)}"`,
     Vary: 'Accept-Encoding',
+    ...(reqPath.startsWith('/src/')
+      ? { 'CDN-Cache-Control': 'no-store', 'Cloudflare-CDN-Cache-Control': 'no-store' }
+      : {}),
     ...(securityHeadersEnabled
       ? securityHeaders({
           contentType,

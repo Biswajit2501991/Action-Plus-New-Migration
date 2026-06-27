@@ -12,13 +12,18 @@ export function memberPhotoStorageEnabled() {
   }
 }
 
+export function isMemberPhotoStorageActive() {
+  return memberPhotoStorageEnabled();
+}
+
 function memberNeedsPhotoUrl(member) {
-  if (!member?.hasPhoto) return false;
-  const id = String(member.memberId || '').trim();
+  const id = String(member?.memberId || '').trim();
   if (!id) return false;
-  const version = Number(member.photoVersion || 0);
+  const version = Number(member?.photoVersion || 0);
+  const hasPhoto = Boolean(member?.hasPhoto || version > 0);
+  if (!hasPhoto) return false;
   if (getCachedMemberPhotoUrl(id, version)) return false;
-  const inline = String(member.photo || '').trim();
+  const inline = String(member?.photo || '').trim();
   if (inline.startsWith('data:')) return false;
   if (inline.startsWith('http') && version === 0) return false;
   return true;
@@ -88,6 +93,14 @@ export async function batchFetchMemberPhotoUrls(memberIds, backendJson) {
  * Fetch signed URLs for every member that needs one.
  * First chunk loads immediately (top of list); remaining chunks run in parallel waves.
  */
+/** Hydrate/login hook — batch-fetch signed URLs for list avatars. */
+export async function runMemberPhotoBatchSync(members, backendJson, options = {}) {
+  if (!memberPhotoStorageEnabled() || typeof backendJson !== 'function') {
+    return { fetched: 0, batches: 0, skipped: true };
+  }
+  return syncAllMemberPhotoUrls(members, backendJson, options);
+}
+
 export async function syncAllMemberPhotoUrls(members, backendJson, options = {}) {
   if (!memberPhotoStorageEnabled()) return { fetched: 0, batches: 0 };
   const priority = new Set((options.priorityIds || []).map((id) => String(id || '').trim()).filter(Boolean));

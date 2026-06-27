@@ -1,3 +1,5 @@
+import { mergeMemberPhotoFields } from './memberAvatarResolver.js';
+
 const STORAGE_KEY = 'apg.members.deletedTombstones';
 
 export function readMemberDeleteTombstones() {
@@ -106,12 +108,25 @@ export function buildMembersFromServer(remoteMembers, {
 /** @deprecated use buildMembersFromServer — pending locals merged in index when needed */
 export function buildMembersFromServerWithPending(remoteMembers, prev, options = {}) {
   const serverList = buildMembersFromServer(remoteMembers, options);
+  const prevList = Array.isArray(prev) ? prev : [];
+  const prevById = new Map(
+    prevList
+      .map((m) => [String(m?.memberId || '').trim(), m])
+      .filter(([id]) => id),
+  );
+  const mergedServer = serverList.map((remoteRow) => {
+    const id = String(remoteRow?.memberId || '').trim();
+    const localRow = id ? prevById.get(id) : null;
+    if (!localRow) return remoteRow;
+    const photoMeta = mergeMemberPhotoFields(localRow, remoteRow);
+    return { ...remoteRow, ...photoMeta };
+  });
   const pending = options.syncPending && typeof options.syncPending === 'object' ? options.syncPending : {};
   const tombstoneSet = tombstoneSetFromList(options.tombstones || readMemberDeleteTombstones());
-  const serverIds = new Set(serverList.map((m) => String(m?.memberId || '').trim()));
-  const pendingLocals = (Array.isArray(prev) ? prev : []).filter((m) => {
+  const serverIds = new Set(mergedServer.map((m) => String(m?.memberId || '').trim()));
+  const pendingLocals = prevList.filter((m) => {
     const id = String(m?.memberId || '').trim();
     return id && pending[id] && !serverIds.has(id) && !tombstoneSet.has(id);
   });
-  return [...serverList, ...pendingLocals];
+  return [...mergedServer, ...pendingLocals];
 }

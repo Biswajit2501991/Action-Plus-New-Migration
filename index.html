@@ -3357,6 +3357,9 @@ Phone: +91-7047157510`;
       if (!apgLoadTimingEnabled() || typeof performance === 'undefined') return;
       apgLoadTimingRecord('milestone', label, performance.now(), { sinceNav: true });
     };
+    let authRevalidateInFlight = null;
+    let authRevalidateLastAt = 0;
+    let authRevalidateLastResult = null;
     const revalidateAuthSessionFromServer = async (opts = {}) => {
       const parsed = readAuthSession();
       if (!parsed?.userId) return null;
@@ -3365,39 +3368,59 @@ Phone: +91-7047157510`;
         if (!parsed?.token) return null;
         if (!forceTry && isAuthSessionExpired(parsed)) return null;
       } else if (!forceTry && isAuthSessionExpired(parsed)) return null;
+      const now = Date.now();
+      if (!forceTry && authRevalidateInFlight) return authRevalidateInFlight;
+      if (!forceTry && authRevalidateLastResult && now - authRevalidateLastAt < 3000) {
+        return authRevalidateLastResult;
+      }
       const t0 = typeof performance !== 'undefined' ? performance.now() : 0;
-      const controller = new AbortController();
-      const timer = setTimeout(() => controller.abort(), AUTH_ME_TIMEOUT_MS);
-      try {
-        const me = await fetch(`${getBackendApiBaseUrl()}/auth/me`, {
-          ...(AUTH_COOKIE_MODE ? {} : { headers: { Authorization: `Bearer ${parsed.token}`, 'Content-Type': 'application/json' } }),
-          credentials: authFetchCredentials(),
-          cache: 'no-store',
-          signal: controller.signal,
-        });
-        if (!me.ok) {
-          apgLoadTimingRecord('auth', 'GET /auth/me', performance.now() - t0, { status: me.status, ok: false });
+      const run = (async () => {
+        const controller = new AbortController();
+        const timer = setTimeout(() => controller.abort(), AUTH_ME_TIMEOUT_MS);
+        try {
+          const me = await fetch(`${getBackendApiBaseUrl()}/auth/me`, {
+            ...(AUTH_COOKIE_MODE ? {} : { headers: { Authorization: `Bearer ${parsed.token}`, 'Content-Type': 'application/json' } }),
+            credentials: authFetchCredentials(),
+            cache: 'no-store',
+            signal: controller.signal,
+          });
+          if (!me.ok) {
+            apgLoadTimingRecord('auth', 'GET /auth/me', performance.now() - t0, { status: me.status, ok: false });
+            authRevalidateLastResult = null;
+            return null;
+          }
+          const data = await me.json();
+          const uid = data?.user?.id || data?.userId || parsed.userId;
+          const keepToken = data?.token || parsed.token || '';
+          if (!AUTH_COOKIE_MODE && !keepToken) {
+            authRevalidateLastResult = null;
+            return null;
+          }
+          touchAuthSession(uid, keepToken);
+          apgLoadTimingRecord('auth', 'GET /auth/me', performance.now() - t0, {
+            status: me.status,
+            ok: true,
+            keys: data && typeof data === 'object' ? Object.keys(data).length : 0,
+          });
+          authRevalidateLastAt = Date.now();
+          authRevalidateLastResult = data;
+          return data;
+        } catch (err) {
+          apgLoadTimingRecord('auth', 'GET /auth/me', performance.now() - t0, {
+            ok: false,
+            err: controller.signal.aborted ? 'client-timeout' : String(err?.message || err),
+          });
+          authRevalidateLastResult = null;
           return null;
+        } finally {
+          clearTimeout(timer);
         }
-        const data = await me.json();
-        const uid = data?.user?.id || data?.userId || parsed.userId;
-        const keepToken = data?.token || parsed.token || '';
-        if (!AUTH_COOKIE_MODE && !keepToken) return null;
-        touchAuthSession(uid, keepToken);
-        apgLoadTimingRecord('auth', 'GET /auth/me', performance.now() - t0, {
-          status: me.status,
-          ok: true,
-          keys: data && typeof data === 'object' ? Object.keys(data).length : 0,
-        });
-        return data;
-      } catch (err) {
-        apgLoadTimingRecord('auth', 'GET /auth/me', performance.now() - t0, {
-          ok: false,
-          err: controller.signal.aborted ? 'client-timeout' : String(err?.message || err),
-        });
-        return null;
+      })();
+      authRevalidateInFlight = run;
+      try {
+        return await run;
       } finally {
-        clearTimeout(timer);
+        authRevalidateInFlight = null;
       }
     };
     const usersForApi = (list) => (Array.isArray(list) ? list : []).map((u) => {
@@ -4146,7 +4169,10 @@ Phone: +91-7047157510`;
       const version = Number(row?.photoVersion || 0);
       if (!id || !photo.startsWith('http')) return;
       const setCache = window.__APG_MODULES?.setCachedMemberPhotoUrl;
-      if (typeof setCache === 'function') setCache(id, version, photo);
+      if (typeof setCache === 'function') {
+        setCache(id, version, photo);
+        window.dispatchEvent(new CustomEvent('apg:photo-cache-updated'));
+      }
     };
     /** Keep photo when backend row is newer but photo_url was not persisted yet (bulk race / stale GET). */
     const pickMemberPhoto = (localRow, remoteRow) => {
@@ -5006,7 +5032,16 @@ Phone: +91-7047157510`;
         const fn = window.__APG_MODULES?.getAuthoritativeActiveBranchId;
         if (typeof fn === 'function' && user) return String(fn(user, gymCodes) || '').trim();
         return String(user?.activeBranchId || user?.gymCodeId || '').trim();
-      }, [user, gymCodes, branchContextRev, user?.activeBranchId, user?.gymCodeId]);
+      }, [
+        user?.id,
+        user?.activeBranchId,
+        user?.gymCodeId,
+        user?.staffRole,
+        user?.allowedBranchIds,
+        user?.assignedBranchIds,
+        gymCodes,
+        branchContextRev,
+      ]);
       const userAccess = React.useMemo(() => normalizeAccess(user?.access), [user?.access]);
       React.useEffect(() => {
         const onLegacyRefresh = (ev) => {
@@ -5050,7 +5085,6 @@ Phone: +91-7047157510`;
       }, []);
       const [branchSwitching, setBranchSwitching] = React.useState(false);
       const [financeMetricsEpoch, setFinanceMetricsEpoch] = React.useState(0);
-      const [photoCacheRev, setPhotoCacheRev] = React.useState(0);
       const photoSyncSigRef = React.useRef('');
       const photoSyncInFlightRef = React.useRef(null);
       const gymCodeById = React.useMemo(() => {
@@ -5104,8 +5138,9 @@ Phone: +91-7047157510`;
       React.useEffect(() => {
         if (!user?.id) return;
         const active = authoritativeActiveBranchId;
-        if (active) setTemplatesBranchId(active);
-        else if (authIsOwnerForTemplates(user) && hqGymCodeId) setTemplatesBranchId(hqGymCodeId);
+        const next = active || (authIsOwnerForTemplates(user) && hqGymCodeId ? hqGymCodeId : '');
+        if (!next) return;
+        setTemplatesBranchId((prev) => (String(prev || '') === String(next) ? prev : next));
       }, [user?.id, authoritativeActiveBranchId, hqGymCodeId, authIsOwnerForTemplates]);
       const refreshBranchBranding = React.useCallback(async (branchId) => {
         const resolveFn = window.__APG_MODULES?.resolveBranchBranding;
@@ -5138,10 +5173,14 @@ Phone: +91-7047157510`;
         refreshBranchBranding(authoritativeActiveBranchId).catch(() => {});
       }, [user?.id, authoritativeActiveBranchId, refreshBranchBranding]);
       const whatsappTemplatesFetchRef = React.useRef({ branchId: '', inFlight: false });
-      const fetchBranchWhatsappTemplates = React.useCallback(async (branchId) => {
+      const whatsappTemplatesByBranchRef = React.useRef({});
+      React.useEffect(() => { whatsappTemplatesByBranchRef.current = whatsappTemplatesByBranch; }, [whatsappTemplatesByBranch]);
+      const fetchBranchWhatsappTemplates = React.useCallback(async (branchId, options = {}) => {
         const id = String(branchId || '').trim();
         const sessionUser = userRef.current;
+        const force = options.force === true;
         if (!id || dataSyncMode !== 'backend' || !canFetchWhatsappTemplates(sessionUser)) return;
+        if (!force && whatsappTemplatesByBranchRef.current[id]) return;
         if (whatsappTemplatesFetchRef.current.inFlight && whatsappTemplatesFetchRef.current.branchId === id) return;
         whatsappTemplatesFetchRef.current = { branchId: id, inFlight: true };
         setTemplatesBranchLoading(true);
@@ -5160,10 +5199,14 @@ Phone: +91-7047157510`;
           setTemplatesBranchLoading(false);
         }
       }, [dataSyncMode]);
-      const fetchBranchCustomTemplates = React.useCallback(async (branchId) => {
+      const customTemplatesByBranchRef = React.useRef({});
+      React.useEffect(() => { customTemplatesByBranchRef.current = customTemplatesByBranch; }, [customTemplatesByBranch]);
+      const fetchBranchCustomTemplates = React.useCallback(async (branchId, options = {}) => {
         const id = String(branchId || '').trim();
         const sessionUser = userRef.current;
+        const force = options.force === true;
         if (!id || dataSyncMode !== 'backend' || !canFetchWhatsappTemplates(sessionUser) || !customTemplatesFeatureEnabled) return;
+        if (!force && Object.prototype.hasOwnProperty.call(customTemplatesByBranchRef.current, id)) return;
         setCustomTemplatesLoading(true);
         try {
           const res = await backendJson(`/custom-templates?gymCodeId=${encodeURIComponent(id)}`);
@@ -5179,18 +5222,27 @@ Phone: +91-7047157510`;
           setCustomTemplatesLoading(false);
         }
       }, [dataSyncMode, customTemplatesFeatureEnabled]);
-      const fetchBranchTemplateData = React.useCallback(async (branchId) => {
-        const tasks = [fetchBranchWhatsappTemplates(branchId)];
-        if (customTemplatesFeatureEnabled) tasks.push(fetchBranchCustomTemplates(branchId));
+      const fetchBranchTemplateDataRef = React.useRef(null);
+      const fetchBranchTemplateData = React.useCallback(async (branchId, options = {}) => {
+        const tasks = [fetchBranchWhatsappTemplates(branchId, options)];
+        if (customTemplatesFeatureEnabled) tasks.push(fetchBranchCustomTemplates(branchId, options));
         await Promise.all(tasks);
       }, [fetchBranchWhatsappTemplates, fetchBranchCustomTemplates, customTemplatesFeatureEnabled]);
+      fetchBranchTemplateDataRef.current = fetchBranchTemplateData;
+      const templatesBranchFetchSigRef = React.useRef('');
       React.useEffect(() => {
-        if (!user?.id || !canFetchWhatsappTemplates(user)) return;
-        const branchId = authIsOwnerForTemplates(user)
+        const sessionUser = userRef.current;
+        if (!sessionUser?.id || !canFetchWhatsappTemplates(sessionUser)) return;
+        const branchId = authIsOwnerForTemplates(sessionUser)
           ? String(templatesBranchId || hqGymCodeId || '').trim()
-          : String(user.gymCodeId || '').trim();
-        if (branchId) fetchBranchTemplateData(branchId);
-      }, [user?.id, templatesBranchId, hqGymCodeId, fetchBranchTemplateData, authIsOwnerForTemplates, customTemplatesFeatureEnabled]);
+          : String(sessionUser.gymCodeId || '').trim();
+        if (!branchId) return;
+        const sig = `${branchId}::${customTemplatesFeatureEnabled ? 1 : 0}`;
+        if (templatesBranchFetchSigRef.current === sig) return;
+        templatesBranchFetchSigRef.current = sig;
+        const fn = fetchBranchTemplateDataRef.current;
+        if (typeof fn === 'function') fn(branchId);
+      }, [user?.id, templatesBranchId, hqGymCodeId, customTemplatesFeatureEnabled, authIsOwnerForTemplates]);
       const effectiveTemplatesBranchId = React.useMemo(() => {
         const fn = window.__APG_MODULES?.effectiveTemplateBranchIdForUser;
         if (typeof fn === 'function') {
@@ -5246,18 +5298,23 @@ Phone: +91-7047157510`;
           if (!m || !m.billingDate) return m;
           const derived = paymentByFromBillingDate(m.billingDate);
           if (!derived) return m;
-          if (String(m.paymentBy || '') === String(derived)) return m;
+          if (localCalendarDateKey(m.paymentBy || '') === String(derived)) return m;
           changed = true;
           return { ...m, paymentBy: derived };
         });
-        if (changed) setMembers(normalized);
+        if (!changed) return;
+        const prevSig = JSON.stringify((members || []).map((m) => [m?.memberId, m?.paymentBy]));
+        const nextSig = JSON.stringify(normalized.map((m) => [m?.memberId, m?.paymentBy]));
+        if (prevSig === nextSig) return;
+        setMembers(normalized);
       }, [members]);
       const ensureBranchCustomTemplates = React.useCallback(async (branchId) => {
         const id = String(branchId || '').trim();
-        if (!id || dataSyncMode !== 'backend' || !canFetchWhatsappTemplates(user) || !customTemplatesFeatureEnabled) return;
-        if (Object.prototype.hasOwnProperty.call(customTemplatesByBranch, id)) return;
+        const sessionUser = userRef.current;
+        if (!id || dataSyncMode !== 'backend' || !canFetchWhatsappTemplates(sessionUser) || !customTemplatesFeatureEnabled) return;
+        if (Object.prototype.hasOwnProperty.call(customTemplatesByBranchRef.current, id)) return;
         await fetchBranchCustomTemplates(id);
-      }, [dataSyncMode, user, customTemplatesFeatureEnabled, customTemplatesByBranch, fetchBranchCustomTemplates]);
+      }, [dataSyncMode, customTemplatesFeatureEnabled, fetchBranchCustomTemplates]);
       const [logs, setLogs] = React.useState(() => {
         try {
           const saved = localStorage.getItem(STORAGE_KEYS.logs);
@@ -5344,6 +5401,13 @@ Phone: +91-7047157510`;
       }, [user?.id, dataSyncMode, refreshGymCodes]);
       // Self-heal stale sessions that only kept a single gymCodeId (no multi-branch arrays).
       const branchSelfHealDoneRef = React.useRef(false);
+      const branchSelfHealKey = React.useMemo(() => {
+        if (!user?.id) return '';
+        return JSON.stringify({
+          assigned: normalizeBranchIdList(user),
+          gym: String(user?.gymCodeId || '').trim(),
+        });
+      }, [user?.id, user?.assignedBranchIds, user?.allowedBranchIds, user?.gymCodeId]);
       React.useEffect(() => {
         if (!user?.id) {
           branchSelfHealDoneRef.current = false;
@@ -5363,7 +5427,7 @@ Phone: +91-7047157510`;
           setUsers((prev) => syncUsersRowBranchContext(prev, data.user.id, data));
         })();
         return () => { cancelled = true; };
-      }, [user?.id, dataSyncMode, user?.assignedBranchIds, user?.allowedBranchIds, user?.gymCodeId]);
+      }, [user?.id, dataSyncMode, branchSelfHealKey]);
       const pullStaffAttendance = React.useCallback(async (range) => {
         if (dataSyncMode !== 'backend' || !hasBackendAuth()) return;
         const r = range || staffAttendanceDefaultRange();
@@ -5504,9 +5568,7 @@ Phone: +91-7047157510`;
                 queueMicrotask(() => {
                   const syncFn = window.__APG_MODULES?.syncAllStaffPhotoUrls;
                   if (typeof syncFn !== 'function') return;
-                  syncFn(normalizedRemoteUsers, backendJson)
-                    .then(() => setPhotoCacheRev((n) => n + 1))
-                    .catch(() => {});
+                  syncFn(normalizedRemoteUsers, backendJson).catch(() => {});
                 });
               }
             }
@@ -5536,15 +5598,6 @@ Phone: +91-7047157510`;
                 setMembersDisplay((prev) => applyMembersFromServerHydrate([], authUser, activeBranchId, memberSyncPending, prev));
               }
               apgLoadTimingRecord('hydrate', 'merge:members (CPU)', performance.now() - tMerge, { rows: remoteMembers.length });
-              if (window.__APG_MODULES?.memberPhotoStorageEnabled?.()) {
-                queueMicrotask(() => {
-                  const syncFn = window.__APG_MODULES?.syncAllMemberPhotoUrls;
-                  if (typeof syncFn !== 'function') return;
-                  syncFn(remoteMembers, backendJson)
-                    .then(() => setPhotoCacheRev((n) => n + 1))
-                    .catch(() => {});
-                });
-              }
             } else if (replaceBranch) {
               setMembers([]);
             }
@@ -5573,6 +5626,18 @@ Phone: +91-7047157510`;
             setBackendHydrated(true);
             apgLoadTimingMark('backendHydrated (dashboard unblocked)');
             apgLoadTimingFinish('critical hydrate', performance.now() - tHydrate);
+            // Batch-load member photo signed URLs immediately after hydrate.
+            if (Array.isArray(remoteMembers) && window.__APG_MODULES?.memberPhotoStorageEnabled?.()) {
+              photoSyncSigRef.current = '';
+              queueMicrotask(() => {
+                const syncFn = window.__APG_MODULES?.syncAllMemberPhotoUrls;
+                if (typeof syncFn !== 'function') return;
+                syncFn(remoteMembers, backendJson).catch(() => {});
+              });
+              window.dispatchEvent(new CustomEvent('apg:members-hydrated', {
+                detail: { members: remoteMembers },
+              }));
+            }
             hydrateSettingsFromBackend(opts).catch(() => {});
             hydrateDeferredCollections(authUser, opts).catch(() => {});
           } finally {
@@ -5986,6 +6051,7 @@ Phone: +91-7047157510`;
         try {
           const detail = await backendJson(`/members/${encodeURIComponent(id)}`);
           if (!detail?.memberId) return;
+          cacheMemberPhotoFromRow(detail);
           setMembersDisplay((prev) => mergeMemberDeltaIntoList(prev, [detail], (localRow, remoteRow) => {
             const pair = mergeRemoteMembersWithLocal([localRow], [remoteRow], memberSyncPending);
             return pair[0] || localRow;
@@ -6014,7 +6080,7 @@ Phone: +91-7047157510`;
             if (res?.member?.memberId) {
               setMembers((prev) => prev.map((m) => (m.memberId === res.member.memberId ? { ...m, ...res.member } : m)));
             }
-            setPhotoCacheRev((n) => n + 1);
+            window.dispatchEvent(new CustomEvent('apg:photo-cache-updated'));
           } catch (err) {
             const tooLarge = err?.apiError === 'photo-too-large' || String(err?.message || '').includes('photo-too-large');
             setToast(tooLarge ? PHOTO_TOO_LARGE_MSG : 'Photo upload failed. Please try again.');
@@ -6038,7 +6104,6 @@ Phone: +91-7047157510`;
         if (photoSyncSigRef.current === sig && photoSyncInFlightRef.current) return;
         photoSyncSigRef.current = sig;
         photoSyncInFlightRef.current = syncFn(memberList, backendJson, options)
-          .then(() => setPhotoCacheRev((n) => n + 1))
           .catch(() => {
             setToast('Could not load member photos. Will retry on next sync.');
             setTimeout(() => setToast(''), 2800);
@@ -6584,9 +6649,7 @@ Phone: +91-7047157510`;
               if (window.__APG_MODULES?.staffPhotoStorageEnabled?.()) {
                 const syncFn = window.__APG_MODULES?.syncAllStaffPhotoUrls;
                 if (typeof syncFn === 'function') {
-                  syncFn(normalizedRemote, backendJson)
-                    .then(() => setPhotoCacheRev((n) => n + 1))
-                    .catch(() => {});
+                  syncFn(normalizedRemote, backendJson).catch(() => {});
                 }
               }
             })
@@ -12383,7 +12446,13 @@ Please pay by: ${formattedLastDate}`;
     function StaffAvatarRenderer({ user, compact = false }) {
       const initialsFn = window.__APG_MODULES?.staffInitialsFromName;
       const photoFn = window.__APG_MODULES?.staffPhotoSrcFromUser;
+      const [, photoCacheTick] = React.useReducer((n) => n + 1, 0);
       const [photoBroken, setPhotoBroken] = React.useState(false);
+      React.useEffect(() => {
+        const onPhotoCache = () => photoCacheTick();
+        window.addEventListener('apg:photo-cache-updated', onPhotoCache);
+        return () => window.removeEventListener('apg:photo-cache-updated', onPhotoCache);
+      }, []);
       const photoSrc = typeof photoFn === 'function' ? photoFn(user) : String(user?.photo || user?.avatar || '').trim();
       const showPhoto = Boolean(photoSrc) && !photoBroken;
       const initials = typeof initialsFn === 'function' ? initialsFn(user?.name) : '?';

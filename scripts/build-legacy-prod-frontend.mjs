@@ -9,10 +9,12 @@ const rootDir = path.resolve(__dirname, '..');
 
 const indexPath = path.join(rootDir, 'index.html');
 const leaveTrackerPath = path.join(rootDir, 'src', 'components', 'LeaveTrackerPageModule.jsx');
+const registerApgModulesPath = path.join(rootDir, 'src', 'runtime', 'registerApgModules.js');
 const outDir = path.join(rootDir, 'dist-legacy');
 const outModulesDir = path.join(outDir, 'modules');
 const outBundlePath = path.join(outDir, 'app.bundle.js');
 const outLeaveTrackerPath = path.join(outModulesDir, 'LeaveTrackerPageModule.js');
+const outRegisterApgModulesPath = path.join(outModulesDir, 'registerApgModules.js');
 const outHtmlPath = path.join(outDir, 'index.html');
 
 function extractInlineBabelScript(html) {
@@ -61,6 +63,22 @@ async function buildLeaveTrackerModule() {
   return result.outputFiles[0].text;
 }
 
+/** Single-file ESM bundle — avoids stale /src/*.js partial cache at CDN/browser. */
+async function buildRegisterApgModulesBundle() {
+  const result = await esbuild.build({
+    entryPoints: [registerApgModulesPath],
+    bundle: true,
+    format: 'esm',
+    target: 'es2020',
+    minify: true,
+    legalComments: 'none',
+    write: false,
+    plugins: [reactGlobalPlugin],
+    loader: { '.js': 'jsx' },
+  });
+  return result.outputFiles[0].text;
+}
+
 function buildProdHtml(html, inlineFullMatch) {
   const buildTag = Date.now();
   const withoutBabelRuntime = html.replace(
@@ -74,7 +92,7 @@ function buildProdHtml(html, inlineFullMatch) {
     )
     .replace(
       /<script\s+type="module"\s+src="\.\/src\/runtime\/registerApgModules\.js"><\/script>/i,
-      `<script>window.__APG_ESM_CACHE_BUST='${buildTag}';</script>\n  <script type="module" src="/src/runtime/registerApgModules.js?v=${buildTag}"></script>`,
+      `<script>window.__APG_ESM_CACHE_BUST='${buildTag}';</script>\n  <script type="module" src="/dist-legacy/modules/registerApgModules.js?v=${buildTag}"></script>`,
     );
   // Root-absolute asset URLs so /index.html and /dist-legacy/index.html both work.
   return withBundle
@@ -91,13 +109,15 @@ async function main() {
 
   fs.mkdirSync(outModulesDir, { recursive: true });
 
-  const [appBundle, leaveTrackerModule] = await Promise.all([
+  const [appBundle, leaveTrackerModule, registerApgModulesBundle] = await Promise.all([
     buildAppBundle(inlineScript),
     buildLeaveTrackerModule(),
+    buildRegisterApgModulesBundle(),
   ]);
 
   fs.writeFileSync(outBundlePath, appBundle);
   fs.writeFileSync(outLeaveTrackerPath, leaveTrackerModule);
+  fs.writeFileSync(outRegisterApgModulesPath, registerApgModulesBundle);
 
   const prodHtml = buildProdHtml(html, fullMatch);
   fs.writeFileSync(outHtmlPath, prodHtml);
@@ -105,6 +125,7 @@ async function main() {
   console.log(`[build-legacy-prod] wrote ${path.relative(rootDir, outHtmlPath)}`);
   console.log(`[build-legacy-prod] wrote ${path.relative(rootDir, outBundlePath)}`);
   console.log(`[build-legacy-prod] wrote ${path.relative(rootDir, outLeaveTrackerPath)}`);
+  console.log(`[build-legacy-prod] wrote ${path.relative(rootDir, outRegisterApgModulesPath)}`);
 }
 
 main().catch((error) => {
