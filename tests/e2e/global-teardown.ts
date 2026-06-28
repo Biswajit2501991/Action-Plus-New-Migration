@@ -11,8 +11,8 @@
  *   3. Filters down to rows with testProfile === true OR id starting with
  *      `e2e-staff-` (defense-in-depth in case `testProfile` was lost during
  *      mapper round-trips).
- *   4. Calls /api/users/bulk with the remaining (non-test) users to remove
- *      them in one shot.
+ *   4. Calls POST /api/users/cleanup with all test user ids (hard-delete with
+ *      dependency purge for E2E staff).
  *   5. Wipes any leave-requests submitted by those users via
  *      /api/leave-requests/cleanup.
  *
@@ -88,21 +88,25 @@ async function globalTeardown(_config: FullConfig) {
     log('no e2e test users to remove');
   } else {
     log(`removing ${testIds.length} e2e test user(s): ${testIds.join(', ')}`);
-    const remaining = users.filter((u) => !isTestUser(u));
     try {
-      const res = await fetch(`${apiURL}/api/users/bulk`, {
-        method: 'PUT',
+      const res = await fetch(`${apiURL}/api/users/cleanup`, {
+        method: 'POST',
         headers: {
           'Content-Type': 'application/json',
           Authorization: `Bearer ${token}`,
         },
-        body: JSON.stringify({ users: remaining }),
+        body: JSON.stringify({ userIds: testIds }),
       });
       if (!res.ok) {
-        warn(`/api/users/bulk returned ${res.status}`);
+        warn(`/api/users/cleanup returned ${res.status}`);
+      } else {
+        const data = await res.json();
+        const deleted = Array.isArray(data?.deleted) ? data.deleted.length : 0;
+        const deactivated = Array.isArray(data?.deactivated) ? data.deactivated.length : 0;
+        log(`cleanup: ${deleted} deleted, ${deactivated} deactivated`);
       }
     } catch (err) {
-      warn(`users bulk delete failed: ${(err as Error).message}`);
+      warn(`users cleanup failed: ${(err as Error).message}`);
     }
   }
 

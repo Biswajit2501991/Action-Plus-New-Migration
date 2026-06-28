@@ -1316,8 +1316,18 @@ async function readUsers(scope) {
       assigned,
     );
   });
+  // List pulls return hasPhoto + photoVersion only; client batch-fetches signed URLs
+  // via POST /users/photo-urls (same pattern as member list hydrate).
   if (memberPhotoStorageEnabled()) {
-    return enrichStaffUsersWithPhotoUrls(apps, staffRows);
+    return apps.map((u) => {
+      const row = staffRows.find((r) => String(r.staff_login_id) === String(u.id));
+      if (!row) return { ...u, photo: '' };
+      const path = String(row.photo_path || '').trim();
+      const legacy = String(row.photo_url || '').trim();
+      const version = Number(row.photo_version || 0);
+      const hasPhoto = Boolean(path || legacy);
+      return { ...u, photo: path ? '' : legacy, photoVersion: version, hasPhoto };
+    });
   }
   return apps;
 }
@@ -1389,9 +1399,17 @@ async function writeUsers(users, scope) {
 
     const found = (existing || []).find((r) => String(r.staff_login_id) === String(u.id));
     if (found && memberPhotoStorageEnabled()) {
-      if (String(found.photo_path || '').trim()) row.photo_path = found.photo_path;
-      if (found.photo_version != null) row.photo_version = found.photo_version;
-      row.photo_url = null;
+      const existingPath = String(found.photo_path || '').trim();
+      const existingLegacy = String(found.photo_url || '').trim();
+      if (existingPath) {
+        row.photo_path = found.photo_path;
+        if (found.photo_version != null) row.photo_version = found.photo_version;
+        row.photo_url = null;
+      } else if (existingLegacy) {
+        // Keep legacy inline photo_url until POST /users/:id/photo migrates to storage.
+        row.photo_url = existingLegacy;
+        if (found.photo_version != null) row.photo_version = found.photo_version;
+      }
     } else if (found && !String(row.photo_url || '').trim() && String(found.photo_url || '').trim()) {
       row.photo_url = found.photo_url;
     }

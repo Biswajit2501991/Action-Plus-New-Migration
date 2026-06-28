@@ -19,6 +19,7 @@ function staffNeedsPhotoUrl(user) {
   if (getCachedMemberPhotoUrl(id, version)) return false;
   const inline = String(user.photo || user.avatar || '').trim();
   if (inline.startsWith('data:')) return false;
+  if (inline.startsWith('http') && version === 0) return false;
   return true;
 }
 

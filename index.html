@@ -5087,6 +5087,8 @@ Phone: +91-7047157510`;
       const [financeMetricsEpoch, setFinanceMetricsEpoch] = React.useState(0);
       const photoSyncSigRef = React.useRef('');
       const photoSyncInFlightRef = React.useRef(null);
+      const staffPhotoSyncSigRef = React.useRef('');
+      const staffPhotoSyncInFlightRef = React.useRef(null);
       const gymCodeById = React.useMemo(() => {
         const m = new Map();
         for (const c of gymCodes) m.set(String(c.id), c);
@@ -6112,6 +6114,22 @@ Phone: +91-7047157510`;
             photoSyncInFlightRef.current = null;
           });
       }, [dataSyncMode, backendHydrated]);
+      const scheduleStaffPhotoSync = React.useCallback((userList) => {
+        if (dataSyncMode !== 'backend' || !backendHydrated) return;
+        if (!window.__APG_MODULES?.staffPhotoStorageEnabled?.()) return;
+        const needFn = window.__APG_MODULES?.staffIdsNeedingPhotoUrlsAll;
+        const syncFn = window.__APG_MODULES?.syncAllStaffPhotoUrls;
+        if (typeof needFn !== 'function' || typeof syncFn !== 'function') return;
+        const sig = needFn(userList).join('|');
+        if (!sig) return;
+        if (staffPhotoSyncSigRef.current === sig && staffPhotoSyncInFlightRef.current) return;
+        staffPhotoSyncSigRef.current = sig;
+        staffPhotoSyncInFlightRef.current = syncFn(userList, backendJson)
+          .catch(() => {})
+          .finally(() => {
+            staffPhotoSyncInFlightRef.current = null;
+          });
+      }, [dataSyncMode, backendHydrated]);
       React.useEffect(() => {
         if (dataSyncMode !== 'backend') setMemberSyncPending({});
       }, [dataSyncMode]);
@@ -6586,6 +6604,9 @@ Phone: +91-7047157510`;
       React.useEffect(() => {
         scheduleMemberPhotoSync(members);
       }, [members, scheduleMemberPhotoSync]);
+      React.useEffect(() => {
+        scheduleStaffPhotoSync(users);
+      }, [users, scheduleStaffPhotoSync]);
       // Pull visitor updates from backend so multi-device changes appear without refresh.
       React.useEffect(() => {
         if (dataSyncMode !== 'backend' || !backendHydrated || !user?.id) return;
@@ -26214,6 +26235,9 @@ function PTClientsPage({ members, users, settings, updateSetting, currentUser, a
         const assigned = Array.isArray(u.assignedBranchIds) && u.assignedBranchIds.length
           ? [...u.assignedBranchIds]
           : (u.gymCodeId ? [String(u.gymCodeId)] : []);
+        const photoFn = window.__APG_MODULES?.staffPhotoSrcFromUser;
+        const resolvedPhoto = (typeof photoFn === 'function' ? photoFn(u) : '')
+          || u.photo || u.avatar || null;
         setForm({
           id: u.id,
           password: '',
@@ -26225,7 +26249,7 @@ function PTClientsPage({ members, users, settings, updateSetting, currentUser, a
           blockedReason: u.blockedReason || '',
           blockedAt: u.blockedAt || '',
           updatedBy: u.updatedBy || '',
-          photo: u.photo || u.avatar || null,
+          photo: resolvedPhoto,
           testProfile: Boolean(u.testProfile),
           sandboxId: u.sandboxId || '',
           gymCodeId: u.gymCodeId || hqGymCodeId || '',
@@ -26750,9 +26774,10 @@ function PTClientsPage({ members, users, settings, updateSetting, currentUser, a
         const previousStaff = Array.isArray(settings?.staff) ? settings.staff : [];
         const nextUsers = previousUsers.filter((x) => x.id !== u.id);
         const nextStaff = previousStaff.filter((s) => s.id !== u.id);
-        if (u.testProfile && u.sandboxId) {
-          const purgeOk = window.confirm('This is a test profile. Delete all sandbox data created by this test profile as well?');
-          if (purgeOk) {
+        const isE2eStaff = String(u?.id || '').toLowerCase().startsWith('e2e-staff-');
+        if (u.sandboxId && (isE2eStaff || u.testProfile)) {
+          const purgeSandbox = isE2eStaff || window.confirm('This is a test profile. Delete all sandbox data created by this test profile as well?');
+          if (purgeSandbox) {
             try {
               await backendJson('/test-users/purge', {
                 method: 'POST',

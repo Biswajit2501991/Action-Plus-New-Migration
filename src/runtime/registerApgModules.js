@@ -239,6 +239,7 @@ import {
   uploadStaffPhotoApi,
   deleteStaffPhotoApi,
   syncAllStaffPhotoUrls,
+  staffIdsNeedingPhotoUrlsAll,
 } from '../features/staff/staffPhotoApi.js';
 import {
   shouldReplaceBranchDataOnHydrate,
@@ -744,6 +745,7 @@ window.__APG_MODULES.staffPhotoStorageEnabled = staffPhotoStorageEnabled;
 window.__APG_MODULES.uploadStaffPhotoApi = uploadStaffPhotoApi;
 window.__APG_MODULES.deleteStaffPhotoApi = deleteStaffPhotoApi;
 window.__APG_MODULES.syncAllStaffPhotoUrls = syncAllStaffPhotoUrls;
+window.__APG_MODULES.staffIdsNeedingPhotoUrlsAll = staffIdsNeedingPhotoUrlsAll;
 window.__APG_MODULES.buildHeaderBranchSwitcherModel = buildHeaderBranchSwitcherModel;
 window.__APG_MODULES.activeBranchIdsForDataScope = activeBranchIdsForDataScope;
 window.__APG_MODULES.shouldReplaceBranchDataOnHydrate = shouldReplaceBranchDataOnHydrate;

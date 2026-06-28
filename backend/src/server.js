@@ -1074,14 +1074,39 @@ app.post('/api/users/cleanup', requireMasterOwner, async (req, res) => {
       return res.json({ ok: true, deleted: [], deactivated: [], skipped });
     }
 
-    const { findStaffDeleteDependenciesBatch } = await import('./services/staff/staffDeleteGuard.js');
-    const depMap = await findStaffDeleteDependenciesBatch(toProcess);
+    const {
+      findStaffDeleteDependenciesBatch,
+      isTestStaffUser,
+      purgeStaffDeleteDependencies,
+    } = await import('./services/staff/staffDeleteGuard.js');
+
+    const testIds = [];
+    const productionIds = [];
+    for (const id of toProcess) {
+      const user = lookup.get(id);
+      if (isTestStaffUser(id, user)) testIds.push({ id, user });
+      else productionIds.push(id);
+    }
+
     const toDeactivate = [];
     const toDelete = [];
-    for (const id of toProcess) {
-      const deps = depMap.get(id);
-      if (deps?.length) toDeactivate.push(id);
-      else toDelete.push(id);
+
+    if (testIds.length) {
+      for (const { user } of testIds) {
+        const sandboxId = String(user?.sandboxId || '').trim();
+        if (sandboxId) await purgeSandboxData(sandboxId);
+      }
+      await purgeStaffDeleteDependencies(testIds.map(({ id }) => id));
+      toDelete.push(...testIds.map(({ id }) => id));
+    }
+
+    if (productionIds.length) {
+      const depMap = await findStaffDeleteDependenciesBatch(productionIds);
+      for (const id of productionIds) {
+        const deps = depMap.get(id);
+        if (deps?.length) toDeactivate.push(id);
+        else toDelete.push(id);
+      }
     }
 
     const scope = readSandboxScope(req);
