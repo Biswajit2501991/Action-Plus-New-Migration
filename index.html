@@ -10530,6 +10530,7 @@ Please pay by: ${formattedLastDate}`;
                 onSwitch={switchActiveBranch}
                 switching={branchSwitching}
                 compact
+                mobileTopbar
               />
               <div className="hidden sm:block">
                 <SyncStatusDot mode={dataSyncMode} label={syncBadgeLabel} />
@@ -10753,7 +10754,7 @@ Please pay by: ${formattedLastDate}`;
             canManagePaymentQrSettings={canManagePaymentQrSettings}
             branchBranding={branchBranding}
           />
-          <main className="apg-main-scroll flex-1 overflow-y-auto pt-[112px] md:pt-0 pb-28 md:pb-0 w-full bg-[#F8FAFC] md:bg-transparent">
+          <main className="apg-main-scroll flex-1 overflow-y-auto pt-[124px] md:pt-0 pb-28 md:pb-0 w-full bg-[#F8FAFC] md:bg-transparent">
             {openedFromFileProtocol && (
               <div className="mx-3 mt-3 md:mx-8 md:mt-6 rounded-xl border border-amber-300 bg-amber-50 px-3 py-2 text-xs md:text-sm text-amber-900">
                 File mode detected (`file://`). Backend sync and shared data may not work here. Open
@@ -12560,6 +12561,7 @@ Please pay by: ${formattedLastDate}`;
       onSwitch,
       switching = false,
       compact = false,
+      mobileTopbar = false,
     }) {
       const [open, setOpen] = React.useState(false);
       const anchorRef = React.useRef(null);
@@ -12625,6 +12627,57 @@ Please pay by: ${formattedLastDate}`;
         if (typeof onSwitch === 'function') onSwitch(id);
         setOpen(false);
       };
+
+      const activeBranchLabel = React.useMemo(() => {
+        const hit = branches.find((b) => String(b.id) === String(active));
+        if (!hit) return gymCodeLabel(active) || 'Branch';
+        return gymCodeLabel(hit.id) || hit.branchName || hit.name || hit.code || 'Branch';
+      }, [branches, active, gymCodeLabel]);
+
+      if (mobileTopbar) {
+        return (
+          <div className="relative shrink-0" data-testid="header-user-profile-card">
+            <button
+              ref={anchorRef}
+              type="button"
+              onClick={() => {
+                if (showBranchSwitcher) setOpen((v) => !v);
+              }}
+              disabled={switching}
+              className={cx(
+                'flex items-center gap-1 rounded-full border border-slate-200 bg-white pl-0.5 pr-2 py-0.5 shadow-sm dark:border-slate-600 dark:bg-slate-800/90',
+                showBranchSwitcher ? 'hover:bg-slate-50 dark:hover:bg-slate-700/80' : 'cursor-default',
+              )}
+              aria-expanded={open}
+              aria-haspopup={showBranchSwitcher ? 'listbox' : undefined}
+              aria-label={showBranchSwitcher ? `Branch: ${activeBranchLabel}. Tap to change.` : (user?.name || 'Profile')}
+              data-testid="header-profile-branch-menu"
+              title={showBranchSwitcher ? activeBranchLabel : (user?.name || '')}
+            >
+              <StaffAvatarRenderer user={user} compact />
+              {showBranchSwitcher && (
+                <span className="max-w-[4.5rem] truncate text-[10px] font-semibold text-indigo-600 dark:text-indigo-300">
+                  {switching ? '…' : activeBranchLabel}
+                </span>
+              )}
+            </button>
+            {showBranchSwitcher && (
+              <BranchSwitcherDropdown
+                open={open}
+                setOpen={setOpen}
+                anchorRef={anchorRef}
+                popRef={popRef}
+                branches={branches}
+                active={active}
+                switching={switching}
+                gymCodeLabel={gymCodeLabel}
+                onPickBranch={pickBranch}
+                align="end"
+              />
+            )}
+          </div>
+        );
+      }
 
       return (
         <div className="relative shrink-0 min-w-0" data-testid="header-user-profile-card">
@@ -13304,10 +13357,10 @@ function Sidebar({ user, active, onSelect, theme, setTheme, layoutMode = 'classi
         const insightOverdue = overdueList.length;
         const insightJoinedToday = members.filter((m) => iso(m.joiningDate) === iso(today)).length;
         return (
-          <div className="p-4 space-y-4">
+          <div className="p-4 space-y-4 md:space-y-4">
             {canViewDashboardCore && (
               <>
-                <div className="flex items-center gap-2 overflow-x-auto pb-1">
+                <div className="flex items-center gap-2 overflow-x-auto pb-1 scroll-mt-4" data-testid="dashboard-mobile-status-filters">
                   {[
                     { key: 'All', onClick: () => onSearch('', 'all') },
                     { key: 'Active', onClick: () => onSelectStatus('Active') },
