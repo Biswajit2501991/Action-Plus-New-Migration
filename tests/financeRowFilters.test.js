@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import {
+  branchScopeAllowsFinanceRow,
   filterFinanceBulkWriteRows,
   isMirroredMemberPaymentFinanceRow,
   manualIncomeFinanceRows,
@@ -26,6 +27,14 @@ describe('financeRowFilters', () => {
     expect(accepted).toHaveLength(2);
     expect(accepted[0].type).toBe('expense');
     expect(accepted[1].amount).toBe(200);
+  });
+
+  it('branchScopeAllowsFinanceRow allows expenses without memberId', () => {
+    const scope = { memberCodes: new Set(['APG001']) };
+    expect(branchScopeAllowsFinanceRow({ type: 'expense', amount: 100 }, scope)).toBe(true);
+    expect(branchScopeAllowsFinanceRow({ type: 'income', memberId: 'APG001' }, scope)).toBe(true);
+    expect(branchScopeAllowsFinanceRow({ type: 'income', memberId: 'OTHER' }, scope)).toBe(false);
+    expect(branchScopeAllowsFinanceRow({ type: 'income' }, scope)).toBe(false);
   });
 
   it('manualIncomeFinanceRows excludes mirrors only', () => {

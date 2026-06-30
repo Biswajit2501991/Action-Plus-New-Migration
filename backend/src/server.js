@@ -24,7 +24,10 @@ import {
   leaveDaysFromDateRange,
 } from './db/supabase/leaveRequestsWrite.js';
 import { findLeaveDateConflicts, formatLeaveOverlapError } from '../../src/features/leave/leaveOverlap.js';
-import { filterFinanceBulkWriteRows } from '../../src/features/finance/financeRowFilters.js';
+import {
+  branchScopeAllowsFinanceRow,
+  filterFinanceBulkWriteRows,
+} from '../../src/features/finance/financeRowFilters.js';
 import { T } from './db/tables.js';
 import {
   dataBackendLabel,
@@ -2142,11 +2145,7 @@ app.get('/api/finance', requireAccess(Access.financeRead), async (req, res) => {
   if (authUsesGlobalDataRead(req.auth)) return res.json(finance);
   if (!req.auth?.gymCodeId) return res.json([]);
   const scope = await loadBranchScope(getSupabase(), req.auth);
-  res.json(finance.filter((t) => {
-    const mid = String(t?.memberId || '').trim();
-    if (!mid) return false;
-    return scope.memberCodes?.has(mid);
-  }));
+  res.json(finance.filter((t) => branchScopeAllowsFinanceRow(t, scope)));
 });
 
 /** SQL-verified collected revenue by payment_transaction_date (paid_at). */
@@ -2198,10 +2197,7 @@ app.put('/api/finance/bulk', requireAccess(Access.financeWrite), async (req, res
       incoming = [];
     } else {
       const scope = await loadBranchScope(getSupabase(), req.auth);
-      incoming = incoming.filter((t) => {
-        const mid = String(t?.memberId || '').trim();
-        return mid && scope.memberCodes?.has(mid);
-      });
+      incoming = incoming.filter((t) => branchScopeAllowsFinanceRow(t, scope));
     }
   }
   let strippedMirroredRows = 0;

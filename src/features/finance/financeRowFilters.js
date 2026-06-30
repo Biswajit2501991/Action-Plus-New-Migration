@@ -24,6 +24,14 @@ export function manualIncomeFinanceRows(financeTransactions) {
  * @param {object[]} rows
  * @returns {{ rows: object[], strippedMirroredRows: number }}
  */
+/** Branch-scoped finance read/write: expenses have no member; income needs in-scope member. */
+export function branchScopeAllowsFinanceRow(row, scope) {
+  if (!row || typeof row !== 'object') return false;
+  if (String(row.type || '').toLowerCase() === 'expense') return true;
+  const mid = String(row.memberId || '').trim();
+  return Boolean(mid && scope?.memberCodes?.has(mid));
+}
+
 export function filterFinanceBulkWriteRows(rows) {
   const list = Array.isArray(rows) ? rows : [];
   const accepted = [];
