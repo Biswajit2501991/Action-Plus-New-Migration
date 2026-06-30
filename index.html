@@ -25040,6 +25040,7 @@ function PTClientsPage({ members, users, settings, updateSetting, currentUser, a
       const canFinanceExpenseCard = access?.finance?.viewExpenseCard !== false;
       const canFinanceProfitCard = access?.finance?.viewProfitCard !== false;
       const canFinanceManageExpenses = access?.finance?.manageExpenses !== false;
+      useAppScrollLock(showExpenseLedger || showRevenueDrilldown);
       const isMobile = useIsMobile();
       if (isMobile) {
         const recorded = incomeRowsCollected.slice(0, 20);
@@ -25395,7 +25396,8 @@ function PTClientsPage({ members, users, settings, updateSetting, currentUser, a
           </div>
 
           {showRevenueDrilldown && (
-            <div className="fixed inset-0 z-[80] flex items-center justify-center bg-black/50 p-4" onClick={() => setShowRevenueDrilldown(false)}>
+            <ModalPortal>
+            <div className="fixed inset-0 z-[80] flex items-center justify-center apg-modal-backdrop p-4" role="dialog" aria-modal="true" onClick={() => setShowRevenueDrilldown(false)}>
               <div className={cx(cardBase, 'max-w-5xl w-full max-h-[85vh] overflow-hidden flex flex-col')} onClick={(e) => e.stopPropagation()}>
                 <div className="flex items-center justify-between mb-3">
                   <div>
@@ -25464,6 +25466,7 @@ function PTClientsPage({ members, users, settings, updateSetting, currentUser, a
                 </div>
               </div>
             </div>
+            </ModalPortal>
           )}
 
           <div className="grid grid-cols-1 xl:grid-cols-3 gap-4">
@@ -25680,12 +25683,20 @@ function PTClientsPage({ members, users, settings, updateSetting, currentUser, a
             </div>
           </div>
           )}
+
           {showExpenseLedger && (
-            <div className="fixed inset-0 z-[70] flex items-center justify-center apg-modal-backdrop p-3">
-              <div className="w-full max-w-4xl rounded-3xl bg-white dark:bg-slate-900 p-5 shadow-xl space-y-4 max-h-[88vh] overflow-hidden flex flex-col dark:text-slate-100">
+            <ModalPortal>
+            <div
+              className="fixed inset-0 z-[70] flex items-center justify-center apg-modal-backdrop p-3"
+              role="dialog"
+              aria-modal="true"
+              aria-labelledby="apg-expense-ledger-title"
+              onClick={() => setShowExpenseLedger(false)}
+            >
+              <div className="w-full max-w-4xl rounded-3xl bg-white dark:bg-slate-900 p-5 shadow-xl space-y-4 max-h-[88vh] overflow-hidden flex flex-col dark:text-slate-100" onClick={(e) => e.stopPropagation()}>
                 <div className="flex items-center justify-between">
                   <div>
-                    <h3 className="text-lg font-semibold text-slate-900 dark:text-slate-100">Staff Added Expenses</h3>
+                    <h3 id="apg-expense-ledger-title" className="text-lg font-semibold text-slate-900 dark:text-slate-100">Staff Added Expenses</h3>
                     <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
                       Logged staff expense rows only. Expenses and profit use actual row totals when any are saved for the month; otherwise a 26% revenue estimate applies.
                     </p>
@@ -25728,6 +25739,7 @@ function PTClientsPage({ members, users, settings, updateSetting, currentUser, a
                 </div>
               </div>
             </div>
+            </ModalPortal>
           )}
         </div>
       );
