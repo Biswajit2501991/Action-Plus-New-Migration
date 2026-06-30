@@ -9,6 +9,16 @@ export PATH="/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin"
 export APG_LAUNCHD_MANAGED=1
 
 LOCK_DIR="$APP_ROOT/logs/.autostart.lock"
+autostart_stack_running() {
+  pgrep -f "$APP_ROOT/scripts/dev-all" >/dev/null 2>&1 && return 0
+  pgrep -f "$APP_ROOT/scripts/apg-supervisor.mjs" >/dev/null 2>&1 && return 0
+  lsof -i :4000 -i :5501 2>/dev/null | rg -q "node" && return 0
+  return 1
+}
+if [[ -d "$LOCK_DIR" ]] && ! autostart_stack_running; then
+  echo "[autostart] removing stale lock (no stack processes)." >&2
+  rmdir "$LOCK_DIR" 2>/dev/null || true
+fi
 if ! mkdir "$LOCK_DIR" 2>/dev/null; then
   echo "[autostart] another instance is running; waiting for lock." >&2
   while [[ -d "$LOCK_DIR" ]]; do sleep 30; done
