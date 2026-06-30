@@ -40,10 +40,16 @@ export function buildFinanceLedgerRows(members, financeTransactions, deps = {}) 
       today,
     })
     : [];
-  const manual = mapManualFinanceLedgerRows(manualIncomeFinanceRows(financeTransactions)).map((t) => ({
+  const manualIncome = mapManualFinanceLedgerRows(manualIncomeFinanceRows(financeTransactions)).map((t) => ({
     ...t,
     date: (typeof calendarDateKey === 'function' ? calendarDateKey(t.date) : t.date) || t.date,
   }));
-  return [...payment, ...pending, ...manual]
+  const manualExpense = mapManualFinanceLedgerRows(
+    (Array.isArray(financeTransactions) ? financeTransactions : []).filter((t) => t?.type === 'expense'),
+  ).map((t) => ({
+    ...t,
+    date: (typeof calendarDateKey === 'function' ? calendarDateKey(t.date) : t.date) || t.date,
+  }));
+  return [...payment, ...pending, ...manualIncome, ...manualExpense]
     .sort((a, b) => String(b.date || '').localeCompare(String(a.date || '')));
 }

@@ -402,3 +402,22 @@ export async function replaceFinance(
     body: JSON.stringify({ finance }),
   });
 }
+
+export async function createFinanceExpense(
+  token: string,
+  expense: FinanceTransaction,
+): Promise<FinanceTransaction> {
+  return apiJson<FinanceTransaction>('/api/finance/expenses', token, {
+    method: 'POST',
+    body: JSON.stringify(expense),
+  });
+}
+
+export async function deleteFinanceExpense(
+  token: string,
+  externalTxId: string,
+): Promise<{ ok: boolean; id: string }> {
+  return apiJson(`/api/finance/expenses/${encodeURIComponent(externalTxId)}`, token, {
+    method: 'DELETE',
+  });
+}

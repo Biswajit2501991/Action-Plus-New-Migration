@@ -296,6 +296,24 @@ import {
   loadFinanceYearSummaryCached,
 } from '../features/finance/financeMetricsLoader.js';
 import {
+  sumExpenseRowsForMonth,
+  expenseRowsForMonth,
+} from '../features/finance/financeExpenseTotals.js';
+import {
+  monthFinanceDisplayFromSummary,
+  ytdProfitFromYearMonths,
+  ytdCollectedFromYearMonths,
+} from '../features/finance/financeSummaryDisplay.js';
+import {
+  buildExpenseRow,
+  validateExpenseDraft,
+} from '../features/finance/expenseRow.js';
+import {
+  persistExpenseRow,
+  deleteExpenseRow,
+  financeRowsForBulkSync,
+} from '../features/finance/expenseApi.js';
+import {
   PASSWORD_RESET_STATUS,
   canViewPasswordResetNotifications,
   isPasswordResetPendingUser,
@@ -793,6 +811,16 @@ window.__APG_MODULES.subscribeFinanceMetricsInvalidation = subscribeFinanceMetri
 window.__APG_MODULES.loadFinanceMonthSummaryCached = loadFinanceMonthSummaryCached;
 window.__APG_MODULES.loadFinanceMonthSummaryWithLinesCached = loadFinanceMonthSummaryWithLinesCached;
 window.__APG_MODULES.loadFinanceYearSummaryCached = loadFinanceYearSummaryCached;
+window.__APG_MODULES.sumExpenseRowsForMonth = sumExpenseRowsForMonth;
+window.__APG_MODULES.expenseRowsForMonth = expenseRowsForMonth;
+window.__APG_MODULES.monthFinanceDisplayFromSummary = monthFinanceDisplayFromSummary;
+window.__APG_MODULES.ytdProfitFromYearMonths = ytdProfitFromYearMonths;
+window.__APG_MODULES.ytdCollectedFromYearMonths = ytdCollectedFromYearMonths;
+window.__APG_MODULES.buildExpenseRow = buildExpenseRow;
+window.__APG_MODULES.validateExpenseDraft = validateExpenseDraft;
+window.__APG_MODULES.persistExpenseRow = persistExpenseRow;
+window.__APG_MODULES.deleteExpenseRow = deleteExpenseRow;
+window.__APG_MODULES.financeRowsForBulkSync = financeRowsForBulkSync;
 window.__APG_MODULES.PASSWORD_RESET_STATUS = PASSWORD_RESET_STATUS;
 window.__APG_MODULES.passwordResetStatusFromRecord = passwordResetStatusFromRecord;
 window.__APG_MODULES.isPasswordResetPendingUser = isPasswordResetPendingUser;

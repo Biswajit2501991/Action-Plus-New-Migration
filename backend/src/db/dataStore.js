@@ -1073,6 +1073,54 @@ export async function readFinanceSummary(branchScope, options = {}) {
   };
 }
 
+/** Single expense row upsert (Supabase row API; KV append/replace). */
+export async function upsertFinanceExpenseRow(expenseRow) {
+  if (useSupabase()) return supabaseStore.upsertFinanceExpenseRow(expenseRow);
+  const amount = Number(expenseRow?.amount || 0);
+  if (!amount || amount <= 0) {
+    const err = new Error('invalid-amount');
+    err.status = 400;
+    throw err;
+  }
+  if (!String(expenseRow?.note || '').trim()) {
+    const err = new Error('note-required');
+    err.status = 400;
+    throw err;
+  }
+  const rows = await kvStore.readJsonCollection('apg.finance', []);
+  const id = String(expenseRow?.id || crypto.randomUUID());
+  const nextRow = {
+    ...expenseRow,
+    id,
+    type: 'expense',
+    source: expenseRow?.source || 'manual',
+    status: expenseRow?.status || 'posted',
+  };
+  const kept = rows.filter((r) => String(r?.id || '') !== id);
+  await kvStore.writeJsonCollection('apg.finance', [nextRow, ...kept]);
+  return nextRow;
+}
+
+/** Delete expense by client id / external_tx_id. */
+export async function deleteFinanceExpenseRow(externalTxId) {
+  if (useSupabase()) return supabaseStore.deleteFinanceExpenseRow(externalTxId);
+  const id = String(externalTxId || '').trim();
+  if (!id) {
+    const err = new Error('expense-id-required');
+    err.status = 400;
+    throw err;
+  }
+  const rows = await kvStore.readJsonCollection('apg.finance', []);
+  const next = rows.filter((r) => !(String(r?.id || '') === id && r?.type === 'expense'));
+  if (next.length === rows.length) {
+    const err = new Error('expense-not-found');
+    err.status = 404;
+    throw err;
+  }
+  await kvStore.writeJsonCollection('apg.finance', next);
+  return { ok: true, id };
+}
+
 /** Attendance structured notes (Supabase only). */
 export async function createAttendanceNote(auth, body) {
   if (!useSupabase()) {

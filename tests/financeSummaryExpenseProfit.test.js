@@ -14,4 +14,12 @@ describe('resolveMonthExpenseAndProfit collected revenue basis', () => {
     expect(result.expense).toBe(1500);
     expect(result.profit).toBe(87718 - 1500);
   });
+
+  it('uses actual expense rows for profit even when estimate mode is on', () => {
+    const rows = [{ type: 'expense', amount: 69400 }];
+    const result = resolveMonthExpenseAndProfit(rows, 128446, true);
+    expect(result.expense).toBe(69400);
+    expect(result.profit).toBe(128446 - 69400);
+    expect(result.expenseSubtitle).toBe('Actual expense rows');
+  });
 });

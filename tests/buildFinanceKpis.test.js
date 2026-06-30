@@ -54,6 +54,13 @@ describe('buildFinanceKpis', () => {
     );
     expect(estimated.expense).toBe(260);
   });
+
+  it('uses actual expenses for profit when rows exist even in estimate mode', () => {
+    const kpis = buildFinanceKpis(ledger, '2026-06', { financeUseEstimatedExpense: true });
+    expect(kpis.expense).toBe(200);
+    expect(kpis.profit).toBe(600);
+    expect(kpis.expenseSubtitle).toBe('Actual expense rows');
+  });
 });
 
 describe('shiftFinanceMonthKey', () => {

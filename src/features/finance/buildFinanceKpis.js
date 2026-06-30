@@ -64,12 +64,14 @@ export function resolveMonthExpenseAndProfit(reportingMonthLedger, collectedReve
   const actualExpense = sumLedgerRowAmounts(expenseRows, { incomeOnly: false });
   const hasExpenseRows = actualExpense > 0;
   const estimatedExpense = Math.round(Number(collectedRevenue || 0) * ESTIMATE_RATE);
-  const expense = useEstimatedExpense
-    ? estimatedExpense
-    : (hasExpenseRows ? actualExpense : estimatedExpense);
-  const expenseSubtitle = useEstimatedExpense
-    ? 'Estimated (26% of collected revenue)'
-    : (hasExpenseRows ? 'Actual expense rows' : '26% estimate (no expense rows this month)');
+  const expense = hasExpenseRows
+    ? actualExpense
+    : estimatedExpense;
+  const expenseSubtitle = hasExpenseRows
+    ? 'Actual expense rows'
+    : (useEstimatedExpense
+      ? 'Estimated (26% of collected revenue)'
+      : '26% estimate (no expense rows this month)');
   const profit = Number(collectedRevenue || 0) - expense;
   return {
     actualExpense,
@@ -78,7 +80,7 @@ export function resolveMonthExpenseAndProfit(reportingMonthLedger, collectedReve
     hasExpenseRows,
     expenseSubtitle,
     profit,
-    useEstimateFallback: !useEstimatedExpense && !hasExpenseRows,
+    useEstimateFallback: !hasExpenseRows,
   };
 }
 

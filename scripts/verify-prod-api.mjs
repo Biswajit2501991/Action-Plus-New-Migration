@@ -19,8 +19,15 @@ async function get(path) {
 const health = await get('/api/health');
 const version = await get('/api/version');
 const finance = await get(`/api/finance/summary?month=${encodeURIComponent(month)}`);
+const expensePost = await fetch(`${base}/api/finance/expenses`, {
+  method: 'POST',
+  headers: { 'Content-Type': 'application/json' },
+  body: '{}',
+  redirect: 'follow',
+}).then(async (res) => ({ status: res.status }));
 
 const financeRouteOk = finance.status !== 404;
+const expenseRouteOk = expensePost.status !== 404;
 const featuresOk = health.body?.features?.financeSummary === true;
 
 console.log('[verify-prod-api] base:', base);
@@ -34,6 +41,7 @@ console.log('[verify-prod-api] GET /api/version ->', version.status, {
   financeSummary: version.body?.features?.financeSummary,
 });
 console.log('[verify-prod-api] GET /api/finance/summary ->', finance.status, financeRouteOk ? '(route registered)' : '(404 = old backend)');
+console.log('[verify-prod-api] POST /api/finance/expenses ->', expensePost.status, expenseRouteOk ? '(route registered)' : '(404 = restart backend)');
 
 if (!health.body?.ok) {
   console.error('[verify-prod-api] FAIL: health not ok');
@@ -45,6 +53,10 @@ if (!featuresOk) {
 }
 if (!financeRouteOk) {
   console.error('[verify-prod-api] FAIL: finance summary returns 404 — git pull and restart prod stack');
+  process.exit(1);
+}
+if (!expenseRouteOk) {
+  console.error('[verify-prod-api] FAIL: POST /api/finance/expenses returns 404 — restart prod backend (expense row API not loaded)');
   process.exit(1);
 }
 console.log('[verify-prod-api] OK');

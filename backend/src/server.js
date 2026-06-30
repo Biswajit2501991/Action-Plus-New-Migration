@@ -70,6 +70,8 @@ import {
   deleteVisitor,
   writeRoleTemplates,
   patchPtClientProfileValue,
+  upsertFinanceExpenseRow,
+  deleteFinanceExpenseRow,
 } from './db/dataStore.js';
 import { addSseClient, sseClientCount } from './realtime/hub.js';
 import {
@@ -2190,6 +2192,32 @@ app.get('/api/finance/reconciliation', requireAccess(Access.financeRead), async 
   }
 });
 
+app.post('/api/finance/expenses', requireAccess(Access.financeWrite), async (req, res) => {
+  try {
+    const saved = await upsertFinanceExpenseRow(req.body || {});
+    queueDatabaseBackup('finance-expense');
+    return res.status(201).json(saved);
+  } catch (error) {
+    const status = Number(error?.status) || 500;
+    return res.status(status).json({
+      error: String(error?.message || error || 'expense_save_failed'),
+    });
+  }
+});
+
+app.delete('/api/finance/expenses/:externalTxId', requireAccess(Access.financeWrite), async (req, res) => {
+  try {
+    const result = await deleteFinanceExpenseRow(req.params.externalTxId);
+    queueDatabaseBackup('finance-expense-delete');
+    return res.json(result);
+  } catch (error) {
+    const status = Number(error?.status) || 500;
+    return res.status(status).json({
+      error: String(error?.message || error || 'expense_delete_failed'),
+    });
+  }
+});
+
 app.put('/api/finance/bulk', requireAccess(Access.financeWrite), async (req, res) => {
   let incoming = Array.isArray(req.body?.finance) ? req.body.finance : [];
   if (!authIsOwner(req.auth)) {
@@ -2198,7 +2226,12 @@ app.put('/api/finance/bulk', requireAccess(Access.financeWrite), async (req, res
     } else {
       const scope = await loadBranchScope(getSupabase(), req.auth);
       incoming = incoming.filter((t) => branchScopeAllowsFinanceRow(t, scope));
+      // Staff bulk sync: expenses only — prevents income orphan delete across branches.
+      incoming = incoming.filter((t) => String(t?.type || '').toLowerCase() === 'expense');
     }
+  } else {
+    // Owner bulk: income/manual rows only; expenses use POST /api/finance/expenses.
+    incoming = incoming.filter((t) => String(t?.type || '').toLowerCase() !== 'expense');
   }
   let strippedMirroredRows = 0;
   if (useSupabase()) {

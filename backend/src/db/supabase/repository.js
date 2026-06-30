@@ -2710,6 +2710,93 @@ async function readFinanceSummary(branchScope, options = {}) {
   return result;
 }
 
+function normalizeExpenseAppRow(raw) {
+  const amount = Number(raw?.amount || 0);
+  if (!amount || amount <= 0) {
+    const err = new Error('invalid-amount');
+    err.status = 400;
+    throw err;
+  }
+  const note = String(raw?.note || '').trim();
+  if (!note) {
+    const err = new Error('note-required');
+    err.status = 400;
+    throw err;
+  }
+  if (String(raw?.type || 'expense').toLowerCase() !== 'expense') {
+    const err = new Error('expense-type-required');
+    err.status = 400;
+    throw err;
+  }
+  return {
+    id: raw?.id ? String(raw.id) : undefined,
+    type: 'expense',
+    source: 'manual',
+    date: raw?.date,
+    amount,
+    category: String(raw?.category || 'General').trim() || 'General',
+    note,
+    status: raw?.status || 'posted',
+    method: raw?.method || 'Cash',
+    memberName: raw?.memberName || raw?.category || 'Expense',
+    plan: raw?.plan || 'Expense',
+    createdAt: raw?.createdAt,
+  };
+}
+
+/** Single expense upsert — no orphan delete (row API). */
+export async function upsertFinanceExpenseRow(rawExpense) {
+  const expenseAppRow = normalizeExpenseAppRow(rawExpense);
+  const sb = getSupabase();
+  const gid = gymId();
+  const dbRow = appFinanceToRow(expenseAppRow, gid, null);
+  await syncGymRowsByExternalId(sb, T.finance_transactions, {
+    gymId: gid,
+    externalIdColumn: 'external_tx_id',
+    rows: [dbRow],
+    onConflict: 'gym_id,external_tx_id',
+    deleteOrphans: false,
+  });
+  const { data, error } = await sb
+    .from(T.finance_transactions)
+    .select('*')
+    .eq('gym_id', gid)
+    .eq('external_tx_id', dbRow.external_tx_id)
+    .maybeSingle();
+  if (error) throw new Error(`finance expense read-back: ${error.message}`);
+  if (!data) throw new Error('finance expense upsert: row missing after write');
+  notifyCollectionChange('finance');
+  return financeRowToApp(data);
+}
+
+/** Delete one expense by external_tx_id. */
+export async function deleteFinanceExpenseRow(externalTxId) {
+  const id = String(externalTxId || '').trim();
+  if (!id) {
+    const err = new Error('expense-id-required');
+    err.status = 400;
+    throw err;
+  }
+  const sb = getSupabase();
+  const gid = gymId();
+  const { data, error } = await sb
+    .from(T.finance_transactions)
+    .delete()
+    .eq('gym_id', gid)
+    .eq('external_tx_id', id)
+    .eq('tx_type', 'expense')
+    .select('external_tx_id')
+    .maybeSingle();
+  if (error) throw new Error(`finance expense delete: ${error.message}`);
+  if (!data) {
+    const err = new Error('expense-not-found');
+    err.status = 404;
+    throw err;
+  }
+  notifyCollectionChange('finance');
+  return { ok: true, id };
+}
+
 async function writeFinance(finance, scope) {
   const sb = getSupabase();
   const gid = gymId();
@@ -2730,6 +2817,7 @@ async function writeFinance(finance, scope) {
     externalIdColumn: 'external_tx_id',
     rows,
     onConflict: 'gym_id,external_tx_id',
+    orphanDeleteFilter: (row) => row.tx_type !== 'expense',
   });
   notifyCollectionChange('finance');
 }

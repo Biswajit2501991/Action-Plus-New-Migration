@@ -10,6 +10,7 @@ export async function syncGymRowsByExternalId(sb, table, {
   rows,
   onConflict,
   deleteOrphans = true,
+  orphanDeleteFilter = null,
 }) {
   const gid = gymId;
   const incoming = (rows || []).filter((r) => {
@@ -19,11 +20,19 @@ export async function syncGymRowsByExternalId(sb, table, {
   const incomingIds = new Set(incoming.map((r) => String(r[externalIdColumn])));
 
   if (deleteOrphans) {
+    const selectCols = orphanDeleteFilter
+      ? `${externalIdColumn}, tx_type`
+      : externalIdColumn;
     const existing = await fetchAll((from, to) =>
-      sb.from(table).select(externalIdColumn).eq('gym_id', gid).range(from, to));
+      sb.from(table).select(selectCols).eq('gym_id', gid).range(from, to));
     const toRemove = (existing || [])
-      .map((r) => String(r[externalIdColumn] || ''))
-      .filter((id) => id && !incomingIds.has(id));
+      .filter((r) => {
+        const id = String(r[externalIdColumn] || '');
+        if (!id || incomingIds.has(id)) return false;
+        if (typeof orphanDeleteFilter === 'function' && !orphanDeleteFilter(r)) return false;
+        return true;
+      })
+      .map((r) => String(r[externalIdColumn]));
     for (const idChunk of chunk(toRemove, 100)) {
       const { error } = await sb.from(table).delete().eq('gym_id', gid).in(externalIdColumn, idChunk);
       if (error) throw new Error(`${table} orphan delete: ${error.message}`);
