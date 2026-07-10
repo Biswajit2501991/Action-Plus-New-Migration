@@ -111,6 +111,7 @@ import staffPhotosRouter from './routes/staffPhotos.js';
 import paymentQrRouter from './routes/paymentQr.js';
 import leaveBalanceRouter from './routes/leaveBalance.js';
 import publicPaymentQrRouter from './routes/publicPaymentQr.js';
+import publicMemberStatusRouter from './routes/publicMemberStatus.js';
 import {
   authIsOwner,
   stampBranchOnRows,
@@ -506,6 +507,7 @@ app.get('/api/version', (_req, res) => {
 });
 
 app.use('/api/public/payment-qr', publicPaymentQrRouter);
+app.use('/api/public/member-status', publicMemberStatusRouter);
 
 app.use('/api/auth', authRouter);
 

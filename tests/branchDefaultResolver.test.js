@@ -10,9 +10,16 @@ const R01 = 'rajabazar-id';
 const gymCodes = [{ id: HQ, code: 'HQ' }, { id: R01, code: 'R01' }];
 
 describe('resolveDefaultAssignedGymCodeId', () => {
-  it('owner defaults to HQ', () => {
+  it('owner defaults to HQ when no active branch', () => {
     expect(resolveDefaultAssignedGymCodeId({ id: 'owner', role: 'owner' }, { hqGymCodeId: HQ, gymCodes }))
       .toBe(HQ);
+  });
+
+  it('owner prefers active branch context over HQ', () => {
+    expect(resolveDefaultAssignedGymCodeId(
+      { id: 'owner', role: 'owner', gymCodeId: HQ },
+      { hqGymCodeId: HQ, gymCodes, activeBranchId: R01 },
+    )).toBe(R01);
   });
 
   it('staff defaults to their branch, not HQ', () => {
@@ -40,6 +47,11 @@ describe('enforceStaffBranchOnForm', () => {
   it('owner empty falls back to HQ', () => {
     expect(enforceStaffBranchOnForm('', { id: 'owner', role: 'owner' }, { hqGymCodeId: HQ, gymCodes }))
       .toBe(HQ);
+  });
+
+  it('owner empty prefers active branch over HQ', () => {
+    expect(enforceStaffBranchOnForm('', { id: 'owner', role: 'owner' }, { hqGymCodeId: HQ, gymCodes, activeBranchId: R01 }))
+      .toBe(R01);
   });
 });
 

@@ -4,11 +4,17 @@ import { authIsOwnerUser } from './branchAccess.js';
  * Default gym branch for new member/visitor forms.
  * Staff never fall back to HQ — only their JWT branch (or blank until hydrated).
  */
-export function resolveDefaultAssignedGymCodeId(user, { hqGymCodeId = null, gymCodes = [] } = {}) {
+export function resolveDefaultAssignedGymCodeId(user, {
+  hqGymCodeId = null,
+  gymCodes = [],
+  activeBranchId = null,
+} = {}) {
+  const active = String(activeBranchId || user?.activeBranchId || user?.gymCodeId || '').trim();
   if (authIsOwnerUser(user)) {
+    if (active) return active;
     return String(hqGymCodeId || gymCodes?.[0]?.id || '').trim();
   }
-  return String(user?.gymCodeId || '').trim();
+  return active;
 }
 
 /**

@@ -2,6 +2,7 @@ import { describe, expect, it, beforeEach, vi } from 'vitest';
 import {
   addMemberDeleteTombstone,
   isMemberDeleteTombstoned,
+  mergePendingMembersForDisplay,
   readMemberDeleteTombstones,
   reconcileMemberDeleteTombstones,
   shouldKeepLocalOnlyMember,
@@ -27,12 +28,24 @@ describe('memberDeleteTombstones', () => {
     expect(shouldKeepLocalOnlyMember('APG-NEW', { 'APG-NEW': true })).toBe(true);
   });
 
-  it('keeps tombstone while server still returns member; clears when gone', () => {
+  it('clears tombstone when server returns active member unless delete still pending', () => {
     addMemberDeleteTombstone('APG-1');
     addMemberDeleteTombstone('APG-2');
-    reconcileMemberDeleteTombstones([{ memberId: 'APG-2' }]);
+    reconcileMemberDeleteTombstones([{ memberId: 'APG-2' }], ['APG-2']);
     expect(readMemberDeleteTombstones()).toEqual(['APG-2']);
+    reconcileMemberDeleteTombstones([{ memberId: 'APG-1' }], []);
+    expect(readMemberDeleteTombstones()).toEqual([]);
     reconcileMemberDeleteTombstones([]);
     expect(readMemberDeleteTombstones()).toEqual([]);
+  });
+
+  it('shows pending local adds even when branch scope excludes them', () => {
+    const all = [
+      { memberId: 'APG-NEW', name: 'New Member', assignedGymCodeId: 'branch-a' },
+      { memberId: 'APG-OLD', name: 'Old Member', assignedGymCodeId: 'branch-b' },
+    ];
+    const scoped = [{ memberId: 'APG-OLD', name: 'Old Member', assignedGymCodeId: 'branch-b' }];
+    const out = mergePendingMembersForDisplay(scoped, all, { 'APG-NEW': { localTs: Date.now() } });
+    expect(out.map((m) => m.memberId)).toEqual(['APG-NEW', 'APG-OLD']);
   });
 });
