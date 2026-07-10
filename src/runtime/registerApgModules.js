@@ -89,6 +89,7 @@ import {
   reconcileMemberDeleteTombstones,
   tombstonedMembersStillOnServer,
   filterMembersExcludingTombstones,
+  mergePendingMembersForDisplay,
   shouldKeepLocalOnlyMember,
   buildMembersFromServerWithPending,
   sanitizeMembersForDisplay,
@@ -641,6 +642,7 @@ window.__APG_MODULES.readMemberDeleteTombstones = readMemberDeleteTombstones;
 window.__APG_MODULES.reconcileMemberDeleteTombstones = reconcileMemberDeleteTombstones;
 window.__APG_MODULES.tombstonedMembersStillOnServer = tombstonedMembersStillOnServer;
 window.__APG_MODULES.filterMembersExcludingTombstones = filterMembersExcludingTombstones;
+window.__APG_MODULES.mergePendingMembersForDisplay = mergePendingMembersForDisplay;
 window.__APG_MODULES.shouldKeepLocalOnlyMember = shouldKeepLocalOnlyMember;
 window.__APG_MODULES.buildMembersFromServerWithPending = buildMembersFromServerWithPending;
 window.__APG_MODULES.mergeMemberDeltaIntoList = mergeMemberDeltaIntoList;

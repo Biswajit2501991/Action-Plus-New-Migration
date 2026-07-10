@@ -1,6 +1,7 @@
 import {
   buildMembersFromServerWithPending,
   filterMembersExcludingTombstones,
+  mergePendingMembersForDisplay,
   readMemberDeleteTombstones,
   reconcileMemberDeleteTombstones,
   sanitizeMembersForDisplay,
@@ -10,6 +11,7 @@ import { mergeMemberDeltaIntoList } from './memberDeltaPull.js';
 export {
   sanitizeMembersForDisplay,
   filterMembersExcludingTombstones,
+  mergePendingMembersForDisplay,
   readMemberDeleteTombstones,
   reconcileMemberDeleteTombstones,
   mergeMemberDeltaIntoList,

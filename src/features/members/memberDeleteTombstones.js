@@ -35,18 +35,39 @@ export function isMemberDeleteTombstoned(memberId, tombstones = null) {
 }
 
 /**
- * Clear tombstones only when the server no longer returns that member (delete confirmed).
- * Keep tombstones while the member is still in the remote list (failed/pending delete).
+ * Drop tombstones when the server confirms delete (member absent from remote).
+ * Keep tombstones only while a local delete is still in flight (pendingDeleteIds).
+ * Active members returned by GET /members clear stale tombstones (restored / re-added).
  */
-export function reconcileMemberDeleteTombstones(remoteMembers) {
+export function reconcileMemberDeleteTombstones(remoteMembers, pendingDeleteIds = []) {
   const remoteIds = new Set(
     (Array.isArray(remoteMembers) ? remoteMembers : [])
       .map((m) => String(m?.memberId || '').trim())
       .filter(Boolean),
   );
-  const kept = readMemberDeleteTombstones().filter((id) => remoteIds.has(id));
+  const pending = new Set(
+    (Array.isArray(pendingDeleteIds) ? pendingDeleteIds : [])
+      .map((id) => String(id || '').trim())
+      .filter(Boolean),
+  );
+  const kept = readMemberDeleteTombstones().filter((id) => pending.has(id) && remoteIds.has(id));
   localStorage.setItem(STORAGE_KEY, JSON.stringify(kept));
   return kept;
+}
+
+/** Keep pending local adds visible even when branch scope would filter them out. */
+export function mergePendingMembersForDisplay(scopedMembers, allMembers, syncPending = null, tombstones = null) {
+  const scoped = filterMembersExcludingTombstones(scopedMembers, tombstones);
+  const scopedIds = new Set(
+    scoped.map((m) => String(m?.memberId || '').trim()).filter(Boolean),
+  );
+  const pending = syncPending && typeof syncPending === 'object' ? syncPending : {};
+  const tombstoneSet = tombstoneSetFromList(tombstones || readMemberDeleteTombstones());
+  const optimistic = (Array.isArray(allMembers) ? allMembers : []).filter((m) => {
+    const id = String(m?.memberId || '').trim();
+    return id && pending[id] && !scopedIds.has(id) && !tombstoneSet.has(id);
+  });
+  return [...optimistic, ...scoped];
 }
 
 /** Member codes that are tombstoned but still returned by GET /members (delete must retry). */

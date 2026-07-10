@@ -5585,7 +5585,7 @@ Phone: +91-7047157510`;
               membersSyncCursorRef.current = null;
               const reconcileTombstones = window.__APG_MODULES?.reconcileMemberDeleteTombstones;
               if (typeof reconcileTombstones === 'function') {
-                reconcileTombstones(remoteMembers);
+                reconcileTombstones(remoteMembers, pendingDeletedMemberIdsRef.current || []);
               }
               if (replaceBranch) {
                 const mergeM = window.__APG_MODULES?.mergeMembersAfterBranchReplace;
@@ -9202,12 +9202,22 @@ Please pay by: ${formattedLastDate}`;
         const createdTs = new Date().toISOString();
         const memberWithAudit = {
           ...m,
+          assignedGymCodeId: String(
+            authoritativeActiveBranchId
+            || m.assignedGymCodeId
+            || user?.activeBranchId
+            || user?.gymCodeId
+            || '',
+          ).trim() || null,
           staff: user?.name || m.staff || '',
           updatedBy: user?.name || user?.id || '',
           createdAt: m?.createdAt || createdTs,
           updatedAt: createdTs,
           billingDateUpdatedAt: m?.billingDateUpdatedAt || createdTs,
         };
+        removeDeleteTombstoneInline(memberWithAudit.memberId);
+        const clearTombstoneFn = window.__APG_MODULES?.removeMemberDeleteTombstone;
+        if (typeof clearTombstoneFn === 'function') clearTombstoneFn(memberWithAudit.memberId);
         const otherUpdated = [];
         setMembers((prev) => {
           let next = prev;
@@ -9243,6 +9253,11 @@ Please pay by: ${formattedLastDate}`;
           setPrefillVisitor(null);
         }
         rememberMemberDefaults(memberWithAudit);
+        setActiveTab('Members');
+        setMembersView('all');
+        setDashMode('list');
+        setDashFilter(String(memberWithAudit.status || 'Active').trim() || 'Active');
+        setDashSearch('');
         showMemberUndoToast('Member added — Undo', previousMembers);
         setToast(`${memberWithAudit.name} has been saved successfully`);
         setTimeout(() => setToast(''), 2500);
@@ -10273,20 +10288,23 @@ Please pay by: ${formattedLastDate}`;
         if (!user?.id) return;
         const filterFn = window.__APG_MODULES?.filterMembersForUser;
         if (typeof filterFn !== 'function') return;
+        const activeUser = authoritativeActiveBranchId
+          ? { ...user, activeBranchId: authoritativeActiveBranchId, gymCodeId: authoritativeActiveBranchId }
+          : user;
         setMembers((prev) => {
-          const scoped = filterFn(user, prev);
+          const scoped = filterFn(activeUser, prev);
           if (!Array.isArray(prev) || scoped.length === prev.length) return prev;
           return scoped;
         });
         const visitorFilter = window.__APG_MODULES?.filterVisitorsForUser;
         if (typeof visitorFilter === 'function') {
           setVisitors((prev) => {
-            const scoped = visitorFilter(user, prev);
+            const scoped = visitorFilter(activeUser, prev);
             if (!Array.isArray(prev) || scoped.length === prev.length) return prev;
             return scoped;
           });
         }
-      }, [user?.id, user?.gymCodeId, user?.activeBranchId]);
+      }, [user?.id, user?.gymCodeId, user?.activeBranchId, authoritativeActiveBranchId]);
       const scopeMembersForDisplay = React.useCallback((rows) => {
         const scopeFn = window.__APG_MODULES?.scopeMembersToUserBranch;
         if (typeof scopeFn === 'function') {
@@ -10299,10 +10317,14 @@ Please pay by: ${formattedLastDate}`;
         if (typeof filterFn === 'function') return filterFn(activeUser, rows);
         return Array.isArray(rows) ? rows : [];
       }, [user, authoritativeActiveBranchId]);
-      const branchScopedMembers = React.useMemo(
-        () => filterMembersExcludingTombstonesInline(scopeMembersForDisplay(members)),
-        [members, scopeMembersForDisplay],
-      );
+      const branchScopedMembers = React.useMemo(() => {
+        const scoped = scopeMembersForDisplay(members);
+        const mergeFn = window.__APG_MODULES?.mergePendingMembersForDisplay;
+        if (typeof mergeFn === 'function') {
+          return mergeFn(scoped, members, memberSyncPending);
+        }
+        return filterMembersExcludingTombstonesInline(scoped);
+      }, [members, scopeMembersForDisplay, memberSyncPending]);
       const reservedDeletedMemberIds = React.useMemo(() => {
         const out = new Set();
         const list = Array.isArray(logs) ? logs : [];
@@ -11964,6 +11986,7 @@ Please pay by: ${formattedLastDate}`;
               prefillData={prefillVisitor}
               gymCodes={gymCodes}
               hqGymCodeId={hqGymCodeId}
+              activeBranchId={authoritativeActiveBranchId}
               gymCodeLabel={gymCodeLabel}
               reservedMemberIds={reservedDeletedMemberIds}
             />
@@ -17742,16 +17765,17 @@ function EditMemberModal({ member, onClose, onSave, onPersistInjuryNotes = null,
     }
 
     // ---- Add Member Wizard ----
-    function AddMemberWizard({ open, onClose, onSave, onFamilyMobileDuplicate = null, settings, staffName, currentUser = null, members, canEditFormNo, smartDefaults = {}, prefillData = null, gymCodes = [], hqGymCodeId = null, gymCodeLabel = () => '—', reservedMemberIds = null }) {
+    function AddMemberWizard({ open, onClose, onSave, onFamilyMobileDuplicate = null, settings, staffName, currentUser = null, members, canEditFormNo, smartDefaults = {}, prefillData = null, gymCodes = [], hqGymCodeId = null, activeBranchId = '', gymCodeLabel = () => '—', reservedMemberIds = null }) {
       const isOwnerWizard = String(currentUser?.id || '').toLowerCase() === 'owner'
         || (Array.isArray(currentUser?.roles) && currentUser.roles.includes('owner'));
-      const branchOpts = { hqGymCodeId, gymCodes };
+      const branchOpts = { hqGymCodeId, gymCodes, activeBranchId: String(activeBranchId || '').trim() };
       const resolveDefaultBranch = window.__APG_MODULES?.resolveDefaultAssignedGymCodeId
         || ((user, opts) => {
           const owner = String(user?.id || '').toLowerCase() === 'owner'
             || (Array.isArray(user?.roles) && user.roles.includes('owner'));
-          if (owner) return String(opts?.hqGymCodeId || opts?.gymCodes?.[0]?.id || '').trim();
-          return String(user?.gymCodeId || '').trim();
+          const active = String(opts?.activeBranchId || user?.activeBranchId || user?.gymCodeId || '').trim();
+          if (owner) return active || String(opts?.hqGymCodeId || opts?.gymCodes?.[0]?.id || '').trim();
+          return active;
         });
       const enforceBranch = window.__APG_MODULES?.enforceStaffBranchOnForm
         || ((branchId, user, opts) => {
@@ -17843,7 +17867,7 @@ function EditMemberModal({ member, onClose, onSave, onPersistInjuryNotes = null,
           if (next === f.assignedGymCodeId) return f;
           return { ...f, assignedGymCodeId: next };
         });
-      }, [open, defaultAssignedGymCodeId, currentUser?.gymCodeId, currentUser?.id]);
+      }, [open, defaultAssignedGymCodeId, currentUser?.gymCodeId, currentUser?.id, activeBranchId]);
       React.useEffect(() => {
         if (!open) return;
         try {
