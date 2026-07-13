@@ -41,11 +41,11 @@ export function useUsers() {
   });
 }
 
-export function useSettings() {
+export function useSettings(scope?: "core" | "leave" | "pt" | "full") {
   const authed = Boolean(useAuthStore((s) => s.user));
   return useQuery({
-    queryKey: ["settings"],
-    queryFn: settingsApi.get,
+    queryKey: ["settings", scope || "default"],
+    queryFn: () => settingsApi.get(scope),
     enabled: authed,
   });
 }
@@ -69,7 +69,7 @@ export function useLogs() {
   const authed = Boolean(useAuthStore((s) => s.user));
   return useQuery({
     queryKey: ["logs"],
-    queryFn: logsApi.list,
+    queryFn: () => logsApi.listAll(),
     enabled: authed,
   });
 }

@@ -43,6 +43,16 @@ export async function changePassword(currentPassword: string, newPassword: strin
   });
 }
 
+export async function adminSetPassword(staffId: string, newPassword: string) {
+  return apiFetch<{ ok?: boolean; staffId?: string; status?: string }>(
+    "/auth/admin-set-password",
+    {
+      method: "POST",
+      body: JSON.stringify({ staffId, newPassword }),
+    },
+  );
+}
+
 export async function switchActiveBranch(gymCodeId: string) {
   const data = await apiFetch<{ token?: string; user: AuthUser }>("/auth/active-branch", {
     method: "PATCH",

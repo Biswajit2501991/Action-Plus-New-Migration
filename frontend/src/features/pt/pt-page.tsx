@@ -28,6 +28,9 @@ import { cn, formatDate } from "@/lib/utils";
 import { useAuthStore } from "@/stores";
 import type { PtClientProfile } from "@/types/pt";
 
+const EMPTY_PT_PROFILE: PtClientProfile = {};
+const EMPTY_PT_PROFILES: Record<string, PtClientProfile> = {};
+
 export function PtPage() {
   const user = useAuthStore((s) => s.user);
   const actorName = user?.name || user?.id || "";
@@ -42,7 +45,8 @@ export function PtPage() {
   const canEditPtWorkout = access.ptClients?.editPtWorkout !== false;
   const canUploadDietDocuments = access.ptClients?.uploadDietDocuments !== false;
 
-  const profiles = (settings?.ptClientProfiles || {}) as Record<string, PtClientProfile>;
+  const profilesMap = settings?.ptClientProfiles as Record<string, PtClientProfile> | undefined;
+  const profiles = profilesMap || EMPTY_PT_PROFILES;
   const ptMembers = useMemo(() => members.filter((m) => isPtEligibleMember(m)), [members]);
 
   const [selectedMemberId, setSelectedMemberId] = useState("");
@@ -51,26 +55,43 @@ export function PtPage() {
 
   const [workoutNotesDraft, setWorkoutNotesDraft] = useState("");
   const [workoutPlanDraft, setWorkoutPlanDraft] = useState("");
-  const [dietDraft, setDietDraft] = useState(ptDietDraftFromProfile(null));
+  const [dietDraft, setDietDraft] = useState(() => ptDietDraftFromProfile(null));
 
   useEffect(() => {
     if (!ptMembers.length) {
-      setSelectedMemberId("");
+      setSelectedMemberId((prev) => (prev ? "" : prev));
       return;
     }
     if (!selectedMemberId || !ptMembers.some((m) => m.memberId === selectedMemberId)) {
-      setSelectedMemberId(ptMembers[0].memberId);
+      const nextId = ptMembers[0].memberId;
+      setSelectedMemberId((prev) => (prev === nextId ? prev : nextId));
     }
   }, [ptMembers, selectedMemberId]);
 
   const selectedMember = ptMembers.find((m) => m.memberId === selectedMemberId) || null;
-  const profile: PtClientProfile = selectedMember ? profiles[selectedMember.memberId] || {} : {};
+  const profile: PtClientProfile =
+    (selectedMemberId && profiles[selectedMemberId]) || EMPTY_PT_PROFILE;
 
+  // Sync drafts when the selected client (or their saved profile) changes.
+  // Bail out of setState when values are unchanged to avoid update-depth loops
+  // if settings/profile object identity churns between renders.
   useEffect(() => {
-    setWorkoutNotesDraft(ptWorkoutNotesDraftFromProfile(profile));
-    setWorkoutPlanDraft(ptWorkoutPlanDraftFromProfile(profile));
-    setDietDraft(ptDietDraftFromProfile(profile));
-  }, [selectedMemberId, profile]);
+    const nextProfile =
+      (selectedMemberId && profilesMap?.[selectedMemberId]) || EMPTY_PT_PROFILE;
+    const notes = ptWorkoutNotesDraftFromProfile(nextProfile);
+    const plan = ptWorkoutPlanDraftFromProfile(nextProfile);
+    const diet = ptDietDraftFromProfile(nextProfile);
+    setWorkoutNotesDraft((prev) => (prev === notes ? prev : notes));
+    setWorkoutPlanDraft((prev) => (prev === plan ? prev : plan));
+    setDietDraft((prev) =>
+      prev.calories === diet.calories &&
+      prev.protein === diet.protein &&
+      prev.water === diet.water &&
+      prev.dietPlan === diet.dietPlan
+        ? prev
+        : diet,
+    );
+  }, [selectedMemberId, profilesMap]);
 
   const focusOptions = useMemo(() => {
     const fromSettings = Array.isArray(settings?.exerciseTypes)

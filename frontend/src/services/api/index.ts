@@ -73,11 +73,46 @@ export const usersApi = {
       method: "PUT",
       body: JSON.stringify({ users }),
     }),
+  /** Upsert one staff row (backend writeUsers is upsert-only). */
+  upsert: (user: StaffUser) =>
+    apiFetch<{ ok?: boolean }>("/users/bulk", {
+      method: "PUT",
+      body: JSON.stringify({ users: [sanitizeStaffForApi(user)] }),
+    }),
+  cleanup: (userIds: string[]) =>
+    apiFetch<{
+      ok?: boolean;
+      deleted?: string[];
+      deactivated?: string[];
+      skipped?: Array<{ id?: string; reason?: string }>;
+    }>("/users/cleanup", {
+      method: "POST",
+      body: JSON.stringify({ userIds }),
+    }),
+  uploadPhoto: (staffId: string, image: string) =>
+    apiFetch<{ ok?: boolean; photoUrl?: string; photoVersion?: number; user?: StaffUser }>(
+      `/users/${encodeURIComponent(staffId)}/photo`,
+      {
+        method: "POST",
+        body: JSON.stringify({ image }),
+      },
+    ),
 };
 
+function sanitizeStaffForApi(user: StaffUser) {
+  const { password: _pw, photo: _photo, ...safe } = user as StaffUser & {
+    password?: string;
+    photo?: string;
+  };
+  return { ...safe, syncBranchAssignments: user.id !== "owner" };
+}
+
 export const settingsApi = {
-  get: () => apiFetch<AppSettings>("/settings"),
-  bulk: (settings: AppSettings) =>
+  get: (scope?: "core" | "leave" | "pt" | "full") => {
+    const qs = scope ? `?scope=${encodeURIComponent(scope)}` : "";
+    return apiFetch<AppSettings>(`/settings${qs}`);
+  },
+  bulk: (settings: Partial<AppSettings>) =>
     apiFetch<{ ok?: boolean }>("/settings/bulk", {
       method: "PUT",
       body: JSON.stringify({ settings }),
@@ -238,8 +273,47 @@ export const leaveApi = {
   },
 };
 
+export const AUDIT_LOGS_PAGE_SIZE = 1000;
+export const AUDIT_LOGS_LIST_LIMIT = 25000;
+
 export const logsApi = {
-  list: () => apiFetch<AuditLog[]>("/logs"),
+  list: (params?: {
+    view?: string;
+    days?: number;
+    limit?: number;
+    offset?: number;
+  }) => {
+    const q = new URLSearchParams();
+    q.set("view", params?.view || "list");
+    q.set("days", String(params?.days ?? 2555));
+    q.set("limit", String(params?.limit ?? AUDIT_LOGS_LIST_LIMIT));
+    if (params?.offset != null) q.set("offset", String(params.offset));
+    return apiFetch<AuditLog[]>(`/logs?${q.toString()}`);
+  },
+  /** Paginated fetch matching prod Audit Command Center load. */
+  listAll: async (opts?: { days?: number; limit?: number }) => {
+    const requestedLimit = Math.min(opts?.limit ?? AUDIT_LOGS_LIST_LIMIT, 50000);
+    const days = opts?.days ?? 2555;
+    const pageSize = AUDIT_LOGS_PAGE_SIZE;
+    const maxPages = Math.ceil(requestedLimit / pageSize) + 1;
+    let offset = 0;
+    const all: AuditLog[] = [];
+    for (let page = 0; page < maxPages && all.length < requestedLimit; page += 1) {
+      const batch = await logsApi.list({
+        view: "list",
+        days,
+        limit: requestedLimit,
+        offset,
+      });
+      if (!Array.isArray(batch) || batch.length === 0) break;
+      all.push(...batch);
+      if (all.length >= requestedLimit) break;
+      if (batch.length < pageSize) break;
+      offset += batch.length;
+    }
+    return all.length > requestedLimit ? all.slice(0, requestedLimit) : all;
+  },
+  get: (logId: string) => apiFetch<AuditLog>(`/logs/${encodeURIComponent(logId)}`),
   create: (log: Partial<AuditLog>) =>
     apiFetch<AuditLog>("/logs", {
       method: "POST",
@@ -250,7 +324,17 @@ export const logsApi = {
       method: "PUT",
       body: JSON.stringify({ logs }),
     }),
-  cleanup: () => apiFetch<{ ok?: boolean }>("/logs/cleanup", { method: "POST" }),
+  cleanup: (range: { startDate: string; endDate: string }) =>
+    apiFetch<{
+      ok?: boolean;
+      deleted?: number;
+      remaining?: number;
+      startDate?: string;
+      endDate?: string;
+    }>("/logs/cleanup", {
+      method: "POST",
+      body: JSON.stringify(range),
+    }),
 };
 
 export type WhatsappTemplatesResponse = {
@@ -301,17 +385,89 @@ export const ptApi = {
 
 export const gymCodesApi = {
   list: () => apiFetch<GymCode[]>("/gym-codes"),
+  create: (body: { code: string; name?: string; branchName?: string }) =>
+    apiFetch<GymCode>("/gym-codes", {
+      method: "POST",
+      body: JSON.stringify(body),
+    }),
+  updateShift: (
+    id: string,
+    body: { shiftStartTime?: string | null; shiftTimezone?: string | null },
+  ) =>
+    apiFetch<{ ok?: boolean; gymCode?: GymCode }>(`/gym-codes/${encodeURIComponent(id)}/shift`, {
+      method: "PATCH",
+      body: JSON.stringify(body),
+    }),
+  updateBranding: (id: string, body: { displayName?: string; clearLogo?: boolean }) =>
+    apiFetch<{ ok?: boolean; branding?: unknown }>(
+      `/gym-codes/${encodeURIComponent(id)}/branding`,
+      {
+        method: "PATCH",
+        body: JSON.stringify(body),
+      },
+    ),
+  remove: (id: string) =>
+    apiFetch<void>(`/gym-codes/${encodeURIComponent(id)}`, { method: "DELETE" }),
+};
+
+export type StorageUsage = {
+  dbBytes?: number;
+  backupsBytes?: number;
+  backupFileCount?: number;
+  totalBytes?: number;
+  [key: string]: unknown;
 };
 
 export const systemApi = {
-  health: () => apiFetch<Record<string, unknown>>("/health"),
+  health: () => apiFetch<Record<string, unknown>>("/health", {}, { skipAuth: true }),
   version: () => apiFetch<Record<string, unknown>>("/version"),
-  storage: () => apiFetch<Record<string, unknown>>("/storage"),
-  backups: () => apiFetch<unknown[]>("/backups"),
+  storage: () => apiFetch<StorageUsage>("/storage"),
+  backups: () => apiFetch<{ backups?: string[] }>("/backups"),
+  restoreBackup: (fileName: string) =>
+    apiFetch<{ ok?: boolean; fileName?: string }>("/backups/restore", {
+      method: "POST",
+      body: JSON.stringify({ fileName }),
+    }),
+  deleteBackup: (fileName: string) =>
+    apiFetch<{ ok?: boolean; backups?: string[]; storage?: StorageUsage }>(
+      `/backups/${encodeURIComponent(fileName)}`,
+      { method: "DELETE" },
+    ),
+  pruneBackups: (days: number) =>
+    apiFetch<{ ok?: boolean; backups?: string[]; storage?: StorageUsage }>(
+      "/backups/prune-older",
+      {
+        method: "POST",
+        body: JSON.stringify({ days }),
+      },
+    ),
+  keepLatestBackups: (count: number) =>
+    apiFetch<{ ok?: boolean; backups?: string[]; storage?: StorageUsage }>(
+      "/backups/keep-latest",
+      {
+        method: "POST",
+        body: JSON.stringify({ count }),
+      },
+    ),
   processStop: () => apiFetch<{ ok?: boolean }>("/process/stop", { method: "POST" }),
   processRestart: () => apiFetch<{ ok?: boolean }>("/process/restart", { method: "POST" }),
   processStart: () => apiFetch<{ ok?: boolean }>("/process/start", { method: "POST" }),
 };
+
+/** Local supervisor base URL (prod process control path). */
+export function getSupervisorBaseUrl(): string {
+  if (typeof window === "undefined") return "";
+  const rel = process.env.NEXT_PUBLIC_SUPERVISOR_RELATIVE || "";
+  if (rel && window.location?.origin?.startsWith("http")) {
+    const path = rel.startsWith("/") ? rel : `/${rel}`;
+    return `${window.location.origin}${path}`.replace(/\/$/, "");
+  }
+  const fromEnv = process.env.NEXT_PUBLIC_SUPERVISOR_URL || "";
+  if (fromEnv) return String(fromEnv).replace(/\/$/, "");
+  const h = window.location.hostname;
+  if (h === "localhost" || h === "127.0.0.1") return "http://127.0.0.1:4010";
+  return "";
+}
 
 export type PaymentQrItem = {
   id: string;

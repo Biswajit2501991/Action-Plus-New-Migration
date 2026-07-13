@@ -11,8 +11,8 @@ backend/data/
 *.db-shm
 *.db-wal
 
-# Runtime logs
-logs/
+# Runtime logs (repo root only — do not ignore frontend feature folders)
+/logs/
 *.log
 
 # Dependencies

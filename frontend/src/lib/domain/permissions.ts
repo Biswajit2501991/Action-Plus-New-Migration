@@ -236,3 +236,82 @@ export function hasAccess(
   const access = normalizeAccess(user.access);
   return access[group]?.[key] !== false;
 }
+
+export function isMasterOwnerUser(user: AuthUser | null | undefined) {
+  if (!user) return false;
+  const id = String(user.id || "")
+    .trim()
+    .toLowerCase();
+  const role = String(user.staffRole || user.role || "")
+    .trim()
+    .toLowerCase();
+  if (id === "owner" || role === "owner" || role === "master_owner") return true;
+  const roles = Array.isArray(user.roles) ? user.roles : [];
+  return roles.some((r) => {
+    const key = String(r || "")
+      .trim()
+      .toLowerCase();
+    return key === "owner" || key === "master_owner";
+  });
+}
+
+export function isBranchAdminUser(user: AuthUser | null | undefined) {
+  if (!user) return false;
+  if (isMasterOwnerUser(user)) return true;
+  const role = String(user.staffRole || "")
+    .trim()
+    .toLowerCase();
+  return role === "branch_owner";
+}
+
+export type RoleTemplate = {
+  id: string;
+  title: string;
+  subtitle?: string;
+  sections?: string[];
+  color?: string;
+};
+
+export const DEFAULT_ROLE_TEMPLATES: RoleTemplate[] = [
+  {
+    id: "frontdesk",
+    title: "Front Desk Manager",
+    subtitle: "Member and Front Desk Ops",
+    sections: [
+      "Dashboard",
+      "Members",
+      "PT Clients",
+      "WhatsApp SMS",
+      "Finance",
+      "Attendance",
+      "Leave Tracker",
+      "Settings",
+    ],
+    color: "border-amber-200 bg-amber-50",
+  },
+  {
+    id: "trainer",
+    title: "Trainer",
+    subtitle: "Members & PT focus",
+    sections: ["Dashboard", "Members", "PT Clients", "Attendance"],
+    color: "border-sky-200 bg-sky-50",
+  },
+  {
+    id: "manager",
+    title: "Gym Manager",
+    subtitle: "Ops without Backend",
+    sections: [
+      "Dashboard",
+      "Members",
+      "PT Clients",
+      "WhatsApp SMS",
+      "Finance",
+      "Staff",
+      "Attendance",
+      "Leave Tracker",
+      "Settings",
+      "Logs",
+    ],
+    color: "border-emerald-200 bg-emerald-50",
+  },
+];
