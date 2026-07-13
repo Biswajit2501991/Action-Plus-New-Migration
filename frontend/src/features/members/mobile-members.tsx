@@ -1,0 +1,188 @@
+"use client";
+
+import { useEffect, useMemo, useState } from "react";
+import { useQueryClient } from "@tanstack/react-query";
+import { useSearchParams } from "next/navigation";
+import { Search } from "lucide-react";
+import { MobileChip, MobileHero, MobilePanel } from "@/components/layout/mobile-ui";
+import { MemberAvatar } from "@/components/member-avatar";
+import { Skeleton } from "@/components/ui/misc";
+import { Input } from "@/components/ui/input";
+import { useGymCodes, useMembers, useSettings } from "@/hooks/use-data";
+import { EditMemberModal } from "@/features/members/edit-member-modal";
+import { memberSearchHaystack } from "@/lib/domain/members";
+import { isPaymentByPastDue, overdueDaysForMember, paymentByDateKey } from "@/lib/domain/billing";
+import { formatDate, cn } from "@/lib/utils";
+import { hasAccess } from "@/lib/domain/permissions";
+import { useAuthStore, useUiStore } from "@/stores";
+import type { Member } from "@/types";
+
+const STATUS_FILTERS = ["All", "Active", "Hold", "Deactivated", "Cancelled"] as const;
+
+export function MobileMembers() {
+  const user = useAuthStore((s) => s.user);
+  const setAddMemberOpen = useUiStore((s) => s.setAddMemberOpen);
+  const qc = useQueryClient();
+  const params = useSearchParams();
+  const { data: members = [], isLoading } = useMembers();
+  const { data: settings } = useSettings();
+  const { data: gymCodes = [] } = useGymCodes();
+  const [q, setQ] = useState(params.get("q") || "");
+  const initialStatus = params.get("status");
+  const [status, setStatus] = useState<string>(
+    initialStatus && STATUS_FILTERS.includes(initialStatus as (typeof STATUS_FILTERS)[number])
+      ? initialStatus
+      : "All",
+  );
+  const [editing, setEditing] = useState<Member | null>(null);
+
+  useEffect(() => {
+    const s = params.get("status");
+    if (s && STATUS_FILTERS.includes(s as (typeof STATUS_FILTERS)[number])) setStatus(s);
+  }, [params]);
+
+  const canEdit = hasAccess(user, "members", "editMembers");
+  const canAdd = hasAccess(user, "members", "addMembers");
+
+  const filtered = useMemo(() => {
+    const query = q.trim().toLowerCase();
+    return members
+      .filter((m) => {
+        if (status !== "All" && (m.status || "Active") !== status) return false;
+        if (!query) return true;
+        return memberSearchHaystack(m).toLowerCase().includes(query);
+      })
+      .sort((a, b) => String(a.name || "").localeCompare(String(b.name || "")))
+      .slice(0, 80);
+  }, [members, q, status]);
+
+  if (isLoading) {
+    return (
+      <div className="space-y-3">
+        <Skeleton className="h-16 w-56" />
+        <Skeleton className="h-11 w-full" />
+        <Skeleton className="h-20 w-full" />
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-4">
+      <MobileHero
+        eyebrow="Members"
+        title="Your roster"
+        subtitle={`${members.length} total · tap a card to manage`}
+      />
+
+      <div className="relative">
+        <Search className="pointer-events-none absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+        <Input
+          value={q}
+          onChange={(e) => setQ(e.target.value)}
+          placeholder="Search name, ID, phone…"
+          className="h-12 rounded-2xl border-black/5 bg-white/80 pl-10 shadow-sm dark:border-white/8 dark:bg-white/[0.04]"
+        />
+      </div>
+
+      <div className="flex gap-2 overflow-x-auto pb-1 [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+        {STATUS_FILTERS.map((s) => (
+          <MobileChip key={s} active={status === s} onClick={() => setStatus(s)}>
+            {s}
+          </MobileChip>
+        ))}
+      </div>
+
+      {canAdd ? (
+        <button
+          type="button"
+          onClick={() => setAddMemberOpen(true)}
+          className="w-full rounded-2xl border border-dashed border-slate-300/80 bg-white/50 py-3 text-sm font-semibold text-slate-700 dark:border-white/15 dark:bg-white/[0.03] dark:text-slate-200"
+        >
+          + Add member
+        </button>
+      ) : null}
+
+      <div className="space-y-2.5">
+        {filtered.length === 0 ? (
+          <MobilePanel>
+            <p className="px-4 py-8 text-center text-sm text-slate-500">No members match.</p>
+          </MobilePanel>
+        ) : (
+          filtered.map((m) => {
+            const overdue = isPaymentByPastDue(m);
+            const payBy = paymentByDateKey(m);
+            return (
+              <button
+                key={m.memberId}
+                type="button"
+                disabled={!canEdit}
+                onClick={() => canEdit && setEditing(m)}
+                className={cn(
+                  "flex w-full items-center gap-3 rounded-[1.25rem] border px-3.5 py-3 text-left shadow-sm transition",
+                  overdue
+                    ? "border-rose-200/80 bg-rose-50/70 dark:border-rose-500/20 dark:bg-rose-950/25"
+                    : "border-black/5 bg-white/85 dark:border-white/8 dark:bg-white/[0.04]",
+                  canEdit && "active:scale-[0.99]",
+                )}
+              >
+                <MemberAvatar member={m} className="h-12 w-12" />
+                <div className="min-w-0 flex-1">
+                  <div className="flex items-center gap-2">
+                    <p className="truncate text-sm font-semibold text-slate-900 dark:text-slate-50">
+                      {m.name || "—"}
+                    </p>
+                    <span
+                      className={cn(
+                        "shrink-0 rounded-md px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wide",
+                        m.status === "Active" &&
+                          "bg-emerald-500/15 text-emerald-700 dark:text-emerald-300",
+                        m.status === "Hold" && "bg-amber-500/15 text-amber-700 dark:text-amber-300",
+                        m.status === "Deactivated" &&
+                          "bg-rose-500/15 text-rose-700 dark:text-rose-300",
+                        (!m.status || m.status === "Cancelled") &&
+                          "bg-slate-500/15 text-slate-600 dark:text-slate-300",
+                      )}
+                    >
+                      {m.status || "Active"}
+                    </span>
+                  </div>
+                  <p className="truncate text-[11px] text-slate-500 dark:text-slate-400">
+                    {m.memberId} · {m.plan || "No plan"}
+                  </p>
+                  <p className="mt-0.5 text-[11px] text-slate-500 dark:text-slate-400">
+                    Pay by {formatDate(payBy || m.billingDate) || "—"}
+                    {overdue ? (
+                      <span className="font-semibold text-rose-600 dark:text-rose-400">
+                        {" "}
+                        · {overdueDaysForMember(m)}d overdue
+                      </span>
+                    ) : null}
+                  </p>
+                </div>
+              </button>
+            );
+          })
+        )}
+      </div>
+
+      {editing ? (
+        <EditMemberModal
+          key={editing.memberId}
+          member={editing}
+          onClose={() => setEditing(null)}
+          onSaved={async () => {
+            setEditing(null);
+            await qc.invalidateQueries({ queryKey: ["members"] });
+          }}
+          settings={settings}
+          gymCodes={gymCodes}
+          currentUser={user}
+          planOptions={settings?.plans}
+          statusOptions={settings?.statuses || ["Active", "Hold", "Deactivated", "Cancelled"]}
+          holdOptions={settings?.holdDurations}
+          paymentOptions={settings?.paymentMethods}
+        />
+      ) : null}
+    </div>
+  );
+}

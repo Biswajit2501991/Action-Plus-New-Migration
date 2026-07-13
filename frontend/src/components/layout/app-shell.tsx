@@ -25,6 +25,7 @@ import { useRealtimeSync } from "@/hooks/use-realtime";
 import { useGymCodes } from "@/hooks/use-data";
 import { useStaffPhotoHydration } from "@/hooks/use-staff-photo-hydration";
 import { useWarmAppDataCache } from "@/hooks/use-warm-app-cache";
+import { useIsMobile } from "@/hooks/use-is-mobile";
 import { useUiStore } from "@/stores";
 import { Button } from "@/components/ui/button";
 import { Select } from "@/components/ui/input";
@@ -33,10 +34,12 @@ import { StaffAvatar } from "@/components/staff-avatar";
 import { CommandPalette } from "@/features/search/command-palette";
 import { AddMemberHost } from "@/features/members/add-member-host";
 import { AppSectionTabs } from "@/components/layout/section-tabs";
+import { MobileShell } from "@/components/layout/mobile-shell";
+import { Skeleton } from "@/components/ui/misc";
 
-export function AppShell({ children }: { children: React.ReactNode }) {
+function DesktopShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
-  const { user, logout, changeBranch, isAuthenticated } = useAuth();
+  const { user, logout, changeBranch } = useAuth();
   const { data: gymCodes } = useGymCodes();
   const {
     sidebarCollapsed,
@@ -52,10 +55,6 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   } = useUiStore();
   const { theme, setTheme } = useTheme();
   const [fabHover, setFabHover] = useState(false);
-
-  useRealtimeSync(isAuthenticated);
-  useStaffPhotoHydration(user ? [user] : []);
-  useWarmAppDataCache(isAuthenticated);
 
   const brand = useMemo(
     () =>
@@ -120,13 +119,23 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         <aside
           className={cn(
             "sticky top-0 hidden h-screen flex-col border-r border-border/70 bg-card/60 backdrop-blur-xl transition-all lg:flex",
-            sidebarCollapsed ? "w-[76px]" : "w-[260px]",
+            sidebarCollapsed ? "w-[72px]" : "w-[248px]",
           )}
         >
-          <div className="flex items-center justify-between gap-2 px-4 py-5">
-            {brandBlock(sidebarCollapsed)}
-            <Button variant="ghost" size="icon" onClick={toggleSidebar} aria-label="Toggle sidebar">
-              {sidebarCollapsed ? <ChevronRight className="h-4 w-4" /> : <ChevronLeft className="h-4 w-4" />}
+          <div className="flex items-center gap-2 border-b border-border/70 px-3 py-4">
+            <div className="min-w-0 flex-1">{brandBlock(sidebarCollapsed)}</div>
+            <Button
+              variant="ghost"
+              size="icon"
+              className="shrink-0"
+              onClick={toggleSidebar}
+              aria-label={sidebarCollapsed ? "Expand sidebar" : "Collapse sidebar"}
+            >
+              {sidebarCollapsed ? (
+                <ChevronRight className="h-4 w-4" />
+              ) : (
+                <ChevronLeft className="h-4 w-4" />
+              )}
             </Button>
           </div>
 
@@ -212,7 +221,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                     href={item.href}
                     onClick={() => setMobileNavOpen(false)}
                     className={cn(
-                      "flex items-center gap-3 rounded-xl px-3 py-2 text-sm",
+                      "flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm",
                       pathname.startsWith(item.href) ? "bg-sky-600 text-white" : "hover:bg-accent",
                     )}
                   >
@@ -291,28 +300,6 @@ export function AppShell({ children }: { children: React.ReactNode }) {
             <AppSectionTabs />
             {children}
           </main>
-
-          <nav className="sticky bottom-0 z-30 flex border-t border-border/70 bg-background/90 px-2 py-2 backdrop-blur-xl lg:hidden">
-            {visibleNav
-              .filter((i) =>
-                ["/dashboard", "/members", "/attendance", "/finance", "/settings"].includes(i.href),
-              )
-              .map((item) => (
-                <Link
-                  key={item.href}
-                  href={item.href}
-                  className={cn(
-                    "flex flex-1 flex-col items-center gap-1 rounded-xl py-2 text-[10px]",
-                    pathname.startsWith(item.href)
-                      ? "text-sky-700 dark:text-sky-400"
-                      : "text-muted-foreground",
-                  )}
-                >
-                  <item.icon className="h-4 w-4" />
-                  {item.label.split(" ")[0]}
-                </Link>
-              ))}
-          </nav>
         </div>
       </div>
 
@@ -331,8 +318,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           onFocus={() => setFabHover(true)}
           onBlur={() => setFabHover(false)}
           className={cn(
-            "fixed right-4 z-40 flex items-center rounded-full bg-sky-600 py-3 text-white shadow-lg transition-all hover:bg-sky-700 md:right-6",
-            "bottom-24 md:bottom-6",
+            "fixed bottom-6 right-6 z-40 flex items-center rounded-full bg-sky-600 py-3 text-white shadow-lg transition-all hover:bg-sky-700",
             fabHover ? "gap-2 px-4" : "gap-0 px-3",
           )}
           aria-label="Add Member"
@@ -343,4 +329,31 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       ) : null}
     </div>
   );
+}
+
+export function AppShell({ children }: { children: React.ReactNode }) {
+  const { user, isAuthenticated } = useAuth();
+  const isMobile = useIsMobile();
+
+  useRealtimeSync(isAuthenticated);
+  useStaffPhotoHydration(user ? [user] : []);
+  useWarmAppDataCache(isAuthenticated);
+
+  if (isMobile === null) {
+    return (
+      <div className="flex min-h-dvh items-center justify-center bg-background p-6">
+        <div className="w-full max-w-sm space-y-3">
+          <Skeleton className="h-10 w-40" />
+          <Skeleton className="h-24 w-full" />
+          <Skeleton className="h-24 w-full" />
+        </div>
+      </div>
+    );
+  }
+
+  if (isMobile) {
+    return <MobileShell>{children}</MobileShell>;
+  }
+
+  return <DesktopShell>{children}</DesktopShell>;
 }

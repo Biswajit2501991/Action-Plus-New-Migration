@@ -69,9 +69,9 @@ export const NAV_GROUP_ORDER = [
 export const MOBILE_PRIMARY = [
   "/dashboard",
   "/members",
-  "/attendance",
-  "/finance",
-  "/more",
+  "/pt",
+  "/staff",
+  "/leave",
 ];
 
 export function sectionHref(section: string) {
