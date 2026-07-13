@@ -56,9 +56,6 @@ function statusDot(status?: string) {
   return "bg-slate-400";
 }
 
-const ROW_GRID =
-  "grid min-w-[920px] grid-cols-[20px_76px_minmax(200px,1.05fr)_68px_68px_minmax(360px,2.6fr)] items-center gap-x-1 gap-y-0";
-
 export function MemberCardRow({
   m,
   selected,
@@ -94,8 +91,7 @@ export function MemberCardRow({
         type="button"
         onClick={onToggleExpand}
         className={cn(
-          "apg-member-row-card w-full rounded-xl border bg-white px-2 py-1.5 text-left text-[10px] text-slate-700 shadow-[0_1px_0_rgba(15,23,42,0.02)] transition hover:border-slate-300 hover:bg-slate-50/70 hover:shadow-[0_6px_20px_rgba(15,23,42,0.06)] dark:bg-card dark:text-foreground",
-          ROW_GRID,
+          "apg-member-row-card grid w-full min-w-[980px] grid-cols-[22px_88px_minmax(140px,1.4fr)_90px_78px_78px_minmax(280px,1.8fr)] items-center gap-1.5 rounded-xl border bg-white px-2.5 py-1.5 text-left text-[10px] text-slate-700 shadow-[0_1px_0_rgba(15,23,42,0.02)] transition hover:border-slate-300 hover:bg-slate-50/70 hover:shadow-[0_6px_20px_rgba(15,23,42,0.06)] dark:bg-card dark:text-foreground",
           overdue && "apg-member-row--fine-due font-medium",
           billingToday && "apg-member-row--billing-today font-medium",
           !overdue && !billingToday && "border-slate-200/90 dark:border-border",
@@ -132,23 +128,19 @@ export function MemberCardRow({
               initials(m.name)
             )}
           </span>
-          <span className="flex min-w-0 flex-1 items-center gap-1.5">
-            <span className="flex min-w-0 max-w-[58%] items-center gap-1">
-              <span className="truncate font-semibold text-slate-900 dark:text-foreground">
-                {m.name || "—"}
+          <span className="flex min-w-0 items-center gap-1">
+            <span className="truncate font-semibold text-slate-900 dark:text-foreground">
+              {m.name || "—"}
+            </span>
+            {isNewMember(m) ? (
+              <span className="inline-flex shrink-0 items-center rounded-md bg-[#EF4444] px-1.5 py-0.5 text-[8px] font-semibold uppercase leading-none text-white">
+                New
               </span>
-              {isNewMember(m) ? (
-                <span className="inline-flex shrink-0 items-center rounded-md bg-[#EF4444] px-1.5 py-0.5 text-[8px] font-semibold uppercase leading-none text-white">
-                  New
-                </span>
-              ) : null}
-            </span>
-            <span className="min-w-0 flex-1 truncate text-slate-600 dark:text-muted-foreground" title={m.plan || undefined}>
-              {m.plan || "—"}
-            </span>
+            ) : null}
           </span>
         </span>
 
+        <span className="truncate text-slate-700 dark:text-foreground">{m.plan || "—"}</span>
         <span className="whitespace-nowrap text-slate-700 dark:text-foreground">
           {fmtDate(m.billingDate)}
         </span>
@@ -162,12 +154,12 @@ export function MemberCardRow({
         </span>
 
         <span
-          className="flex min-w-0 flex-nowrap items-center gap-1 overflow-hidden"
+          className="flex min-w-0 flex-nowrap items-center gap-1.5"
           onClick={(e) => e.stopPropagation()}
         >
           <span
             className={cn(
-              "inline-flex h-6 w-[68px] shrink-0 items-center justify-center gap-1 rounded-full border px-1.5 text-[10px] font-semibold leading-none",
+              "inline-flex h-6 w-[72px] shrink-0 items-center justify-center gap-1 rounded-full border px-2 text-[10px] font-semibold leading-none",
               statusTone(String(m.status)),
             )}
           >
@@ -216,14 +208,14 @@ export function MemberCardRow({
 
           {statusSentText ? (
             <span
-              className="min-w-0 flex-1 truncate rounded-md border border-amber-200 bg-amber-50 px-2 py-1 text-[9px] text-amber-800 dark:border-amber-900 dark:bg-amber-950/40 dark:text-amber-200"
+              className="max-w-[210px] truncate rounded-md border border-amber-200 bg-amber-50 px-2 py-1 text-[9px] text-amber-800 dark:border-amber-900 dark:bg-amber-950/40 dark:text-amber-200"
               title={statusSentText}
             >
               {statusSentText}
             </span>
           ) : null}
 
-          <span className="inline-flex shrink-0 text-slate-400" aria-hidden="true">
+          <span className="ml-auto inline-flex text-slate-400" aria-hidden="true">
             {expanded ? <ChevronUp className="h-3.5 w-3.5" /> : <ChevronDown className="h-3.5 w-3.5" />}
           </span>
         </span>
@@ -241,24 +233,17 @@ export function MemberListHeader({
 }) {
   const ind = (field: string) => (sortIndicator ? sortIndicator(field) : "");
   return (
-    <div
-      className={cn(
-        ROW_GRID,
-        "rounded-xl border border-sky-100 bg-sky-50/80 px-2 py-1.5 text-[10px] font-semibold uppercase tracking-wide text-slate-600 dark:border-sky-900 dark:bg-sky-950/30 dark:text-sky-100",
-      )}
-    >
+    <div className="grid min-w-[980px] grid-cols-[22px_88px_minmax(140px,1.4fr)_90px_78px_78px_minmax(280px,1.8fr)] items-center gap-1.5 rounded-xl border border-sky-100 bg-sky-50/80 px-2.5 py-1.5 text-[10px] font-semibold uppercase tracking-wide text-slate-600 dark:border-sky-900 dark:bg-sky-950/30 dark:text-sky-100">
       <span />
       <button type="button" className="text-left" onClick={() => onSort?.("memberId")}>
         ID {ind("memberId")}
       </button>
-      <span className="flex min-w-0 items-center gap-1.5">
-        <button type="button" className="text-left" onClick={() => onSort?.("name")}>
-          Name {ind("name")}
-        </button>
-        <button type="button" className="text-left text-slate-500" onClick={() => onSort?.("plan")}>
-          / Plan {ind("plan")}
-        </button>
-      </span>
+      <button type="button" className="text-left" onClick={() => onSort?.("name")}>
+        Name {ind("name")}
+      </button>
+      <button type="button" className="text-left" onClick={() => onSort?.("plan")}>
+        Plan {ind("plan")}
+      </button>
       <button type="button" className="text-left" onClick={() => onSort?.("billingDate")}>
         Bill Date {ind("billingDate")}
       </button>

@@ -22,12 +22,13 @@ import {
   overdueDaysForMember,
   paymentByDateKey,
   localTodayCalendarKey,
+  localCalendarDateKey,
 } from "@/lib/domain/billing";
 import { formatCurrency, formatDate, downloadTextFile, toCsv, cn } from "@/lib/utils";
 import { hasAccess } from "@/lib/domain/permissions";
 import { useAuthStore, useUiStore } from "@/stores";
 import type { Member, Visitor } from "@/types";
-import { isBillingToday } from "@/lib/domain/member-actions";
+import { isBillingToday, isNewMember } from "@/lib/domain/member-actions";
 import { MemberExpandedDetails } from "@/features/members/member-expanded-details";
 import { PaymentQrButton } from "@/features/members/payment-qr-viewer";
 import { MemberCardRow, MemberListHeader } from "@/features/members/member-card-row";
@@ -110,7 +111,6 @@ export function MembersPage() {
   const [actionsOpen, setActionsOpen] = useState(false);
   const [sortField, setSortField] = useState<SortField>("joiningDate");
   const [sortDirection, setSortDirection] = useState<"asc" | "desc">("desc");
-  const [userHasSorted, setUserHasSorted] = useState(false);
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [pages, setPages] = useState<Record<StatusKey, number>>({
     Active: 1,
@@ -204,26 +204,36 @@ export function MembersPage() {
   );
 
   const sortMembers = useCallback(
-    (list: Member[], opts?: { pinBillingToday?: boolean }) => {
+    (list: Member[], opts?: { prioritizeActiveSpotlight?: boolean }) => {
       const sorted = [...list];
       const dir = sortDirection === "asc" ? 1 : -1;
       const todayKey = localTodayCalendarKey();
-      const pinBillingToday = opts?.pinBillingToday !== false && !userHasSorted;
-      sorted.sort((a, b) => {
-        if (pinBillingToday) {
-          // Default Active list: billing-date-today first, then overdue, then everyone else.
-          const prA = isBillingToday(a, todayKey)
-            ? 2
-            : isPaymentByPastDue(a)
-              ? 1
-              : 0;
-          const prB = isBillingToday(b, todayKey)
-            ? 2
-            : isPaymentByPastDue(b)
-              ? 1
-              : 0;
-          if (prB !== prA) return prB - prA;
+      const spotlight = opts?.prioritizeActiveSpotlight !== false;
+
+      const getPriority = (m: Member) => {
+        const joiningToday = localCalendarDateKey(m.joiningDate) === todayKey;
+        const newAdmission = joiningToday || isNewMember(m);
+        const billingToday = isBillingToday(m, todayKey);
+        const overdue = isPaymentByPastDue(m, { asOfKey: todayKey });
+
+        // Active list: billing-today + new admissions first, then overdue, then rest.
+        if (spotlight) {
+          if (billingToday && newAdmission) return 5;
+          if (billingToday) return 4;
+          if (newAdmission) return 3;
+          if (overdue) return 2;
+          return 0;
         }
+
+        if (overdue) return 2;
+        if (billingToday) return 1;
+        return 0;
+      };
+
+      sorted.sort((a, b) => {
+        const prA = getPriority(a);
+        const prB = getPriority(b);
+        if (prB !== prA) return prB - prA;
         if (sortField === "billingDate" || sortField === "joiningDate") {
           const at = new Date(String(a[sortField] || 0)).getTime() || 0;
           const bt = new Date(String(b[sortField] || 0)).getTime() || 0;
@@ -241,7 +251,7 @@ export function MembersPage() {
       });
       return sorted;
     },
-    [sortDirection, sortField, userHasSorted],
+    [sortDirection, sortField],
   );
 
   const filtered = useMemo(() => applyFilters(members), [members, applyFilters]);
@@ -249,13 +259,17 @@ export function MembersPage() {
   const grouped = useMemo(() => {
     const base = applyFilters(members);
     return {
-      Active: sortMembers(base.filter((m) => m.status === "Active"), { pinBillingToday: true }),
-      Hold: sortMembers(base.filter((m) => m.status === "Hold"), { pinBillingToday: false }),
+      Active: sortMembers(base.filter((m) => m.status === "Active"), {
+        prioritizeActiveSpotlight: true,
+      }),
+      Hold: sortMembers(base.filter((m) => m.status === "Hold"), {
+        prioritizeActiveSpotlight: false,
+      }),
       Deactivated: sortMembers(base.filter((m) => m.status === "Deactivated"), {
-        pinBillingToday: false,
+        prioritizeActiveSpotlight: false,
       }),
       Cancelled: sortMembers(base.filter((m) => m.status === "Cancelled"), {
-        pinBillingToday: false,
+        prioritizeActiveSpotlight: false,
       }),
     };
   }, [members, applyFilters, sortMembers]);
@@ -278,7 +292,6 @@ export function MembersPage() {
   };
 
   const toggleSort = (field: SortField) => {
-    setUserHasSorted(true);
     if (sortField === field) setSortDirection((d) => (d === "asc" ? "desc" : "asc"));
     else {
       setSortField(field);
