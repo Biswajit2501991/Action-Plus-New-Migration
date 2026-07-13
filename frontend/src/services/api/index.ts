@@ -197,16 +197,18 @@ export const whatsappApi = {
 };
 
 export const ptApi = {
-  patchProfiles: (profiles: Record<string, unknown>) =>
-    apiFetch<unknown>("/pt-client-profiles", {
-      method: "PATCH",
-      body: JSON.stringify(profiles),
-    }),
-  patchProfile: (id: string, body: Record<string, unknown>) =>
-    apiFetch<unknown>(`/pt-client-profiles/${encodeURIComponent(id)}`, {
-      method: "PATCH",
-      body: JSON.stringify(body),
-    }),
+  patchProfile: (
+    memberId: string,
+    profile: Record<string, unknown>,
+    mode: "workout" | "plan" = "workout",
+  ) =>
+    apiFetch<{ ok?: boolean; memberId?: string; profile?: Record<string, unknown> }>(
+      "/pt-client-profiles",
+      {
+        method: "PATCH",
+        body: JSON.stringify({ memberId, profile, mode }),
+      },
+    ),
 };
 
 export const gymCodesApi = {
