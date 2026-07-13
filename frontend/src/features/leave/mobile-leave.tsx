@@ -22,6 +22,7 @@ import {
   staffDisplayName,
 } from "@/lib/domain/leave";
 import { useAuthStore } from "@/stores";
+import { useMobileFeatureAccess } from "@/components/layout/mobile-access-guard";
 import { ApiError } from "@/services/api/client";
 import type { LeaveRequest } from "@/types";
 
@@ -30,8 +31,10 @@ export function MobileLeave() {
   const qc = useQueryClient();
   const { data: settings, isLoading } = useSettings();
   const { data: users = [] } = useUsers();
+  const mobile = useMobileFeatureAccess();
 
-  const canCreate = hasAccess(user, "leave", "viewCreateLeaveRequest");
+  const canCreate =
+    hasAccess(user, "leave", "viewCreateLeaveRequest") && mobile.leaveCreate;
   const canViewRequests = hasAccess(user, "leave", "viewLeaveRequests");
   const isOwnerOrManager =
     String(user?.id || "").toLowerCase() === "owner" ||
@@ -42,7 +45,7 @@ export function MobileLeave() {
     String(user?.staffRole || user?.role || "")
       .toLowerCase()
       .includes("manager");
-  const canApprove = isOwnerOrManager && canViewRequests;
+  const canApprove = isOwnerOrManager && canViewRequests && mobile.leaveApprove;
 
   const staff = useMemo(() => (users || []).filter((u) => !u.blocked), [users]);
   const today = localTodayCalendarKey();

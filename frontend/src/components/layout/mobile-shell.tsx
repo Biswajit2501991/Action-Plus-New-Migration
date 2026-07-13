@@ -17,7 +17,7 @@ import {
 } from "lucide-react";
 import { useTheme } from "next-themes";
 import { cn } from "@/lib/utils";
-import { canAccessSection, hasAccess } from "@/lib/domain/permissions";
+import { hasAccess } from "@/lib/domain/permissions";
 import { brandingForActiveBranch } from "@/lib/domain/branch-branding";
 import { staffRoleDisplayLabel } from "@/lib/domain/staff-role-label";
 import { useAuth } from "@/hooks/use-auth";
@@ -28,13 +28,14 @@ import { Button } from "@/components/ui/button";
 import { Select } from "@/components/ui/input";
 import { CommandPalette } from "@/features/search/command-palette";
 import { AddMemberHost } from "@/features/members/add-member-host";
+import { MobileAccessGuard } from "@/components/layout/mobile-access-guard";
 
 const MOBILE_TABS = [
-  { href: "/dashboard", label: "Home", section: "Dashboard", icon: LayoutDashboard },
-  { href: "/members", label: "Members", section: "Members", icon: Users },
-  { href: "/pt", label: "PT", section: "PT Clients", icon: Dumbbell },
-  { href: "/staff", label: "Staff", section: "Staff", icon: UserCog },
-  { href: "/leave", label: "Leave", section: "Leave Tracker", icon: Plane },
+  { href: "/dashboard", label: "Home", mobileKey: "viewHome", icon: LayoutDashboard },
+  { href: "/members", label: "Members", mobileKey: "viewMembers", icon: Users },
+  { href: "/pt", label: "PT", mobileKey: "viewPt", icon: Dumbbell },
+  { href: "/staff", label: "Staff", mobileKey: "viewStaff", icon: UserCog },
+  { href: "/leave", label: "Leave", mobileKey: "viewLeave", icon: Plane },
 ] as const;
 
 export function MobileShell({ children }: { children: React.ReactNode }) {
@@ -53,10 +54,12 @@ export function MobileShell({ children }: { children: React.ReactNode }) {
     [gymCodes, user?.activeBranchId, user?.gymCodeId],
   );
 
-  const tabs = MOBILE_TABS.filter((t) => canAccessSection(user, t.section));
+  const tabs = MOBILE_TABS.filter((t) => hasAccess(user, "mobile", t.mobileKey));
+  const showMore = hasAccess(user, "mobile", "viewMore");
   const fabVisible =
     Boolean(user) &&
-    canAccessSection(user, "Members") &&
+    hasAccess(user, "mobile", "viewMembers") &&
+    hasAccess(user, "mobile", "membersAdd") &&
     hasAccess(user, "members", "addMembers") &&
     !addMemberOpen &&
     (pathname.startsWith("/members") || pathname.startsWith("/dashboard"));
@@ -90,16 +93,18 @@ export function MobileShell({ children }: { children: React.ReactNode }) {
             <Sun className="h-4 w-4 dark:hidden" />
             <Moon className="hidden h-4 w-4 dark:block" />
           </Button>
-          <Link
-            href="/more"
-            className={cn(
-              "flex h-10 w-10 items-center justify-center rounded-xl border border-black/5 bg-white/70 text-slate-600 shadow-sm dark:border-white/10 dark:bg-white/5 dark:text-slate-300",
-              pathname.startsWith("/more") && "ring-1 ring-teal-500/40",
-            )}
-            aria-label="More modules"
-          >
-            <Grid2X2 className="h-4 w-4" />
-          </Link>
+          {showMore ? (
+            <Link
+              href="/more"
+              className={cn(
+                "flex h-10 w-10 items-center justify-center rounded-xl border border-black/5 bg-white/70 text-slate-600 shadow-sm dark:border-white/10 dark:bg-white/5 dark:text-slate-300",
+                pathname.startsWith("/more") && "ring-1 ring-teal-500/40",
+              )}
+              aria-label="More modules"
+            >
+              <Grid2X2 className="h-4 w-4" />
+            </Link>
+          ) : null}
         </div>
 
         <div className="mt-3 flex items-center gap-2">
@@ -128,7 +133,7 @@ export function MobileShell({ children }: { children: React.ReactNode }) {
       </header>
 
       <main className="mx-auto max-w-lg px-4 pb-[calc(5.5rem+env(safe-area-inset-bottom))] pt-4">
-        {children}
+        <MobileAccessGuard>{children}</MobileAccessGuard>
       </main>
 
       <nav className="fixed inset-x-0 bottom-0 z-40 border-t border-black/5 bg-[#f3f1ec]/92 px-2 pb-[max(0.5rem,env(safe-area-inset-bottom))] pt-2 backdrop-blur-xl dark:border-white/5 dark:bg-[#070b12]/92">

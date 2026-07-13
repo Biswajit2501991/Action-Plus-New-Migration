@@ -4,7 +4,11 @@ import Link from "next/link";
 import { LogOut } from "lucide-react";
 import { MobileHero, MobilePanel } from "@/components/layout/mobile-ui";
 import { NAV_ITEMS } from "@/lib/nav";
-import { canAccessSection } from "@/lib/domain/permissions";
+import {
+  canAccessSection,
+  hasAccess,
+  mobileAccessKeyForPath,
+} from "@/lib/domain/permissions";
 import { useAuth } from "@/hooks/use-auth";
 import { useIsMobile } from "@/hooks/use-is-mobile";
 import { PageHeader } from "@/components/ui/misc";
@@ -15,9 +19,18 @@ export default function MorePage() {
   const { logout } = useAuth();
   const user = useAuthStore((s) => s.user);
   const isMobile = useIsMobile();
-  const items = NAV_ITEMS.filter((item) => !item.section || canAccessSection(user, item.section));
 
   if (isMobile) {
+    const items = NAV_ITEMS.filter((item) => {
+      const key = mobileAccessKeyForPath(item.href);
+      if (!key) return hasAccess(user, "mobile", "viewMore");
+      if (key === "viewMore") return false;
+      if (key.startsWith("more")) {
+        return hasAccess(user, "mobile", "viewMore") && hasAccess(user, "mobile", key);
+      }
+      return hasAccess(user, "mobile", key);
+    });
+
     return (
       <div className="space-y-4">
         <MobileHero
@@ -53,6 +66,7 @@ export default function MorePage() {
     );
   }
 
+  const items = NAV_ITEMS.filter((item) => !item.section || canAccessSection(user, item.section));
   return (
     <div>
       <PageHeader title="More" description="All modules" />

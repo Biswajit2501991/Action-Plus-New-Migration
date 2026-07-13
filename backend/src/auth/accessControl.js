@@ -90,6 +90,28 @@ export function normalizeAccess(access) {
       viewPaymentQr: access?.paymentQr?.viewPaymentQr !== false,
       managePaymentSettings: access?.paymentQr?.managePaymentSettings === true,
     },
+    mobile: {
+      viewHome: access?.mobile?.viewHome !== false,
+      viewMembers: access?.mobile?.viewMembers !== false,
+      viewPt: access?.mobile?.viewPt !== false,
+      viewStaff: access?.mobile?.viewStaff !== false,
+      viewLeave: access?.mobile?.viewLeave !== false,
+      viewMore: access?.mobile?.viewMore !== false,
+      homeCoreStats: access?.mobile?.homeCoreStats !== false,
+      homeRevenue: access?.mobile?.homeRevenue !== false,
+      homeOverdue: access?.mobile?.homeOverdue !== false,
+      membersAdd: access?.mobile?.membersAdd !== false,
+      membersEdit: access?.mobile?.membersEdit !== false,
+      leaveCreate: access?.mobile?.leaveCreate !== false,
+      leaveApprove: access?.mobile?.leaveApprove !== false,
+      moreFinance: access?.mobile?.moreFinance !== false,
+      moreWhatsapp: access?.mobile?.moreWhatsapp !== false,
+      moreAttendance: access?.mobile?.moreAttendance !== false,
+      moreSettings: access?.mobile?.moreSettings !== false,
+      moreLogs: access?.mobile?.moreLogs !== false,
+      moreSupport: access?.mobile?.moreSupport !== false,
+      moreBackend: access?.mobile?.moreBackend !== false,
+    },
   };
 }
 

@@ -111,6 +111,52 @@ export const PAYMENT_QR_CHILD_PERMISSIONS: AccessChildPermission[] = [
   { key: "managePaymentSettings", label: "Manage Payment Settings (Owner)" },
 ];
 
+/** Primary mobile bottom tabs + More entry (independent of web sections). */
+export const MOBILE_TAB_PERMISSIONS: AccessChildPermission[] = [
+  { key: "viewHome", label: "Home (Dashboard)" },
+  { key: "viewMembers", label: "Members" },
+  { key: "viewPt", label: "PT Clients" },
+  { key: "viewStaff", label: "Staff" },
+  { key: "viewLeave", label: "Leave Tracker" },
+  { key: "viewMore", label: "More menu" },
+];
+
+/** Cards / actions inside mobile Home & Members & Leave. */
+export const MOBILE_FEATURE_PERMISSIONS: AccessChildPermission[] = [
+  { key: "homeCoreStats", label: "Home — Status tiles (Active / Hold / …)" },
+  { key: "homeRevenue", label: "Home — Collected revenue card" },
+  { key: "homeOverdue", label: "Home — Overdue payments list" },
+  { key: "membersAdd", label: "Members — Add member" },
+  { key: "membersEdit", label: "Members — Edit member" },
+  { key: "leaveCreate", label: "Leave — Create request" },
+  { key: "leaveApprove", label: "Leave — Approve / reject" },
+];
+
+/** Modules listed under mobile More (separate from web section access). */
+export const MOBILE_MORE_PERMISSIONS: AccessChildPermission[] = [
+  { key: "moreFinance", label: "More — Finance" },
+  { key: "moreWhatsapp", label: "More — WhatsApp SMS" },
+  { key: "moreAttendance", label: "More — Attendance" },
+  { key: "moreSettings", label: "More — Settings" },
+  { key: "moreLogs", label: "More — Logs" },
+  { key: "moreSupport", label: "More — Support" },
+  { key: "moreBackend", label: "More — Backend" },
+];
+
+export const ALL_MOBILE_PERMISSIONS: AccessChildPermission[] = [
+  ...MOBILE_TAB_PERMISSIONS,
+  ...MOBILE_FEATURE_PERMISSIONS,
+  ...MOBILE_MORE_PERMISSIONS,
+];
+
+const DEFAULT_MOBILE_ACCESS: Record<string, boolean> = Object.fromEntries(
+  ALL_MOBILE_PERMISSIONS.map((p) => [p.key, true]),
+);
+
+const DENIED_MOBILE_ACCESS: Record<string, boolean> = Object.fromEntries(
+  ALL_MOBILE_PERMISSIONS.map((p) => [p.key, false]),
+);
+
 /** Attendance tab visibility — late-note self-submit does not require the tab. */
 export const ATTENDANCE_SECTION_PERMISSION_KEYS = [
   "viewAttendance",
@@ -269,10 +315,11 @@ export function toggleAccessChild(
 
 export function toggleAllSectionsAccess(form: StaffAccessFormSlice): StaffAccessFormSlice {
   const allSelected = ALL_SECTIONS.every((sec) => form.sections.includes(sec));
+  const currentMobile = normalizeAccess(form.access).mobile;
   if (!allSelected) {
     return {
       sections: [...ALL_SECTIONS],
-      access: normalizeAccess(DEFAULT_ACCESS),
+      access: { ...normalizeAccess(DEFAULT_ACCESS), mobile: currentMobile },
     };
   }
   return {
@@ -345,6 +392,7 @@ export function toggleAllSectionsAccess(form: StaffAccessFormSlice): StaffAccess
       support: { viewSupportTemplates: false, editSupportTemplates: false },
       backend: { viewBackendPage: false, controlBackendProcesses: false },
       paymentQr: { viewPaymentQr: false, managePaymentSettings: false },
+      mobile: currentMobile,
     }),
   };
 }
@@ -438,6 +486,7 @@ export const DEFAULT_ACCESS: AccessMap = {
     viewPaymentQr: true,
     managePaymentSettings: false,
   },
+  mobile: { ...DEFAULT_MOBILE_ACCESS },
 };
 
 export function normalizeAccess(access?: AccessMap | null): AccessMap {
@@ -523,6 +572,9 @@ export function normalizeAccess(access?: AccessMap | null): AccessMap {
       viewPaymentQr: a.paymentQr?.viewPaymentQr !== false,
       managePaymentSettings: a.paymentQr?.managePaymentSettings === true,
     },
+    mobile: Object.fromEntries(
+      ALL_MOBILE_PERMISSIONS.map((p) => [p.key, a.mobile?.[p.key] !== false]),
+    ),
   };
 }
 
@@ -576,7 +628,88 @@ export function hasAccess(
   if (!user) return false;
   if (user.id === "owner") return true;
   const access = normalizeAccess(user.access);
-  return access[group]?.[key] !== false;
+  return (access[group] as Record<string, boolean> | undefined)?.[key] !== false;
+}
+
+/** Toggle a single mobile access key without touching web `sections`. */
+export function toggleMobileAccessChild(
+  form: StaffAccessFormSlice,
+  key: string,
+): StaffAccessFormSlice {
+  const normalized = normalizeAccess(form.access);
+  const mobile = { ...(normalized.mobile || {}) };
+  mobile[key] = mobile[key] === false;
+  return { ...form, access: { ...normalized, mobile } };
+}
+
+/** Enable or disable every mobile permission. */
+export function toggleAllMobileAccess(form: StaffAccessFormSlice): StaffAccessFormSlice {
+  const normalized = normalizeAccess(form.access);
+  const allOn = ALL_MOBILE_PERMISSIONS.every((p) => normalized.mobile?.[p.key] !== false);
+  return {
+    ...form,
+    access: {
+      ...normalized,
+      mobile: allOn ? { ...DENIED_MOBILE_ACCESS } : { ...DEFAULT_MOBILE_ACCESS },
+    },
+  };
+}
+
+export function isMobileAccessEnabled(access: AccessMap | null | undefined, key: string) {
+  return normalizeAccess(access).mobile?.[key] !== false;
+}
+
+const MOBILE_PATH_ACCESS: Array<{ prefix: string; key: string }> = [
+  { prefix: "/dashboard", key: "viewHome" },
+  { prefix: "/members", key: "viewMembers" },
+  { prefix: "/pt", key: "viewPt" },
+  { prefix: "/staff", key: "viewStaff" },
+  { prefix: "/leave", key: "viewLeave" },
+  { prefix: "/more", key: "viewMore" },
+  { prefix: "/finance", key: "moreFinance" },
+  { prefix: "/whatsapp", key: "moreWhatsapp" },
+  { prefix: "/attendance", key: "moreAttendance" },
+  { prefix: "/settings", key: "moreSettings" },
+  { prefix: "/logs", key: "moreLogs" },
+  { prefix: "/support", key: "moreSupport" },
+  { prefix: "/backend", key: "moreBackend" },
+];
+
+export function mobileAccessKeyForPath(pathname: string): string | null {
+  const hit = MOBILE_PATH_ACCESS.find(
+    (row) => pathname === row.prefix || pathname.startsWith(`${row.prefix}/`),
+  );
+  return hit?.key || null;
+}
+
+/** Whether this staff may open a route in the phone shell. */
+export function canAccessMobilePath(
+  user: AuthUser | null | undefined,
+  pathname: string,
+): boolean {
+  if (!user) return false;
+  if (user.id === "owner" || isMasterOwnerUser(user)) return true;
+  const key = mobileAccessKeyForPath(pathname);
+  if (!key) return true;
+  if (key.startsWith("more") && key !== "viewMore") {
+    return hasAccess(user, "mobile", "viewMore") && hasAccess(user, "mobile", key);
+  }
+  return hasAccess(user, "mobile", key);
+}
+
+export function firstAllowedMobileHref(user: AuthUser | null | undefined): string {
+  const order = [
+    { href: "/dashboard", key: "viewHome" },
+    { href: "/members", key: "viewMembers" },
+    { href: "/pt", key: "viewPt" },
+    { href: "/staff", key: "viewStaff" },
+    { href: "/leave", key: "viewLeave" },
+    { href: "/more", key: "viewMore" },
+  ] as const;
+  for (const row of order) {
+    if (hasAccess(user, "mobile", row.key)) return row.href;
+  }
+  return "/more";
 }
 
 export function isMasterOwnerUser(user: AuthUser | null | undefined) {

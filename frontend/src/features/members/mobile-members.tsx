@@ -15,6 +15,7 @@ import { isPaymentByPastDue, overdueDaysForMember, paymentByDateKey } from "@/li
 import { formatDate, cn } from "@/lib/utils";
 import { hasAccess } from "@/lib/domain/permissions";
 import { useAuthStore, useUiStore } from "@/stores";
+import { useMobileFeatureAccess } from "@/components/layout/mobile-access-guard";
 import type { Member } from "@/types";
 
 const STATUS_FILTERS = ["All", "Active", "Hold", "Deactivated", "Cancelled"] as const;
@@ -35,14 +36,15 @@ export function MobileMembers() {
       : "All",
   );
   const [editing, setEditing] = useState<Member | null>(null);
+  const mobile = useMobileFeatureAccess();
 
   useEffect(() => {
     const s = params.get("status");
     if (s && STATUS_FILTERS.includes(s as (typeof STATUS_FILTERS)[number])) setStatus(s);
   }, [params]);
 
-  const canEdit = hasAccess(user, "members", "editMembers");
-  const canAdd = hasAccess(user, "members", "addMembers");
+  const canEdit = hasAccess(user, "members", "editMembers") && mobile.membersEdit;
+  const canAdd = hasAccess(user, "members", "addMembers") && mobile.membersAdd;
 
   const filtered = useMemo(() => {
     const query = q.trim().toLowerCase();

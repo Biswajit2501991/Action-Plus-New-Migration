@@ -14,6 +14,7 @@ import { formatCurrency, formatMonthKey } from "@/lib/utils";
 import { hasAccess } from "@/lib/domain/permissions";
 import { useAuthStore } from "@/stores";
 import { MemberAvatar } from "@/components/member-avatar";
+import { useMobileFeatureAccess } from "@/components/layout/mobile-access-guard";
 
 export function MobileDashboard() {
   const router = useRouter();
@@ -22,10 +23,14 @@ export function MobileDashboard() {
   const { data: members = [], isLoading: loadingMembers } = useMembers();
   const { data: finance, isLoading: loadingFinance } = useFinance(month);
   const { data: settings } = useSettings();
+  const mobile = useMobileFeatureAccess();
 
-  const canCore = hasAccess(user, "dashboard", "viewDashboardCore");
-  const canRevenue = hasAccess(user, "dashboard", "viewRevenueMonthly");
-  const canOverdue = hasAccess(user, "dashboard", "viewOverdueRetentionAlerts");
+  const canCore =
+    hasAccess(user, "dashboard", "viewDashboardCore") && mobile.homeCoreStats;
+  const canRevenue =
+    hasAccess(user, "dashboard", "viewRevenueMonthly") && mobile.homeRevenue;
+  const canOverdue =
+    hasAccess(user, "dashboard", "viewOverdueRetentionAlerts") && mobile.homeOverdue;
 
   const summary = (finance?.summary || {}) as {
     collectedRevenue?: number;
