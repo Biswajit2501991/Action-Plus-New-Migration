@@ -91,7 +91,7 @@ export function MemberCardRow({
           }
         }}
         className={cn(
-          "apg-member-row-card grid w-full min-w-[980px] cursor-pointer grid-cols-[22px_88px_minmax(140px,1.4fr)_90px_78px_78px_minmax(280px,1.8fr)] items-center gap-1.5 rounded-xl border bg-white px-2.5 py-1.5 text-left text-[10px] text-slate-700 shadow-[0_1px_0_rgba(15,23,42,0.02)] transition hover:border-slate-300 hover:bg-slate-50/70 hover:shadow-[0_6px_20px_rgba(15,23,42,0.06)] dark:bg-card dark:text-foreground",
+          "apg-member-row-card grid w-full min-w-[980px] cursor-pointer grid-cols-[22px_88px_minmax(140px,1.4fr)_90px_78px_78px_minmax(280px,1.8fr)] items-center gap-1.5 rounded-xl border bg-white px-2.5 py-1.5 text-left text-[10px] text-slate-700 shadow-[0_1px_0_rgba(15,23,42,0.02)] transition hover:border-slate-300 hover:bg-slate-50/70 hover:shadow-[0_6px_20px_rgba(15,23,42,0.06)] dark:bg-card dark:text-foreground dark:hover:border-white/15 dark:hover:bg-white/[0.06] dark:hover:shadow-[0_8px_24px_rgba(0,0,0,0.35)]",
           overdue && "apg-member-row--fine-due font-medium",
           billingToday && "apg-member-row--billing-today font-medium",
           !overdue && !billingToday && "border-slate-200/90 dark:border-border",

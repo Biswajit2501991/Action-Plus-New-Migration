@@ -280,10 +280,20 @@ export function isWhatsAppTemplateKey(key: string): key is WhatsAppTemplateKey {
 }
 
 export function suggestionToneClasses(key: string) {
-  if (key === "fine") return "border-rose-300 bg-rose-50 text-rose-800 hover:bg-rose-100";
-  if (key === "welcome") return "border-emerald-300 bg-emerald-50 text-emerald-800 hover:bg-emerald-100";
-  if (key === "hold") return "border-orange-300 bg-orange-50 text-orange-800 hover:bg-orange-100";
-  if (key === "deactivate") return "border-pink-300 bg-pink-50 text-pink-800 hover:bg-pink-100";
-  if (key === "success") return "border-emerald-300 bg-emerald-50 text-emerald-800 hover:bg-emerald-100";
-  return "border-sky-300 bg-sky-50 text-sky-800 hover:bg-sky-100";
+  if (key === "fine") {
+    return "border-rose-300 bg-rose-50 text-rose-800 hover:bg-rose-100 dark:border-rose-500/30 dark:bg-rose-950/50 dark:text-rose-200 dark:hover:bg-rose-950/80";
+  }
+  if (key === "welcome") {
+    return "border-teal-300 bg-teal-50 text-teal-800 hover:bg-teal-100 dark:border-teal-500/30 dark:bg-teal-950/50 dark:text-teal-200 dark:hover:bg-teal-950/80";
+  }
+  if (key === "hold") {
+    return "border-orange-300 bg-orange-50 text-orange-800 hover:bg-orange-100 dark:border-orange-500/30 dark:bg-orange-950/50 dark:text-orange-200 dark:hover:bg-orange-950/80";
+  }
+  if (key === "deactivate") {
+    return "border-fuchsia-300 bg-fuchsia-50 text-fuchsia-800 hover:bg-fuchsia-100 dark:border-fuchsia-500/30 dark:bg-fuchsia-950/50 dark:text-fuchsia-200 dark:hover:bg-fuchsia-950/80";
+  }
+  if (key === "success") {
+    return "border-emerald-300 bg-emerald-50 text-emerald-800 hover:bg-emerald-100 dark:border-emerald-500/30 dark:bg-emerald-950/50 dark:text-emerald-200 dark:hover:bg-emerald-950/80";
+  }
+  return "border-sky-300 bg-sky-50 text-sky-800 hover:bg-sky-100 dark:border-sky-500/30 dark:bg-sky-950/50 dark:text-sky-200 dark:hover:bg-sky-950/80";
 }

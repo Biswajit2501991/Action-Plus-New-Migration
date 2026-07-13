@@ -1,5 +1,8 @@
 @import "tailwindcss";
 
+/* Match next-themes class toggle (not OS prefers-color-scheme alone). */
+@custom-variant dark (&:where(.dark, .dark *));
+
 :root {
   --background: #f6f8fb;
   --foreground: #0f172a;

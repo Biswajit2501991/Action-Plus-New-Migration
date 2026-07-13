@@ -79,19 +79,40 @@ export function StatCard({
   value,
   hint,
   trend,
+  tone = "slate",
 }: {
   label: string;
   value: string;
   hint?: string;
   trend?: string;
+  tone?: "emerald" | "amber" | "rose" | "orange" | "sky" | "teal" | "slate" | "fuchsia";
 }) {
+  const accents: Record<string, string> = {
+    emerald: "bg-emerald-500",
+    amber: "bg-amber-500",
+    rose: "bg-rose-500",
+    orange: "bg-orange-500",
+    sky: "bg-sky-500",
+    teal: "bg-teal-500",
+    slate: "bg-slate-400 dark:bg-slate-500",
+    fuchsia: "bg-fuchsia-500",
+  };
   return (
-    <div className="rounded-2xl border border-border/80 bg-card/70 p-5 shadow-sm backdrop-blur-sm">
-      <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">{label}</p>
-      <p className="mt-2 text-2xl font-semibold tracking-tight">{value}</p>
-      <div className="mt-2 flex items-center gap-2 text-xs text-muted-foreground">
-        {trend ? <span className="font-medium text-emerald-600 dark:text-emerald-400">{trend}</span> : null}
-        {hint ? <span>{hint}</span> : null}
+    <div className="overflow-hidden rounded-2xl border border-slate-200/80 bg-gradient-to-br from-white to-slate-50 text-slate-900 shadow-sm dark:border-white/8 dark:from-slate-950/80 dark:to-slate-950 dark:text-slate-50 dark:shadow-[0_16px_40px_-20px_rgba(0,0,0,0.7)]">
+      <div className={cn("h-1 w-full", accents[tone] || accents.slate)} />
+      <div className="p-5">
+        <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-500 dark:text-slate-400">
+          {label}
+        </p>
+        <p className="mt-2 text-2xl font-semibold tracking-tight tabular-nums text-slate-900 dark:text-slate-50">
+          {value}
+        </p>
+        <div className="mt-2 flex items-center gap-2 text-xs text-slate-500 dark:text-slate-400">
+          {trend ? (
+            <span className="font-medium text-emerald-600 dark:text-emerald-400">{trend}</span>
+          ) : null}
+          {hint ? <span>{hint}</span> : null}
+        </div>
       </div>
     </div>
   );

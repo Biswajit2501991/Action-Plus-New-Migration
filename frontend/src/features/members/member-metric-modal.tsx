@@ -330,7 +330,7 @@ export function MemberMetricModal({
                   <tr
                     key={m.memberId}
                     className={cn(
-                      "cursor-pointer border-b border-border/60 transition-colors hover:bg-accent/50",
+                      "cursor-pointer border-b border-border/60 transition-colors hover:bg-slate-50 dark:hover:bg-white/[0.06]",
                       rowIdx % 2 === 1 && "bg-muted/20",
                     )}
                     onClick={() => onSelectMember(m)}

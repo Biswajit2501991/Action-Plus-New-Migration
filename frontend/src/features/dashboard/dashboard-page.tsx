@@ -13,6 +13,7 @@ import {
   YAxis,
 } from "recharts";
 import { Plus, Search, SlidersHorizontal } from "lucide-react";
+import { AccentMetricCard, statusAccentTone } from "@/components/ui/accent-metric-card";
 import { Badge, PageHeader, Skeleton } from "@/components/ui/misc";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -50,11 +51,11 @@ import {
   type MetricModalKey,
 } from "@/features/members/member-metric-modal";
 
-const STATUS_TILES: { key: "Active" | "Hold" | "Deactivated" | "Cancelled"; tone: string }[] = [
-  { key: "Active", tone: "bg-emerald-50 border-emerald-200 text-emerald-800 dark:bg-emerald-950/40 dark:border-emerald-800 dark:text-emerald-300" },
-  { key: "Hold", tone: "bg-amber-50 border-amber-200 text-amber-800 dark:bg-amber-950/40 dark:border-amber-800 dark:text-amber-300" },
-  { key: "Deactivated", tone: "bg-rose-50 border-rose-200 text-rose-800 dark:bg-rose-950/40 dark:border-rose-800 dark:text-rose-300" },
-  { key: "Cancelled", tone: "bg-slate-100 border-slate-200 text-slate-800 dark:bg-slate-900/60 dark:border-slate-700 dark:text-slate-300" },
+const STATUS_TILES: Array<"Active" | "Hold" | "Deactivated" | "Cancelled"> = [
+  "Active",
+  "Hold",
+  "Deactivated",
+  "Cancelled",
 ];
 
 type OverdueMember = Member & { overdueDays: number };
@@ -347,42 +348,37 @@ export function DashboardPage() {
 
       {canCore ? (
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-5">
-          {STATUS_TILES.map((tile) => (
-            <button
-              key={tile.key}
-              type="button"
-              onClick={() => setMetricModal(statusTileToMetricKey(tile.key))}
-              className={cn(
-                "rounded-2xl border p-5 text-left shadow-sm transition hover:shadow-md",
-                tile.tone,
-              )}
-            >
-              <div className="text-sm font-medium">{tile.key}</div>
-              <div className="mt-2 text-3xl font-bold tracking-tight">
-                {statusCounts[tile.key] || 0}
-              </div>
-              <div className="mt-1 text-xs underline underline-offset-2">View {tile.key} members</div>
-            </button>
+          {STATUS_TILES.map((key) => (
+            <AccentMetricCard
+              key={key}
+              label={key}
+              value={statusCounts[key] || 0}
+              hint={<span className="underline underline-offset-2">View {key} members</span>}
+              tone={statusAccentTone(key)}
+              onClick={() => setMetricModal(statusTileToMetricKey(key))}
+            />
           ))}
 
           {canRevenue ? (
-            <div className="rounded-2xl border border-emerald-200 bg-emerald-50 p-5 text-emerald-900 shadow-sm dark:border-emerald-800 dark:bg-emerald-950/40 dark:text-emerald-200">
-              <div className="text-sm font-medium">Collected Revenue (This Month)</div>
-              <div className="mt-2 text-3xl font-bold tracking-tight">
-                {formatCurrency(collectedRevenue)}
-              </div>
-              <div className="mt-1 text-xs opacity-90">
-                Payment received this month
-                {growthRate >= 0 ? " · +" : " · "}
-                {growthRate}% vs last month
-                {prevMonthCollected != null
-                  ? ` · Prev ${formatCurrency(prevMonthCollected)}`
-                  : ""}
-              </div>
-              <div className="mt-1 text-xs text-slate-600 dark:text-slate-400">
-                Profit (est.): {formatCurrency(profit)}
-              </div>
-            </div>
+            <AccentMetricCard
+              label="Collected Revenue"
+              tag="This month"
+              value={formatCurrency(collectedRevenue)}
+              tone="teal"
+              hint={
+                <>
+                  Payment received this month
+                  {growthRate >= 0 ? " · +" : " · "}
+                  {growthRate}% vs last month
+                  {prevMonthCollected != null
+                    ? ` · Prev ${formatCurrency(prevMonthCollected)}`
+                    : ""}
+                  <span className="mt-1 block text-current/80">
+                    Profit (est.): {formatCurrency(profit)}
+                  </span>
+                </>
+              }
+            />
           ) : null}
         </div>
       ) : null}

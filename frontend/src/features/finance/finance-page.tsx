@@ -58,6 +58,7 @@ export function FinancePage() {
   const canRevenue = hasAccess(user, "finance", "viewRevenueAutoMembers");
   const canExpenseCard = hasAccess(user, "finance", "viewExpenseCard");
   const canProfit = hasAccess(user, "finance", "viewProfitCard");
+  const canYtd = hasAccess(user, "finance", "viewYtdCollected");
   const canTransactions = hasAccess(user, "finance", "viewTransactionsAutoMembers");
   const canManageExpenses = hasAccess(user, "finance", "manageExpenses");
 
@@ -242,13 +243,23 @@ export function FinancePage() {
             value={formatCurrency(collectedRevenue)}
             trend={`${growth}%`}
             hint={serviceRevenue ? `Service revenue ${formatCurrency(serviceRevenue)}` : undefined}
+            tone="teal"
           />
         ) : null}
         {canExpenseCard ? (
-          <StatCard label="Expenses" value={formatCurrency(expenseTotal)} hint={expenseSubtitle} />
+          <StatCard
+            label="Expenses"
+            value={formatCurrency(expenseTotal)}
+            hint={expenseSubtitle}
+            tone="rose"
+          />
         ) : null}
-        {canProfit ? <StatCard label="Profit" value={formatCurrency(profit)} /> : null}
-        {canRevenue ? <StatCard label="YTD Collected" value={formatCurrency(ytd)} /> : null}
+        {canProfit ? (
+          <StatCard label="Profit" value={formatCurrency(profit)} tone="emerald" />
+        ) : null}
+        {canYtd ? (
+          <StatCard label="YTD Collected" value={formatCurrency(ytd)} tone="sky" />
+        ) : null}
       </div>
 
       {canManageExpenses && showExpenseForm && view === "transactions" ? (

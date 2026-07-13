@@ -195,54 +195,75 @@ export const WHATSAPP_TYPE_META: {
   key: WhatsAppTemplateKey | "templates";
   label: string;
   title: string;
+  /** Card shell — light pastel accent, dark glass with tinted border. */
   tone: string;
+  /** Thin accent bar / pill color for category identity. */
+  accent: string;
+  /** Soft glow / focus tint used on dark surfaces. */
+  glow: string;
 }[] = [
   {
     key: "reminder",
     label: "Reminder",
     title: "Billing Reminder SMS",
-    tone: "border-amber-200 bg-amber-50 text-amber-900",
+    tone: "border-amber-200/90 bg-gradient-to-br from-amber-50 to-white text-amber-950 dark:border-amber-500/20 dark:from-amber-950/40 dark:to-slate-950 dark:text-amber-50",
+    accent: "bg-amber-500",
+    glow: "dark:shadow-[0_0_0_1px_rgba(245,158,11,0.12),0_12px_40px_-16px_rgba(245,158,11,0.35)]",
   },
   {
     key: "monthReminder",
     label: "Month Reminder",
     title: "Month-Based Reminder",
-    tone: "border-sky-200 bg-sky-50 text-sky-900",
+    tone: "border-sky-200/90 bg-gradient-to-br from-sky-50 to-white text-sky-950 dark:border-sky-500/20 dark:from-sky-950/40 dark:to-slate-950 dark:text-sky-50",
+    accent: "bg-sky-500",
+    glow: "dark:shadow-[0_0_0_1px_rgba(14,165,233,0.12),0_12px_40px_-16px_rgba(14,165,233,0.35)]",
   },
   {
     key: "success",
     label: "Success SMS",
     title: "Success SMS",
-    tone: "border-emerald-200 bg-emerald-50 text-emerald-900",
+    tone: "border-emerald-200/90 bg-gradient-to-br from-emerald-50 to-white text-emerald-950 dark:border-emerald-500/20 dark:from-emerald-950/35 dark:to-slate-950 dark:text-emerald-50",
+    accent: "bg-emerald-500",
+    glow: "dark:shadow-[0_0_0_1px_rgba(16,185,129,0.12),0_12px_40px_-16px_rgba(16,185,129,0.35)]",
   },
   {
     key: "fine",
     label: "Fine SMS",
     title: "Overdue / Fine SMS",
-    tone: "border-rose-200 bg-rose-50 text-rose-900",
+    tone: "border-rose-200/90 bg-gradient-to-br from-rose-50 to-white text-rose-950 dark:border-rose-500/20 dark:from-rose-950/40 dark:to-slate-950 dark:text-rose-50",
+    accent: "bg-rose-500",
+    glow: "dark:shadow-[0_0_0_1px_rgba(244,63,94,0.12),0_12px_40px_-16px_rgba(244,63,94,0.35)]",
   },
   {
     key: "deactivate",
     label: "Deactivate SMS",
     title: "Deactivate SMS",
-    tone: "border-pink-200 bg-pink-50 text-pink-900",
+    tone: "border-fuchsia-200/90 bg-gradient-to-br from-fuchsia-50 to-white text-fuchsia-950 dark:border-fuchsia-500/20 dark:from-fuchsia-950/35 dark:to-slate-950 dark:text-fuchsia-50",
+    accent: "bg-fuchsia-500",
+    glow: "dark:shadow-[0_0_0_1px_rgba(217,70,239,0.12),0_12px_40px_-16px_rgba(217,70,239,0.3)]",
   },
   {
     key: "hold",
     label: "Hold SMS",
     title: "Hold SMS",
-    tone: "border-orange-200 bg-orange-50 text-orange-900",
+    tone: "border-orange-200/90 bg-gradient-to-br from-orange-50 to-white text-orange-950 dark:border-orange-500/20 dark:from-orange-950/35 dark:to-slate-950 dark:text-orange-50",
+    accent: "bg-orange-500",
+    glow: "dark:shadow-[0_0_0_1px_rgba(249,115,22,0.12),0_12px_40px_-16px_rgba(249,115,22,0.3)]",
   },
   {
     key: "welcome",
     label: "Welcome SMS",
     title: "Welcome SMS",
-    tone: "border-emerald-200 bg-emerald-50 text-emerald-900",
+    tone: "border-teal-200/90 bg-gradient-to-br from-teal-50 to-white text-teal-950 dark:border-teal-500/20 dark:from-teal-950/35 dark:to-slate-950 dark:text-teal-50",
+    accent: "bg-teal-500",
+    glow: "dark:shadow-[0_0_0_1px_rgba(20,184,166,0.12),0_12px_40px_-16px_rgba(20,184,166,0.3)]",
   },
   {
     key: "templates",
     label: "Templates",
     title: "WhatsApp Templates",
-    tone: "border-indigo-200 bg-indigo-50 text-indigo-900",
+    tone: "border-violet-200/90 bg-gradient-to-br from-violet-50 to-white text-violet-950 dark:border-violet-500/20 dark:from-violet-950/35 dark:to-slate-950 dark:text-violet-50",
+    accent: "bg-violet-500",
+    glow: "dark:shadow-[0_0_0_1px_rgba(139,92,246,0.12),0_12px_40px_-16px_rgba(139,92,246,0.3)]",
   },
 ];

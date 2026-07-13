@@ -32,6 +32,7 @@ export const FINANCE_CHILD_PERMISSIONS: AccessChildPermission[] = [
   { key: "viewPendingPayments", label: "Finance — Pending Payments Card" },
   { key: "viewExpenseCard", label: "Finance — Expenses Card" },
   { key: "viewProfitCard", label: "Finance — Profit Card" },
+  { key: "viewYtdCollected", label: "Finance — YTD Collected" },
   { key: "viewRevenueTrend4Months", label: "Revenue Trend (Last 4 Months)" },
   { key: "viewPlanPopularity", label: "Plan Popularity" },
   { key: "viewTransactionsAutoMembers", label: "Transactions (Auto from Members)" },
@@ -289,6 +290,7 @@ export function toggleAllSectionsAccess(form: StaffAccessFormSlice): StaffAccess
         viewPendingPayments: false,
         viewExpenseCard: false,
         viewProfitCard: false,
+        viewYtdCollected: false,
         viewRevenueTrend4Months: false,
         viewPlanPopularity: false,
         viewTransactionsAutoMembers: false,
@@ -371,6 +373,7 @@ export const DEFAULT_ACCESS: AccessMap = {
     viewPendingPayments: true,
     viewExpenseCard: true,
     viewProfitCard: true,
+    viewYtdCollected: true,
     manageExpenses: true,
   },
   settings: {
@@ -455,6 +458,7 @@ export function normalizeAccess(access?: AccessMap | null): AccessMap {
       viewPendingPayments: a.finance?.viewPendingPayments !== false,
       viewExpenseCard: a.finance?.viewExpenseCard !== false,
       viewProfitCard: a.finance?.viewProfitCard !== false,
+      viewYtdCollected: a.finance?.viewYtdCollected !== false,
       manageExpenses: a.finance?.manageExpenses !== false,
     },
     settings: {

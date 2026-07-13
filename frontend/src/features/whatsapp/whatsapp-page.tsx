@@ -106,7 +106,7 @@ export function WhatsappPage() {
       />
 
       <div className="overflow-x-auto">
-        <div className="flex min-w-max items-center gap-1.5 pb-1">
+        <div className="flex min-w-max items-center gap-1.5 rounded-2xl border border-border/60 bg-card/40 p-1.5 backdrop-blur-sm dark:border-white/5 dark:bg-slate-950/50">
           {WHATSAPP_TYPE_META.map((tab) => {
             const active = activeType === tab.key;
             return (
@@ -115,14 +115,19 @@ export function WhatsappPage() {
                 type="button"
                 onClick={() => setActiveType(tab.key)}
                 className={cn(
-                  "shrink-0 rounded-full border px-3 py-1.5 text-xs font-semibold transition",
+                  "shrink-0 rounded-full px-3.5 py-1.5 text-xs font-semibold transition",
                   active
-                    ? "border-sky-300 bg-sky-50 text-sky-800 shadow-sm"
-                    : "border-slate-200 bg-white text-slate-600 hover:border-slate-300 hover:bg-slate-50 dark:border-border dark:bg-card dark:text-muted-foreground",
+                    ? "bg-white text-slate-900 shadow-md ring-1 ring-black/5 dark:bg-teal-400 dark:text-slate-950 dark:ring-teal-300/30"
+                    : "text-slate-600 hover:bg-white/70 hover:text-slate-900 dark:text-slate-400 dark:hover:bg-white/5 dark:hover:text-slate-100",
                 )}
               >
                 {tab.label}
-                <span className="ml-1.5 tabular-nums text-[10px] opacity-70">
+                <span
+                  className={cn(
+                    "ml-1.5 tabular-nums text-[10px]",
+                    active ? "opacity-70" : "opacity-50",
+                  )}
+                >
                   ({counts[tab.key] || 0})
                 </span>
               </button>
@@ -132,7 +137,7 @@ export function WhatsappPage() {
       </div>
 
       {activeType === "templates" ? (
-        <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+        <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
           {WHATSAPP_TYPE_META.filter((t) => t.key !== "templates").map((card) => {
             const key = card.key as WhatsAppTemplateKey;
             const body = templates[key] || "";
@@ -140,25 +145,28 @@ export function WhatsappPage() {
             return (
               <Card
                 key={key}
-                className={cn("overflow-hidden border shadow-sm", card.tone.split(" ").slice(0, 2).join(" "))}
+                className={cn(
+                  "overflow-hidden border shadow-sm transition hover:-translate-y-0.5 hover:shadow-lg",
+                  card.tone,
+                  card.glow,
+                )}
               >
-                <CardContent className="space-y-2 p-4">
+                <div className={cn("h-1 w-full", card.accent)} />
+                <CardContent className="space-y-3 p-4">
                   <div className="flex items-start justify-between gap-2">
-                    <div>
-                      <p className="text-sm font-semibold text-slate-900 dark:text-foreground">
-                        {card.title}
-                      </p>
-                      <p className="text-[10px] font-medium uppercase tracking-wide text-slate-500">
+                    <div className="min-w-0">
+                      <p className="text-sm font-semibold tracking-tight">{card.title}</p>
+                      <p className="mt-0.5 text-[10px] font-medium uppercase tracking-[0.14em] text-current/55">
                         SMS / WhatsApp
                       </p>
                     </div>
-                    <span className="rounded-md border border-white/60 bg-white/70 px-2 py-0.5 text-[10px] font-semibold dark:bg-background/60">
+                    <span className="shrink-0 rounded-md border border-black/5 bg-black/[0.04] px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-current/70 dark:border-white/10 dark:bg-white/5 dark:text-white/70">
                       {key}
                     </span>
                   </div>
                   <div
                     className={cn(
-                      "whitespace-pre-wrap rounded-xl border border-white/70 bg-white/80 p-3 text-xs leading-relaxed text-slate-700 dark:border-border dark:bg-background/70 dark:text-foreground",
+                      "whitespace-pre-wrap rounded-xl border border-black/5 bg-white/85 p-3 text-xs leading-relaxed text-slate-700 shadow-inner dark:border-white/10 dark:bg-slate-950/70 dark:text-slate-200",
                       open ? "max-h-80 overflow-auto" : "line-clamp-4",
                     )}
                   >
@@ -167,7 +175,7 @@ export function WhatsappPage() {
                   <Button
                     size="sm"
                     variant="outline"
-                    className="w-full bg-white/80"
+                    className="w-full border-black/10 bg-white/70 hover:bg-white dark:border-white/10 dark:bg-white/5 dark:text-slate-100 dark:hover:bg-white/10"
                     onClick={() =>
                       setExpandedTemplates((prev) => ({ ...prev, [key]: !prev[key] }))
                     }
@@ -188,14 +196,14 @@ export function WhatsappPage() {
           })}
         </div>
       ) : (
-        <Card className="overflow-hidden border-slate-200 shadow-sm dark:border-border">
+        <Card className="overflow-hidden border-slate-200/80 bg-white/80 shadow-sm backdrop-blur dark:border-white/5 dark:bg-slate-950/60 dark:shadow-[0_20px_50px_-28px_rgba(0,0,0,0.8)]">
           <CardContent className="space-y-4 p-4">
             <div className="flex flex-wrap items-end justify-between gap-3">
               <div className="space-y-1">
-                <h2 className="text-base font-semibold text-slate-900 dark:text-foreground">
+                <h2 className="text-base font-semibold tracking-tight text-slate-900 dark:text-slate-50">
                   Messaging Center
                 </h2>
-                <p className="max-w-2xl text-xs text-slate-500 dark:text-muted-foreground">
+                <p className="max-w-2xl text-xs text-slate-500 dark:text-slate-400">
                   {isSuccessAudit
                     ? "Success SMS audit — members with a recorded Success send. Owner can resend."
                     : `Who to send ${smsTypeLabel(activeType)} to. Preview opens before WhatsApp.`}
@@ -208,16 +216,16 @@ export function WhatsappPage() {
                     value={search}
                     onChange={(e) => setSearch(e.target.value)}
                     placeholder="Search name / mobile"
-                    className="h-9 w-[200px] pl-8 text-sm"
+                    className="h-9 w-[200px] border-slate-200 bg-white pl-8 text-sm dark:border-white/10 dark:bg-slate-900/80"
                   />
                 </div>
               </div>
             </div>
 
-            <div className="overflow-x-auto rounded-2xl border border-slate-200 dark:border-border">
+            <div className="overflow-x-auto rounded-2xl border border-slate-200 dark:border-white/8 dark:bg-slate-950/40">
               <table className="min-w-full hidden text-sm md:table">
                 <thead>
-                  <tr className="bg-sky-50 text-sky-800 dark:bg-sky-950/40 dark:text-sky-200">
+                  <tr className="bg-sky-50 text-sky-800 dark:bg-teal-500/10 dark:text-teal-200">
                     <th className="px-3 py-2.5 text-left text-xs font-semibold">Member</th>
                     <th className="px-3 py-2.5 text-left text-xs font-semibold">Mobile</th>
                     <th className="px-3 py-2.5 text-left text-xs font-semibold">Status</th>

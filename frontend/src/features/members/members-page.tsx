@@ -10,6 +10,7 @@ import {
   Plus,
   Search,
 } from "lucide-react";
+import { AccentMetricCard } from "@/components/ui/accent-metric-card";
 import { EmptyState, PageHeader, Skeleton } from "@/components/ui/misc";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -684,22 +685,51 @@ export function MembersPage() {
           </Card>
 
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4">
-            {[
-              { key: "active" as const, label: "ACTIVE MEMBERS", value: grouped.Active.length, hint: "View in table →", tone: "border-emerald-200 bg-emerald-50 text-emerald-800 dark:border-emerald-800 dark:bg-emerald-950/30 dark:text-emerald-300" },
-              { key: "hold" as const, label: "HOLD MEMBERS", value: grouped.Hold.length, hint: "View in table →", tone: "border-amber-200 bg-amber-50 text-amber-800 dark:border-amber-800 dark:bg-amber-950/30 dark:text-amber-300" },
-              { key: "risk" as const, label: "RISK ALERT", value: overdueCount, hint: "Billing overdue →", tone: "border-orange-200 bg-orange-50 text-orange-800 dark:border-orange-800 dark:bg-orange-950/30 dark:text-orange-300" },
-              { key: "winback" as const, label: "WIN-BACK OPPORTUNITY", value: grouped.Deactivated.length, hint: "Deactivated members →", tone: "border-rose-200 bg-rose-50 text-rose-800 dark:border-rose-800 dark:bg-rose-950/30 dark:text-rose-300" },
-            ].map((card) => (
-              <button
+            {(
+              [
+                {
+                  key: "active" as const,
+                  label: "Active Members",
+                  value: grouped.Active.length,
+                  hint: "View in table →",
+                  tone: "emerald" as const,
+                  tag: "Live",
+                },
+                {
+                  key: "hold" as const,
+                  label: "Hold Members",
+                  value: grouped.Hold.length,
+                  hint: "View in table →",
+                  tone: "amber" as const,
+                  tag: "Paused",
+                },
+                {
+                  key: "risk" as const,
+                  label: "Risk Alert",
+                  value: overdueCount,
+                  hint: "Billing overdue →",
+                  tone: "orange" as const,
+                  tag: "Overdue",
+                },
+                {
+                  key: "winback" as const,
+                  label: "Win-Back Opportunity",
+                  value: grouped.Deactivated.length,
+                  hint: "Deactivated members →",
+                  tone: "rose" as const,
+                  tag: "Reactivate",
+                },
+              ] as const
+            ).map((card) => (
+              <AccentMetricCard
                 key={card.key}
-                type="button"
+                label={card.label}
+                value={card.value}
+                hint={card.hint}
+                tone={card.tone}
+                tag={card.tag}
                 onClick={() => setMetricModal(card.key)}
-                className={cn("rounded-2xl border p-4 text-left shadow-sm transition hover:shadow-md", card.tone)}
-              >
-                <div className="text-xs font-semibold">{card.label}</div>
-                <div className="mt-1 text-[28px] font-bold leading-none">{card.value}</div>
-                <div className="mt-1 text-xs opacity-80">{card.hint}</div>
-              </button>
+              />
             ))}
           </div>
 
@@ -715,17 +745,26 @@ export function MembersPage() {
                 <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
                   <h3
                     className={cn(
-                      "inline-flex w-fit items-center rounded-xl border px-3 py-1.5 text-base font-semibold md:text-lg",
+                      "inline-flex w-fit items-center gap-2 overflow-hidden rounded-xl border px-3 py-1.5 text-base font-semibold md:text-lg",
                       key === "Active" &&
-                        "border-emerald-200 bg-emerald-50 text-emerald-800 dark:border-emerald-800 dark:bg-emerald-950/40 dark:text-emerald-200",
+                        "border-emerald-200/80 bg-gradient-to-r from-emerald-50 to-white text-emerald-900 dark:border-emerald-500/25 dark:from-emerald-950/40 dark:to-slate-950 dark:text-emerald-100",
                       key === "Hold" &&
-                        "border-amber-200 bg-amber-50 text-amber-800 dark:border-amber-800 dark:bg-amber-950/40 dark:text-amber-200",
+                        "border-amber-200/80 bg-gradient-to-r from-amber-50 to-white text-amber-900 dark:border-amber-500/25 dark:from-amber-950/40 dark:to-slate-950 dark:text-amber-100",
                       key === "Deactivated" &&
-                        "border-pink-200 bg-pink-50 text-pink-800 dark:border-pink-800 dark:bg-pink-950/40 dark:text-pink-200",
+                        "border-rose-200/80 bg-gradient-to-r from-rose-50 to-white text-rose-900 dark:border-rose-500/25 dark:from-rose-950/40 dark:to-slate-950 dark:text-rose-100",
                       key === "Cancelled" &&
-                        "border-slate-200 bg-slate-100 text-slate-700 dark:border-slate-700 dark:bg-slate-900/60 dark:text-slate-200",
+                        "border-slate-200/80 bg-gradient-to-r from-slate-50 to-white text-slate-800 dark:border-white/10 dark:from-slate-900/70 dark:to-slate-950 dark:text-slate-100",
                     )}
                   >
+                    <span
+                      className={cn(
+                        "h-4 w-1 shrink-0 rounded-full",
+                        key === "Active" && "bg-emerald-500",
+                        key === "Hold" && "bg-amber-500",
+                        key === "Deactivated" && "bg-rose-500",
+                        key === "Cancelled" && "bg-slate-400 dark:bg-slate-500",
+                      )}
+                    />
                     {key} Members ({list.length})
                   </h3>
                   <div className="flex flex-wrap items-center gap-2">

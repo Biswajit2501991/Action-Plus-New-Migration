@@ -25,6 +25,7 @@ export function normalizeAccess(access) {
       viewPendingPayments: access?.finance?.viewPendingPayments !== false,
       viewExpenseCard: access?.finance?.viewExpenseCard !== false,
       viewProfitCard: access?.finance?.viewProfitCard !== false,
+      viewYtdCollected: access?.finance?.viewYtdCollected !== false,
       manageExpenses: access?.finance?.manageExpenses !== false,
     },
     settings: {
@@ -115,6 +116,7 @@ export const Access = {
       || f.viewPendingPayments
       || f.viewExpenseCard
       || f.viewProfitCard
+      || f.viewYtdCollected
       || f.manageExpenses
     );
   },

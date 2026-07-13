@@ -26,6 +26,7 @@ export const FINANCE_CHILD_PERMISSIONS = [
   { key: 'viewRevenueTrend4Months', label: 'Revenue Trend (Last 4 Months)' },
   { key: 'viewPlanPopularity', label: 'Plan Popularity' },
   { key: 'viewTransactionsAutoMembers', label: 'Transactions (Auto from Members)' },
+  { key: 'viewYtdCollected', label: 'YTD Collected' },
   { key: 'manageExpenses', label: 'Add / Edit Expense Entries' },
 ];
 
@@ -117,6 +118,7 @@ export const DEFAULT_ACCESS = {
     viewPendingPayments: true,
     viewExpenseCard: true,
     viewProfitCard: true,
+    viewYtdCollected: true,
     manageExpenses: true,
   },
   settings: {
@@ -211,6 +213,7 @@ export function normalizeAccess(access) {
       viewPendingPayments: access?.finance?.viewPendingPayments !== false,
       viewExpenseCard: access?.finance?.viewExpenseCard !== false,
       viewProfitCard: access?.finance?.viewProfitCard !== false,
+      viewYtdCollected: access?.finance?.viewYtdCollected !== false,
       manageExpenses: access?.finance?.manageExpenses !== false,
     },
     settings: {

@@ -153,11 +153,12 @@ export function PtPage() {
       />
 
       <div className="mb-4 grid grid-cols-1 gap-3 sm:grid-cols-3">
-        <StatCard label="Total PT Clients" value={String(ptMembers.length)} />
-        <StatCard label="Today's Sessions" value={String(sessionsToday.length)} />
+        <StatCard label="Total PT Clients" value={String(ptMembers.length)} tone="sky" />
+        <StatCard label="Today's Sessions" value={String(sessionsToday.length)} tone="teal" />
         <StatCard
           label="Weight Trend"
           value={weightDelta == null ? "NA" : `${weightDelta > 0 ? "+" : ""}${weightDelta.toFixed(1)} kg`}
+          tone="emerald"
         />
       </div>
 
