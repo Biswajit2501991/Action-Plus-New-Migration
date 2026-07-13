@@ -66,8 +66,25 @@
   border-color: var(--border);
 }
 
-body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: var(--font-sans);
+@keyframes apg-row-fine {
+  0%, 100% { background-color: rgb(255 241 242); }
+  50% { background-color: rgb(254 226 226); }
+}
+@keyframes apg-row-billing {
+  0%, 100% { background-color: rgb(236 253 245); }
+  50% { background-color: rgb(209 250 229); }
+}
+.dark .apg-member-row--fine-due {
+  animation: none;
+  background-color: rgb(69 10 10 / 0.35);
+}
+.dark .apg-member-row--billing-today {
+  animation: none;
+  background-color: rgb(6 78 59 / 0.35);
+}
+.apg-member-row--fine-due {
+  animation: apg-row-fine 1.6s ease-in-out infinite;
+}
+.apg-member-row--billing-today {
+  animation: apg-row-billing 1.8s ease-in-out infinite;
 }

@@ -21,9 +21,9 @@ export const membersApi = {
       body: JSON.stringify({ members }),
     }),
   patch: (id: string, patch: Partial<Member>) =>
-    apiFetch<Member>(`/members/${encodeURIComponent(id)}`, {
+    apiFetch<{ ok?: boolean; member?: Member }>(`/members/${encodeURIComponent(id)}`, {
       method: "PATCH",
-      body: JSON.stringify(patch),
+      body: JSON.stringify({ patch }),
     }),
   remove: (id: string) =>
     apiFetch<{ ok?: boolean }>(`/members/${encodeURIComponent(id)}`, { method: "DELETE" }),

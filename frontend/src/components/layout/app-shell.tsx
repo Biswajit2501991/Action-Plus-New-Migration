@@ -2,13 +2,14 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import {
   ChevronLeft,
   ChevronRight,
   LogOut,
   Moon,
   Pin,
+  Plus,
   Search,
   Sun,
   Menu,
@@ -16,7 +17,7 @@ import {
 import { useTheme } from "next-themes";
 import { cn } from "@/lib/utils";
 import { NAV_ITEMS } from "@/lib/nav";
-import { canAccessSection } from "@/lib/domain/permissions";
+import { canAccessSection, hasAccess } from "@/lib/domain/permissions";
 import { useAuth } from "@/hooks/use-auth";
 import { useRealtimeSync } from "@/hooks/use-realtime";
 import { useGymCodes } from "@/hooks/use-data";
@@ -24,6 +25,7 @@ import { useUiStore } from "@/stores";
 import { Button } from "@/components/ui/button";
 import { Select } from "@/components/ui/input";
 import { CommandPalette } from "@/features/search/command-palette";
+import { AddMemberHost } from "@/features/members/add-member-host";
 
 export function AppShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
@@ -35,11 +37,14 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     mobileNavOpen,
     setMobileNavOpen,
     setCommandOpen,
+    addMemberOpen,
+    setAddMemberOpen,
     favorites,
     toggleFavorite,
     pushRecent,
   } = useUiStore();
   const { theme, setTheme } = useTheme();
+  const [fabHover, setFabHover] = useState(false);
 
   useRealtimeSync(isAuthenticated);
 
@@ -256,6 +261,30 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       </div>
 
       <CommandPalette />
+      <AddMemberHost />
+
+      {user &&
+      canAccessSection(user, "Members") &&
+      hasAccess(user, "members", "addMembers") &&
+      !addMemberOpen ? (
+        <button
+          type="button"
+          onClick={() => setAddMemberOpen(true)}
+          onMouseEnter={() => setFabHover(true)}
+          onMouseLeave={() => setFabHover(false)}
+          onFocus={() => setFabHover(true)}
+          onBlur={() => setFabHover(false)}
+          className={cn(
+            "fixed right-4 z-40 flex items-center rounded-full bg-sky-600 py-3 text-white shadow-lg transition-all hover:bg-sky-700 md:right-6",
+            "bottom-24 md:bottom-6",
+            fabHover ? "gap-2 px-4" : "gap-0 px-3",
+          )}
+          aria-label="Add Member"
+        >
+          <Plus className="h-5 w-5" strokeWidth={2.5} />
+          {fabHover ? <span className="pr-1 text-sm font-semibold">Add Member</span> : null}
+        </button>
+      ) : null}
     </div>
   );
 }

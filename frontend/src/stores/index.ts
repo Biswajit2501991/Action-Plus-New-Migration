@@ -23,11 +23,13 @@ type UiState = {
   sidebarCollapsed: boolean;
   mobileNavOpen: boolean;
   commandOpen: boolean;
+  addMemberOpen: boolean;
   favorites: string[];
   recentPages: string[];
   toggleSidebar: () => void;
   setMobileNavOpen: (v: boolean) => void;
   setCommandOpen: (v: boolean) => void;
+  setAddMemberOpen: (v: boolean) => void;
   toggleFavorite: (href: string) => void;
   pushRecent: (href: string) => void;
 };
@@ -38,11 +40,13 @@ export const useUiStore = create<UiState>()(
       sidebarCollapsed: false,
       mobileNavOpen: false,
       commandOpen: false,
+      addMemberOpen: false,
       favorites: [],
       recentPages: [],
       toggleSidebar: () => set({ sidebarCollapsed: !get().sidebarCollapsed }),
       setMobileNavOpen: (mobileNavOpen) => set({ mobileNavOpen }),
       setCommandOpen: (commandOpen) => set({ commandOpen }),
+      setAddMemberOpen: (addMemberOpen) => set({ addMemberOpen }),
       toggleFavorite: (href) => {
         const favs = get().favorites;
         set({
@@ -54,7 +58,14 @@ export const useUiStore = create<UiState>()(
         set({ recentPages: next });
       },
     }),
-    { name: "apg.ui.v2" },
+    {
+      name: "apg.ui.v2",
+      partialize: (s) => ({
+        sidebarCollapsed: s.sidebarCollapsed,
+        favorites: s.favorites,
+        recentPages: s.recentPages,
+      }),
+    },
   ),
 );
 

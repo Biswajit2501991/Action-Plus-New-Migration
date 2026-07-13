@@ -12,25 +12,31 @@ import {
   MoreHorizontal,
   Plus,
   Search,
-  Trash2,
 } from "lucide-react";
 import { Badge, EmptyState, PageHeader, Skeleton } from "@/components/ui/misc";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Input, Label, Select, Textarea } from "@/components/ui/input";
-import { useGymCodes, useMembers, useSettings, useVisitors } from "@/hooks/use-data";
+import { useMembers, useSettings, useVisitors } from "@/hooks/use-data";
 import { membersApi, visitorsApi } from "@/services/api";
 import { checkMemberDuplicates, memberSearchHaystack } from "@/lib/domain/members";
 import {
   isPaymentByPastDue,
   overdueDaysForMember,
   paymentByDateKey,
+  localTodayCalendarKey,
 } from "@/lib/domain/billing";
 import { formatCurrency, formatDate, downloadTextFile, toCsv, cn } from "@/lib/utils";
 import { hasAccess } from "@/lib/domain/permissions";
-import { useAuthStore } from "@/stores";
+import { useAuthStore, useUiStore } from "@/stores";
 import type { Member, Visitor } from "@/types";
-import { AddMemberWizard } from "@/features/members/add-member-wizard";
+import {
+  isBillingToday,
+  isNewMember,
+  primaryMessageActionForMember,
+  shortStatus,
+} from "@/lib/domain/member-actions";
+import { MemberExpandedDetails } from "@/features/members/member-expanded-details";
 
 const PAGE_SIZE = 10;
 const STATUS_KEYS = ["Active", "Hold", "Deactivated", "Cancelled"] as const;
@@ -87,12 +93,12 @@ function statusBadgeVariant(status?: string) {
 export function MembersPage() {
   const router = useRouter();
   const user = useAuthStore((s) => s.user);
+  const setAddMemberOpen = useUiStore((s) => s.setAddMemberOpen);
   const qc = useQueryClient();
   const params = useSearchParams();
   const { data: members = [], isLoading } = useMembers();
   const { data: visitors = [] } = useVisitors();
   const { data: settings } = useSettings();
-  const { data: gymCodes = [] } = useGymCodes();
 
   const [tab, setTab] = useState<"members" | "visitors">("members");
   const [focusStatus, setFocusStatus] = useState<string>(params.get("status") || "");
@@ -126,7 +132,6 @@ export function MembersPage() {
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [metricModal, setMetricModal] = useState<"" | "active" | "hold" | "risk" | "winback">("");
   const [showForm, setShowForm] = useState(false);
-  const [showAddWizard, setShowAddWizard] = useState(false);
   const [editing, setEditing] = useState<Member | null>(null);
   const [paymentFor, setPaymentFor] = useState<Member | null>(null);
   const [form, setForm] = useState({
@@ -207,10 +212,18 @@ export function MembersPage() {
     (list: Member[]) => {
       const sorted = [...list];
       const dir = sortDirection === "asc" ? 1 : -1;
-      const todayYm = ym(new Date().toISOString());
+      const todayKey = localTodayCalendarKey();
       sorted.sort((a, b) => {
-        const prA = isPaymentByPastDue(a) ? 2 : ym(a.billingDate) === todayYm ? 1 : 0;
-        const prB = isPaymentByPastDue(b) ? 2 : ym(b.billingDate) === todayYm ? 1 : 0;
+        const prA = isPaymentByPastDue(a)
+          ? 2
+          : isBillingToday(a, todayKey)
+            ? 1
+            : 0;
+        const prB = isPaymentByPastDue(b)
+          ? 2
+          : isBillingToday(b, todayKey)
+            ? 1
+            : 0;
         if (prB !== prA) return prB - prA;
         if (sortField === "billingDate" || sortField === "joiningDate") {
           const at = new Date(String(a[sortField] || 0)).getTime() || 0;
@@ -306,47 +319,6 @@ export function MembersPage() {
     onError: (e: Error) => toast.error(e.message),
   });
 
-  const createMemberMutation = useMutation({
-    mutationFn: async ({
-      member,
-      familyGroupId,
-      familyPrimaryMemberId,
-    }: {
-      member: Member;
-      familyGroupId?: string;
-      familyPrimaryMemberId?: string;
-    }) => {
-      const photo = typeof member.photo === "string" && member.photo.startsWith("data:") ? member.photo : "";
-      const payload: Member = {
-        ...member,
-        ...(familyGroupId
-          ? {
-              familyGroupId,
-              familyPrimaryMemberId,
-            }
-          : {}),
-        // Keep photo out of bulk when we'll upload separately (prod pattern)
-        ...(photo ? { photo: undefined } : {}),
-      };
-      await membersApi.bulk([payload, ...members]);
-      if (photo) {
-        try {
-          await membersApi.uploadPhoto(payload.memberId, photo);
-        } catch {
-          toast.message("Member saved, but photo upload failed — you can retry from edit.");
-        }
-      }
-      return payload;
-    },
-    onSuccess: async (payload) => {
-      toast.success(`${payload.name || "Member"} has been saved successfully`);
-      setShowAddWizard(false);
-      setFocusStatus(String(payload.status || "Active"));
-      await qc.invalidateQueries({ queryKey: ["members"] });
-    },
-    onError: (e: Error) => toast.error(e.message),
-  });
-
   const deleteMutation = useMutation({
     mutationFn: (id: string) => membersApi.remove(id),
     onSuccess: async () => {
@@ -412,8 +384,15 @@ export function MembersPage() {
   const openCreate = () => {
     setEditing(null);
     setShowForm(false);
-    setShowAddWizard(true);
+    setAddMemberOpen(true);
   };
+
+  useEffect(() => {
+    if (params.get("add") === "1") {
+      setAddMemberOpen(true);
+      router.replace("/members");
+    }
+  }, [params, router, setAddMemberOpen]);
 
   const openEdit = (m: Member) => {
     setEditing(m);
@@ -437,13 +416,23 @@ export function MembersPage() {
     setShowForm(true);
   };
 
-  const openWhatsApp = (m: Member, kind: "reminder" | "welcome" = "reminder") => {
-    if (!m.mobile) return;
+  const openWhatsApp = (m: Member, kind: "reminder" | "welcome" | "fine" | "hold" | "deactivate" = "reminder") => {
+    if (!m.mobile) {
+      toast.error("No mobile number on this member");
+      return;
+    }
     const phone = String(m.mobile).replace(/\D/g, "");
+    const days = overdueDaysForMember(m);
     const text =
       kind === "welcome"
         ? `Welcome to Action Plus Gym, ${m.name || ""}!`
-        : `Hi ${m.name || ""}, this is a payment reminder from Action Plus Gym.`;
+        : kind === "fine"
+          ? `Hi ${m.name || ""}, your payment is overdue by ${days} day${days === 1 ? "" : "s"}. Please clear dues at Action Plus Gym.`
+          : kind === "hold"
+            ? `Hi ${m.name || ""}, your membership is on Hold. Contact Action Plus Gym for details.`
+            : kind === "deactivate"
+              ? `Hi ${m.name || ""}, your membership is Deactivated. Contact Action Plus Gym to reactivate.`
+              : `Hi ${m.name || ""}, this is a payment reminder from Action Plus Gym.`;
     window.open(`https://wa.me/${phone}?text=${encodeURIComponent(text)}`, "_blank");
   };
 
@@ -474,7 +463,7 @@ export function MembersPage() {
               Export CSV
             </Button>
             {hasAccess(user, "members", "addMembers") ? (
-              <Button onClick={openCreate}>
+              <Button className="bg-sky-600 text-white hover:bg-sky-700" onClick={openCreate}>
                 <Plus className="h-4 w-4" /> Add New Member
               </Button>
             ) : null}
@@ -732,164 +721,197 @@ export function MembersPage() {
                   <Card>
                     <CardContent className="p-0">
                       <div className="overflow-x-auto">
-                        <table className="w-full min-w-[980px] text-left text-sm">
+                        <table className="w-full min-w-[1040px] text-left text-[10px] leading-tight">
                           <thead>
-                            <tr className="border-b bg-teal-50/70 text-xs text-teal-900 dark:bg-teal-950/30 dark:text-teal-200">
-                              <th className="px-3 py-3 w-10" />
-                              <th className="px-3 py-3">
+                            <tr className="border-b bg-sky-50/80 text-[10px] font-semibold uppercase tracking-wide text-slate-600 dark:bg-sky-950/30 dark:text-sky-100">
+                              <th className="w-8 px-2 py-1.5" />
+                              <th className="px-2 py-1.5">
                                 <button type="button" onClick={() => toggleSort("memberId")}>
                                   ID {sortIndicator("memberId")}
                                 </button>
                               </th>
-                              <th className="px-3 py-3">
+                              <th className="px-2 py-1.5">
                                 <button type="button" onClick={() => toggleSort("name")}>
                                   Name {sortIndicator("name")}
                                 </button>
                               </th>
-                              <th className="px-3 py-3">
+                              <th className="px-2 py-1.5">
                                 <button type="button" onClick={() => toggleSort("plan")}>
                                   Plan {sortIndicator("plan")}
                                 </button>
                               </th>
-                              <th className="px-3 py-3">
+                              <th className="px-2 py-1.5">
                                 <button type="button" onClick={() => toggleSort("billingDate")}>
                                   Bill Date {sortIndicator("billingDate")}
                                 </button>
                               </th>
-                              <th className="px-3 py-3">
+                              <th className="px-2 py-1.5">
                                 <button type="button" onClick={() => toggleSort("paymentBy")}>
                                   Payment By {sortIndicator("paymentBy")}
                                 </button>
                               </th>
-                              <th className="px-3 py-3">Status / Action</th>
+                              <th className="px-2 py-1.5 normal-case tracking-normal">Status / Action / Welcome</th>
                             </tr>
                           </thead>
-                          <tbody>
+                          <tbody className="text-[10px]">
                             {pageList.map((m) => {
                               const overdue = isPaymentByPastDue(m);
+                              const billingToday = isBillingToday(m) && !overdue;
                               const expanded = expandedId === m.memberId;
+                              const msg = primaryMessageActionForMember(m, {
+                                isOwner: String(user?.id || "").toLowerCase() === "owner",
+                              });
+                              const isOwner =
+                                String(user?.id || "").toLowerCase() === "owner" ||
+                                String(user?.staffRole || "").toLowerCase() === "master_owner";
                               return (
                                 <Fragment key={m.memberId}>
                                   <tr
                                     className={cn(
-                                      "border-b border-border/60 hover:bg-accent/40",
-                                      overdue && "bg-orange-50/50 dark:bg-orange-950/20",
+                                      "cursor-pointer border-b border-border/60 transition hover:bg-accent/30",
+                                      overdue && "apg-member-row--fine-due font-medium",
+                                      billingToday && "apg-member-row--billing-today font-medium",
                                     )}
+                                    onClick={() =>
+                                      setExpandedId((prev) => (prev === m.memberId ? null : m.memberId))
+                                    }
                                   >
-                                    <td className="px-3 py-3">
+                                    <td className="px-2 py-1" onClick={(e) => e.stopPropagation()}>
                                       <input
                                         type="checkbox"
+                                        className="h-3 w-3"
                                         checked={selectedIds.includes(m.memberId)}
                                         onChange={() => toggleSelect(m.memberId)}
                                       />
                                     </td>
-                                    <td className="px-3 py-3 font-medium">{m.memberId}</td>
-                                    <td className="px-3 py-3">
-                                      <div className="font-medium">{m.name || "—"}</div>
-                                      <div className="text-xs text-muted-foreground">{m.mobile || "—"}</div>
+                                    <td className="px-2 py-1 font-medium tabular-nums">{m.memberId}</td>
+                                    <td className="px-2 py-1">
+                                      <div className="flex min-w-0 items-center gap-1.5">
+                                        <div className="grid h-6 w-6 shrink-0 place-items-center overflow-hidden rounded-full border bg-muted text-[9px] font-semibold">
+                                          {m.photo || m.photoUrl ? (
+                                            // eslint-disable-next-line @next/next/no-img-element
+                                            <img
+                                              src={String(m.photo || m.photoUrl)}
+                                              alt=""
+                                              className="h-full w-full object-cover"
+                                            />
+                                          ) : (
+                                            (m.name || "?").slice(0, 1).toUpperCase()
+                                          )}
+                                        </div>
+                                        <div className="min-w-0">
+                                          <div className="flex items-center gap-1 truncate">
+                                            <span className="truncate font-medium">{m.name || "—"}</span>
+                                            {isNewMember(m) ? (
+                                              <span className="rounded-full bg-sky-100 px-1 py-0.5 text-[8px] font-semibold uppercase text-sky-800 dark:bg-sky-900/50 dark:text-sky-200">
+                                                New
+                                              </span>
+                                            ) : null}
+                                          </div>
+                                        </div>
+                                      </div>
                                     </td>
-                                    <td className="px-3 py-3">{m.plan || "—"}</td>
-                                    <td className="px-3 py-3">{formatDate(m.billingDate)}</td>
-                                    <td className="px-3 py-3">
-                                      <div>{formatDate(paymentByDisplay(m))}</div>
+                                    <td className="truncate px-2 py-1">{m.plan || "—"}</td>
+                                    <td className="whitespace-nowrap px-2 py-1">{formatDate(m.billingDate)}</td>
+                                    <td className="whitespace-nowrap px-2 py-1">
+                                      <div>{formatDate(paymentByDisplay(m)) || "—"}</div>
                                       {overdue ? (
-                                        <div className="text-[11px] font-medium text-orange-700 dark:text-orange-300">
-                                          {overdueDaysForMember(m)}d overdue
+                                        <div className="text-[9px] font-semibold text-rose-700 dark:text-rose-300">
+                                          Overdue by {overdueDaysForMember(m)} day
+                                          {overdueDaysForMember(m) === 1 ? "" : "s"}
                                         </div>
                                       ) : null}
                                     </td>
-                                    <td className="px-3 py-3">
-                                      <div className="flex flex-wrap items-center gap-1.5">
-                                        <Badge variant={statusBadgeVariant(String(m.status))}>
-                                          {m.status || "Active"}
+                                    <td className="px-2 py-1" onClick={(e) => e.stopPropagation()}>
+                                      <div className="flex flex-wrap items-center gap-1">
+                                        <Badge
+                                          variant={statusBadgeVariant(String(m.status))}
+                                          className="min-w-[4.5rem] justify-center px-1.5 py-0 text-[9px] leading-tight"
+                                        >
+                                          {shortStatus(m.status || "Active")}
                                         </Badge>
                                         {hasAccess(user, "members", "editMembers") ? (
-                                          <Button size="sm" variant="outline" onClick={() => openEdit(m)}>
-                                            Edit
+                                          <Button
+                                            size="sm"
+                                            className="h-6 bg-indigo-600 px-2 text-[9px] text-white hover:bg-indigo-700"
+                                            onClick={() => openEdit(m)}
+                                          >
+                                            ✎ Action
                                           </Button>
                                         ) : null}
-                                        <Button size="sm" variant="outline" onClick={() => setPaymentFor(m)}>
-                                          Pay
-                                        </Button>
-                                        <Button size="sm" variant="ghost" onClick={() => openWhatsApp(m)}>
-                                          <MessageCircle className="h-4 w-4" />
-                                        </Button>
+                                        {msg.key !== "none" ? (
+                                          <Button
+                                            size="sm"
+                                            variant="outline"
+                                            disabled={msg.disabled}
+                                            className={cn(
+                                              "h-6 gap-0.5 px-2 text-[9px]",
+                                              msg.key === "fine" &&
+                                                "border-rose-300 bg-rose-50 text-rose-800 hover:bg-rose-100",
+                                              msg.key === "welcome" &&
+                                                "border-emerald-300 bg-emerald-50 text-emerald-800 hover:bg-emerald-100",
+                                              msg.key === "reminder" &&
+                                                "border-amber-300 bg-amber-50 text-amber-900 hover:bg-amber-100",
+                                            )}
+                                            onClick={() =>
+                                              openWhatsApp(
+                                                m,
+                                                msg.key === "none" ? "reminder" : msg.key,
+                                              )
+                                            }
+                                            title={msg.reason || msg.label}
+                                          >
+                                            <MessageCircle className="h-3 w-3" />
+                                            {msg.label}
+                                          </Button>
+                                        ) : null}
                                         <Button
                                           size="sm"
                                           variant="ghost"
+                                          className="h-6 px-1.5"
                                           onClick={() =>
                                             setExpandedId((prev) => (prev === m.memberId ? null : m.memberId))
                                           }
+                                          aria-label={expanded ? "Collapse" : "Expand"}
                                         >
-                                          {expanded ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
+                                          {expanded ? (
+                                            <ChevronUp className="h-3.5 w-3.5" />
+                                          ) : (
+                                            <ChevronDown className="h-3.5 w-3.5" />
+                                          )}
                                         </Button>
-                                        {hasAccess(user, "members", "deleteMembers") ? (
-                                          <Button
-                                            size="sm"
-                                            variant="ghost"
-                                            onClick={() => {
-                                              if (confirm(`Delete ${m.name || m.memberId}?`)) {
-                                                deleteMutation.mutate(m.memberId);
-                                              }
-                                            }}
-                                          >
-                                            <Trash2 className="h-4 w-4" />
-                                          </Button>
-                                        ) : null}
                                       </div>
                                     </td>
                                   </tr>
                                   {expanded ? (
-                                    <tr className="border-b bg-muted/30">
-                                      <td colSpan={7} className="px-4 py-4">
-                                        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4 text-sm">
-                                          <div>
-                                            <div className="text-xs text-muted-foreground">Email</div>
-                                            <div>{m.email || "—"}</div>
-                                          </div>
-                                          <div>
-                                            <div className="text-xs text-muted-foreground">Joining Date</div>
-                                            <div>{formatDate(m.joiningDate)}</div>
-                                          </div>
-                                          <div>
-                                            <div className="text-xs text-muted-foreground">Amount</div>
-                                            <div>{formatCurrency(Number(m.amount || 0))}</div>
-                                          </div>
-                                          <div>
-                                            <div className="text-xs text-muted-foreground">Payment Method</div>
-                                            <div>{String(m.paymentMethod || "—")}</div>
-                                          </div>
-                                          <div>
-                                            <div className="text-xs text-muted-foreground">Staff</div>
-                                            <div>{String(m.staff || m.trainerId || "—")}</div>
-                                          </div>
-                                          <div>
-                                            <div className="text-xs text-muted-foreground">Hold Duration</div>
-                                            <div>{m.holdDuration || "—"}</div>
-                                          </div>
-                                          <div className="sm:col-span-2">
-                                            <div className="text-xs text-muted-foreground">Notes</div>
-                                            <div>{m.notes || "—"}</div>
-                                          </div>
-                                        </div>
-                                        <div className="mt-4">
-                                          <div className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                                            Payment history
-                                          </div>
-                                          <div className="space-y-1">
-                                            {(m.paymentHistory || []).slice(0, 6).map((p, idx) => (
-                                              <div key={String(p.id || idx)} className="flex justify-between text-xs">
-                                                <span>
-                                                  {formatDate(String(p.paidAt || p.paid_at || ""))} · {p.method || "—"}
-                                                </span>
-                                                <span className="font-medium">{formatCurrency(Number(p.amount || 0))}</span>
-                                              </div>
-                                            ))}
-                                            {!(m.paymentHistory || []).length ? (
-                                              <p className="text-xs text-muted-foreground">No payments recorded.</p>
-                                            ) : null}
-                                          </div>
-                                        </div>
+                                    <tr className="border-b bg-slate-50/80 dark:bg-slate-900/40">
+                                      <td colSpan={7} className="px-3 py-3">
+                                        <MemberExpandedDetails
+                                          m={m}
+                                          isOwner={isOwner}
+                                          canEdit={hasAccess(user, "members", "editMembers")}
+                                          canDelete={
+                                            hasAccess(user, "members", "deleteMembers") || isOwner
+                                          }
+                                          holdOptions={
+                                            settings?.holdDurations || ["1 Month", "2 Months", "3 Months"]
+                                          }
+                                          onEdit={() => openEdit(m)}
+                                          onAddPayment={() => setPaymentFor(m)}
+                                          onWhatsApp={() => openWhatsApp(m, "welcome")}
+                                          onDelete={() => {
+                                            if (confirm(`Delete ${m.name || m.memberId}?`)) {
+                                              deleteMutation.mutate(m.memberId);
+                                            }
+                                          }}
+                                          onStatusChange={(status, holdDuration) => {
+                                            statusMutation.mutate({
+                                              ids: [m.memberId],
+                                              status,
+                                              holdDuration,
+                                            });
+                                          }}
+                                        />
                                       </td>
                                     </tr>
                                   ) : null}
@@ -898,7 +920,7 @@ export function MembersPage() {
                             })}
                             {!pageList.length ? (
                               <tr>
-                                <td colSpan={7} className="px-4 py-10 text-center text-muted-foreground">
+                                <td colSpan={7} className="px-4 py-8 text-center text-[11px] text-muted-foreground">
                                   No {key.toLowerCase()} members match your filters.
                                 </td>
                               </tr>
@@ -1059,25 +1081,6 @@ export function MembersPage() {
             </div>
           </div>
         </div>
-      ) : null}
-
-      {showAddWizard ? (
-        <AddMemberWizard
-          open={showAddWizard}
-          onClose={() => setShowAddWizard(false)}
-          settings={settings}
-          members={members}
-          gymCodes={gymCodes}
-          currentUser={user}
-          saving={createMemberMutation.isPending}
-          onSave={async (member, opts) => {
-            await createMemberMutation.mutateAsync({
-              member,
-              familyGroupId: opts?.familyGroupId,
-              familyPrimaryMemberId: opts?.familyPrimaryMemberId,
-            });
-          }}
-        />
       ) : null}
 
       {showForm && editing ? (

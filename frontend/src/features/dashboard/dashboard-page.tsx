@@ -32,7 +32,7 @@ import {
 } from "@/lib/domain/plan-distribution";
 import { formatCurrency, formatDate, formatMonthKey, cn } from "@/lib/utils";
 import { hasAccess } from "@/lib/domain/permissions";
-import { useAuthStore } from "@/stores";
+import { useAuthStore, useUiStore } from "@/stores";
 import type { Member } from "@/types";
 
 const STATUS_TILES: { key: "Active" | "Hold" | "Deactivated" | "Cancelled"; tone: string }[] = [
@@ -115,6 +115,7 @@ function matchesField(m: Member, q: string, field: string) {
 export function DashboardPage() {
   const router = useRouter();
   const user = useAuthStore((s) => s.user);
+  const setAddMemberOpen = useUiStore((s) => s.setAddMemberOpen);
   const month = formatMonthKey();
   const { data: members = [], isLoading: loadingMembers } = useMembers();
   const { data: finance, isLoading: loadingFinance } = useFinance(month);
@@ -249,7 +250,11 @@ export function DashboardPage() {
                   ₹ Add Expense
                 </Button>
               ) : null}
-              <Button size="sm" onClick={() => router.push("/members")}>
+              <Button
+                size="sm"
+                className="bg-sky-600 text-white hover:bg-sky-700"
+                onClick={() => setAddMemberOpen(true)}
+              >
                 <Plus className="h-4 w-4" />
                 Add New Member
               </Button>

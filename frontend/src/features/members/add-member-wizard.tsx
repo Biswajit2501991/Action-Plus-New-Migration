@@ -356,32 +356,33 @@ export function AddMemberWizard({
       if (!members.some((m) => String(m.memberId || "").trim() === candidate)) break;
       next += 1;
     }
-    setForm((f) => ({ ...f, formNo: String(next) }));
-    // Only when branch opens / changes — not on every form keystroke
+    const nextStr = String(next);
+    setForm((f) => (f.formNo === nextStr ? f : { ...f, formNo: nextStr }));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, members, form.assignedGymCodeId, gymCodes]);
 
   useEffect(() => {
-    if (!form.joiningDate) return;
+    if (!open || !form.joiningDate) return;
     const bd = billingDateFromJoining(form.joiningDate);
-    setForm((f) => ({
-      ...f,
-      billingDate: bd,
-      nextPaymentDate: nextPaymentDateFromBillingDate(bd),
-      paymentBy: paymentByFromBillingDate(bd),
-    }));
+    const nextPay = nextPaymentDateFromBillingDate(bd);
+    const payBy = paymentByFromBillingDate(bd);
+    setForm((f) => {
+      if (f.billingDate === bd && f.nextPaymentDate === nextPay && f.paymentBy === payBy) return f;
+      return { ...f, billingDate: bd, nextPaymentDate: nextPay, paymentBy: payBy };
+    });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [form.joiningDate]);
+  }, [open, form.joiningDate]);
 
   useEffect(() => {
-    if (!form.billingDate) return;
-    setForm((f) => ({
-      ...f,
-      nextPaymentDate: nextPaymentDateFromBillingDate(f.billingDate),
-      paymentBy: paymentByFromBillingDate(f.billingDate),
-    }));
+    if (!open || !form.billingDate) return;
+    const nextPay = nextPaymentDateFromBillingDate(form.billingDate);
+    const payBy = paymentByFromBillingDate(form.billingDate);
+    setForm((f) => {
+      if (f.nextPaymentDate === nextPay && f.paymentBy === payBy) return f;
+      return { ...f, nextPaymentDate: nextPay, paymentBy: payBy };
+    });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [form.billingDate]);
+  }, [open, form.billingDate]);
 
   const req1 = {
     formNo: !form.formNo,
@@ -567,16 +568,22 @@ export function AddMemberWizard({
   };
 
   const persistSave = async (member: Member, family?: { groupId: string; primaryMemberId: string }) => {
-    await onSave(member, family ? { familyGroupId: family.groupId, familyPrimaryMemberId: family.primaryMemberId } : undefined);
     try {
-      localStorage.removeItem(draftKey);
-    } catch {
-      /* ignore */
+      await onSave(member, family ? { familyGroupId: family.groupId, familyPrimaryMemberId: family.primaryMemberId } : undefined);
+      try {
+        localStorage.removeItem(draftKey);
+      } catch {
+        /* ignore */
+      }
+      setFamilyPrompt(null);
+      onClose();
+      setStep(1);
+      setWarn("");
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "Failed to save member";
+      setWarn(message);
+      setFamilyPrompt(null);
     }
-    setFamilyPrompt(null);
-    onClose();
-    setStep(1);
-    setWarn("");
   };
 
   const save = async () => {
