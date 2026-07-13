@@ -102,6 +102,7 @@ export function normalizeAccess(access) {
       homeOverdue: access?.mobile?.homeOverdue !== false,
       membersAdd: access?.mobile?.membersAdd !== false,
       membersEdit: access?.mobile?.membersEdit !== false,
+      membersExpand: access?.mobile?.membersExpand !== false,
       leaveCreate: access?.mobile?.leaveCreate !== false,
       leaveApprove: access?.mobile?.leaveApprove !== false,
       moreFinance: access?.mobile?.moreFinance !== false,

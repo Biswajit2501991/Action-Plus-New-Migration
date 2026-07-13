@@ -128,6 +128,10 @@ export const MOBILE_FEATURE_PERMISSIONS: AccessChildPermission[] = [
   { key: "homeOverdue", label: "Home — Overdue payments list" },
   { key: "membersAdd", label: "Members — Add member" },
   { key: "membersEdit", label: "Members — Edit member" },
+  {
+    key: "membersExpand",
+    label: "Members — Expand card (show mobile number & private details)",
+  },
   { key: "leaveCreate", label: "Leave — Create request" },
   { key: "leaveApprove", label: "Leave — Approve / reject" },
 ];

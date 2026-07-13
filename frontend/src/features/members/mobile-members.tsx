@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { useSearchParams } from "next/navigation";
-import { Search } from "lucide-react";
+import { ChevronDown, Phone, Search } from "lucide-react";
 import { MobileChip, MobileHero, MobilePanel } from "@/components/layout/mobile-ui";
 import { MemberAvatar } from "@/components/member-avatar";
 import { Skeleton } from "@/components/ui/misc";
@@ -19,6 +19,10 @@ import { useMobileFeatureAccess } from "@/components/layout/mobile-access-guard"
 import type { Member } from "@/types";
 
 const STATUS_FILTERS = ["All", "Active", "Hold", "Deactivated", "Cancelled"] as const;
+
+function publicSearchHaystack(m: Member) {
+  return [m.name, m.memberId, m.plan, m.status].filter(Boolean).join(" ").toLowerCase();
+}
 
 export function MobileMembers() {
   const user = useAuthStore((s) => s.user);
@@ -36,6 +40,7 @@ export function MobileMembers() {
       : "All",
   );
   const [editing, setEditing] = useState<Member | null>(null);
+  const [expandedId, setExpandedId] = useState<string | null>(null);
   const mobile = useMobileFeatureAccess();
 
   useEffect(() => {
@@ -45,6 +50,7 @@ export function MobileMembers() {
 
   const canEdit = hasAccess(user, "members", "editMembers") && mobile.membersEdit;
   const canAdd = hasAccess(user, "members", "addMembers") && mobile.membersAdd;
+  const canExpand = mobile.membersExpand;
 
   const filtered = useMemo(() => {
     const query = q.trim().toLowerCase();
@@ -52,11 +58,12 @@ export function MobileMembers() {
       .filter((m) => {
         if (status !== "All" && (m.status || "Active") !== status) return false;
         if (!query) return true;
-        return memberSearchHaystack(m).toLowerCase().includes(query);
+        const hay = canExpand ? memberSearchHaystack(m) : publicSearchHaystack(m);
+        return hay.includes(query);
       })
       .sort((a, b) => String(a.name || "").localeCompare(String(b.name || "")))
       .slice(0, 80);
-  }, [members, q, status]);
+  }, [members, q, status, canExpand]);
 
   if (isLoading) {
     return (
@@ -73,7 +80,11 @@ export function MobileMembers() {
       <MobileHero
         eyebrow="Members"
         title="Your roster"
-        subtitle={`${members.length} total · tap a card to manage`}
+        subtitle={
+          canExpand
+            ? `${members.length} total · tap a card to show contact`
+            : `${members.length} total · contact details hidden`
+        }
       />
 
       <div className="relative">
@@ -81,7 +92,7 @@ export function MobileMembers() {
         <Input
           value={q}
           onChange={(e) => setQ(e.target.value)}
-          placeholder="Search name, ID, phone…"
+          placeholder={canExpand ? "Search name, ID, phone…" : "Search name or ID…"}
           className="h-12 rounded-2xl border-black/5 bg-white/80 pl-10 shadow-sm dark:border-white/8 dark:bg-white/[0.04]"
         />
       </div>
@@ -113,55 +124,105 @@ export function MobileMembers() {
           filtered.map((m) => {
             const overdue = isPaymentByPastDue(m);
             const payBy = paymentByDateKey(m);
+            const rowKey = String(m.memberId || m.id || "");
+            const isExpanded = canExpand && expandedId === rowKey;
             return (
-              <button
-                key={m.memberId}
-                type="button"
-                disabled={!canEdit}
-                onClick={() => canEdit && setEditing(m)}
+              <article
+                key={rowKey}
                 className={cn(
-                  "flex w-full items-center gap-3 rounded-[1.25rem] border px-3.5 py-3 text-left shadow-sm transition",
+                  "rounded-[1.25rem] border shadow-sm transition",
                   overdue
                     ? "border-rose-200/80 bg-rose-50/70 dark:border-rose-500/20 dark:bg-rose-950/25"
                     : "border-black/5 bg-white/85 dark:border-white/8 dark:bg-white/[0.04]",
-                  canEdit && "active:scale-[0.99]",
+                  isExpanded && "ring-1 ring-slate-300/70 dark:ring-teal-500/35",
                 )}
               >
-                <MemberAvatar member={m} className="h-12 w-12" />
-                <div className="min-w-0 flex-1">
-                  <div className="flex items-center gap-2">
-                    <p className="truncate text-sm font-semibold text-slate-900 dark:text-slate-50">
-                      {m.name || "—"}
-                    </p>
-                    <span
-                      className={cn(
-                        "shrink-0 rounded-md px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wide",
-                        m.status === "Active" &&
-                          "bg-emerald-500/15 text-emerald-700 dark:text-emerald-300",
-                        m.status === "Hold" && "bg-amber-500/15 text-amber-700 dark:text-amber-300",
-                        m.status === "Deactivated" &&
-                          "bg-rose-500/15 text-rose-700 dark:text-rose-300",
-                        (!m.status || m.status === "Cancelled") &&
-                          "bg-slate-500/15 text-slate-600 dark:text-slate-300",
-                      )}
-                    >
-                      {m.status || "Active"}
-                    </span>
-                  </div>
-                  <p className="truncate text-[11px] text-slate-500 dark:text-slate-400">
-                    {m.memberId} · {m.plan || "No plan"}
-                  </p>
-                  <p className="mt-0.5 text-[11px] text-slate-500 dark:text-slate-400">
-                    Pay by {formatDate(payBy || m.billingDate) || "—"}
-                    {overdue ? (
-                      <span className="font-semibold text-rose-600 dark:text-rose-400">
-                        {" "}
-                        · {overdueDaysForMember(m)}d overdue
+                <button
+                  type="button"
+                  disabled={!canExpand}
+                  onClick={() => {
+                    if (!canExpand) return;
+                    setExpandedId((prev) => (prev === rowKey ? null : rowKey));
+                  }}
+                  className={cn(
+                    "flex w-full items-center gap-3 px-3.5 py-3 text-left",
+                    canExpand && "active:scale-[0.99]",
+                    !canExpand && "cursor-default",
+                  )}
+                  aria-expanded={canExpand ? isExpanded : undefined}
+                  aria-label={
+                    canExpand
+                      ? isExpanded
+                        ? `Collapse ${m.name || "member"}`
+                        : `Expand ${m.name || "member"} to show contact details`
+                      : undefined
+                  }
+                >
+                  <MemberAvatar member={m} className="h-12 w-12" />
+                  <div className="min-w-0 flex-1">
+                    <div className="flex items-center gap-2">
+                      <p className="truncate text-sm font-semibold text-slate-900 dark:text-slate-50">
+                        {m.name || "—"}
+                      </p>
+                      <span
+                        className={cn(
+                          "shrink-0 rounded-md px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wide",
+                          m.status === "Active" &&
+                            "bg-emerald-500/15 text-emerald-700 dark:text-emerald-300",
+                          m.status === "Hold" && "bg-amber-500/15 text-amber-700 dark:text-amber-300",
+                          m.status === "Deactivated" &&
+                            "bg-rose-500/15 text-rose-700 dark:text-rose-300",
+                          (!m.status || m.status === "Cancelled") &&
+                            "bg-slate-500/15 text-slate-600 dark:text-slate-300",
+                        )}
+                      >
+                        {m.status || "Active"}
                       </span>
+                    </div>
+                    <p className="truncate text-[11px] text-slate-500 dark:text-slate-400">
+                      {m.memberId} · {m.plan || "No plan"}
+                    </p>
+                    <p className="mt-0.5 text-[11px] text-slate-500 dark:text-slate-400">
+                      Pay by {formatDate(payBy || m.billingDate) || "—"}
+                      {overdue ? (
+                        <span className="font-semibold text-rose-600 dark:text-rose-400">
+                          {" "}
+                          · {overdueDaysForMember(m)}d overdue
+                        </span>
+                      ) : null}
+                    </p>
+                  </div>
+                  {canExpand ? (
+                    <ChevronDown
+                      className={cn(
+                        "h-4 w-4 shrink-0 text-slate-400 transition-transform",
+                        isExpanded && "rotate-180",
+                      )}
+                      aria-hidden
+                    />
+                  ) : null}
+                </button>
+
+                {isExpanded ? (
+                  <div className="space-y-2.5 border-t border-black/5 px-3.5 pb-3.5 pt-3 dark:border-white/8">
+                    <div className="flex items-center gap-2 text-[13px] text-slate-800 dark:text-slate-100">
+                      <Phone className="h-3.5 w-3.5 shrink-0 text-slate-400" />
+                      <span className="font-medium tabular-nums">
+                        {m.mobile || "No mobile on file"}
+                      </span>
+                    </div>
+                    {canEdit ? (
+                      <button
+                        type="button"
+                        onClick={() => setEditing(m)}
+                        className="w-full rounded-xl bg-slate-900 py-2.5 text-sm font-semibold text-white dark:bg-teal-600"
+                      >
+                        Edit member
+                      </button>
                     ) : null}
-                  </p>
-                </div>
-              </button>
+                  </div>
+                ) : null}
+              </article>
             );
           })
         )}

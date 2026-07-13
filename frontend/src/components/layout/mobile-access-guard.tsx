@@ -43,6 +43,7 @@ export function useMobileFeatureAccess() {
     homeOverdue: hasAccess(user, "mobile", "homeOverdue"),
     membersAdd: hasAccess(user, "mobile", "membersAdd"),
     membersEdit: hasAccess(user, "mobile", "membersEdit"),
+    membersExpand: hasAccess(user, "mobile", "membersExpand"),
     leaveCreate: hasAccess(user, "mobile", "leaveCreate"),
     leaveApprove: hasAccess(user, "mobile", "leaveApprove"),
     viewMore: hasAccess(user, "mobile", "viewMore"),
