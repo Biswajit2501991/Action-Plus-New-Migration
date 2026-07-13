@@ -223,6 +223,25 @@ export const systemApi = {
   processStart: () => apiFetch<{ ok?: boolean }>("/process/start", { method: "POST" }),
 };
 
+export type PaymentQrItem = {
+  id: string;
+  qrName?: string;
+  branchLabel?: string;
+  gymCodeId?: string;
+  qrImageUrl?: string;
+  isActive?: boolean;
+  displayOrder?: number;
+  [key: string]: unknown;
+};
+
 export const paymentQrApi = {
-  list: () => apiFetch<unknown[]>("/payment-qr"),
+  list: (params?: { gymCodeId?: string; activeOnly?: boolean }) => {
+    const q = new URLSearchParams();
+    if (params?.gymCodeId) q.set("gymCodeId", params.gymCodeId);
+    if (params?.activeOnly === false) q.set("activeOnly", "false");
+    const qs = q.toString();
+    return apiFetch<{ ok?: boolean; gymCodeId?: string; items?: PaymentQrItem[] }>(
+      `/payment-qr${qs ? `?${qs}` : ""}`,
+    );
+  },
 };

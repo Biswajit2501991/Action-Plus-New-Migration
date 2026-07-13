@@ -67,8 +67,8 @@ export function AppSectionTabs() {
 
   return (
     <>
-      <div className="rounded-2xl border border-border/70 bg-card/70 p-3 shadow-sm">
-        <div className="flex flex-wrap items-center gap-2">
+      <div className="rounded-xl border border-border/70 bg-card/70 px-2 py-1.5 shadow-sm">
+        <div className="flex min-w-0 items-center gap-1 overflow-x-auto whitespace-nowrap pb-0.5">
           {tabs.map((tab) => {
             const active = pathname === tab.href || pathname.startsWith(`${tab.href}/`);
             return (
@@ -76,7 +76,7 @@ export function AppSectionTabs() {
                 key={tab.href}
                 href={tab.href}
                 className={cn(
-                  "rounded-full border px-3 py-1.5 text-xs font-semibold transition-colors",
+                  "inline-flex h-6 shrink-0 items-center rounded-full border px-1.5 text-[10px] font-semibold leading-none transition-colors",
                   active
                     ? "border-sky-600 bg-sky-600 text-white"
                     : "border-border bg-background text-muted-foreground hover:bg-accent hover:text-foreground",
@@ -90,7 +90,7 @@ export function AppSectionTabs() {
             <Button
               size="sm"
               variant="outline"
-              className="h-8 rounded-full border-amber-300 bg-amber-50 px-3 text-xs font-semibold text-amber-900 hover:bg-amber-100"
+              className="h-6 shrink-0 rounded-full border-amber-300 bg-amber-50 px-1.5 text-[10px] font-semibold text-amber-900 hover:bg-amber-100"
               onClick={() => setLateOpen(true)}
             >
               Add Late Note

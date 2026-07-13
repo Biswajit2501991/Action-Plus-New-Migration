@@ -1,15 +1,24 @@
 "use client";
 
 import { useMemo, useState, type ReactNode } from "react";
-import { ChevronDown, ChevronUp, MessageCircle, Trash2 } from "lucide-react";
+import { MessageCircle, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Select } from "@/components/ui/input";
 import { paymentByDateKey, localCalendarDateKey } from "@/lib/domain/billing";
 import { nextPaymentDateFromBillingDate } from "@/lib/domain/member-dates";
+import { getSmsSentInfoText, primaryMessageActionForMember } from "@/lib/domain/member-actions";
 import { cn, formatCurrency, formatDate } from "@/lib/utils";
 import type { Member, Payment } from "@/types";
 
 type DetailsViewMode = "full" | "compact";
+type WhatsAppKind =
+  | "reminder"
+  | "monthReminder"
+  | "welcome"
+  | "fine"
+  | "hold"
+  | "deactivate"
+  | "success";
 
 type DetailField = {
   key: string;
@@ -170,7 +179,7 @@ function SectionCard({
   title: string;
   open: boolean;
   onToggle: () => void;
-  tone?: "slate" | "indigo" | "emerald";
+  tone?: "slate" | "indigo" | "emerald" | "communication";
   children: ReactNode;
 }) {
   const toneClass =
@@ -178,7 +187,9 @@ function SectionCard({
       ? "border-emerald-200 bg-emerald-50/40 dark:border-emerald-900 dark:bg-emerald-950/20"
       : tone === "indigo"
         ? "border-indigo-200 bg-indigo-50/40 dark:border-indigo-900 dark:bg-indigo-950/20"
-        : "border-border/70 bg-background";
+        : tone === "communication"
+          ? "border-slate-200 bg-white dark:border-border dark:bg-card"
+          : "border-border/70 bg-background";
   return (
     <div className={cn("rounded-xl border p-2.5", toneClass)}>
       <button
@@ -186,13 +197,119 @@ function SectionCard({
         onClick={onToggle}
         className="flex w-full items-center justify-between gap-2 py-0.5 text-left"
       >
-        <div className="text-[11px] font-semibold text-foreground">{title}</div>
-        <span className="inline-flex items-center gap-1 text-[10px] font-medium text-muted-foreground">
+        <div
+          className={cn(
+            "text-[11px] font-semibold uppercase tracking-wide",
+            tone === "communication" ? "text-sky-600 dark:text-sky-400" : "text-foreground",
+          )}
+        >
+          {title}
+        </div>
+        <span className="inline-flex items-center rounded-md border border-slate-200 bg-white px-2 py-0.5 text-[10px] font-medium text-slate-600 hover:bg-slate-50 dark:border-border dark:bg-background dark:text-muted-foreground">
           {open ? "Hide" : "Expand"}
-          {open ? <ChevronUp className="h-3 w-3" /> : <ChevronDown className="h-3 w-3" />}
         </span>
       </button>
       {open ? <div className="mt-2">{children}</div> : null}
+    </div>
+  );
+}
+
+function SmsSentChip({ text }: { text: string }) {
+  if (!text) return null;
+  return (
+    <span
+      className="max-w-[240px] truncate rounded-md border border-amber-200 bg-amber-50 px-2 py-1 text-[9px] text-amber-800 dark:border-amber-900 dark:bg-amber-950/40 dark:text-amber-200"
+      title={text}
+    >
+      {text}
+    </span>
+  );
+}
+
+function CommunicationDocumentsBlock({
+  m,
+  canWhatsApp,
+  onWhatsApp,
+  onWelcomeMail,
+  onUploadDocument,
+}: {
+  m: Member;
+  canWhatsApp: boolean;
+  onWhatsApp: (kind: WhatsAppKind) => void;
+  onWelcomeMail: () => void;
+  onUploadDocument: (file: File) => void;
+}) {
+  const todayKey = localCalendarDateKey(new Date());
+  const joiningKey = localCalendarDateKey(m.joiningDate);
+  const showWelcome = Boolean(joiningKey && todayKey && joiningKey === todayKey);
+  const suggested = primaryMessageActionForMember(m);
+
+  const types: { key: WhatsAppKind; label: string }[] = [
+    { key: "reminder", label: "Reminder" },
+    { key: "monthReminder", label: "Month Reminder" },
+    { key: "fine", label: "Fine SMS" },
+    { key: "deactivate", label: "Deactivate SMS" },
+    { key: "hold", label: "Hold SMS" },
+    ...(showWelcome ? [{ key: "welcome" as const, label: "Welcome SMS" }] : []),
+    { key: "success", label: "Success SMS" },
+  ];
+
+  return (
+    <div className="space-y-2">
+      <div className="rounded-xl border border-slate-200 bg-white p-2 dark:border-border dark:bg-background">
+        <div className="mb-1.5 text-[11px] font-semibold text-slate-700 dark:text-foreground">
+          WhatsApp Message Types
+        </div>
+        <div className="flex flex-wrap gap-1.5">
+          {types.map((t) => {
+            const highlighted = suggested.key === t.key;
+            return (
+              <div key={t.key} className="flex items-center gap-1.5">
+                <Button
+                  size="sm"
+                  variant="outline"
+                  disabled={!canWhatsApp}
+                  className={cn(
+                    "h-7 px-2.5 text-[10px] font-semibold",
+                    highlighted
+                      ? "border-sky-300 bg-sky-50 text-sky-700 hover:bg-sky-100"
+                      : "border-slate-200 bg-white text-slate-700 hover:bg-slate-50 dark:bg-background",
+                  )}
+                  onClick={() => onWhatsApp(t.key)}
+                >
+                  {t.label}
+                </Button>
+                <SmsSentChip text={getSmsSentInfoText(m, t.key)} />
+              </div>
+            );
+          })}
+        </div>
+      </div>
+
+      <div className="flex flex-wrap items-center gap-1.5 border-t border-slate-200 pt-2 dark:border-border">
+        {String(m.status || "").toLowerCase() === "active" ? (
+          <Button
+            size="sm"
+            variant="outline"
+            className="h-7 border-indigo-300 bg-indigo-50 px-2.5 text-[10px] font-semibold text-indigo-700 hover:bg-indigo-100"
+            onClick={onWelcomeMail}
+          >
+            Send Gmail Welcome
+          </Button>
+        ) : null}
+        <label className="inline-flex h-7 cursor-pointer items-center rounded-lg border border-slate-200 bg-white px-2.5 text-[10px] font-semibold text-slate-700 hover:bg-slate-50 dark:border-border dark:bg-background dark:text-foreground">
+          Upload Document
+          <input
+            type="file"
+            className="hidden"
+            onChange={(e) => {
+              const file = e.target.files?.[0];
+              if (file) onUploadDocument(file);
+              e.target.value = "";
+            }}
+          />
+        </label>
+      </div>
     </div>
   );
 }
@@ -206,6 +323,8 @@ export function MemberExpandedDetails({
   onEdit,
   onAddPayment,
   onWhatsApp,
+  onWelcomeMail,
+  onUploadDocument,
   onDelete,
   onStatusChange,
 }: {
@@ -216,7 +335,9 @@ export function MemberExpandedDetails({
   holdOptions: string[];
   onEdit: () => void;
   onAddPayment: () => void;
-  onWhatsApp: () => void;
+  onWhatsApp: (kind: WhatsAppKind) => void;
+  onWelcomeMail: () => void;
+  onUploadDocument: (file: File) => void;
   onDelete: () => void;
   onStatusChange: (status: string, holdDuration?: string) => void;
 }) {
@@ -233,9 +354,12 @@ export function MemberExpandedDetails({
     profile: false,
     membership: false,
     payments: false,
+    communication: false,
   });
   const [holdSel, setHoldSel] = useState(holdOptions[0] || "1 Month");
   const [monthFilter, setMonthFilter] = useState("");
+
+  const canWhatsApp = Boolean(String(m.mobile || "").trim());
 
   const isHold = String(m.status || "").trim().toLowerCase() === "hold";
   const isActive = String(m.status || "").trim().toLowerCase() === "active";
@@ -411,7 +535,7 @@ export function MemberExpandedDetails({
             Edit member
           </Button>
         ) : null}
-        <Button size="sm" variant="outline" className="h-7 text-[10px]" onClick={onWhatsApp}>
+        <Button size="sm" variant="outline" className="h-7 text-[10px]" onClick={() => onWhatsApp("welcome")}>
           <MessageCircle className="h-3.5 w-3.5" /> WhatsApp
         </Button>
         {canDelete ? (
@@ -568,6 +692,21 @@ export function MemberExpandedDetails({
             </div>
           )}
         </div>
+      </SectionCard>
+
+      <SectionCard
+        title="Communication & Documents"
+        open={openSections.communication}
+        onToggle={() => toggle("communication")}
+        tone="communication"
+      >
+        <CommunicationDocumentsBlock
+          m={m}
+          canWhatsApp={canWhatsApp}
+          onWhatsApp={onWhatsApp}
+          onWelcomeMail={onWelcomeMail}
+          onUploadDocument={onUploadDocument}
+        />
       </SectionCard>
     </div>
   );

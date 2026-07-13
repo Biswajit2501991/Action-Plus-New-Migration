@@ -84,7 +84,47 @@
 }
 .apg-member-row--fine-due {
   animation: apg-row-fine 1.6s ease-in-out infinite;
+  border-color: rgb(252 165 165) !important;
 }
 .apg-member-row--billing-today {
   animation: apg-row-billing 1.8s ease-in-out infinite;
+  border-color: rgb(134 239 172) !important;
+}
+.apg-member-row-card.apg-member-row--billing-today {
+  box-shadow: 0 0 0 1px rgb(134 239 172 / 0.55), 0 1px 0 rgba(15, 23, 42, 0.02);
+}
+.apg-member-row-card.apg-member-row--fine-due {
+  box-shadow: 0 0 0 1px rgb(252 165 165 / 0.55), 0 1px 0 rgba(15, 23, 42, 0.02);
+}
+
+@keyframes apg-payment-qr-btn-border-flash {
+  0%, 100% {
+    border-color: rgba(34, 197, 94, 0.55);
+    background-color: rgba(34, 197, 94, 0.12);
+    box-shadow: 0 0 0 3px rgba(34, 197, 94, 0.25);
+  }
+  50% {
+    border-color: rgb(34, 197, 94);
+    background-color: rgba(34, 197, 94, 0.25);
+    box-shadow: 0 0 0 6px rgba(34, 197, 94, 0.25), 0 0 18px rgba(34, 197, 94, 0.35);
+  }
+}
+.apg-payment-qr-btn-flash {
+  border-width: 2px !important;
+  border-style: solid !important;
+  border-color: rgba(34, 197, 94, 0.55) !important;
+  background-color: rgba(34, 197, 94, 0.12) !important;
+  color: #166534 !important;
+  box-shadow: 0 0 0 3px rgba(34, 197, 94, 0.25) !important;
+  animation: apg-payment-qr-btn-border-flash 1.2s ease-in-out infinite !important;
+}
+.apg-payment-qr-btn-flash:hover {
+  background-color: rgba(34, 197, 94, 0.2) !important;
+  color: #14532d !important;
+}
+.dark .apg-payment-qr-btn-flash {
+  border-color: rgba(34, 197, 94, 0.65) !important;
+  background-color: rgba(34, 197, 94, 0.18) !important;
+  color: #bbf7d0 !important;
+  box-shadow: 0 0 0 3px rgba(34, 197, 94, 0.25) !important;
 }

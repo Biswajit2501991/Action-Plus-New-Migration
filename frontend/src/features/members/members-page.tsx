@@ -5,10 +5,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import {
-  ChevronDown,
-  ChevronUp,
   Filter,
-  MessageCircle,
   MoreHorizontal,
   Plus,
   Search,
@@ -30,14 +27,10 @@ import { formatCurrency, formatDate, downloadTextFile, toCsv, cn } from "@/lib/u
 import { hasAccess } from "@/lib/domain/permissions";
 import { useAuthStore, useUiStore } from "@/stores";
 import type { Member, Visitor } from "@/types";
-import {
-  isBillingToday,
-  isNewMember,
-  primaryMessageActionForMember,
-  getSmsSentInfoText,
-  shortStatus,
-} from "@/lib/domain/member-actions";
+import { isBillingToday } from "@/lib/domain/member-actions";
 import { MemberExpandedDetails } from "@/features/members/member-expanded-details";
+import { PaymentQrButton } from "@/features/members/payment-qr-viewer";
+import { MemberCardRow, MemberListHeader } from "@/features/members/member-card-row";
 
 const PAGE_SIZE = 10;
 const STATUS_KEYS = ["Active", "Hold", "Deactivated", "Cancelled"] as const;
@@ -117,6 +110,7 @@ export function MembersPage() {
   const [actionsOpen, setActionsOpen] = useState(false);
   const [sortField, setSortField] = useState<SortField>("joiningDate");
   const [sortDirection, setSortDirection] = useState<"asc" | "desc">("desc");
+  const [userHasSorted, setUserHasSorted] = useState(false);
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [pages, setPages] = useState<Record<StatusKey, number>>({
     Active: 1,
@@ -210,22 +204,26 @@ export function MembersPage() {
   );
 
   const sortMembers = useCallback(
-    (list: Member[]) => {
+    (list: Member[], opts?: { pinBillingToday?: boolean }) => {
       const sorted = [...list];
       const dir = sortDirection === "asc" ? 1 : -1;
       const todayKey = localTodayCalendarKey();
+      const pinBillingToday = opts?.pinBillingToday !== false && !userHasSorted;
       sorted.sort((a, b) => {
-        const prA = isPaymentByPastDue(a)
-          ? 2
-          : isBillingToday(a, todayKey)
-            ? 1
-            : 0;
-        const prB = isPaymentByPastDue(b)
-          ? 2
-          : isBillingToday(b, todayKey)
-            ? 1
-            : 0;
-        if (prB !== prA) return prB - prA;
+        if (pinBillingToday) {
+          // Default Active list: billing-date-today first, then overdue, then everyone else.
+          const prA = isBillingToday(a, todayKey)
+            ? 2
+            : isPaymentByPastDue(a)
+              ? 1
+              : 0;
+          const prB = isBillingToday(b, todayKey)
+            ? 2
+            : isPaymentByPastDue(b)
+              ? 1
+              : 0;
+          if (prB !== prA) return prB - prA;
+        }
         if (sortField === "billingDate" || sortField === "joiningDate") {
           const at = new Date(String(a[sortField] || 0)).getTime() || 0;
           const bt = new Date(String(b[sortField] || 0)).getTime() || 0;
@@ -243,7 +241,7 @@ export function MembersPage() {
       });
       return sorted;
     },
-    [sortDirection, sortField],
+    [sortDirection, sortField, userHasSorted],
   );
 
   const filtered = useMemo(() => applyFilters(members), [members, applyFilters]);
@@ -251,10 +249,14 @@ export function MembersPage() {
   const grouped = useMemo(() => {
     const base = applyFilters(members);
     return {
-      Active: sortMembers(base.filter((m) => m.status === "Active")),
-      Hold: sortMembers(base.filter((m) => m.status === "Hold")),
-      Deactivated: sortMembers(base.filter((m) => m.status === "Deactivated")),
-      Cancelled: sortMembers(base.filter((m) => m.status === "Cancelled")),
+      Active: sortMembers(base.filter((m) => m.status === "Active"), { pinBillingToday: true }),
+      Hold: sortMembers(base.filter((m) => m.status === "Hold"), { pinBillingToday: false }),
+      Deactivated: sortMembers(base.filter((m) => m.status === "Deactivated"), {
+        pinBillingToday: false,
+      }),
+      Cancelled: sortMembers(base.filter((m) => m.status === "Cancelled"), {
+        pinBillingToday: false,
+      }),
     };
   }, [members, applyFilters, sortMembers]);
 
@@ -276,6 +278,7 @@ export function MembersPage() {
   };
 
   const toggleSort = (field: SortField) => {
+    setUserHasSorted(true);
     if (sortField === field) setSortDirection((d) => (d === "asc" ? "desc" : "asc"));
     else {
       setSortField(field);
@@ -419,7 +422,14 @@ export function MembersPage() {
 
   const openWhatsApp = (
     m: Member,
-    kind: "reminder" | "welcome" | "fine" | "hold" | "deactivate" = "reminder",
+    kind:
+      | "reminder"
+      | "monthReminder"
+      | "welcome"
+      | "fine"
+      | "hold"
+      | "deactivate"
+      | "success" = "reminder",
   ) => {
     if (!m.mobile) {
       toast.error("No mobile number on this member");
@@ -436,7 +446,11 @@ export function MembersPage() {
             ? `Hi ${m.name || ""}, your membership is on Hold. Contact Action Plus Gym for details.`
             : kind === "deactivate"
               ? `Hi ${m.name || ""}, your membership is Deactivated. Contact Action Plus Gym to reactivate.`
-              : `Hi ${m.name || ""}, this is a payment reminder from Action Plus Gym.`;
+              : kind === "success"
+                ? `Hi ${m.name || ""}, payment received successfully at Action Plus Gym. Thank you!`
+                : kind === "monthReminder"
+                  ? `Hi ${m.name || ""}, this is your monthly payment reminder from Action Plus Gym.`
+                  : `Hi ${m.name || ""}, this is a payment reminder from Action Plus Gym.`;
     window.open(`https://wa.me/${phone}?text=${encodeURIComponent(text)}`, "_blank");
 
     const sentAt = new Date().toISOString();
@@ -470,6 +484,50 @@ export function MembersPage() {
       .catch(() => {
         /* chip refresh is best-effort; WhatsApp already opened */
       });
+  };
+
+  const openWelcomeMail = (m: Member) => {
+    if (!m.email) {
+      toast.error("No email on this member");
+      return;
+    }
+    const subject = encodeURIComponent(`Welcome to Action Plus Gym — ${m.name || m.memberId}`);
+    const body = encodeURIComponent(
+      `Hi ${m.name || ""},\n\nWelcome to Action Plus Gym! We're glad to have you as a member.\n\nMember ID: ${m.memberId}\nPlan: ${m.plan || "—"}\n\nRegards,\nAction Plus Gym`,
+    );
+    window.open(`mailto:${m.email}?subject=${subject}&body=${body}`, "_blank");
+  };
+
+  const uploadMemberDocument = async (m: Member, file: File) => {
+    if (file.size > 10 * 1024 * 1024) {
+      toast.error("Document must be 10MB or smaller");
+      return;
+    }
+    try {
+      const dataUrl = await new Promise<string>((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve(String(reader.result || ""));
+        reader.onerror = () => reject(new Error("Could not read file"));
+        reader.readAsDataURL(file);
+      });
+      const prev = Array.isArray(m.attachments) ? (m.attachments as Record<string, unknown>[]) : [];
+      const next = [
+        {
+          id: uid("doc"),
+          name: file.name,
+          mime: file.type || "application/octet-stream",
+          size: file.size,
+          dataUrl,
+          uploadedAt: new Date().toISOString(),
+        },
+        ...prev,
+      ].slice(0, 20);
+      await membersApi.patch(m.memberId, { attachments: next } as Partial<Member>);
+      toast.success("Document uploaded");
+      await qc.invalidateQueries({ queryKey: ["members"] });
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Upload failed");
+    }
   };
 
   const sectionsToShow = (focusStatus ? [focusStatus] : [...STATUS_KEYS]) as StatusKey[];
@@ -559,52 +617,81 @@ export function MembersPage() {
         <>
           <Card>
             <CardContent className="space-y-3 p-4">
-              <div className="flex flex-col gap-3 lg:flex-row lg:items-center">
-                <div className="flex min-w-0 flex-1 flex-wrap items-center gap-2">
-                  <h2 className="text-xl font-semibold">Members</h2>
-                  <span className="rounded-full border bg-muted px-2.5 py-1 text-xs font-semibold text-muted-foreground">
-                    {totalCount}
-                  </span>
-                  <div className="flex flex-wrap gap-2">
-                    {[
-                      { key: "", label: "All Members" },
-                      { key: "Active", label: `Active (${grouped.Active.length})` },
-                      { key: "Hold", label: `Hold (${grouped.Hold.length})` },
-                      { key: "Deactivated", label: `Deactivated (${grouped.Deactivated.length})` },
-                      { key: "Cancelled", label: `Cancelled (${grouped.Cancelled.length})` },
-                    ].map((chip) => {
-                      const active = (focusStatus || "") === chip.key;
-                      return (
-                        <button
-                          key={chip.key || "all"}
-                          type="button"
-                          onClick={() => setFocusStatus(chip.key)}
-                          className={cn(
-                            "rounded-xl border px-2.5 py-1.5 text-xs font-semibold transition",
-                            active
-                              ? "border-teal-600 bg-teal-600 text-white"
-                              : "border-border bg-card text-muted-foreground hover:bg-accent",
-                          )}
-                        >
-                          {chip.label}
-                        </button>
-                      );
-                    })}
-                  </div>
+              <div className="flex min-w-0 items-center gap-1.5 overflow-x-auto whitespace-nowrap pb-0.5">
+                <h2 className="shrink-0 text-sm font-semibold md:text-base">Members</h2>
+                <span className="shrink-0 rounded-full border bg-muted px-1.5 py-0.5 text-[10px] font-semibold tabular-nums text-muted-foreground">
+                  {totalCount}
+                </span>
+                <span className="mx-0.5 hidden h-4 w-px shrink-0 bg-border sm:block" aria-hidden="true" />
+                <div className="inline-flex shrink-0 items-center gap-1">
+                  {[
+                    { key: "", label: "All Members" },
+                    { key: "Active", label: `Active Members (${grouped.Active.length})` },
+                    { key: "Hold", label: `Hold Members (${grouped.Hold.length})` },
+                    { key: "Deactivated", label: `Deactivated Members (${grouped.Deactivated.length})` },
+                    { key: "Cancelled", label: `Cancelled Members (${grouped.Cancelled.length})` },
+                  ].map((chip) => {
+                    const active = (focusStatus || "") === chip.key;
+                    const tone =
+                      chip.key === "Active"
+                        ? [
+                            "border-emerald-600 bg-emerald-600 text-white ring-1 ring-emerald-300 dark:ring-emerald-800",
+                            "border-emerald-200 bg-emerald-50 text-emerald-800 hover:bg-emerald-100 dark:border-emerald-800 dark:bg-emerald-950/40 dark:text-emerald-200",
+                          ]
+                        : chip.key === "Hold"
+                          ? [
+                              "border-amber-500 bg-amber-500 text-white ring-1 ring-amber-300 dark:ring-amber-800",
+                              "border-amber-200 bg-amber-50 text-amber-800 hover:bg-amber-100 dark:border-amber-800 dark:bg-amber-950/40 dark:text-amber-200",
+                            ]
+                          : chip.key === "Deactivated"
+                            ? [
+                                "border-pink-600 bg-pink-600 text-white ring-1 ring-pink-300 dark:ring-pink-800",
+                                "border-pink-200 bg-pink-50 text-pink-800 hover:bg-pink-100 dark:border-pink-800 dark:bg-pink-950/40 dark:text-pink-200",
+                              ]
+                            : chip.key === "Cancelled"
+                              ? [
+                                  "border-slate-700 bg-slate-700 text-white ring-1 ring-slate-300 dark:border-slate-500 dark:bg-slate-600 dark:ring-slate-700",
+                                  "border-slate-200 bg-slate-100 text-slate-700 hover:bg-slate-200 dark:border-slate-700 dark:bg-slate-900/60 dark:text-slate-200",
+                                ]
+                              : [
+                                  "border-sky-600 bg-sky-600 text-white ring-1 ring-sky-300 dark:ring-sky-800",
+                                  "border-sky-200 bg-sky-50 text-sky-800 hover:bg-sky-100 dark:border-sky-800 dark:bg-sky-950/40 dark:text-sky-200",
+                                ];
+                    return (
+                      <button
+                        key={chip.key || "all"}
+                        type="button"
+                        aria-pressed={active}
+                        onClick={() => setFocusStatus(chip.key)}
+                        className={cn(
+                          "inline-flex h-6 shrink-0 items-center rounded-lg border px-1.5 text-[10px] font-semibold leading-none transition-all duration-150",
+                          active ? tone[0] : tone[1],
+                        )}
+                      >
+                        {chip.label}
+                      </button>
+                    );
+                  })}
                 </div>
-
-                <div className="relative flex flex-wrap items-center gap-2">
-                  <Button variant="outline" size="sm" onClick={() => setActionsOpen((v) => !v)}>
-                    <MoreHorizontal className="h-4 w-4" />
+                <span className="mx-0.5 hidden h-4 w-px shrink-0 bg-border sm:block" aria-hidden="true" />
+                <div className="relative inline-flex shrink-0 items-center gap-1">
+                  <PaymentQrButton className="!h-6 gap-1 !px-2 !text-[10px]" />
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="h-6 gap-1 px-2 text-[10px]"
+                    onClick={() => setActionsOpen((v) => !v)}
+                  >
+                    <MoreHorizontal className="h-3 w-3" />
                     Actions
                     {selectedIds.length ? (
-                      <span className="rounded-full bg-foreground px-1.5 text-[10px] text-background">
+                      <span className="rounded-full bg-foreground px-1 text-[9px] text-background">
                         {selectedIds.length}
                       </span>
                     ) : null}
                   </Button>
                   {actionsOpen ? (
-                    <div className="absolute right-0 top-10 z-30 min-w-[230px] rounded-xl border bg-background p-2 shadow-xl">
+                    <div className="absolute right-0 top-8 z-30 min-w-[230px] rounded-xl border bg-background p-2 shadow-xl">
                       <button
                         type="button"
                         className="w-full rounded-lg px-3 py-2 text-left text-sm hover:bg-accent"
@@ -701,7 +788,19 @@ export function MembersPage() {
             return (
               <div key={key} className="space-y-3">
                 <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
-                  <h3 className="text-lg font-semibold">
+                  <h3
+                    className={cn(
+                      "inline-flex w-fit items-center rounded-xl border px-3 py-1.5 text-base font-semibold md:text-lg",
+                      key === "Active" &&
+                        "border-emerald-200 bg-emerald-50 text-emerald-800 dark:border-emerald-800 dark:bg-emerald-950/40 dark:text-emerald-200",
+                      key === "Hold" &&
+                        "border-amber-200 bg-amber-50 text-amber-800 dark:border-amber-800 dark:bg-amber-950/40 dark:text-amber-200",
+                      key === "Deactivated" &&
+                        "border-pink-200 bg-pink-50 text-pink-800 dark:border-pink-800 dark:bg-pink-950/40 dark:text-pink-200",
+                      key === "Cancelled" &&
+                        "border-slate-200 bg-slate-100 text-slate-700 dark:border-slate-700 dark:bg-slate-900/60 dark:text-slate-200",
+                    )}
+                  >
                     {key} Members ({list.length})
                   </h3>
                   <div className="flex flex-wrap items-center gap-2">
@@ -755,228 +854,75 @@ export function MembersPage() {
 
                 {!hiddenSections[key] ? (
                   <Card>
-                    <CardContent className="p-0">
+                    <CardContent className="space-y-1.5 p-2 sm:p-3">
                       <div className="overflow-x-auto">
-                        <table className="w-full min-w-[1040px] text-left text-[10px] leading-tight">
-                          <thead>
-                            <tr className="border-b bg-sky-50/80 text-[10px] font-semibold uppercase tracking-wide text-slate-600 dark:bg-sky-950/30 dark:text-sky-100">
-                              <th className="w-8 px-2 py-1.5" />
-                              <th className="px-2 py-1.5">
-                                <button type="button" onClick={() => toggleSort("memberId")}>
-                                  ID {sortIndicator("memberId")}
-                                </button>
-                              </th>
-                              <th className="px-2 py-1.5">
-                                <button type="button" onClick={() => toggleSort("name")}>
-                                  Name {sortIndicator("name")}
-                                </button>
-                              </th>
-                              <th className="px-2 py-1.5">
-                                <button type="button" onClick={() => toggleSort("plan")}>
-                                  Plan {sortIndicator("plan")}
-                                </button>
-                              </th>
-                              <th className="px-2 py-1.5">
-                                <button type="button" onClick={() => toggleSort("billingDate")}>
-                                  Bill Date {sortIndicator("billingDate")}
-                                </button>
-                              </th>
-                              <th className="px-2 py-1.5">
-                                <button type="button" onClick={() => toggleSort("paymentBy")}>
-                                  Payment By {sortIndicator("paymentBy")}
-                                </button>
-                              </th>
-                              <th className="px-2 py-1.5 normal-case tracking-normal">Status / Action / Welcome</th>
-                            </tr>
-                          </thead>
-                          <tbody className="text-[10px]">
-                            {pageList.map((m) => {
-                              const overdue = isPaymentByPastDue(m);
-                              const billingToday = isBillingToday(m) && !overdue;
-                              const expanded = expandedId === m.memberId;
-                              const msg = primaryMessageActionForMember(m, {
-                                isOwner: String(user?.id || "").toLowerCase() === "owner",
-                              });
-                              const statusSentText =
-                                msg.key !== "none" ? getSmsSentInfoText(m, msg.key) : "";
-                              const isOwner =
-                                String(user?.id || "").toLowerCase() === "owner" ||
-                                String(user?.staffRole || "").toLowerCase() === "master_owner";
-                              return (
-                                <Fragment key={m.memberId}>
-                                  <tr
-                                    className={cn(
-                                      "cursor-pointer border-b border-border/60 transition hover:bg-accent/30",
-                                      overdue && "apg-member-row--fine-due font-medium",
-                                      billingToday && "apg-member-row--billing-today font-medium",
-                                    )}
-                                    onClick={() =>
-                                      setExpandedId((prev) => (prev === m.memberId ? null : m.memberId))
-                                    }
-                                  >
-                                    <td className="px-2 py-1" onClick={(e) => e.stopPropagation()}>
-                                      <input
-                                        type="checkbox"
-                                        className="h-3 w-3"
-                                        checked={selectedIds.includes(m.memberId)}
-                                        onChange={() => toggleSelect(m.memberId)}
-                                      />
-                                    </td>
-                                    <td className="px-2 py-1 font-medium tabular-nums">{m.memberId}</td>
-                                    <td className="px-2 py-1">
-                                      <div className="flex min-w-0 items-center gap-1.5">
-                                        <div className="grid h-6 w-6 shrink-0 place-items-center overflow-hidden rounded-full border bg-muted text-[9px] font-semibold">
-                                          {m.photo || m.photoUrl ? (
-                                            // eslint-disable-next-line @next/next/no-img-element
-                                            <img
-                                              src={String(m.photo || m.photoUrl)}
-                                              alt=""
-                                              className="h-full w-full object-cover"
-                                            />
-                                          ) : (
-                                            (m.name || "?").slice(0, 1).toUpperCase()
-                                          )}
-                                        </div>
-                                        <div className="min-w-0">
-                                          <div className="flex items-center gap-1 truncate">
-                                            <span className="truncate font-medium">{m.name || "—"}</span>
-                                            {isNewMember(m) ? (
-                                              <span className="inline-flex shrink-0 items-center rounded-md bg-[#EF4444] px-1.5 py-0.5 text-[8px] font-semibold uppercase leading-none text-white">
-                                                New
-                                              </span>
-                                            ) : null}
-                                          </div>
-                                        </div>
-                                      </div>
-                                    </td>
-                                    <td className="truncate px-2 py-1">{m.plan || "—"}</td>
-                                    <td className="whitespace-nowrap px-2 py-1">{formatDate(m.billingDate)}</td>
-                                    <td className="whitespace-nowrap px-2 py-1">
-                                      <div>{formatDate(paymentByDisplay(m)) || "—"}</div>
-                                      {overdue ? (
-                                        <div className="text-[9px] font-semibold text-rose-700 dark:text-rose-300">
-                                          Overdue by {overdueDaysForMember(m)} day
-                                          {overdueDaysForMember(m) === 1 ? "" : "s"}
-                                        </div>
-                                      ) : null}
-                                    </td>
-                                    <td className="px-2 py-1" onClick={(e) => e.stopPropagation()}>
-                                      <div className="flex flex-wrap items-center gap-1">
-                                        <Badge
-                                          variant={statusBadgeVariant(String(m.status))}
-                                          className="min-w-[4.5rem] justify-center px-1.5 py-0 text-[9px] leading-tight"
-                                        >
-                                          {shortStatus(m.status || "Active")}
-                                        </Badge>
-                                        {hasAccess(user, "members", "editMembers") ? (
-                                          <Button
-                                            size="sm"
-                                            className="h-6 bg-indigo-600 px-2 text-[9px] text-white hover:bg-indigo-700"
-                                            onClick={() => openEdit(m)}
-                                          >
-                                            ✎ Action
-                                          </Button>
-                                        ) : null}
-                                        {msg.key !== "none" ? (
-                                          <Button
-                                            size="sm"
-                                            variant="outline"
-                                            disabled={msg.disabled}
-                                            className={cn(
-                                              "h-6 gap-0.5 px-2 text-[9px]",
-                                              msg.key === "fine" &&
-                                                "border-rose-300 bg-rose-50 text-rose-800 hover:bg-rose-100",
-                                              msg.key === "welcome" &&
-                                                "border-emerald-300 bg-emerald-50 text-emerald-800 hover:bg-emerald-100",
-                                              msg.key === "reminder" &&
-                                                "border-amber-300 bg-amber-50 text-amber-900 hover:bg-amber-100",
-                                            )}
-                                            onClick={() =>
-                                              openWhatsApp(
-                                                m,
-                                                msg.key === "none" ? "reminder" : msg.key,
-                                              )
-                                            }
-                                            title={msg.reason || msg.label}
-                                          >
-                                            <MessageCircle className="h-3 w-3" />
-                                            {msg.label}
-                                          </Button>
-                                        ) : null}
-                                        {statusSentText ? (
-                                          <div
-                                            className="max-w-[230px] truncate rounded-md border border-amber-200 bg-amber-50 px-2 py-1 text-[9px] text-amber-800 dark:border-amber-900 dark:bg-amber-950/40 dark:text-amber-200"
-                                            title={statusSentText}
-                                          >
-                                            {statusSentText}
-                                          </div>
-                                        ) : null}
-                                        <Button
-                                          size="sm"
-                                          variant="ghost"
-                                          className="h-6 px-1.5"
-                                          onClick={() =>
-                                            setExpandedId((prev) => (prev === m.memberId ? null : m.memberId))
-                                          }
-                                          aria-label={expanded ? "Collapse" : "Expand"}
-                                        >
-                                          {expanded ? (
-                                            <ChevronUp className="h-3.5 w-3.5" />
-                                          ) : (
-                                            <ChevronDown className="h-3.5 w-3.5" />
-                                          )}
-                                        </Button>
-                                      </div>
-                                    </td>
-                                  </tr>
-                                  {expanded ? (
-                                    <tr className="border-b bg-slate-50/80 dark:bg-slate-900/40">
-                                      <td colSpan={7} className="px-3 py-3">
-                                        <MemberExpandedDetails
-                                          m={m}
-                                          isOwner={isOwner}
-                                          canEdit={hasAccess(user, "members", "editMembers")}
-                                          canDelete={
-                                            hasAccess(user, "members", "deleteMembers") || isOwner
-                                          }
-                                          holdOptions={
-                                            settings?.holdDurations || ["1 Month", "2 Months", "3 Months"]
-                                          }
-                                          onEdit={() => openEdit(m)}
-                                          onAddPayment={() => setPaymentFor(m)}
-                                          onWhatsApp={() => openWhatsApp(m, "welcome")}
-                                          onDelete={() => {
-                                            if (confirm(`Delete ${m.name || m.memberId}?`)) {
-                                              deleteMutation.mutate(m.memberId);
-                                            }
-                                          }}
-                                          onStatusChange={(status, holdDuration) => {
-                                            statusMutation.mutate({
-                                              ids: [m.memberId],
-                                              status,
-                                              holdDuration,
-                                            });
-                                          }}
-                                        />
-                                      </td>
-                                    </tr>
-                                  ) : null}
-                                </Fragment>
-                              );
-                            })}
-                            {!pageList.length ? (
-                              <tr>
-                                <td colSpan={7} className="px-4 py-8 text-center text-[11px] text-muted-foreground">
-                                  No {key.toLowerCase()} members match your filters.
-                                </td>
-                              </tr>
-                            ) : null}
-                          </tbody>
-                        </table>
+                        <div className="space-y-1.5">
+                          <MemberListHeader sortIndicator={sortIndicator} onSort={toggleSort} />
+                          {pageList.map((m) => {
+                            const expanded = expandedId === m.memberId;
+                            const isOwner =
+                              String(user?.id || "").toLowerCase() === "owner" ||
+                              String(user?.staffRole || "").toLowerCase() === "master_owner";
+                            return (
+                              <Fragment key={m.memberId}>
+                                <MemberCardRow
+                                  m={m}
+                                  selected={selectedIds.includes(m.memberId)}
+                                  expanded={expanded}
+                                  isOwner={isOwner}
+                                  canEdit={hasAccess(user, "members", "editMembers")}
+                                  onToggleSelect={() => toggleSelect(m.memberId)}
+                                  onToggleExpand={() =>
+                                    setExpandedId((prev) => (prev === m.memberId ? null : m.memberId))
+                                  }
+                                  onEdit={() => openEdit(m)}
+                                  onWhatsApp={(kind) => openWhatsApp(m, kind)}
+                                />
+                                {expanded ? (
+                                  <div className="rounded-xl border border-border/70 bg-slate-50/80 px-3 py-3 dark:bg-slate-900/40">
+                                    <MemberExpandedDetails
+                                      m={m}
+                                      isOwner={isOwner}
+                                      canEdit={hasAccess(user, "members", "editMembers")}
+                                      canDelete={
+                                        hasAccess(user, "members", "deleteMembers") || isOwner
+                                      }
+                                      holdOptions={
+                                        settings?.holdDurations || ["1 Month", "2 Months", "3 Months"]
+                                      }
+                                      onEdit={() => openEdit(m)}
+                                      onAddPayment={() => setPaymentFor(m)}
+                                      onWhatsApp={(kind) => openWhatsApp(m, kind)}
+                                      onWelcomeMail={() => openWelcomeMail(m)}
+                                      onUploadDocument={(file) => void uploadMemberDocument(m, file)}
+                                      onDelete={() => {
+                                        if (confirm(`Delete ${m.name || m.memberId}?`)) {
+                                          deleteMutation.mutate(m.memberId);
+                                        }
+                                      }}
+                                      onStatusChange={(status, holdDuration) => {
+                                        statusMutation.mutate({
+                                          ids: [m.memberId],
+                                          status,
+                                          holdDuration,
+                                        });
+                                      }}
+                                    />
+                                  </div>
+                                ) : null}
+                              </Fragment>
+                            );
+                          })}
+                          {!pageList.length ? (
+                            <div className="rounded-xl border border-dashed px-4 py-8 text-center text-[11px] text-muted-foreground">
+                              No {key.toLowerCase()} members match your filters.
+                            </div>
+                          ) : null}
+                        </div>
                       </div>
 
                       {list.length > PAGE_SIZE ? (
-                        <div className="flex items-center justify-between border-t px-4 py-3 text-sm">
+                        <div className="flex items-center justify-between border-t px-2 py-3 text-sm">
                           <div className="text-muted-foreground">
                             Showing {start + 1}–{Math.min(start + PAGE_SIZE, list.length)} of {list.length}
                           </div>
