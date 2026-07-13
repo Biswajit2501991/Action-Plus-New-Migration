@@ -117,6 +117,7 @@ export function MembersPage() {
       return EMPTY_FILTERS;
     }
   });
+  const [draftFilters, setDraftFilters] = useState<MemberFilters>(EMPTY_FILTERS);
   const [filterOpen, setFilterOpen] = useState(false);
   const [actionsOpen, setActionsOpen] = useState(false);
   const [sortField, setSortField] = useState<SortField>("joiningDate");
@@ -142,6 +143,7 @@ export function MembersPage() {
   const [payForm, setPayForm] = useState({ amount: "", method: "Cash", note: "" });
 
   useEffect(() => {
+    // Applied filters persist for this browser so staff keep their saved filter set.
     try {
       localStorage.setItem("apg.v2.memberFilters", JSON.stringify(filters));
     } catch {
@@ -158,6 +160,31 @@ export function MembersPage() {
     () => Object.values(filters).some((v) => Boolean(String(v || "").trim())),
     [filters],
   );
+  const activeFilterCount = useMemo(
+    () => Object.values(filters).filter((v) => Boolean(String(v || "").trim())).length,
+    [filters],
+  );
+
+  const openFilterPanel = () => {
+    setDraftFilters({ ...filters });
+    setFilterOpen(true);
+  };
+
+  const saveFilters = () => {
+    setFilters({ ...draftFilters });
+    setFilterOpen(false);
+    const count = Object.values(draftFilters).filter((v) => Boolean(String(v || "").trim())).length;
+    toast.success(count ? `Filter saved · ${count} active` : "Filters cleared and saved");
+  };
+
+  const clearDraftFilters = () => setDraftFilters({ ...EMPTY_FILTERS });
+
+  const clearAndSaveFilters = () => {
+    setDraftFilters({ ...EMPTY_FILTERS });
+    setFilters({ ...EMPTY_FILTERS });
+    setFilterOpen(false);
+    toast.success("Filters cleared");
+  };
 
   const applyFilters = useCallback(
     (list: Member[]) =>
@@ -483,7 +510,10 @@ export function MembersPage() {
               Export CSV
             </Button>
             {hasAccess(user, "members", "addMembers") ? (
-              <Button className="bg-sky-600 text-white hover:bg-sky-700" onClick={openCreate}>
+              <Button
+                className="bg-slate-900 text-white hover:bg-slate-800 dark:bg-teal-400 dark:text-slate-950 dark:hover:bg-teal-300"
+                onClick={openCreate}
+              >
                 <Plus className="h-4 w-4" /> Add New Member
               </Button>
             ) : null}
@@ -491,12 +521,32 @@ export function MembersPage() {
         }
       />
 
-      <div className="mb-1 flex flex-wrap gap-2">
-        <Button variant={tab === "members" ? "default" : "outline"} size="sm" onClick={() => setTab("members")}>
+      <div className="mb-1 flex flex-wrap gap-1.5 rounded-2xl border border-black/[0.06] bg-gradient-to-b from-white/90 to-slate-50/80 p-1.5 dark:border-white/[0.07] dark:from-white/[0.05] dark:to-slate-950/80">
+        <Button
+          variant="ghost"
+          size="sm"
+          className={cn(
+            "h-9 rounded-xl px-3 text-[12px] font-medium",
+            tab === "members"
+              ? "bg-slate-900 text-white hover:bg-slate-800 hover:text-white dark:bg-teal-400 dark:text-slate-950 dark:hover:bg-teal-300 dark:hover:text-slate-950"
+              : "text-slate-500 hover:bg-black/[0.04] hover:text-slate-900 dark:text-slate-400 dark:hover:bg-white/[0.06]",
+          )}
+          onClick={() => setTab("members")}
+        >
           Members ({totalCount})
         </Button>
         {hasAccess(user, "members", "viewVisitors") ? (
-          <Button variant={tab === "visitors" ? "default" : "outline"} size="sm" onClick={() => setTab("visitors")}>
+          <Button
+            variant="ghost"
+            size="sm"
+            className={cn(
+              "h-9 rounded-xl px-3 text-[12px] font-medium",
+              tab === "visitors"
+                ? "bg-slate-900 text-white hover:bg-slate-800 hover:text-white dark:bg-teal-400 dark:text-slate-950 dark:hover:bg-teal-300 dark:hover:text-slate-950"
+                : "text-slate-500 hover:bg-black/[0.04] hover:text-slate-900 dark:text-slate-400 dark:hover:bg-white/[0.06]",
+            )}
+            onClick={() => setTab("visitors")}
+          >
             Visitors ({visitors.length})
           </Button>
         ) : null}
@@ -541,48 +591,45 @@ export function MembersPage() {
         </Card>
       ) : (
         <>
-          <Card>
-            <CardContent className="space-y-3 p-4">
-              <div className="flex min-w-0 items-center gap-1.5 overflow-x-auto whitespace-nowrap pb-0.5">
-                <h2 className="shrink-0 text-sm font-semibold md:text-base">Members</h2>
-                <span className="shrink-0 rounded-full border bg-muted px-1.5 py-0.5 text-[10px] font-semibold tabular-nums text-muted-foreground">
-                  {totalCount}
-                </span>
-                <span className="mx-0.5 hidden h-4 w-px shrink-0 bg-border sm:block" aria-hidden="true" />
+          <Card className="border-black/[0.06] bg-gradient-to-b from-white/90 to-slate-50/80 shadow-[0_1px_0_rgba(15,23,42,0.04),0_12px_32px_-20px_rgba(15,23,42,0.25)] backdrop-blur-xl dark:border-white/[0.07] dark:from-white/[0.05] dark:to-slate-950/80 dark:shadow-[0_0_0_1px_rgba(255,255,255,0.03),0_16px_40px_-24px_rgba(0,0,0,0.8)]">
+            <CardContent className="p-2 sm:p-2.5">
+              <div className="flex min-w-0 items-center gap-2 overflow-x-auto whitespace-nowrap [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+                <div className="flex shrink-0 items-center gap-2 pl-1.5">
+                  <h2 className="text-[13px] font-semibold tracking-tight text-slate-900 dark:text-slate-50">
+                    Members
+                  </h2>
+                  <span className="rounded-lg bg-slate-900/5 px-2 py-0.5 text-[11px] font-semibold tabular-nums text-slate-600 dark:bg-white/10 dark:text-slate-300">
+                    {totalCount}
+                  </span>
+                </div>
+                <span className="mx-0.5 hidden h-5 w-px shrink-0 bg-slate-200 dark:bg-white/10 sm:block" aria-hidden />
                 <div className="inline-flex shrink-0 items-center gap-1">
-                  {[
-                    { key: "", label: "All Members" },
-                    { key: "Active", label: `Active Members (${grouped.Active.length})` },
-                    { key: "Hold", label: `Hold Members (${grouped.Hold.length})` },
-                    { key: "Deactivated", label: `Deactivated Members (${grouped.Deactivated.length})` },
-                    { key: "Cancelled", label: `Cancelled Members (${grouped.Cancelled.length})` },
-                  ].map((chip) => {
+                  {(
+                    [
+                      { key: "", label: "All Members", dot: "bg-slate-400 dark:bg-slate-500" },
+                      {
+                        key: "Active",
+                        label: `Active (${grouped.Active.length})`,
+                        dot: "bg-emerald-500",
+                      },
+                      {
+                        key: "Hold",
+                        label: `Hold (${grouped.Hold.length})`,
+                        dot: "bg-amber-500",
+                      },
+                      {
+                        key: "Deactivated",
+                        label: `Deactivated (${grouped.Deactivated.length})`,
+                        dot: "bg-rose-500",
+                      },
+                      {
+                        key: "Cancelled",
+                        label: `Cancelled (${grouped.Cancelled.length})`,
+                        dot: "bg-slate-400",
+                      },
+                    ] as const
+                  ).map((chip) => {
                     const active = (focusStatus || "") === chip.key;
-                    const tone =
-                      chip.key === "Active"
-                        ? [
-                            "border-emerald-600 bg-emerald-600 text-white ring-1 ring-emerald-300 dark:ring-emerald-800",
-                            "border-emerald-200 bg-emerald-50 text-emerald-800 hover:bg-emerald-100 dark:border-emerald-800 dark:bg-emerald-950/40 dark:text-emerald-200",
-                          ]
-                        : chip.key === "Hold"
-                          ? [
-                              "border-amber-500 bg-amber-500 text-white ring-1 ring-amber-300 dark:ring-amber-800",
-                              "border-amber-200 bg-amber-50 text-amber-800 hover:bg-amber-100 dark:border-amber-800 dark:bg-amber-950/40 dark:text-amber-200",
-                            ]
-                          : chip.key === "Deactivated"
-                            ? [
-                                "border-pink-600 bg-pink-600 text-white ring-1 ring-pink-300 dark:ring-pink-800",
-                                "border-pink-200 bg-pink-50 text-pink-800 hover:bg-pink-100 dark:border-pink-800 dark:bg-pink-950/40 dark:text-pink-200",
-                              ]
-                            : chip.key === "Cancelled"
-                              ? [
-                                  "border-slate-700 bg-slate-700 text-white ring-1 ring-slate-300 dark:border-slate-500 dark:bg-slate-600 dark:ring-slate-700",
-                                  "border-slate-200 bg-slate-100 text-slate-700 hover:bg-slate-200 dark:border-slate-700 dark:bg-slate-900/60 dark:text-slate-200",
-                                ]
-                              : [
-                                  "border-sky-600 bg-sky-600 text-white ring-1 ring-sky-300 dark:ring-sky-800",
-                                  "border-sky-200 bg-sky-50 text-sky-800 hover:bg-sky-100 dark:border-sky-800 dark:bg-sky-950/40 dark:text-sky-200",
-                                ];
                     return (
                       <button
                         key={chip.key || "all"}
@@ -590,37 +637,46 @@ export function MembersPage() {
                         aria-pressed={active}
                         onClick={() => setFocusStatus(chip.key)}
                         className={cn(
-                          "inline-flex h-6 shrink-0 items-center rounded-lg border px-1.5 text-[10px] font-semibold leading-none transition-all duration-150",
-                          active ? tone[0] : tone[1],
+                          "inline-flex h-9 shrink-0 items-center gap-1.5 rounded-xl px-3 text-[12px] font-medium tracking-tight transition-all duration-200",
+                          active
+                            ? "bg-slate-900 text-white shadow-[0_8px_20px_-10px_rgba(15,23,42,0.65)] dark:bg-teal-400 dark:text-slate-950 dark:shadow-[0_10px_24px_-12px_rgba(45,212,191,0.55)]"
+                            : "text-slate-500 hover:bg-black/[0.04] hover:text-slate-900 dark:text-slate-400 dark:hover:bg-white/[0.06] dark:hover:text-slate-100",
                         )}
                       >
+                        <span
+                          className={cn(
+                            "h-1.5 w-1.5 shrink-0 rounded-full",
+                            chip.dot,
+                            active && "ring-2 ring-white/30 dark:ring-slate-950/25",
+                          )}
+                        />
                         {chip.label}
                       </button>
                     );
                   })}
                 </div>
-                <span className="mx-0.5 hidden h-4 w-px shrink-0 bg-border sm:block" aria-hidden="true" />
-                <div className="relative inline-flex shrink-0 items-center gap-1">
-                  <PaymentQrButton className="!h-6 gap-1 !px-2 !text-[10px]" />
+                <span className="mx-0.5 hidden h-5 w-px shrink-0 bg-slate-200 dark:bg-white/10 sm:block" aria-hidden />
+                <div className="relative ml-auto inline-flex shrink-0 items-center gap-1.5 pr-0.5">
+                  <PaymentQrButton className="!h-9 gap-1.5 !rounded-xl !border-emerald-500/25 !bg-emerald-500/10 !px-3 !text-[12px] !font-medium !text-emerald-800 hover:!bg-emerald-500/15 dark:!border-emerald-400/20 dark:!bg-emerald-400/10 dark:!text-emerald-200" />
                   <Button
                     variant="outline"
                     size="sm"
-                    className="h-6 gap-1 px-2 text-[10px]"
+                    className="h-9 gap-1.5 rounded-xl border-slate-200/80 bg-white/70 px-3 text-[12px] font-medium text-slate-700 shadow-none hover:bg-slate-50 dark:border-white/10 dark:bg-white/[0.04] dark:text-slate-200 dark:hover:bg-white/[0.08]"
                     onClick={() => setActionsOpen((v) => !v)}
                   >
-                    <MoreHorizontal className="h-3 w-3" />
+                    <MoreHorizontal className="h-3.5 w-3.5" />
                     Actions
                     {selectedIds.length ? (
-                      <span className="rounded-full bg-foreground px-1 text-[9px] text-background">
+                      <span className="rounded-md bg-slate-900 px-1.5 py-0.5 text-[10px] font-semibold text-white dark:bg-teal-400 dark:text-slate-950">
                         {selectedIds.length}
                       </span>
                     ) : null}
                   </Button>
                   {actionsOpen ? (
-                    <div className="absolute right-0 top-8 z-30 min-w-[230px] rounded-xl border bg-background p-2 shadow-xl">
+                    <div className="absolute right-0 top-11 z-30 min-w-[230px] overflow-hidden rounded-2xl border border-black/5 bg-white/95 p-1.5 shadow-xl backdrop-blur-xl dark:border-white/10 dark:bg-slate-950/95">
                       <button
                         type="button"
-                        className="w-full rounded-lg px-3 py-2 text-left text-sm hover:bg-accent"
+                        className="w-full rounded-xl px-3 py-2.5 text-left text-sm text-slate-700 hover:bg-slate-100 dark:text-slate-200 dark:hover:bg-white/5"
                         onClick={() => {
                           router.push("/finance");
                           setActionsOpen(false);
@@ -630,7 +686,7 @@ export function MembersPage() {
                       </button>
                       <button
                         type="button"
-                        className="w-full rounded-lg px-3 py-2 text-left text-sm hover:bg-accent"
+                        className="w-full rounded-xl px-3 py-2.5 text-left text-sm text-slate-700 hover:bg-slate-100 dark:text-slate-200 dark:hover:bg-white/5"
                         onClick={() => {
                           toast.message("CSV import uses the same Members API — paste/export workflow available via Export CSV for now.");
                           setActionsOpen(false);
@@ -640,10 +696,10 @@ export function MembersPage() {
                       </button>
                       {selectedIds.length ? (
                         <>
-                          <div className="my-1 border-t" />
+                          <div className="my-1 border-t border-slate-100 dark:border-white/10" />
                           <button
                             type="button"
-                            className="w-full rounded-lg px-3 py-2 text-left text-sm hover:bg-accent"
+                            className="w-full rounded-xl px-3 py-2.5 text-left text-sm text-slate-700 hover:bg-slate-100 dark:text-slate-200 dark:hover:bg-white/5"
                             onClick={() => {
                               statusMutation.mutate({ ids: selectedIds, status: "Active" });
                               setActionsOpen(false);
@@ -653,7 +709,7 @@ export function MembersPage() {
                           </button>
                           <button
                             type="button"
-                            className="w-full rounded-lg px-3 py-2 text-left text-sm hover:bg-accent"
+                            className="w-full rounded-xl px-3 py-2.5 text-left text-sm text-slate-700 hover:bg-slate-100 dark:text-slate-200 dark:hover:bg-white/5"
                             onClick={() => {
                               statusMutation.mutate({
                                 ids: selectedIds,
@@ -667,7 +723,7 @@ export function MembersPage() {
                           </button>
                           <button
                             type="button"
-                            className="w-full rounded-lg px-3 py-2 text-left text-sm hover:bg-accent"
+                            className="w-full rounded-xl px-3 py-2.5 text-left text-sm text-slate-700 hover:bg-slate-100 dark:text-slate-200 dark:hover:bg-white/5"
                             onClick={() => {
                               statusMutation.mutate({ ids: selectedIds, status: "Deactivated" });
                               setActionsOpen(false);
@@ -794,13 +850,24 @@ export function MembersPage() {
                           </button>
                         </div>
                         <Button
-                          variant={anyFilterActive ? "default" : "outline"}
+                          type="button"
                           size="sm"
-                          onClick={() => setFilterOpen(true)}
+                          onClick={openFilterPanel}
+                          aria-pressed={anyFilterActive}
+                          className={cn(
+                            "relative h-9 gap-1.5 rounded-xl px-3 text-[12px] font-medium transition-all duration-200",
+                            anyFilterActive
+                              ? "bg-slate-900 text-white shadow-[0_8px_20px_-10px_rgba(15,23,42,0.65)] hover:bg-slate-800 dark:bg-teal-400 dark:text-slate-950 dark:shadow-[0_10px_24px_-12px_rgba(45,212,191,0.55)] dark:hover:bg-teal-300"
+                              : "border border-slate-200/80 bg-white/70 text-slate-600 hover:bg-slate-50 dark:border-white/10 dark:bg-white/[0.04] dark:text-slate-300 dark:hover:bg-white/[0.08]",
+                          )}
                         >
-                          <Filter className="h-4 w-4" />
-                          Filter
-                          {anyFilterActive ? <span className="h-2 w-2 rounded-full bg-white" /> : null}
+                          <Filter className="h-3.5 w-3.5" />
+                          {anyFilterActive ? "Filter applied" : "Filter"}
+                          {anyFilterActive ? (
+                            <span className="inline-flex min-w-[1.25rem] items-center justify-center rounded-md bg-white/20 px-1.5 py-0.5 text-[10px] font-bold tabular-nums dark:bg-slate-950/20">
+                              {activeFilterCount}
+                            </span>
+                          ) : null}
                         </Button>
                       </>
                     ) : null}
@@ -921,61 +988,159 @@ export function MembersPage() {
       )}
 
       {filterOpen ? (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
-          <div className="w-full max-w-2xl rounded-2xl border bg-background p-6 shadow-2xl">
-            <h2 className="text-lg font-semibold">Member filters</h2>
-            <div className="mt-4 grid gap-3 sm:grid-cols-2">
+        <div
+          className="fixed inset-0 z-[200] flex items-center justify-center bg-black/50 p-4 backdrop-blur-[2px]"
+          onClick={() => setFilterOpen(false)}
+        >
+          <div
+            className="w-full max-w-2xl overflow-hidden rounded-3xl border border-black/5 bg-white shadow-2xl dark:border-white/10 dark:bg-slate-950"
+            onClick={(e) => e.stopPropagation()}
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="member-filters-title"
+          >
+            <div className="border-b border-slate-100 px-5 py-4 dark:border-white/10">
+              <div className="flex items-start justify-between gap-3">
+                <div>
+                  <h2 id="member-filters-title" className="text-lg font-semibold tracking-tight">
+                    Member filters
+                  </h2>
+                  <p className="mt-1 text-sm text-muted-foreground">
+                    Set criteria, then Save filter. Applied filters stay highlighted on the list.
+                  </p>
+                </div>
+                {anyFilterActive ? (
+                  <span className="shrink-0 rounded-full bg-slate-900 px-2.5 py-1 text-[11px] font-semibold text-white dark:bg-teal-400 dark:text-slate-950">
+                    {activeFilterCount} applied
+                  </span>
+                ) : null}
+              </div>
+            </div>
+            <div className="grid gap-3 p-5 sm:grid-cols-2">
               <div>
                 <Label>Plan</Label>
-                <Select className="mt-1" value={filters.plan} onChange={(e) => setFilters({ ...filters, plan: e.target.value })}>
+                <Select
+                  className="mt-1"
+                  value={draftFilters.plan}
+                  onChange={(e) => setDraftFilters({ ...draftFilters, plan: e.target.value })}
+                >
                   <option value="">All plans</option>
                   {(settings?.plans || []).map((p) => (
-                    <option key={p} value={p}>{p}</option>
+                    <option key={p} value={p}>
+                      {p}
+                    </option>
                   ))}
                 </Select>
               </div>
               <div>
                 <Label>Status</Label>
-                <Select className="mt-1" value={filters.status} onChange={(e) => setFilters({ ...filters, status: e.target.value })}>
+                <Select
+                  className="mt-1"
+                  value={draftFilters.status}
+                  onChange={(e) => setDraftFilters({ ...draftFilters, status: e.target.value })}
+                >
                   <option value="">All statuses</option>
                   {(settings?.statuses || STATUS_KEYS).map((s) => (
-                    <option key={s} value={s}>{s}</option>
+                    <option key={s} value={s}>
+                      {s}
+                    </option>
                   ))}
                 </Select>
               </div>
               <div>
                 <Label>Payment method</Label>
-                <Select className="mt-1" value={filters.paymentMethod} onChange={(e) => setFilters({ ...filters, paymentMethod: e.target.value })}>
+                <Select
+                  className="mt-1"
+                  value={draftFilters.paymentMethod}
+                  onChange={(e) =>
+                    setDraftFilters({ ...draftFilters, paymentMethod: e.target.value })
+                  }
+                >
                   <option value="">All methods</option>
                   {(settings?.paymentMethods || []).map((p) => (
-                    <option key={p} value={p}>{p}</option>
+                    <option key={p} value={p}>
+                      {p}
+                    </option>
                   ))}
                 </Select>
               </div>
               <div>
                 <Label>Billing month</Label>
-                <Input className="mt-1" type="month" value={filters.billingMonth} onChange={(e) => setFilters({ ...filters, billingMonth: e.target.value })} />
+                <Input
+                  className="mt-1"
+                  type="month"
+                  value={draftFilters.billingMonth}
+                  onChange={(e) =>
+                    setDraftFilters({ ...draftFilters, billingMonth: e.target.value })
+                  }
+                />
               </div>
               <div>
                 <Label>Joined from</Label>
-                <Input className="mt-1" type="date" value={filters.joinFrom} onChange={(e) => setFilters({ ...filters, joinFrom: e.target.value })} />
+                <Input
+                  className="mt-1"
+                  type="date"
+                  value={draftFilters.joinFrom}
+                  onChange={(e) => setDraftFilters({ ...draftFilters, joinFrom: e.target.value })}
+                />
               </div>
               <div>
                 <Label>Joined to</Label>
-                <Input className="mt-1" type="date" value={filters.joinTo} onChange={(e) => setFilters({ ...filters, joinTo: e.target.value })} />
+                <Input
+                  className="mt-1"
+                  type="date"
+                  value={draftFilters.joinTo}
+                  onChange={(e) => setDraftFilters({ ...draftFilters, joinTo: e.target.value })}
+                />
               </div>
               <div>
                 <Label>Bill from</Label>
-                <Input className="mt-1" type="date" value={filters.billFrom} onChange={(e) => setFilters({ ...filters, billFrom: e.target.value })} />
+                <Input
+                  className="mt-1"
+                  type="date"
+                  value={draftFilters.billFrom}
+                  onChange={(e) => setDraftFilters({ ...draftFilters, billFrom: e.target.value })}
+                />
               </div>
               <div>
                 <Label>Bill to</Label>
-                <Input className="mt-1" type="date" value={filters.billTo} onChange={(e) => setFilters({ ...filters, billTo: e.target.value })} />
+                <Input
+                  className="mt-1"
+                  type="date"
+                  value={draftFilters.billTo}
+                  onChange={(e) => setDraftFilters({ ...draftFilters, billTo: e.target.value })}
+                />
               </div>
             </div>
-            <div className="mt-6 flex justify-end gap-2">
-              <Button variant="outline" onClick={() => setFilters(EMPTY_FILTERS)}>Clear</Button>
-              <Button onClick={() => setFilterOpen(false)}>Apply</Button>
+            <div className="flex flex-wrap items-center justify-between gap-2 border-t border-slate-100 bg-slate-50/80 px-5 py-4 dark:border-white/10 dark:bg-white/[0.03]">
+              <Button
+                type="button"
+                variant="ghost"
+                className="text-slate-600 dark:text-slate-300"
+                onClick={clearDraftFilters}
+              >
+                Reset form
+              </Button>
+              <div className="flex flex-wrap gap-2">
+                <Button
+                  type="button"
+                  variant="outline"
+                  className="rounded-xl"
+                  onClick={clearAndSaveFilters}
+                >
+                  Clear saved
+                </Button>
+                <Button type="button" variant="outline" className="rounded-xl" onClick={() => setFilterOpen(false)}>
+                  Cancel
+                </Button>
+                <Button
+                  type="button"
+                  className="rounded-xl bg-slate-900 text-white hover:bg-slate-800 dark:bg-teal-400 dark:text-slate-950 dark:hover:bg-teal-300"
+                  onClick={saveFilters}
+                >
+                  Save filter
+                </Button>
+              </div>
             </div>
           </div>
         </div>

@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import { createPortal } from "react-dom";
 import { ChevronLeft, ChevronRight, QrCode, X, ZoomIn } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
@@ -105,17 +106,21 @@ function PaymentQrViewerModal({ onClose }: { onClose: () => void }) {
 
   const active = useMemo(() => items[Math.min(Math.max(0, index), Math.max(0, items.length - 1))] || null, [items, index]);
   const src = String(active?.qrImageUrl || "").trim();
+  const [mounted, setMounted] = useState(false);
+  useEffect(() => setMounted(true), []);
 
-  return (
+  if (!mounted || typeof document === "undefined") return null;
+
+  return createPortal(
     <div
-      className="fixed inset-0 z-[100] flex items-center justify-center bg-black/45 p-4"
+      className="fixed inset-0 z-[200] flex items-center justify-center bg-black/50 p-4 backdrop-blur-[2px]"
       role="dialog"
       aria-modal="true"
       aria-labelledby="payment-qr-viewer-title"
       onClick={zoomOpen ? undefined : onClose}
     >
       <div
-        className="flex w-full max-w-md flex-col overflow-hidden rounded-3xl border border-border bg-background shadow-xl"
+        className="flex w-full max-w-md flex-col overflow-hidden rounded-3xl border border-border bg-background shadow-2xl"
         onClick={(e) => e.stopPropagation()}
       >
         <div className="flex items-center justify-between border-b border-border px-5 py-4">
@@ -162,14 +167,14 @@ function PaymentQrViewerModal({ onClose }: { onClose: () => void }) {
                 <button
                   type="button"
                   onClick={() => setZoomOpen(true)}
-                  className="cursor-zoom-in rounded-2xl border border-border bg-card p-1 shadow-sm transition hover:border-sky-300 hover:shadow-md focus:outline-none focus-visible:ring-2 focus-visible:ring-sky-400"
+                  className="cursor-zoom-in rounded-2xl border border-border bg-card p-1 shadow-sm transition hover:border-teal-300 hover:shadow-md focus:outline-none focus-visible:ring-2 focus-visible:ring-teal-400"
                   aria-label="Enlarge QR code for scanning"
                 >
                   {/* eslint-disable-next-line @next/next/no-img-element */}
                   <img
                     src={src}
                     alt={String(active.qrName || "QR")}
-                    className="h-56 w-56 rounded-xl object-contain pointer-events-none"
+                    className="pointer-events-none h-56 w-56 rounded-xl object-contain"
                     onError={() => setImgFailed(true)}
                   />
                   <span className="mt-1 inline-flex items-center gap-1 text-[10px] text-muted-foreground">
@@ -212,7 +217,7 @@ function PaymentQrViewerModal({ onClose }: { onClose: () => void }) {
 
       {zoomOpen && src ? (
         <div
-          className="fixed inset-0 z-[110] flex items-center justify-center bg-black/70 p-4"
+          className="fixed inset-0 z-[210] flex items-center justify-center bg-black/70 p-4"
           onClick={() => setZoomOpen(false)}
         >
           <div
@@ -224,6 +229,7 @@ function PaymentQrViewerModal({ onClose }: { onClose: () => void }) {
           </div>
         </div>
       ) : null}
-    </div>
+    </div>,
+    document.body,
   );
 }

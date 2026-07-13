@@ -72,37 +72,54 @@ export function AppSectionTabs() {
 
   return (
     <>
-      <div className="rounded-xl border border-border/70 bg-card/70 px-2 py-1.5 shadow-sm">
-        <div className="flex min-w-0 items-center gap-1 overflow-x-auto whitespace-nowrap pb-0.5">
+      <nav
+        aria-label="Sections"
+        className="overflow-hidden rounded-2xl border border-black/[0.06] bg-gradient-to-b from-white/90 to-slate-50/80 p-1.5 shadow-[0_1px_0_rgba(15,23,42,0.04),0_12px_32px_-20px_rgba(15,23,42,0.25)] backdrop-blur-xl dark:border-white/[0.07] dark:from-white/[0.05] dark:to-slate-950/80 dark:shadow-[0_0_0_1px_rgba(255,255,255,0.03),0_16px_40px_-24px_rgba(0,0,0,0.8)]"
+      >
+        <div className="flex min-w-0 items-center gap-1 overflow-x-auto whitespace-nowrap [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
           {tabs.map((tab) => {
             const active = pathname === tab.href || pathname.startsWith(`${tab.href}/`);
+            const Icon = tab.icon;
             return (
               <Link
                 key={tab.href}
                 href={tab.href}
+                aria-current={active ? "page" : undefined}
                 className={cn(
-                  "inline-flex h-6 shrink-0 items-center rounded-full border px-1.5 text-[10px] font-semibold leading-none transition-colors",
+                  "group relative inline-flex h-9 shrink-0 items-center gap-1.5 rounded-xl px-3 text-[12px] font-medium tracking-tight transition-all duration-200",
                   active
-                    ? "border-sky-600 bg-sky-600 text-white"
-                    : "border-border bg-background text-muted-foreground hover:bg-accent hover:text-foreground",
+                    ? "bg-slate-900 text-white shadow-[0_8px_20px_-10px_rgba(15,23,42,0.65)] dark:bg-teal-400 dark:text-slate-950 dark:shadow-[0_10px_24px_-12px_rgba(45,212,191,0.55)]"
+                    : "text-slate-500 hover:bg-black/[0.04] hover:text-slate-900 dark:text-slate-400 dark:hover:bg-white/[0.06] dark:hover:text-slate-100",
                 )}
               >
-                {tab.label}
+                <Icon
+                  className={cn(
+                    "h-3.5 w-3.5 shrink-0 transition-opacity",
+                    active ? "opacity-95" : "opacity-55 group-hover:opacity-80",
+                  )}
+                  strokeWidth={active ? 2.25 : 1.75}
+                />
+                <span>{tab.label}</span>
+                {active ? (
+                  <span
+                    className="pointer-events-none absolute inset-x-3 -bottom-px hidden h-px bg-gradient-to-r from-transparent via-white/40 to-transparent dark:via-slate-950/30 sm:block"
+                    aria-hidden
+                  />
+                ) : null}
               </Link>
             );
           })}
           {canLateNote ? (
-            <Button
-              size="sm"
-              variant="outline"
-              className="h-6 shrink-0 rounded-full border-amber-300 bg-amber-50 px-1.5 text-[10px] font-semibold text-amber-900 hover:bg-amber-100"
+            <button
+              type="button"
               onClick={() => setLateOpen(true)}
+              className="ml-0.5 inline-flex h-9 shrink-0 items-center rounded-xl border border-amber-200/80 bg-amber-50/80 px-3 text-[11px] font-semibold text-amber-900 transition hover:bg-amber-100 dark:border-amber-500/25 dark:bg-amber-950/35 dark:text-amber-200 dark:hover:bg-amber-950/55"
             >
               Add Late Note
-            </Button>
+            </button>
           ) : null}
         </div>
-      </div>
+      </nav>
 
       {lateOpen ? (
         <div className="fixed inset-0 z-[120] flex items-center justify-center bg-black/40 p-4">

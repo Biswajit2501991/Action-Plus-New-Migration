@@ -1,29 +1,69 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { ChevronRight } from "lucide-react";
 import { MobileHero, MobilePanel } from "@/components/layout/mobile-ui";
 import { MemberAvatar } from "@/components/member-avatar";
 import { Skeleton } from "@/components/ui/misc";
-import { useMembers, useSettings } from "@/hooks/use-data";
+import { useMembers, useSettings, useUsers } from "@/hooks/use-data";
+import { usePtProfile } from "@/hooks/use-pt-profile";
+import { PtWorkoutTab } from "@/features/pt/pt-workout-tab";
 import { isPtEligibleMember } from "@/lib/domain/pt-eligibility";
+import { DEFAULT_EXERCISE_TYPES } from "@/lib/domain/pt-defaults";
+import { ptWorkoutNotesDraftFromProfile } from "@/lib/domain/pt-drafts";
 import { normalizeAccess } from "@/lib/domain/permissions";
 import { formatDate, cn } from "@/lib/utils";
 import { useAuthStore } from "@/stores";
 import type { PtClientProfile } from "@/types/pt";
 import type { Member } from "@/types";
 
-/** Upmarket mobile PT roster — opens desktop coaching tools in an in-page sheet. */
+const EMPTY_PT_PROFILE: PtClientProfile = {};
+
+/** Mobile PT roster + full Workout Scheduler for staff with edit access. */
 export function MobilePt() {
   const user = useAuthStore((s) => s.user);
+  const actorName = user?.name || user?.id || "";
   const { data: members = [], isLoading: membersLoading } = useMembers();
+  const { data: users = [] } = useUsers();
   const { data: settings, isLoading: settingsLoading } = useSettings();
+  const { persistProfile, saveProfilePatch, sectionSaving } = usePtProfile(actorName);
+
   const access = normalizeAccess(user?.access);
   const canView = access.ptClients?.viewPtClients !== false;
+  const canEditPtWorkout = access.ptClients?.editPtWorkout !== false;
 
   const profilesMap = (settings?.ptClientProfiles || {}) as Record<string, PtClientProfile>;
   const ptMembers = useMemo(() => members.filter((m) => isPtEligibleMember(m)), [members]);
   const [selected, setSelected] = useState<Member | null>(null);
+  const [workoutNotesDraft, setWorkoutNotesDraft] = useState("");
+  const [workoutDateReviewPending, setWorkoutDateReviewPending] = useState(false);
+
+  const focusOptions = useMemo(() => {
+    const fromSettings = Array.isArray(settings?.exerciseTypes)
+      ? (settings.exerciseTypes as string[])
+      : [];
+    return fromSettings.length ? fromSettings : [...DEFAULT_EXERCISE_TYPES];
+  }, [settings?.exerciseTypes]);
+
+  const trainers = useMemo(
+    () =>
+      users.filter(
+        (u) => !u.blocked && (u.id === "trainer" || (u.sections || []).includes("PT Clients")),
+      ),
+    [users],
+  );
+
+  const profile: PtClientProfile =
+    (selected && profilesMap[selected.memberId]) || EMPTY_PT_PROFILE;
+
+  useEffect(() => {
+    if (!selected) {
+      setWorkoutNotesDraft("");
+      return;
+    }
+    const next = profilesMap[selected.memberId] || EMPTY_PT_PROFILE;
+    setWorkoutNotesDraft(ptWorkoutNotesDraftFromProfile(next));
+  }, [selected, profilesMap]);
 
   if (membersLoading || settingsLoading) {
     return (
@@ -47,7 +87,11 @@ export function MobilePt() {
       <MobileHero
         eyebrow="Training"
         title="PT Clients"
-        subtitle={`${ptMembers.length} athletes · tap for coaching snapshot`}
+        subtitle={
+          canEditPtWorkout
+            ? `${ptMembers.length} clients · tap to edit Workout Scheduler`
+            : `${ptMembers.length} clients · view snapshot`
+        }
       />
 
       {ptMembers.length === 0 ? (
@@ -59,13 +103,16 @@ export function MobilePt() {
       ) : (
         <div className="space-y-2.5">
           {ptMembers.map((m) => {
-            const profile = profilesMap[m.memberId] || {};
-            const trainer = String(profile.trainerId || m.staff || m.trainerId || "Unassigned");
+            const p = profilesMap[m.memberId] || {};
+            const trainer = String(p.trainerId || m.staff || m.trainerId || "Unassigned");
             return (
               <button
                 key={m.memberId}
                 type="button"
-                onClick={() => setSelected(m)}
+                onClick={() => {
+                  setWorkoutDateReviewPending(Boolean(selected && selected.memberId !== m.memberId));
+                  setSelected(m);
+                }}
                 className="flex w-full items-center gap-3 rounded-[1.25rem] border border-black/5 bg-white/85 px-3.5 py-3 text-left shadow-sm transition active:scale-[0.99] dark:border-white/8 dark:bg-white/[0.04]"
               >
                 <MemberAvatar member={m} className="h-12 w-12" />
@@ -91,72 +138,78 @@ export function MobilePt() {
         <div className="fixed inset-0 z-50 flex flex-col justify-end bg-black/45 p-0 backdrop-blur-[2px]">
           <button
             type="button"
-            className="flex-1"
+            className="min-h-[8vh] flex-1"
             aria-label="Close"
             onClick={() => setSelected(null)}
           />
-          <div className="max-h-[78vh] overflow-y-auto rounded-t-[1.75rem] border border-black/5 bg-[#f7f5f1] p-5 shadow-2xl dark:border-white/10 dark:bg-[#0c121c]">
-            <div className="mx-auto mb-4 h-1 w-10 rounded-full bg-slate-300 dark:bg-slate-600" />
+          <div className="max-h-[92vh] overflow-y-auto rounded-t-[1.75rem] border border-black/5 bg-[#f7f5f1] p-4 shadow-2xl dark:border-white/10 dark:bg-[#0c121c] sm:p-5">
+            <div className="mx-auto mb-3 h-1 w-10 rounded-full bg-slate-300 dark:bg-slate-600" />
             <div className="mb-4 flex items-center gap-3">
-              <MemberAvatar member={selected} className="h-14 w-14" />
+              <MemberAvatar member={selected} className="h-12 w-12" />
               <div className="min-w-0 flex-1">
-                <p className="text-lg font-semibold tracking-tight">{selected.name}</p>
+                <p className="truncate text-lg font-semibold tracking-tight">{selected.name}</p>
                 <p className="text-xs text-slate-500">
-                  {selected.memberId} · {selected.plan || "PT"}
+                  {selected.memberId} · Workout Scheduler
                 </p>
               </div>
+              <button
+                type="button"
+                onClick={() => setSelected(null)}
+                className={cn(
+                  "rounded-xl px-3 py-2 text-xs font-semibold text-slate-600 dark:text-slate-300",
+                )}
+              >
+                Close
+              </button>
             </div>
-            <MobilePanel accent="bg-teal-500" className="mb-3">
-              <div className="space-y-2 p-4 text-sm">
-                <Row label="Billing" value={formatDate(selected.billingDate) || "—"} />
-                <Row
-                  label="Trainer"
-                  value={String(
-                    profilesMap[selected.memberId]?.trainerId ||
-                      selected.staff ||
-                      selected.trainerId ||
-                      "—",
-                  )}
-                />
-                <Row
-                  label="Sessions logged"
-                  value={String(
-                    (profilesMap[selected.memberId]?.sessions || []).length || 0,
-                  )}
-                />
-                <Row
-                  label="Weight logs"
-                  value={String(
-                    (profilesMap[selected.memberId]?.weightLogs || []).length || 0,
-                  )}
-                />
-              </div>
-            </MobilePanel>
-            <p className="mb-3 text-xs leading-relaxed text-slate-500 dark:text-slate-400">
-              Full workout, diet, and session tools stay on the desktop PT desk for accuracy.
-              This mobile sheet is your quick client snapshot on the floor.
-            </p>
-            <button
-              type="button"
-              onClick={() => setSelected(null)}
-              className={cn(
-                "w-full rounded-2xl bg-slate-900 py-3.5 text-sm font-semibold text-white dark:bg-teal-400 dark:text-slate-950",
-              )}
-            >
-              Done
-            </button>
+
+            <PtWorkoutTab
+              member={selected}
+              profile={profile}
+              trainers={trainers}
+              focusOptions={focusOptions}
+              canEdit={canEditPtWorkout}
+              sectionSaving={sectionSaving}
+              onPersistTrainer={(trainerId) =>
+                void persistProfile(selected.memberId, { trainerId }, "workout")
+              }
+              onSaveNotes={() =>
+                void saveProfilePatch(
+                  selected.memberId,
+                  { ptWorkoutNotes: workoutNotesDraft },
+                  "workout",
+                  "workoutNotes",
+                  "PT Workout Notes saved successfully",
+                )
+              }
+              onSaveFocus={async (focus, workoutDateKey) => {
+                if (!canEditPtWorkout) return false;
+                const savedFocusByDate = profile.focusByDate || {};
+                const nextMap = { ...savedFocusByDate };
+                if (!focus) delete nextMap[workoutDateKey];
+                else nextMap[workoutDateKey] = focus;
+                return saveProfilePatch(
+                  selected.memberId,
+                  {
+                    focusByDate: nextMap,
+                    focusArea: nextMap[workoutDateKey] || profile.focusArea || "",
+                  },
+                  "workout",
+                  "focusSchedule",
+                  "Workout schedule saved successfully",
+                );
+              }}
+              workoutNotesDraft={workoutNotesDraft}
+              onWorkoutNotesChange={setWorkoutNotesDraft}
+              workoutNotesDirty={
+                workoutNotesDraft !== ptWorkoutNotesDraftFromProfile(profile)
+              }
+              reviewPending={workoutDateReviewPending}
+              onConfirmReview={() => setWorkoutDateReviewPending(false)}
+            />
           </div>
         </div>
       ) : null}
-    </div>
-  );
-}
-
-function Row({ label, value }: { label: string; value: string }) {
-  return (
-    <div className="flex items-center justify-between gap-3">
-      <span className="text-slate-500 dark:text-slate-400">{label}</span>
-      <span className="truncate font-medium text-slate-900 dark:text-slate-50">{value}</span>
     </div>
   );
 }

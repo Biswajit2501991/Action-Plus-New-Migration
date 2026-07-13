@@ -160,7 +160,7 @@ function DesktopShell({ children }: { children: React.ReactNode }) {
                             className={cn(
                               "flex flex-1 items-center gap-3 rounded-xl px-3 py-2 text-sm transition-colors",
                               active
-                                ? "bg-sky-600 text-white shadow-sm"
+                                ? "bg-slate-900 text-white shadow-sm dark:bg-teal-400 dark:text-slate-950"
                                 : "text-muted-foreground hover:bg-accent hover:text-foreground",
                             )}
                             title={item.label}
@@ -222,7 +222,9 @@ function DesktopShell({ children }: { children: React.ReactNode }) {
                     onClick={() => setMobileNavOpen(false)}
                     className={cn(
                       "flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm",
-                      pathname.startsWith(item.href) ? "bg-sky-600 text-white" : "hover:bg-accent",
+                      pathname.startsWith(item.href)
+                        ? "bg-slate-900 text-white dark:bg-teal-400 dark:text-slate-950"
+                        : "hover:bg-accent",
                     )}
                   >
                     <item.icon className="h-4 w-4" />
@@ -239,7 +241,7 @@ function DesktopShell({ children }: { children: React.ReactNode }) {
             <Button
               variant="ghost"
               size="icon"
-              className="lg:hidden"
+              className="rounded-xl text-slate-700 hover:bg-slate-900 hover:text-white lg:hidden dark:text-slate-200 dark:hover:bg-teal-400 dark:hover:text-slate-950"
               onClick={() => setMobileNavOpen(true)}
               aria-label="Open menu"
             >
@@ -318,7 +320,7 @@ function DesktopShell({ children }: { children: React.ReactNode }) {
           onFocus={() => setFabHover(true)}
           onBlur={() => setFabHover(false)}
           className={cn(
-            "fixed bottom-6 right-6 z-40 flex items-center rounded-full bg-sky-600 py-3 text-white shadow-lg transition-all hover:bg-sky-700",
+            "fixed bottom-6 right-6 z-40 flex items-center rounded-full bg-slate-900 py-3 text-white shadow-lg transition-all hover:bg-slate-800 dark:bg-teal-400 dark:text-slate-950 dark:hover:bg-teal-300",
             fabHover ? "gap-2 px-4" : "gap-0 px-3",
           )}
           aria-label="Add Member"
