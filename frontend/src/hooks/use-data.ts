@@ -93,16 +93,30 @@ export function useGymCodes() {
 }
 
 export function useWhatsapp() {
-  const authed = Boolean(useAuthStore((s) => s.user));
+  const user = useAuthStore((s) => s.user);
+  const authed = Boolean(user);
+  const branchId = String(user?.activeBranchId || user?.gymCodeId || "").trim();
   return useQuery({
-    queryKey: ["whatsapp"],
+    queryKey: ["whatsapp", branchId || "default"],
     queryFn: async () => {
-      const [templates, events, custom] = await Promise.all([
-        whatsappApi.templates().catch(() => ({})),
+      const [templatesRes, events, custom] = await Promise.all([
+        whatsappApi.templates(branchId || undefined).catch(() => ({ templates: {} })),
         whatsappApi.smsEvents().catch(() => []),
         whatsappApi.customTemplates().catch(() => []),
       ]);
-      return { templates, events, custom };
+      const templates =
+        templatesRes && typeof templatesRes === "object" && "templates" in templatesRes
+          ? (templatesRes.templates as Record<string, unknown>) || {}
+          : (templatesRes as Record<string, unknown>) || {};
+      return {
+        templates,
+        gymCodeId:
+          templatesRes && typeof templatesRes === "object" && "gymCodeId" in templatesRes
+            ? String((templatesRes as { gymCodeId?: string }).gymCodeId || branchId || "")
+            : branchId,
+        events,
+        custom,
+      };
     },
     enabled: authed,
   });

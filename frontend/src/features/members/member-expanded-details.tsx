@@ -535,7 +535,17 @@ export function MemberExpandedDetails({
             Edit member
           </Button>
         ) : null}
-        <Button size="sm" variant="outline" className="h-7 text-[10px]" onClick={() => onWhatsApp("welcome")}>
+        <Button
+          size="sm"
+          variant="outline"
+          className="h-7 text-[10px]"
+          onClick={() => {
+            const suggested = primaryMessageActionForMember(m, { isOwner });
+            onWhatsApp(
+              suggested.key !== "none" ? suggested.key : "reminder",
+            );
+          }}
+        >
           <MessageCircle className="h-3.5 w-3.5" /> WhatsApp
         </Button>
         {canDelete ? (

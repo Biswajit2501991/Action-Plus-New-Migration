@@ -34,6 +34,8 @@ import { formatCurrency, formatDate, formatMonthKey, cn } from "@/lib/utils";
 import { hasAccess } from "@/lib/domain/permissions";
 import { useAuthStore, useUiStore } from "@/stores";
 import type { Member } from "@/types";
+import { MessagePreviewModal } from "@/features/whatsapp/message-preview-modal";
+import { useWhatsappSend } from "@/features/whatsapp/use-whatsapp-send";
 
 const STATUS_TILES: { key: "Active" | "Hold" | "Deactivated" | "Cancelled"; tone: string }[] = [
   { key: "Active", tone: "bg-emerald-50 border-emerald-200 text-emerald-800 dark:bg-emerald-950/40 dark:border-emerald-800 dark:text-emerald-300" },
@@ -48,10 +50,12 @@ function OverdueRow({
   m,
   expanded,
   onToggle,
+  onReminder,
 }: {
   m: OverdueMember;
   expanded: boolean;
   onToggle: () => void;
+  onReminder: (member: Member) => void;
 }) {
   return (
     <>
@@ -67,16 +71,7 @@ function OverdueRow({
               size="sm"
               variant="outline"
               disabled={!m.mobile}
-              onClick={() => {
-                if (!m.mobile) return;
-                const phone = String(m.mobile).replace(/\D/g, "");
-                window.open(
-                  `https://wa.me/${phone}?text=${encodeURIComponent(
-                    `Hi ${m.name || ""}, this is a payment reminder from Action Plus Gym.`,
-                  )}`,
-                  "_blank",
-                );
-              }}
+              onClick={() => onReminder(m)}
             >
               Reminder
             </Button>
@@ -120,6 +115,13 @@ export function DashboardPage() {
   const { data: members = [], isLoading: loadingMembers } = useMembers();
   const { data: finance, isLoading: loadingFinance } = useFinance(month);
   const { data: settings } = useSettings();
+  const {
+    preview: waPreview,
+    sending: waSending,
+    openPreview: openWhatsAppPreview,
+    closePreview: closeWhatsAppPreview,
+    confirmSend: confirmWhatsAppSend,
+  } = useWhatsappSend();
 
   const [q, setQ] = useState("");
   const [field, setField] = useState("all");
@@ -491,6 +493,7 @@ export function DashboardPage() {
                       onToggle={() =>
                         setExpandedOverdueId((prev) => (prev === m.memberId ? "" : m.memberId))
                       }
+                      onReminder={(member) => openWhatsAppPreview(member, "fine")}
                     />
                   ))}
                   {!overdueList.length ? (
@@ -516,13 +519,7 @@ export function DashboardPage() {
                         size="sm"
                         variant="outline"
                         disabled={!m.mobile}
-                        onClick={() => {
-                          if (!m.mobile) return;
-                          window.open(
-                            `https://wa.me/${String(m.mobile).replace(/\D/g, "")}`,
-                            "_blank",
-                          );
-                        }}
+                        onClick={() => openWhatsAppPreview(m, "fine")}
                       >
                         Reminder
                       </Button>
@@ -625,6 +622,13 @@ export function DashboardPage() {
           </CardContent>
         </Card>
       ) : null}
+
+      <MessagePreviewModal
+        preview={waPreview}
+        sending={waSending}
+        onClose={closeWhatsAppPreview}
+        onSend={() => void confirmWhatsAppSend()}
+      />
     </div>
   );
 }

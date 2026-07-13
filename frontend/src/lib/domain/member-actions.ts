@@ -31,6 +31,13 @@ function reminderSentForCurrentBilling(member: Member) {
   const billingKey = localCalendarDateKey(member.billingDate);
   if (!billingKey) return false;
 
+  const reminderSentAt = String(
+    (member as { reminderSentAt?: string }).reminderSentAt || "",
+  ).trim();
+  if (reminderSentAt && shouldShowSmsSentBadge(member, "reminder", reminderSentAt)) {
+    return true;
+  }
+
   const last = member.lastSmsSent;
   if (last && typeof last === "object") {
     const reminder = (last as Record<string, { sentAt?: string; ts?: string }>).reminder;

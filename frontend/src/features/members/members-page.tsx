@@ -19,7 +19,6 @@ import { membersApi, visitorsApi } from "@/services/api";
 import { checkMemberDuplicates, memberSearchHaystack } from "@/lib/domain/members";
 import {
   isPaymentByPastDue,
-  overdueDaysForMember,
   paymentByDateKey,
   localTodayCalendarKey,
   localCalendarDateKey,
@@ -32,6 +31,8 @@ import { isBillingToday, isNewMember } from "@/lib/domain/member-actions";
 import { MemberExpandedDetails } from "@/features/members/member-expanded-details";
 import { PaymentQrButton } from "@/features/members/payment-qr-viewer";
 import { MemberCardRow, MemberListHeader } from "@/features/members/member-card-row";
+import { MessagePreviewModal } from "@/features/whatsapp/message-preview-modal";
+import { useWhatsappSend } from "@/features/whatsapp/use-whatsapp-send";
 
 const PAGE_SIZE = 10;
 const STATUS_KEYS = ["Active", "Hold", "Deactivated", "Cancelled"] as const;
@@ -94,6 +95,13 @@ export function MembersPage() {
   const { data: members = [], isLoading } = useMembers();
   const { data: visitors = [] } = useVisitors();
   const { data: settings } = useSettings();
+  const {
+    preview: waPreview,
+    sending: waSending,
+    openPreview: openWhatsAppPreview,
+    closePreview: closeWhatsAppPreview,
+    confirmSend: confirmWhatsAppSend,
+  } = useWhatsappSend();
 
   const [tab, setTab] = useState<"members" | "visitors">("members");
   const [focusStatus, setFocusStatus] = useState<string>(params.get("status") || "");
@@ -444,59 +452,7 @@ export function MembersPage() {
       | "deactivate"
       | "success" = "reminder",
   ) => {
-    if (!m.mobile) {
-      toast.error("No mobile number on this member");
-      return;
-    }
-    const phone = String(m.mobile).replace(/\D/g, "");
-    const days = overdueDaysForMember(m);
-    const text =
-      kind === "welcome"
-        ? `Welcome to Action Plus Gym, ${m.name || ""}!`
-        : kind === "fine"
-          ? `Hi ${m.name || ""}, your payment is overdue by ${days} day${days === 1 ? "" : "s"}. Please clear dues at Action Plus Gym.`
-          : kind === "hold"
-            ? `Hi ${m.name || ""}, your membership is on Hold. Contact Action Plus Gym for details.`
-            : kind === "deactivate"
-              ? `Hi ${m.name || ""}, your membership is Deactivated. Contact Action Plus Gym to reactivate.`
-              : kind === "success"
-                ? `Hi ${m.name || ""}, payment received successfully at Action Plus Gym. Thank you!`
-                : kind === "monthReminder"
-                  ? `Hi ${m.name || ""}, this is your monthly payment reminder from Action Plus Gym.`
-                  : `Hi ${m.name || ""}, this is a payment reminder from Action Plus Gym.`;
-    window.open(`https://wa.me/${phone}?text=${encodeURIComponent(text)}`, "_blank");
-
-    const sentAt = new Date().toISOString();
-    const sentBy = String(user?.name || user?.email || "Staff").trim() || "Staff";
-    const prevLast =
-      m.lastSmsSent && typeof m.lastSmsSent === "object"
-        ? (m.lastSmsSent as Record<string, unknown>)
-        : {};
-    const prevHistory = Array.isArray(m.messageHistory)
-      ? (m.messageHistory as Record<string, unknown>[])
-      : [];
-    void membersApi
-      .patch(m.memberId, {
-        lastSmsSent: {
-          ...prevLast,
-          [kind]: { sentAt, sentBy },
-        },
-        messageHistory: [
-          {
-            channel: "whatsapp",
-            status: "opened",
-            templateKey: kind,
-            sentAt,
-            sentBy,
-            ts: sentAt,
-          },
-          ...prevHistory,
-        ].slice(0, 80),
-      } as Partial<Member>)
-      .then(() => qc.invalidateQueries({ queryKey: ["members"] }))
-      .catch(() => {
-        /* chip refresh is best-effort; WhatsApp already opened */
-      });
+    openWhatsAppPreview(m, kind);
   };
 
   const openWelcomeMail = (m: Member) => {
@@ -1191,6 +1147,13 @@ export function MembersPage() {
           </div>
         </div>
       ) : null}
+
+      <MessagePreviewModal
+        preview={waPreview}
+        sending={waSending}
+        onClose={closeWhatsAppPreview}
+        onSend={() => void confirmWhatsAppSend()}
+      />
     </div>
   );
 }

@@ -175,8 +175,18 @@ export const logsApi = {
   cleanup: () => apiFetch<{ ok?: boolean }>("/logs/cleanup", { method: "POST" }),
 };
 
+export type WhatsappTemplatesResponse = {
+  ok?: boolean;
+  gymCodeId?: string;
+  templates?: Record<string, unknown>;
+  updatedAt?: string | null;
+};
+
 export const whatsappApi = {
-  templates: () => apiFetch<Record<string, unknown>>("/whatsapp-templates"),
+  templates: (gymCodeId?: string) => {
+    const qs = gymCodeId ? `?gymCodeId=${encodeURIComponent(gymCodeId)}` : "";
+    return apiFetch<WhatsappTemplatesResponse>(`/whatsapp-templates${qs}`);
+  },
   patchTemplate: (key: string, body: Record<string, unknown>) =>
     apiFetch<unknown>(`/whatsapp-templates/${encodeURIComponent(key)}`, {
       method: "PATCH",

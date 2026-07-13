@@ -1,0 +1,289 @@
+import type { Member } from "@/types";
+import { paymentByDateKey, localCalendarDateKey, localTodayCalendarKey } from "@/lib/domain/billing";
+import { nextPaymentDateFromBillingDate } from "@/lib/domain/member-dates";
+import {
+  getLastWhatsAppSendMeta,
+  primaryMessageActionForMember,
+} from "@/lib/domain/member-actions";
+import { formatDate } from "@/lib/utils";
+import {
+  SMS_TEMPLATE_DEFAULTS,
+  WHATSAPP_TEMPLATE_KEYS,
+  type WhatsAppTemplateKey,
+} from "@/lib/domain/whatsapp-templates";
+
+const MESSAGE_HISTORY_LIMIT = 50;
+
+export type WhatsAppComposeResult = {
+  templateKey: string;
+  message: string;
+  phone: string;
+  url: string;
+};
+
+function displayDate(value?: string | Date | null) {
+  if (!value) return "";
+  const key = localCalendarDateKey(value);
+  if (key) {
+    const [y, m, d] = key.split("-").map(Number);
+    return formatDate(new Date(y, m - 1, d));
+  }
+  return formatDate(value);
+}
+
+function formatSuccessSystemTimestamp(at: Date, tz = "Asia/Kolkata") {
+  try {
+    return new Intl.DateTimeFormat("en-IN", {
+      timeZone: tz,
+      day: "2-digit",
+      month: "short",
+      year: "numeric",
+      hour: "2-digit",
+      minute: "2-digit",
+      hour12: true,
+    }).format(at);
+  } catch {
+    return at.toLocaleString("en-IN");
+  }
+}
+
+export function mergeWhatsappTemplates(
+  apiTemplates?: Record<string, unknown> | null,
+): Record<string, string> {
+  const merged: Record<string, string> = { ...SMS_TEMPLATE_DEFAULTS };
+  if (!apiTemplates || typeof apiTemplates !== "object") return merged;
+  for (const [key, value] of Object.entries(apiTemplates)) {
+    if (typeof value === "string" && value.trim()) merged[key] = value;
+    else if (value && typeof value === "object" && typeof (value as { body?: string }).body === "string") {
+      const body = String((value as { body?: string }).body || "").trim();
+      if (body) merged[key] = body;
+    }
+  }
+  return merged;
+}
+
+export function resolveWhatsappTemplateBody(
+  templateKey: string,
+  templates: Record<string, string>,
+): string {
+  const key = String(templateKey || "").trim();
+  if (!key) return templates.reminder || SMS_TEMPLATE_DEFAULTS.reminder || "";
+  return templates[key] || templates.reminder || SMS_TEMPLATE_DEFAULTS.reminder || "";
+}
+
+export function renderWhatsappTemplate(
+  template: string,
+  member: Member | null | undefined,
+  opts: { templateKey?: string; now?: Date; timeZone?: string } = {},
+): string {
+  if (!template) return "";
+  const m = member || ({} as Member);
+  const now = opts.now || new Date();
+  const billingKey = localCalendarDateKey(m.billingDate);
+  const paymentByKey = paymentByDateKey(m);
+  const nextPay =
+    localCalendarDateKey(m.nextPaymentDate) ||
+    nextPaymentDateFromBillingDate(m.billingDate);
+  const totalAmountWithFine = Number(m.amount || 0) + 100;
+  const replacements: Record<string, string> = {
+    "[Name]": m.name || "",
+    "[CustomerName]": m.name || "",
+    "[PLAN]": m.plan || "",
+    "[CurrentPlan]": m.plan || "",
+    "[Amount]": `${Number(m.amount || 0)}`,
+    "[BillingDate]": displayDate(billingKey || m.billingDate),
+    "[DATE]": displayDate(billingKey || m.billingDate),
+    "[GymStartdate]": displayDate(m.joiningDate),
+    "[LastDate]": displayDate(paymentByKey),
+    "[PaymentBy]": displayDate(paymentByKey),
+    "[Total Amount]": `${totalAmountWithFine}`,
+    "[HoldDate]": displayDate(now),
+    "[HoldMonth]": m.holdDuration || "1 Month",
+    "[TodaysDate]": displayDate(now),
+    "[NextBillingDate]": displayDate(
+      billingKey ? nextPaymentDateFromBillingDate(billingKey) : "",
+    ),
+    "[NextPaymentDate]": displayDate(nextPay),
+    "[ModeOfPayment]": String(m.paymentMethod || ""),
+    "[PaymentMethod]": String(m.paymentMethod || ""),
+    "[SystemDetails]":
+      opts.templateKey === "success"
+        ? formatSuccessSystemTimestamp(now, opts.timeZone || "Asia/Kolkata")
+        : "",
+  };
+  let output = template;
+  for (const [token, value] of Object.entries(replacements)) {
+    output = output.split(token).join(value);
+  }
+  return output;
+}
+
+export function formatWhatsAppPhone(mobile?: string | null) {
+  const clean = String(mobile || "").replace(/\D/g, "");
+  if (!clean) return "";
+  return clean.length === 10 ? `91${clean}` : clean;
+}
+
+export function buildWhatsAppSendUrl(mobile: string | null | undefined, message: string) {
+  const phone = formatWhatsAppPhone(mobile);
+  if (!phone) return "";
+  return `https://api.whatsapp.com/send?phone=${phone}&text=${encodeURIComponent(message || "")}`;
+}
+
+export function composeWhatsAppMessage(
+  member: Member,
+  templateKey: string,
+  templates: Record<string, string>,
+  opts: { now?: Date; timeZone?: string } = {},
+): WhatsAppComposeResult {
+  const key = String(templateKey || "reminder").trim() || "reminder";
+  const body = resolveWhatsappTemplateBody(key, templates);
+  const message = renderWhatsappTemplate(body, member, {
+    templateKey: key,
+    now: opts.now,
+    timeZone: opts.timeZone,
+  });
+  const phone = formatWhatsAppPhone(member.mobile);
+  const url = buildWhatsAppSendUrl(member.mobile, message);
+  return { templateKey: key, message, phone, url };
+}
+
+function buildHistoryEntry(
+  templateKey: string,
+  meta: {
+    sentAt: string;
+    sentBy: string;
+    status?: string;
+    reason?: string;
+    channel?: string;
+  },
+) {
+  return {
+    id:
+      typeof crypto !== "undefined" && typeof crypto.randomUUID === "function"
+        ? crypto.randomUUID()
+        : `msg-${Date.now()}`,
+    channel: meta.channel || "whatsapp",
+    templateKey,
+    status: meta.status || "opened",
+    ts: meta.sentAt,
+    sentAt: meta.sentAt,
+    sentBy: meta.sentBy,
+    ...(meta.reason ? { reason: meta.reason } : {}),
+  };
+}
+
+export function buildWhatsAppSendMemberPatch(
+  member: Member,
+  templateKey: string,
+  meta: { sentAt?: string; sentBy?: string } = {},
+): Partial<Member> {
+  const sentAt = String(meta.sentAt || new Date().toISOString());
+  const sentBy = String(meta.sentBy || "").trim() || "Staff";
+  const history = Array.isArray(member.messageHistory) ? member.messageHistory : [];
+  const prevLast =
+    member.lastSmsSent && typeof member.lastSmsSent === "object" ? member.lastSmsSent : {};
+  const patch: Partial<Member> & { reminderSentAt?: string } = {
+    updatedAt: sentAt,
+    lastSmsSent: {
+      ...prevLast,
+      [templateKey]: { sentAt, sentBy },
+    },
+    messageHistory: [
+      buildHistoryEntry(templateKey, { sentAt, sentBy }),
+      ...history,
+    ].slice(0, MESSAGE_HISTORY_LIMIT),
+  };
+  if (templateKey === "reminder") {
+    patch.reminderSentAt = sentAt;
+  }
+  return patch;
+}
+
+export function buildWhatsAppMissingPhonePatch(
+  member: Member,
+  templateKey: string,
+): Partial<Member> {
+  const ts = new Date().toISOString();
+  const history = Array.isArray(member.messageHistory) ? member.messageHistory : [];
+  return {
+    messageHistory: [
+      buildHistoryEntry(templateKey, {
+        sentAt: ts,
+        sentBy: "",
+        status: "failed",
+        reason: "missing_phone",
+      }),
+      ...history,
+    ].slice(0, MESSAGE_HISTORY_LIMIT),
+  };
+}
+
+export function whatsappSendAuditAction(templateKey: string) {
+  const raw = String(templateKey || "unknown").trim() || "unknown";
+  const safe = raw.replace(/[^a-zA-Z0-9_-]/g, "_");
+  return `sms.${safe}.opened`;
+}
+
+export function smsTypeLabel(key: string) {
+  const map: Record<string, string> = {
+    reminder: "Reminder",
+    monthReminder: "Month Reminder",
+    success: "Success SMS",
+    fine: "Fine SMS",
+    deactivate: "Deactivate SMS",
+    hold: "Hold SMS",
+    welcome: "Welcome SMS",
+  };
+  return map[key] || key;
+}
+
+/** Members eligible for each Messaging Center tab (prod parity). */
+export function membersByWhatsAppType(
+  members: Member[],
+  opts: { isOwner?: boolean } = {},
+): Record<WhatsAppTemplateKey, Member[]> {
+  const todayKey = localTodayCalendarKey();
+  const active = members.filter((m) => m.status === "Active");
+  const primaryKey = (m: Member) =>
+    primaryMessageActionForMember(m, { isOwner: opts.isOwner }).key;
+
+  const sameMonthBilling = (m: Member) => {
+    const billing = localCalendarDateKey(m.billingDate);
+    if (!billing || !todayKey) return false;
+    return billing.slice(0, 7) === todayKey.slice(0, 7);
+  };
+
+  return {
+    reminder: active.filter((m) => primaryKey(m) === "reminder"),
+    monthReminder: active.filter(sameMonthBilling),
+    fine: active.filter((m) => primaryKey(m) === "fine"),
+    success: members
+      .filter((m) => Boolean(getLastWhatsAppSendMeta(m, "success")?.sentAt))
+      .sort((a, b) => {
+        const aTs = new Date(getLastWhatsAppSendMeta(a, "success")?.sentAt || 0).getTime();
+        const bTs = new Date(getLastWhatsAppSendMeta(b, "success")?.sentAt || 0).getTime();
+        return bTs - aTs;
+      }),
+    deactivate: members.filter((m) => m.status === "Deactivated"),
+    hold: members.filter((m) => m.status === "Hold"),
+    welcome: active.filter((m) => {
+      const join = localCalendarDateKey(m.joiningDate);
+      const billing = localCalendarDateKey(m.billingDate);
+      return Boolean(join && billing && join === billing && billing <= todayKey);
+    }),
+  };
+}
+
+export function isWhatsAppTemplateKey(key: string): key is WhatsAppTemplateKey {
+  return (WHATSAPP_TEMPLATE_KEYS as readonly string[]).includes(key);
+}
+
+export function suggestionToneClasses(key: string) {
+  if (key === "fine") return "border-rose-300 bg-rose-50 text-rose-800 hover:bg-rose-100";
+  if (key === "welcome") return "border-emerald-300 bg-emerald-50 text-emerald-800 hover:bg-emerald-100";
+  if (key === "hold") return "border-orange-300 bg-orange-50 text-orange-800 hover:bg-orange-100";
+  if (key === "deactivate") return "border-pink-300 bg-pink-50 text-pink-800 hover:bg-pink-100";
+  if (key === "success") return "border-emerald-300 bg-emerald-50 text-emerald-800 hover:bg-emerald-100";
+  return "border-sky-300 bg-sky-50 text-sky-800 hover:bg-sky-100";
+}

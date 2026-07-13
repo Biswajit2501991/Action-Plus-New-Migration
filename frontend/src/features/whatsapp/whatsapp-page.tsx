@@ -1,75 +1,449 @@
 "use client";
+
+import { useEffect, useMemo, useState } from "react";
+import { ChevronDown, ChevronUp, MessageCircle, Search } from "lucide-react";
 import { PageHeader, Skeleton } from "@/components/ui/misc";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent } from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
 import { useMembers, useWhatsapp } from "@/hooks/use-data";
-import { formatDate } from "@/lib/utils";
+import { useAuthStore } from "@/stores";
+import {
+  getSmsSentInfoText,
+  primaryMessageActionForMember,
+} from "@/lib/domain/member-actions";
+import { paymentByDateKey } from "@/lib/domain/billing";
+import { nextPaymentDateFromBillingDate } from "@/lib/domain/member-dates";
+import {
+  membersByWhatsAppType,
+  suggestionToneClasses,
+  smsTypeLabel,
+} from "@/lib/domain/whatsapp";
+import {
+  WHATSAPP_TEMPLATE_KEYS,
+  WHATSAPP_TYPE_META,
+  type WhatsAppTemplateKey,
+} from "@/lib/domain/whatsapp-templates";
+import { cn, formatDate } from "@/lib/utils";
+import { MessagePreviewModal } from "@/features/whatsapp/message-preview-modal";
+import { useWhatsappSend } from "@/features/whatsapp/use-whatsapp-send";
 
-function waLink(mobile?: string, text?: string) {
-  const phone = String(mobile || "").replace(/\D/g, "");
-  const q = text ? `?text=${encodeURIComponent(text)}` : "";
-  return `https://wa.me/${phone}${q}`;
-}
+const PAGE_SIZE = 10;
 
 export function WhatsappPage() {
-  const { data, isLoading } = useWhatsapp();
-  const { data: members = [] } = useMembers();
-  if (isLoading) return <Skeleton className="h-96" />;
-  const templates = Object.entries(data?.templates || {});
-  const events = (Array.isArray(data?.events) ? data.events : []) as Record<string, unknown>[];
+  const user = useAuthStore((s) => s.user);
+  const isOwner = user?.id === "owner" || String(user?.staffRole || user?.role || "").toLowerCase() === "owner";
+  const { data: members = [], isLoading: membersLoading } = useMembers();
+  const { data: whatsappData, isLoading: waLoading } = useWhatsapp();
+  const { templates, preview, sending, openPreview, closePreview, confirmSend } = useWhatsappSend();
+
+  const [activeType, setActiveType] = useState<WhatsAppTemplateKey | "templates">("reminder");
+  const [search, setSearch] = useState("");
+  const [page, setPage] = useState(1);
+  const [expandedTemplates, setExpandedTemplates] = useState<Record<string, boolean>>({});
+  const [activityPage, setActivityPage] = useState(1);
+
+  const byType = useMemo(
+    () => membersByWhatsAppType(members, { isOwner }),
+    [members, isOwner],
+  );
+
+  const counts = useMemo(() => {
+    const map: Record<string, number> = {};
+    for (const key of WHATSAPP_TEMPLATE_KEYS) map[key] = byType[key]?.length || 0;
+    map.templates = WHATSAPP_TEMPLATE_KEYS.length;
+    return map;
+  }, [byType]);
+
+  const rows = useMemo(() => {
+    if (activeType === "templates") return [];
+    const q = search.toLowerCase().trim();
+    const base = byType[activeType] || [];
+    return base.filter((m) => {
+      if (!q) return true;
+      const hay = `${m.name || ""} ${m.mobile || ""} ${m.memberId || ""}`.toLowerCase();
+      return hay.includes(q);
+    });
+  }, [byType, activeType, search]);
+
+  useEffect(() => {
+    setPage(1);
+  }, [activeType, search]);
+
+  const totalPages = Math.max(1, Math.ceil(rows.length / PAGE_SIZE));
+  const safePage = page > totalPages ? 1 : page;
+  const pageRows = rows.slice((safePage - 1) * PAGE_SIZE, safePage * PAGE_SIZE);
+  const isSuccessAudit = activeType === "success";
+  const canActSuccess = !isSuccessAudit || isOwner;
+
+  const events = (Array.isArray(whatsappData?.events) ? whatsappData.events : []) as Record<
+    string,
+    unknown
+  >[];
+  const activityRows = useMemo(
+    () =>
+      [...events].sort((a, b) => {
+        const at = new Date(String(a?.ts || a?.createdAt || 0)).getTime();
+        const bt = new Date(String(b?.ts || b?.createdAt || 0)).getTime();
+        return bt - at;
+      }),
+    [events],
+  );
+  const activityTotalPages = Math.max(1, Math.ceil(activityRows.length / PAGE_SIZE));
+  const safeActivityPage = activityPage > activityTotalPages ? 1 : activityPage;
+  const activityPageRows = activityRows.slice(
+    (safeActivityPage - 1) * PAGE_SIZE,
+    safeActivityPage * PAGE_SIZE,
+  );
+
+  if (membersLoading || waLoading) return <Skeleton className="h-96" />;
+
   return (
-    <div>
-      <PageHeader title="WhatsApp / SMS" description="Templates, reminders, and message activity." />
-      <div className="grid gap-4 lg:grid-cols-2">
-        <Card>
-          <CardHeader><CardTitle>Templates</CardTitle></CardHeader>
-          <CardContent className="space-y-3">
-            {templates.map(([key, value]) => (
-              <div key={key} className="rounded-xl border px-3 py-2 text-sm">
-                <p className="font-medium">{key}</p>
-                <p className="mt-1 whitespace-pre-wrap text-xs text-muted-foreground">
-                  {typeof value === "string" ? value : JSON.stringify(value)}
+    <div className="space-y-5">
+      <PageHeader
+        title="WhatsApp / SMS"
+        description="Messaging Center — preview branch templates, then open WhatsApp with send tracking."
+      />
+
+      <div className="overflow-x-auto">
+        <div className="flex min-w-max items-center gap-1.5 pb-1">
+          {WHATSAPP_TYPE_META.map((tab) => {
+            const active = activeType === tab.key;
+            return (
+              <button
+                key={tab.key}
+                type="button"
+                onClick={() => setActiveType(tab.key)}
+                className={cn(
+                  "shrink-0 rounded-full border px-3 py-1.5 text-xs font-semibold transition",
+                  active
+                    ? "border-sky-300 bg-sky-50 text-sky-800 shadow-sm"
+                    : "border-slate-200 bg-white text-slate-600 hover:border-slate-300 hover:bg-slate-50 dark:border-border dark:bg-card dark:text-muted-foreground",
+                )}
+              >
+                {tab.label}
+                <span className="ml-1.5 tabular-nums text-[10px] opacity-70">
+                  ({counts[tab.key] || 0})
+                </span>
+              </button>
+            );
+          })}
+        </div>
+      </div>
+
+      {activeType === "templates" ? (
+        <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+          {WHATSAPP_TYPE_META.filter((t) => t.key !== "templates").map((card) => {
+            const key = card.key as WhatsAppTemplateKey;
+            const body = templates[key] || "";
+            const open = Boolean(expandedTemplates[key]);
+            return (
+              <Card
+                key={key}
+                className={cn("overflow-hidden border shadow-sm", card.tone.split(" ").slice(0, 2).join(" "))}
+              >
+                <CardContent className="space-y-2 p-4">
+                  <div className="flex items-start justify-between gap-2">
+                    <div>
+                      <p className="text-sm font-semibold text-slate-900 dark:text-foreground">
+                        {card.title}
+                      </p>
+                      <p className="text-[10px] font-medium uppercase tracking-wide text-slate-500">
+                        SMS / WhatsApp
+                      </p>
+                    </div>
+                    <span className="rounded-md border border-white/60 bg-white/70 px-2 py-0.5 text-[10px] font-semibold dark:bg-background/60">
+                      {key}
+                    </span>
+                  </div>
+                  <div
+                    className={cn(
+                      "whitespace-pre-wrap rounded-xl border border-white/70 bg-white/80 p-3 text-xs leading-relaxed text-slate-700 dark:border-border dark:bg-background/70 dark:text-foreground",
+                      open ? "max-h-80 overflow-auto" : "line-clamp-4",
+                    )}
+                  >
+                    {body || "—"}
+                  </div>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="w-full bg-white/80"
+                    onClick={() =>
+                      setExpandedTemplates((prev) => ({ ...prev, [key]: !prev[key] }))
+                    }
+                  >
+                    {open ? (
+                      <>
+                        <ChevronUp className="h-3.5 w-3.5" /> Collapse
+                      </>
+                    ) : (
+                      <>
+                        <ChevronDown className="h-3.5 w-3.5" /> Expand SMS
+                      </>
+                    )}
+                  </Button>
+                </CardContent>
+              </Card>
+            );
+          })}
+        </div>
+      ) : (
+        <Card className="overflow-hidden border-slate-200 shadow-sm dark:border-border">
+          <CardContent className="space-y-4 p-4">
+            <div className="flex flex-wrap items-end justify-between gap-3">
+              <div className="space-y-1">
+                <h2 className="text-base font-semibold text-slate-900 dark:text-foreground">
+                  Messaging Center
+                </h2>
+                <p className="max-w-2xl text-xs text-slate-500 dark:text-muted-foreground">
+                  {isSuccessAudit
+                    ? "Success SMS audit — members with a recorded Success send. Owner can resend."
+                    : `Who to send ${smsTypeLabel(activeType)} to. Preview opens before WhatsApp.`}
                 </p>
               </div>
-            ))}
-            {!templates.length ? <p className="text-sm text-muted-foreground">No templates loaded.</p> : null}
+              <div className="flex flex-wrap items-center gap-2">
+                <div className="relative">
+                  <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-slate-400" />
+                  <Input
+                    value={search}
+                    onChange={(e) => setSearch(e.target.value)}
+                    placeholder="Search name / mobile"
+                    className="h-9 w-[200px] pl-8 text-sm"
+                  />
+                </div>
+              </div>
+            </div>
+
+            <div className="overflow-x-auto rounded-2xl border border-slate-200 dark:border-border">
+              <table className="min-w-full hidden text-sm md:table">
+                <thead>
+                  <tr className="bg-sky-50 text-sky-800 dark:bg-sky-950/40 dark:text-sky-200">
+                    <th className="px-3 py-2.5 text-left text-xs font-semibold">Member</th>
+                    <th className="px-3 py-2.5 text-left text-xs font-semibold">Mobile</th>
+                    <th className="px-3 py-2.5 text-left text-xs font-semibold">Status</th>
+                    <th className="px-3 py-2.5 text-left text-xs font-semibold">Next Payment</th>
+                    <th className="px-3 py-2.5 text-left text-xs font-semibold">Payment By</th>
+                    <th className="px-3 py-2.5 text-left text-xs font-semibold">Suggested</th>
+                    <th className="px-3 py-2.5 text-left text-xs font-semibold">Action</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {pageRows.map((m) => {
+                    const suggested = primaryMessageActionForMember(m, { isOwner });
+                    const paymentBy = paymentByDateKey(m) || m.billingDate || "";
+                    const nextPay =
+                      m.nextPaymentDate || nextPaymentDateFromBillingDate(m.billingDate);
+                    const canSendSuggested =
+                      Boolean(String(m.mobile || "").trim()) &&
+                      !suggested.disabled &&
+                      canActSuccess &&
+                      suggested.key !== "none";
+                    return (
+                      <tr
+                        key={`${activeType}-${m.memberId}`}
+                        className="border-t border-slate-100 dark:border-border"
+                      >
+                        <td className="px-3 py-2.5 font-medium">{m.name || m.memberId}</td>
+                        <td className="px-3 py-2.5 tabular-nums text-slate-600 dark:text-muted-foreground">
+                          {m.mobile || "—"}
+                        </td>
+                        <td className="px-3 py-2.5">{m.status || "—"}</td>
+                        <td className="px-3 py-2.5 whitespace-nowrap">{formatDate(nextPay)}</td>
+                        <td className="px-3 py-2.5 whitespace-nowrap">{formatDate(paymentBy)}</td>
+                        <td className="px-3 py-2.5">
+                          <button
+                            type="button"
+                            disabled={!canSendSuggested}
+                            onClick={() =>
+                              openPreview(
+                                m,
+                                isSuccessAudit
+                                  ? "success"
+                                  : suggested.key === "none"
+                                    ? activeType
+                                    : suggested.key,
+                              )
+                            }
+                            className={cn(
+                              "rounded-lg border px-2.5 py-1 text-[11px] font-semibold",
+                              canSendSuggested
+                                ? suggestionToneClasses(
+                                    isSuccessAudit ? "success" : suggested.key,
+                                  )
+                                : "cursor-not-allowed border-slate-200 bg-slate-100 text-slate-400",
+                            )}
+                          >
+                            {isSuccessAudit ? "Success SMS Sent" : suggested.label || "—"}
+                          </button>
+                        </td>
+                        <td className="px-3 py-2.5">
+                          <div className="flex flex-wrap items-center gap-1.5">
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              disabled={!canActSuccess || !m.mobile}
+                              className="h-7 border-emerald-300 bg-emerald-50 px-2.5 text-[11px] font-semibold text-emerald-800 hover:bg-emerald-100"
+                              onClick={() => openPreview(m, activeType)}
+                            >
+                              <MessageCircle className="h-3 w-3" />
+                              Send
+                            </Button>
+                            {getSmsSentInfoText(m, activeType) ? (
+                              <span
+                                className="max-w-[180px] truncate rounded-md border border-amber-200 bg-amber-50 px-2 py-1 text-[9px] text-amber-800 dark:border-amber-900 dark:bg-amber-950/40 dark:text-amber-200"
+                                title={getSmsSentInfoText(m, activeType)}
+                              >
+                                {getSmsSentInfoText(m, activeType)}
+                              </span>
+                            ) : null}
+                          </div>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                  {!pageRows.length ? (
+                    <tr>
+                      <td
+                        colSpan={7}
+                        className="px-3 py-8 text-center text-sm text-slate-500 dark:text-muted-foreground"
+                      >
+                        No members match this SMS condition.
+                      </td>
+                    </tr>
+                  ) : null}
+                </tbody>
+              </table>
+
+              <div className="divide-y divide-slate-100 md:hidden dark:divide-border">
+                {pageRows.map((m) => {
+                  const suggested = primaryMessageActionForMember(m, { isOwner });
+                  return (
+                    <div key={`m-${activeType}-${m.memberId}`} className="space-y-2 p-3">
+                      <div className="flex items-start justify-between gap-2">
+                        <div>
+                          <p className="font-semibold text-slate-900 dark:text-foreground">
+                            {m.name || m.memberId}
+                          </p>
+                          <p className="text-xs text-slate-500">{m.mobile || "No mobile"}</p>
+                        </div>
+                        <span className="text-[10px] font-medium text-slate-500">{m.status}</span>
+                      </div>
+                      <div className="flex flex-wrap gap-1.5">
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          disabled={!canActSuccess || !m.mobile}
+                          className="h-7 border-emerald-300 bg-emerald-50 text-[11px] text-emerald-800"
+                          onClick={() => openPreview(m, activeType)}
+                        >
+                          Send {smsTypeLabel(activeType)}
+                        </Button>
+                        {suggested.key !== "none" ? (
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            className={cn("h-7 text-[11px]", suggestionToneClasses(suggested.key))}
+                            disabled={suggested.disabled || !m.mobile}
+                            onClick={() => openPreview(m, suggested.key)}
+                          >
+                            {suggested.label}
+                          </Button>
+                        ) : null}
+                      </div>
+                    </div>
+                  );
+                })}
+                {!pageRows.length ? (
+                  <p className="p-6 text-center text-sm text-slate-500">
+                    No members match this SMS condition.
+                  </p>
+                ) : null}
+              </div>
+            </div>
+
+            {totalPages > 1 ? (
+              <div className="flex items-center justify-between gap-2 text-xs text-slate-500">
+                <span>
+                  Page {safePage} of {totalPages} · {rows.length} members
+                </span>
+                <div className="flex gap-1.5">
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    disabled={safePage <= 1}
+                    onClick={() => setPage((p) => Math.max(1, p - 1))}
+                  >
+                    Prev
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    disabled={safePage >= totalPages}
+                    onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+                  >
+                    Next
+                  </Button>
+                </div>
+              </div>
+            ) : null}
           </CardContent>
         </Card>
-        <Card>
-          <CardHeader><CardTitle>Quick send</CardTitle></CardHeader>
-          <CardContent className="space-y-2">
-            {members.slice(0, 12).map((m) => (
-              <div key={m.memberId} className="flex items-center justify-between rounded-xl border px-3 py-2 text-sm">
-                <span>{m.name || m.memberId}</span>
-                <Button
-                  size="sm"
-                  variant="outline"
-                  onClick={() =>
-                    window.open(
-                      waLink(m.mobile, `Hi ${m.name || ""}, reminder from Action Plus Gym.`),
-                      "_blank",
-                    )
-                  }
-                >
-                  WhatsApp
-                </Button>
+      )}
+
+      <Card className="border-slate-200 shadow-sm dark:border-border">
+        <CardContent className="space-y-3 p-4">
+          <div>
+            <h2 className="text-sm font-semibold text-slate-900 dark:text-foreground">
+              Auto Sync Activity
+            </h2>
+            <p className="text-xs text-slate-500 dark:text-muted-foreground">
+              Status-triggered and campaign SMS events from the backend.
+            </p>
+          </div>
+          <div className="space-y-2">
+            {activityPageRows.map((e, i) => (
+              <div
+                key={String(e.id || i)}
+                className="rounded-xl border border-slate-200 px-3 py-2 text-xs text-slate-600 dark:border-border dark:text-muted-foreground"
+              >
+                {formatDate(String(e.createdAt || e.ts || e.at || ""))} ·{" "}
+                {String(e.type || e.template || e.templateKey || "event")} ·{" "}
+                {String(e.memberId || e.to || e.memberName || "—")}
               </div>
             ))}
-          </CardContent>
-        </Card>
-      </div>
-      <Card className="mt-4">
-        <CardHeader><CardTitle>SMS events</CardTitle></CardHeader>
-        <CardContent className="space-y-2">
-          {events.slice(0, 30).map((e, i) => (
-            <div key={i} className="rounded-xl border px-3 py-2 text-xs text-muted-foreground">
-              {formatDate(String(e.createdAt || e.at || ""))} · {String(e.type || e.template || "event")} ·{" "}
-              {String(e.memberId || e.to || "—")}
+            {!activityPageRows.length ? (
+              <p className="text-sm text-muted-foreground">No SMS events yet.</p>
+            ) : null}
+          </div>
+          {activityTotalPages > 1 ? (
+            <div className="flex justify-end gap-1.5">
+              <Button
+                size="sm"
+                variant="outline"
+                disabled={safeActivityPage <= 1}
+                onClick={() => setActivityPage((p) => Math.max(1, p - 1))}
+              >
+                Prev
+              </Button>
+              <Button
+                size="sm"
+                variant="outline"
+                disabled={safeActivityPage >= activityTotalPages}
+                onClick={() => setActivityPage((p) => Math.min(activityTotalPages, p + 1))}
+              >
+                Next
+              </Button>
             </div>
-          ))}
-          {!events.length ? <p className="text-sm text-muted-foreground">No SMS events yet.</p> : null}
+          ) : null}
         </CardContent>
       </Card>
+
+      <MessagePreviewModal
+        preview={preview}
+        sending={sending}
+        onClose={closePreview}
+        onSend={() => void confirmSend()}
+      />
     </div>
   );
 }
