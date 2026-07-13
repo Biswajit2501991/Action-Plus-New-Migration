@@ -36,6 +36,80 @@ export function revenueGrowthPercent(current: number, previous: number) {
   return Math.round(((cur - prev) / prev) * 100);
 }
 
+const MONTH_LABELS = [
+  "Jan",
+  "Feb",
+  "Mar",
+  "Apr",
+  "May",
+  "Jun",
+  "Jul",
+  "Aug",
+  "Sep",
+  "Oct",
+  "Nov",
+  "Dec",
+] as const;
+
+export type RevenueTrendSlot = {
+  monthKey: string;
+  label: string;
+  revenue: number;
+};
+
+/**
+ * Build dashboard trend slots from GET /finance/summary?year=YYYY
+ * (same as prod `collectedTrendFromYearSummary`).
+ */
+export function collectedTrendFromYearSummary(
+  yearBody: { months?: Array<Record<string, unknown>> } | null | undefined,
+  opts: { maxMonths?: number; throughMonthKey?: string; monthLabels?: string[] } = {},
+): RevenueTrendSlot[] {
+  const months = Array.isArray(yearBody?.months) ? yearBody!.months! : [];
+  const labels = opts.monthLabels?.length ? opts.monthLabels : [...MONTH_LABELS];
+  const through = String(opts.throughMonthKey || "").trim();
+  let slots = months.map((row) => {
+    const monthKey = String(row?.monthKey || "").trim();
+    const monthNum = Number(monthKey.slice(5, 7));
+    const labelMonth = labels[monthNum - 1] || monthKey.slice(5, 7);
+    const yearSuffix = monthKey.slice(2, 4);
+    return {
+      monthKey,
+      label: yearSuffix ? `${labelMonth}-${yearSuffix}` : String(labelMonth),
+      revenue: Number(row?.incomeCollected ?? row?.collectedRevenue ?? 0),
+    };
+  });
+  if (/^\d{4}-\d{2}$/.test(through)) {
+    slots = slots.filter((slot) => String(slot.monthKey || "") <= through);
+  }
+  const cap = Math.max(1, Number(opts.maxMonths) || 6);
+  return slots.slice(-cap);
+}
+
+/** Client fallback trend from full ledger (member payments + finance rows). */
+export function buildClientRevenueTrend(
+  ledger: Array<{ type?: string; status?: string; amount?: number; paidAt?: string; date?: string }>,
+  throughMonthKey: string,
+  maxMonths = 6,
+): RevenueTrendSlot[] {
+  const through = String(throughMonthKey || formatMonthKey()).trim();
+  if (!/^\d{4}-\d{2}$/.test(through)) return [];
+  const rows: RevenueTrendSlot[] = [];
+  for (let i = maxMonths - 1; i >= 0; i -= 1) {
+    const key = shiftFinanceMonthKey(through, -i);
+    if (!key) continue;
+    const [y, mo] = key.split("-");
+    const label =
+      MONTH_LABELS[Number(mo) - 1] + `-${String(y).slice(-2)}`;
+    rows.push({
+      monthKey: key,
+      label,
+      revenue: sumCollectedIncomeForMonthKey(ledger, key),
+    });
+  }
+  return rows;
+}
+
 function txMonthKey(t: { paidAt?: string; date?: string; [k: string]: unknown }) {
   const raw = String(t.paidAt || t.date || "");
   if (!raw) return "";

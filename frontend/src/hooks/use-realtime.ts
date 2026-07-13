@@ -38,7 +38,10 @@ export function useRealtimeSync(enabled: boolean) {
             if (c.includes("visitor")) qc.invalidateQueries({ queryKey: ["visitors"] });
             if (c.includes("user") || c.includes("staff")) qc.invalidateQueries({ queryKey: ["users"] });
             if (c.includes("setting")) qc.invalidateQueries({ queryKey: ["settings"] });
-            if (c.includes("finance")) qc.invalidateQueries({ queryKey: ["finance"] });
+            if (c.includes("finance") || c.includes("payment")) {
+              qc.invalidateQueries({ queryKey: ["finance"] });
+              qc.invalidateQueries({ queryKey: ["finance-year"] });
+            }
             if (c.includes("log")) qc.invalidateQueries({ queryKey: ["logs"] });
             if (c.includes("attendance")) qc.invalidateQueries({ queryKey: ["attendance"] });
             if (c.includes("sms") || c.includes("whatsapp")) {

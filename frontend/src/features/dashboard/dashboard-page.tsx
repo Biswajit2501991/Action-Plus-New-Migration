@@ -17,8 +17,14 @@ import { Badge, PageHeader, Skeleton } from "@/components/ui/misc";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input, Select } from "@/components/ui/input";
-import { useFinance, useGymCodes, useMembers, useSettings } from "@/hooks/use-data";
-import { buildFinanceKpis, shiftFinanceMonthKey } from "@/lib/domain/finance";
+import { useFinance, useFinanceYearSummary, useGymCodes, useMembers, useSettings } from "@/hooks/use-data";
+import {
+  buildClientRevenueTrend,
+  buildFinanceKpis,
+  buildFinanceLedgerRows,
+  collectedTrendFromYearSummary,
+  shiftFinanceMonthKey,
+} from "@/lib/domain/finance";
 import {
   birthdaysThisMonth,
   countByStatus,
@@ -122,6 +128,7 @@ export function DashboardPage() {
   const month = formatMonthKey();
   const { data: members = [], isLoading: loadingMembers } = useMembers();
   const { data: finance, isLoading: loadingFinance } = useFinance(month);
+  const { data: yearSummary } = useFinanceYearSummary(Number(month.slice(0, 4)) || undefined);
   const { data: settings } = useSettings();
   const { data: gymCodes = [] } = useGymCodes();
   const [metricModal, setMetricModal] = useState<MetricModalKey | "">("");
@@ -197,15 +204,41 @@ export function DashboardPage() {
   }, [members]);
 
   const trendData = useMemo(() => {
-    // Prefer KPI last-4 + extend to 6 months from ledger like prod "last 6 months".
+    // Prod: year payment summary (includes June even when member list payment window is short).
+    const fromServer = collectedTrendFromYearSummary(yearSummary, {
+      maxMonths: 6,
+      throughMonthKey: month,
+    });
+    if (fromServer.length) {
+      return fromServer.map((slot) => ({
+        month: slot.monthKey,
+        label: slot.label,
+        revenue:
+          slot.monthKey === month ? collectedRevenue : slot.revenue,
+      }));
+    }
+
+    // Fallback: member payment history + finance rows (not finance collection alone).
+    const ledger = buildFinanceLedgerRows(members, finance?.transactions || []);
+    const fromLedger = buildClientRevenueTrend(ledger, month, 6);
+    if (fromLedger.length) {
+      return fromLedger.map((slot) => ({
+        month: slot.monthKey,
+        label: slot.label,
+        revenue: slot.monthKey === month ? collectedRevenue : slot.revenue,
+      }));
+    }
+
+    // Last resort: last-4 KPI window extended from finance transactions.
     const rows: { month: string; label: string; revenue: number }[] = [];
     for (let i = 5; i >= 0; i -= 1) {
       const key = shiftFinanceMonthKey(month, -i);
       const fromKpi = kpis.trend.find((t) => t.month === key);
       const [y, mo] = key.split("-");
-      const label = new Date(Number(y), Number(mo) - 1, 1).toLocaleString("en", {
-        month: "short",
-      }) + `-${String(y).slice(-2)}`;
+      const label =
+        new Date(Number(y), Number(mo) - 1, 1).toLocaleString("en", {
+          month: "short",
+        }) + `-${String(y).slice(-2)}`;
       rows.push({
         month: key,
         label,
@@ -217,7 +250,15 @@ export function DashboardPage() {
       });
     }
     return rows;
-  }, [month, kpis.trend, collectedRevenue, finance?.transactions, settings]);
+  }, [
+    yearSummary,
+    month,
+    collectedRevenue,
+    members,
+    finance?.transactions,
+    kpis.trend,
+    settings,
+  ]);
 
   const goMembers = (status?: string, search = "", searchField = "all") => {
     const params = new URLSearchParams();

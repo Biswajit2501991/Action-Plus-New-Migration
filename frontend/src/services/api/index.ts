@@ -170,6 +170,21 @@ export const financeApi = {
     apiFetch<FinanceSummary & Record<string, unknown>>(
       `/finance/summary${month ? `?month=${encodeURIComponent(month)}` : ""}`,
     ),
+  /** 12-month collected revenue by payment date (dashboard trend / reconciliation). */
+  yearSummary: (year?: number) => {
+    const y = year || new Date().getFullYear();
+    return apiFetch<{
+      year?: number;
+      months?: Array<{
+        monthKey?: string;
+        incomeCollected?: number;
+        collectedRevenue?: number;
+        [key: string]: unknown;
+      }>;
+      dateBasis?: string;
+      [key: string]: unknown;
+    }>(`/finance/summary?year=${encodeURIComponent(String(y))}`);
+  },
   reconciliation: (year?: number) => {
     const y = year || new Date().getFullYear();
     return apiFetch<Record<string, unknown>>(

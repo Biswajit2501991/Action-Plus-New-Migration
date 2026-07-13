@@ -71,6 +71,18 @@ export function useFinance(month?: string) {
   });
 }
 
+/** Server year summary for revenue trend (payment_transaction_date basis). */
+export function useFinanceYearSummary(year?: number) {
+  const authed = Boolean(useAuthStore((s) => s.user));
+  const y = year || new Date().getFullYear();
+  return useQuery({
+    queryKey: ["finance-year", y],
+    queryFn: () => financeApi.yearSummary(y),
+    enabled: authed,
+    staleTime: STALE.finance,
+  });
+}
+
 export function useLogs() {
   const authed = Boolean(useAuthStore((s) => s.user));
   return useQuery({
