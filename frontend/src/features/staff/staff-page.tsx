@@ -3,12 +3,14 @@
 import { useMemo, useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
-import { Plus, Shield, UserRound } from "lucide-react";
+import { Plus, Shield } from "lucide-react";
 import { PageHeader, Badge, Skeleton, EmptyState } from "@/components/ui/misc";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Input, Label, Select } from "@/components/ui/input";
+import { StaffAvatar } from "@/components/staff-avatar";
 import { useGymCodes, useSettings, useUsers } from "@/hooks/use-data";
+import { useStaffPhotoHydration } from "@/hooks/use-staff-photo-hydration";
 import { usersApi } from "@/services/api";
 import { adminSetPassword } from "@/services/api/auth";
 import { cn } from "@/lib/utils";
@@ -60,6 +62,7 @@ export function StaffPage() {
   const { data: users = [], isLoading } = useUsers();
   const { data: settings } = useSettings();
   const { data: gymCodes = [] } = useGymCodes();
+  useStaffPhotoHydration(users);
 
   const isOwner = isMasterOwnerUser(user);
   const canManage = isBranchAdminUser(user);
@@ -274,18 +277,7 @@ export function StaffPage() {
                   <tr key={u.id} className="border-t border-slate-100 dark:border-border">
                     <td className="px-4 py-3">
                       <div className="flex items-center gap-2">
-                        <span className="grid h-8 w-8 place-items-center overflow-hidden rounded-full border bg-slate-100 text-[10px] font-semibold">
-                          {u.photoUrl || u.photo ? (
-                            // eslint-disable-next-line @next/next/no-img-element
-                            <img
-                              src={String(u.photoUrl || u.photo)}
-                              alt=""
-                              className="h-full w-full object-cover"
-                            />
-                          ) : (
-                            <UserRound className="h-4 w-4 text-slate-400" />
-                          )}
-                        </span>
+                        <StaffAvatar user={u} className="h-8 w-8 text-[10px]" />
                         <div>
                           <div className="font-medium">{u.name || u.id}</div>
                           <div className="text-xs text-muted-foreground">

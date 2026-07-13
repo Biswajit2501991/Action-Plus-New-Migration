@@ -90,8 +90,19 @@ export function useAuth() {
   const changeBranch = async (gymCodeId: string) => {
     try {
       const data = await switchActiveBranch(gymCodeId);
-      setUser(data.user);
-      setActiveBranchId(data.user.activeBranchId || gymCodeId);
+      const nextId = data.activeBranchId || data.gymCodeId || gymCodeId;
+      setActiveBranchId(nextId);
+      if (data.user) {
+        setUser(data.user);
+      } else if (user) {
+        setUser({
+          ...user,
+          activeBranchId: nextId,
+          gymCodeId: nextId,
+          allowedBranchIds: data.allowedBranchIds || user.allowedBranchIds,
+          assignedBranchIds: data.assignedBranchIds || user.assignedBranchIds,
+        });
+      }
       toast.success("Branch switched");
     } catch (err) {
       toast.error(err instanceof ApiError ? err.message : "Could not switch branch");

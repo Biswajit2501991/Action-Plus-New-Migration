@@ -8,11 +8,22 @@ import { PageHeader, Skeleton } from "@/components/ui/misc";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Input, Label } from "@/components/ui/input";
+import { BranchLogo } from "@/components/branding/branch-logo";
 import { useGymCodes, useSettings } from "@/hooks/use-data";
 import { gymCodesApi, settingsApi } from "@/services/api";
+import { resolveClientBranchBranding } from "@/lib/domain/branch-branding";
 import { hasAccess, isMasterOwnerUser } from "@/lib/domain/permissions";
 import { useAuthStore } from "@/stores";
 import type { AppSettings, GymCode } from "@/types";
+
+function readFileAsDataUrl(file: File) {
+  return new Promise<string>((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result || ""));
+    reader.onerror = () => reject(new Error("Could not read image"));
+    reader.readAsDataURL(file);
+  });
+}
 
 type LookupKey =
   | "plans"
@@ -101,6 +112,7 @@ export function SettingsPage() {
   const [drafts, setDrafts] = useState<Record<string, string>>({});
   const [gymForm, setGymForm] = useState({ code: "", name: "" });
   const [shiftDrafts, setShiftDrafts] = useState<Record<string, string>>({});
+  const [brandingDrafts, setBrandingDrafts] = useState<Record<string, string>>({});
 
   const canFine = hasAccess(user, "settings", "manageFineRule");
 
@@ -176,6 +188,33 @@ export function SettingsPage() {
     mutationFn: (id: string) => gymCodesApi.remove(id),
     onSuccess: async () => {
       toast.success("Branch deleted");
+      await qc.invalidateQueries({ queryKey: ["gym-codes"] });
+    },
+    onError: (e: Error) => toast.error(e.message),
+  });
+
+  const saveBranding = useMutation({
+    mutationFn: async ({
+      id,
+      displayName,
+      logoDataUrl,
+      clearLogo,
+    }: {
+      id: string;
+      displayName?: string;
+      logoDataUrl?: string;
+      clearLogo?: boolean;
+    }) => {
+      await gymCodesApi.updateBranding(id, {
+        displayName,
+        clearLogo: Boolean(clearLogo),
+      });
+      if (logoDataUrl) {
+        await gymCodesApi.uploadLogo(id, logoDataUrl);
+      }
+    },
+    onSuccess: async () => {
+      toast.success("Branding saved");
       await qc.invalidateQueries({ queryKey: ["gym-codes"] });
     },
     onError: (e: Error) => toast.error(e.message),
@@ -272,7 +311,7 @@ export function SettingsPage() {
                 <div>
                   <h3 className="text-sm font-semibold">Gym Codes (Branches)</h3>
                   <p className="text-xs text-muted-foreground">
-                    Create branches and set shift start for late-note detection.
+                    Create branches, set display name / logo, and shift start for late-note detection.
                   </p>
                 </div>
                 <div className="grid gap-2 md:grid-cols-3">
@@ -302,6 +341,7 @@ export function SettingsPage() {
                         <tr className="bg-slate-50 text-left text-xs dark:bg-muted">
                           <th className="px-3 py-2 font-semibold">Code</th>
                           <th className="px-3 py-2 font-semibold">Name</th>
+                          <th className="px-3 py-2 font-semibold">Display / Logo</th>
                           <th className="px-3 py-2 font-semibold">Shift start</th>
                           <th className="px-3 py-2 font-semibold">Actions</th>
                         </tr>
@@ -312,6 +352,10 @@ export function SettingsPage() {
                             shiftDrafts[g.id] ??
                             String(g.shiftStartTime || g.shift_start_time || "");
                           const isHq = String(g.code || "").toUpperCase() === "HQ";
+                          const brand = resolveClientBranchBranding(g);
+                          const displayDraft =
+                            brandingDrafts[g.id] ??
+                            String(g.displayName || brand.displayName || "");
                           return (
                             <tr
                               key={g.id}
@@ -319,6 +363,94 @@ export function SettingsPage() {
                             >
                               <td className="px-3 py-2 font-medium">{g.code || "—"}</td>
                               <td className="px-3 py-2">{g.name || g.label || "—"}</td>
+                              <td className="px-3 py-2">
+                                <div className="flex min-w-[220px] flex-col gap-2">
+                                  <div className="flex items-center gap-2">
+                                    <div className="h-9 w-9 overflow-hidden rounded-full ring-1 ring-border">
+                                      <BranchLogo
+                                        src={brand.logoUrl}
+                                        alt={brand.displayName}
+                                        className="h-full w-full"
+                                      />
+                                    </div>
+                                    <Input
+                                      className="h-8"
+                                      value={displayDraft}
+                                      onChange={(e) =>
+                                        setBrandingDrafts((d) => ({
+                                          ...d,
+                                          [g.id]: e.target.value,
+                                        }))
+                                      }
+                                      placeholder={brand.displayName}
+                                    />
+                                  </div>
+                                  <div className="flex flex-wrap items-center gap-1.5">
+                                    <Button
+                                      size="sm"
+                                      variant="outline"
+                                      disabled={saveBranding.isPending}
+                                      onClick={() =>
+                                        saveBranding.mutate({
+                                          id: g.id,
+                                          displayName: displayDraft,
+                                        })
+                                      }
+                                    >
+                                      Save name
+                                    </Button>
+                                    <label className="inline-flex cursor-pointer">
+                                      <span className="sr-only">Upload logo</span>
+                                      <input
+                                        type="file"
+                                        accept="image/png,image/jpeg,image/webp,image/gif"
+                                        className="hidden"
+                                        onChange={(e) => {
+                                          const file = e.target.files?.[0];
+                                          e.target.value = "";
+                                          if (!file) return;
+                                          void (async () => {
+                                            try {
+                                              const dataUrl = await readFileAsDataUrl(file);
+                                              saveBranding.mutate({
+                                                id: g.id,
+                                                displayName: displayDraft,
+                                                logoDataUrl: dataUrl,
+                                              });
+                                            } catch (err) {
+                                              toast.error(
+                                                err instanceof Error
+                                                  ? err.message
+                                                  : "Logo upload failed",
+                                              );
+                                            }
+                                          })();
+                                        }}
+                                      />
+                                      <span className="inline-flex h-8 items-center rounded-lg border border-border px-2.5 text-xs font-medium hover:bg-accent">
+                                        Upload logo
+                                      </span>
+                                    </label>
+                                    {!brand.usesDefaultLogo ? (
+                                      <Button
+                                        size="sm"
+                                        variant="ghost"
+                                        className="text-rose-700"
+                                        disabled={saveBranding.isPending}
+                                        onClick={() =>
+                                          saveBranding.mutate({
+                                            id: g.id,
+                                            displayName: displayDraft,
+                                            clearLogo: true,
+                                          })
+                                        }
+                                      >
+                                        Clear logo
+                                      </Button>
+                                    ) : null}
+                                  </div>
+                                </div>
+                              </td>
                               <td className="px-3 py-2">
                                 <div className="flex items-center gap-1.5">
                                   <Input
@@ -370,7 +502,7 @@ export function SettingsPage() {
                         {!gymCodes.length ? (
                           <tr>
                             <td
-                              colSpan={4}
+                              colSpan={5}
                               className="px-3 py-6 text-center text-sm text-muted-foreground"
                             >
                               No gym codes yet.

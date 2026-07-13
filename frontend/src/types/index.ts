@@ -118,7 +118,23 @@ export type GymCode = {
   code?: string;
   name?: string;
   label?: string;
+  branchName?: string;
+  displayName?: string | null;
+  logoUrl?: string | null;
+  shiftStartTime?: string | null;
+  shift_start_time?: string | null;
+  shiftTimezone?: string | null;
   [key: string]: unknown;
+};
+
+export type BranchBrandingDto = {
+  gymCodeId?: string;
+  code?: string;
+  branchName?: string;
+  displayName?: string;
+  logoUrl?: string | null;
+  usesDefaultLogo?: boolean;
+  updatedAt?: string | null;
 };
 
 export type FinanceTransaction = {

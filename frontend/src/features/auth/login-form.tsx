@@ -4,9 +4,14 @@ import { FormEvent, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Input, Label } from "@/components/ui/input";
+import { BranchLogo } from "@/components/branding/branch-logo";
 import { useAuth } from "@/hooks/use-auth";
 import { ApiError } from "@/services/api/client";
 import { readAuthSession } from "@/lib/auth-storage";
+import {
+  DEFAULT_GYM_DISPLAY_NAME,
+  DEFAULT_LOGO_PATH,
+} from "@/lib/domain/branch-branding";
 
 const REMEMBER_KEY = "apg.auth.remember";
 
@@ -72,13 +77,21 @@ export function LoginForm() {
         onSubmit={onSubmit}
         className="relative w-full max-w-md rounded-3xl border border-white/40 bg-white/80 p-8 shadow-xl backdrop-blur-xl dark:border-white/10 dark:bg-slate-950/70"
       >
-        <p className="text-xs font-semibold uppercase tracking-[0.2em] text-teal-700 dark:text-teal-400">
-          Action Plus
-        </p>
-        <h1 className="mt-2 text-3xl font-semibold tracking-tight">Gym Manager</h1>
-        <p className="mt-2 text-sm text-muted-foreground">
-          {mode === "login" ? "Sign in with your staff credentials." : "Request a password reset."}
-        </p>
+        <div className="flex flex-col items-center text-center">
+          <div className="h-16 w-16 overflow-hidden rounded-full ring-2 ring-teal-600/20 shadow-sm">
+            <BranchLogo
+              src={DEFAULT_LOGO_PATH}
+              alt={DEFAULT_GYM_DISPLAY_NAME}
+              className="h-full w-full"
+            />
+          </div>
+          <h1 className="mt-4 text-2xl font-semibold tracking-tight">{DEFAULT_GYM_DISPLAY_NAME}</h1>
+          <p className="mt-1.5 text-sm text-muted-foreground">
+            {mode === "login"
+              ? "Sign in with your staff credentials."
+              : "Request a password reset."}
+          </p>
+        </div>
 
         <div className="mt-8 space-y-4">
           <div>

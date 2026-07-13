@@ -10,7 +10,7 @@ import {
   Plus,
   Search,
 } from "lucide-react";
-import { Badge, EmptyState, PageHeader, Skeleton } from "@/components/ui/misc";
+import { EmptyState, PageHeader, Skeleton } from "@/components/ui/misc";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Input, Label, Select } from "@/components/ui/input";
@@ -19,6 +19,10 @@ import { useMemberPhotoHydration } from "@/hooks/use-member-photo-hydration";
 import { membersApi, visitorsApi } from "@/services/api";
 import { MemberPhotoPreviewModal } from "@/features/members/member-photo-modals";
 import { EditMemberModal } from "@/features/members/edit-member-modal";
+import {
+  MemberMetricModal,
+  type MetricModalKey,
+} from "@/features/members/member-metric-modal";
 import { memberSearchHaystack } from "@/lib/domain/members";
 import {
   isPaymentByPastDue,
@@ -82,13 +86,6 @@ function paymentByDisplay(m: Member) {
   return key || m.billingDate || "";
 }
 
-function statusBadgeVariant(status?: string) {
-  if (status === "Active") return "success" as const;
-  if (status === "Hold") return "warning" as const;
-  if (status === "Deactivated") return "danger" as const;
-  return "muted" as const;
-}
-
 export function MembersPage() {
   const router = useRouter();
   const user = useAuthStore((s) => s.user);
@@ -137,7 +134,7 @@ export function MembersPage() {
     Cancelled: false,
   });
   const [expandedId, setExpandedId] = useState<string | null>(null);
-  const [metricModal, setMetricModal] = useState<"" | "active" | "hold" | "risk" | "winback">("");
+  const [metricModal, setMetricModal] = useState<MetricModalKey | "">("");
   const [editing, setEditing] = useState<Member | null>(null);
   const [paymentFor, setPaymentFor] = useState<Member | null>(null);
   const [photoPreviewMember, setPhotoPreviewMember] = useState<Member | null>(null);
@@ -294,13 +291,6 @@ export function MembersPage() {
     grouped.Hold.length +
     grouped.Deactivated.length +
     grouped.Cancelled.length;
-
-  const metricLists = {
-    active: grouped.Active,
-    hold: grouped.Hold,
-    risk: filtered.filter((m) => isPaymentByPastDue(m)),
-    winback: grouped.Deactivated,
-  };
 
   const toggleSort = (field: SortField) => {
     if (sortField === field) setSortDirection((d) => (d === "asc" ? "desc" : "asc"));
@@ -952,64 +942,15 @@ export function MembersPage() {
         </div>
       ) : null}
 
-      {metricModal ? (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" onClick={() => setMetricModal("")}>
-          <div className="max-h-[90vh] w-full max-w-5xl overflow-hidden rounded-2xl border bg-background shadow-2xl" onClick={(e) => e.stopPropagation()}>
-            <div className="flex items-center justify-between border-b px-5 py-4">
-              <div>
-                <h2 className="text-lg font-semibold">
-                  {metricModal === "active"
-                    ? "Active Members"
-                    : metricModal === "hold"
-                      ? "Hold Members"
-                      : metricModal === "risk"
-                        ? "Risk Alert"
-                        : "Win-back Opportunity"}
-                </h2>
-                <p className="text-sm text-muted-foreground">{metricLists[metricModal].length} members</p>
-              </div>
-              <Button variant="ghost" onClick={() => setMetricModal("")}>✕</Button>
-            </div>
-            <div className="max-h-[70vh] overflow-auto">
-              <table className="w-full text-sm">
-                <thead className="sticky top-0 bg-card">
-                  <tr className="border-b text-left text-xs text-muted-foreground">
-                    <th className="px-4 py-3">ID</th>
-                    <th className="px-4 py-3">Name</th>
-                    <th className="px-4 py-3">Mobile</th>
-                    <th className="px-4 py-3">Plan</th>
-                    <th className="px-4 py-3">Bill Date</th>
-                    <th className="px-4 py-3">Payment By</th>
-                    <th className="px-4 py-3">Status</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {metricLists[metricModal].map((m) => (
-                    <tr
-                      key={m.memberId}
-                      className="cursor-pointer border-b border-border/60 hover:bg-accent/40"
-                      onClick={() => {
-                        setMetricModal("");
-                        openEdit(m);
-                      }}
-                    >
-                      <td className="px-4 py-3">{m.memberId}</td>
-                      <td className="px-4 py-3">{m.name || "—"}</td>
-                      <td className="px-4 py-3">{m.mobile || "—"}</td>
-                      <td className="px-4 py-3">{m.plan || "—"}</td>
-                      <td className="px-4 py-3">{formatDate(m.billingDate)}</td>
-                      <td className="px-4 py-3">{formatDate(paymentByDisplay(m))}</td>
-                      <td className="px-4 py-3">
-                        <Badge variant={statusBadgeVariant(String(m.status))}>{m.status || "Active"}</Badge>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          </div>
-        </div>
-      ) : null}
+      <MemberMetricModal
+        open={metricModal}
+        members={filtered}
+        onClose={() => setMetricModal("")}
+        onSelectMember={(m) => {
+          setMetricModal("");
+          openEdit(m);
+        }}
+      />
 
       {editing && hasAccess(user, "members", "editMembers") ? (
         <EditMemberModal

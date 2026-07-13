@@ -1,5 +1,5 @@
 import { apiFetch, logoutApi } from "@/services/api/client";
-import { clearAuthSession, writeAuthSession } from "@/lib/auth-storage";
+import { clearAuthSession, readAuthSession, writeAuthSession } from "@/lib/auth-storage";
 import type { AuthUser } from "@/types";
 
 export type LoginResponse = {
@@ -53,13 +53,27 @@ export async function adminSetPassword(staffId: string, newPassword: string) {
   );
 }
 
+export type SwitchBranchResponse = {
+  ok?: boolean;
+  token?: string;
+  gymCodeId?: string;
+  activeBranchId?: string;
+  allowedBranchIds?: string[];
+  assignedBranchIds?: string[];
+  user?: AuthUser;
+};
+
 export async function switchActiveBranch(gymCodeId: string) {
-  const data = await apiFetch<{ token?: string; user: AuthUser }>("/auth/active-branch", {
+  const data = await apiFetch<SwitchBranchResponse>("/auth/active-branch", {
     method: "PATCH",
     body: JSON.stringify({ gymCodeId }),
   });
-  if (data.token) writeAuthSession(String(data.user.id), data.token);
-  else writeAuthSession(String(data.user.id), "");
+  if (data.token && data.user?.id) {
+    writeAuthSession(String(data.user.id), data.token);
+  } else if (data.token) {
+    const session = readAuthSession();
+    if (session?.userId) writeAuthSession(session.userId, data.token);
+  }
   return data;
 }
 

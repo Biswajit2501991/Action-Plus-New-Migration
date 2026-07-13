@@ -2,6 +2,7 @@
 
 import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
+import { useQueryClient } from "@tanstack/react-query";
 import {
   Area,
   AreaChart,
@@ -16,7 +17,7 @@ import { Badge, PageHeader, Skeleton } from "@/components/ui/misc";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input, Select } from "@/components/ui/input";
-import { useFinance, useMembers, useSettings } from "@/hooks/use-data";
+import { useFinance, useGymCodes, useMembers, useSettings } from "@/hooks/use-data";
 import { buildFinanceKpis, shiftFinanceMonthKey } from "@/lib/domain/finance";
 import {
   birthdaysThisMonth,
@@ -36,6 +37,12 @@ import { useAuthStore, useUiStore } from "@/stores";
 import type { Member } from "@/types";
 import { MessagePreviewModal } from "@/features/whatsapp/message-preview-modal";
 import { useWhatsappSend } from "@/features/whatsapp/use-whatsapp-send";
+import { EditMemberModal } from "@/features/members/edit-member-modal";
+import {
+  MemberMetricModal,
+  statusTileToMetricKey,
+  type MetricModalKey,
+} from "@/features/members/member-metric-modal";
 
 const STATUS_TILES: { key: "Active" | "Hold" | "Deactivated" | "Cancelled"; tone: string }[] = [
   { key: "Active", tone: "bg-emerald-50 border-emerald-200 text-emerald-800 dark:bg-emerald-950/40 dark:border-emerald-800 dark:text-emerald-300" },
@@ -109,12 +116,16 @@ function matchesField(m: Member, q: string, field: string) {
 
 export function DashboardPage() {
   const router = useRouter();
+  const qc = useQueryClient();
   const user = useAuthStore((s) => s.user);
   const setAddMemberOpen = useUiStore((s) => s.setAddMemberOpen);
   const month = formatMonthKey();
   const { data: members = [], isLoading: loadingMembers } = useMembers();
   const { data: finance, isLoading: loadingFinance } = useFinance(month);
   const { data: settings } = useSettings();
+  const { data: gymCodes = [] } = useGymCodes();
+  const [metricModal, setMetricModal] = useState<MetricModalKey | "">("");
+  const [editing, setEditing] = useState<Member | null>(null);
   const {
     preview: waPreview,
     sending: waSending,
@@ -299,7 +310,7 @@ export function DashboardPage() {
             <button
               key={tile.key}
               type="button"
-              onClick={() => goMembers(tile.key)}
+              onClick={() => setMetricModal(statusTileToMetricKey(tile.key))}
               className={cn(
                 "rounded-2xl border p-5 text-left shadow-sm transition hover:shadow-md",
                 tile.tone,
@@ -629,6 +640,39 @@ export function DashboardPage() {
         onClose={closeWhatsAppPreview}
         onSend={() => void confirmWhatsAppSend()}
       />
+
+      <MemberMetricModal
+        open={metricModal}
+        members={members}
+        onClose={() => setMetricModal("")}
+        onSelectMember={(m) => {
+          setMetricModal("");
+          if (hasAccess(user, "members", "editMembers")) {
+            setEditing(m);
+          } else {
+            goMembers(undefined, m.memberId, "memberId");
+          }
+        }}
+      />
+
+      {editing && hasAccess(user, "members", "editMembers") ? (
+        <EditMemberModal
+          key={editing.memberId}
+          member={editing}
+          onClose={() => setEditing(null)}
+          onSaved={async () => {
+            setEditing(null);
+            await qc.invalidateQueries({ queryKey: ["members"] });
+          }}
+          settings={settings}
+          gymCodes={gymCodes}
+          currentUser={user}
+          planOptions={settings?.plans}
+          statusOptions={settings?.statuses || ["Active", "Hold", "Deactivated", "Cancelled"]}
+          holdOptions={settings?.holdDurations}
+          paymentOptions={settings?.paymentMethods}
+        />
+      ) : null}
     </div>
   );
 }

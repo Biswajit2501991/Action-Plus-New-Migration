@@ -4,6 +4,7 @@ import type {
   AttendanceNote,
   AttendanceRecord,
   AuditLog,
+  BranchBrandingDto,
   FinanceSummary,
   FinanceTransaction,
   GymCode,
@@ -113,6 +114,19 @@ export const usersApi = {
         body: JSON.stringify({ image }),
       },
     ),
+  /** Batch signed URLs for staff avatars (prod Option A — same bucket as members). */
+  photoUrls: (staffIds: string[]) =>
+    apiFetch<{
+      ok?: boolean;
+      urls?: Array<{ staffId?: string; id?: string; photoVersion?: number; url?: string }>;
+    }>("/users/photo-urls", {
+      method: "POST",
+      body: JSON.stringify({ staffIds }),
+    }),
+  deletePhoto: (staffId: string) =>
+    apiFetch<{ ok?: boolean; user?: StaffUser }>(`/users/${encodeURIComponent(staffId)}/photo`, {
+      method: "DELETE",
+    }),
 };
 
 function sanitizeStaffForApi(user: StaffUser) {
@@ -414,16 +428,34 @@ export const gymCodesApi = {
       method: "PATCH",
       body: JSON.stringify(body),
     }),
+  getBranding: (id: string) =>
+    apiFetch<{ ok?: boolean; branding?: BranchBrandingDto }>(
+      `/gym-codes/${encodeURIComponent(id)}/branding`,
+    ),
   updateBranding: (id: string, body: { displayName?: string; clearLogo?: boolean }) =>
-    apiFetch<{ ok?: boolean; branding?: unknown }>(
+    apiFetch<{ ok?: boolean; branding?: BranchBrandingDto }>(
       `/gym-codes/${encodeURIComponent(id)}/branding`,
       {
         method: "PATCH",
         body: JSON.stringify(body),
       },
     ),
+  uploadLogo: (id: string, logo: string) =>
+    apiFetch<{ ok?: boolean; branding?: BranchBrandingDto }>(
+      `/gym-codes/${encodeURIComponent(id)}/branding/logo`,
+      {
+        method: "POST",
+        body: JSON.stringify({ logo }),
+      },
+    ),
   remove: (id: string) =>
     apiFetch<void>(`/gym-codes/${encodeURIComponent(id)}`, { method: "DELETE" }),
+};
+
+export const brandingApi = {
+  active: () => apiFetch<{ ok?: boolean; branding?: BranchBrandingDto }>("/branding/active"),
+  branches: () =>
+    apiFetch<{ ok?: boolean; branches?: BranchBrandingDto[] }>("/branding/branches"),
 };
 
 export type StorageUsage = {
