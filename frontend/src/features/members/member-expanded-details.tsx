@@ -230,9 +230,9 @@ export function MemberExpandedDetails({
   });
   const [openSections, setOpenSections] = useState({
     summary: true,
-    profile: true,
-    membership: true,
-    payments: true,
+    profile: false,
+    membership: false,
+    payments: false,
   });
   const [holdSel, setHoldSel] = useState(holdOptions[0] || "1 Month");
   const [monthFilter, setMonthFilter] = useState("");

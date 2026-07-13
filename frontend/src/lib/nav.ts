@@ -1,21 +1,16 @@
 import {
-  Activity,
-  Boxes,
+  CalendarDays,
   ClipboardList,
   Dumbbell,
   FileText,
-  HelpCircle,
   LayoutDashboard,
-  Megaphone,
+  MessageSquare,
+  Server,
   Settings,
+  UserCog,
   Users,
   Wallet,
-  CalendarDays,
-  MessageSquare,
-  UserCog,
   Plane,
-  Server,
-  BarChart3,
   type LucideIcon,
 } from "lucide-react";
 
@@ -28,24 +23,48 @@ export type NavItem = {
   group: string;
 };
 
+/** Production section order used by top tabs + sidebar. */
+export const SECTION_ORDER = [
+  "Dashboard",
+  "Members",
+  "PT Clients",
+  "WhatsApp SMS",
+  "Finance",
+  "Staff",
+  "Attendance",
+  "Leave Tracker",
+  "Settings",
+  "Logs",
+  "Support",
+  "Backend",
+] as const;
+
+export type ProdSection = (typeof SECTION_ORDER)[number];
+
 export const NAV_ITEMS: NavItem[] = [
-  { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard, section: "Dashboard", tier: "A", group: "Overview" },
-  { href: "/members", label: "Members", icon: Users, section: "Members", tier: "A", group: "People" },
-  { href: "/attendance", label: "Attendance", icon: CalendarDays, section: "Attendance", tier: "A", group: "People" },
-  { href: "/leave", label: "Leave", icon: Plane, section: "Leave Tracker", tier: "A", group: "People" },
-  { href: "/staff", label: "Staff", icon: UserCog, section: "Staff", tier: "A", group: "People" },
-  { href: "/pt", label: "Personal Training", icon: Dumbbell, section: "PT Clients", tier: "A", group: "Training" },
-  { href: "/finance", label: "Finance", icon: Wallet, section: "Finance", tier: "A", group: "Money" },
-  { href: "/reports", label: "Reports", icon: BarChart3, section: "Dashboard", tier: "B", group: "Money" },
-  { href: "/whatsapp", label: "WhatsApp / SMS", icon: MessageSquare, section: "WhatsApp SMS", tier: "A", group: "Growth" },
-  { href: "/marketing", label: "Marketing", icon: Megaphone, tier: "C", group: "Growth" },
-  { href: "/inventory", label: "Inventory", icon: Boxes, tier: "C", group: "Ops" },
-  { href: "/settings", label: "Settings", icon: Settings, section: "Settings", tier: "A", group: "Ops" },
-  { href: "/logs", label: "Audit Logs", icon: ClipboardList, section: "Logs", tier: "A", group: "Ops" },
-  { href: "/support", label: "Support", icon: FileText, section: "Support", tier: "A", group: "Ops" },
-  { href: "/backend", label: "Backend", icon: Server, section: "Backend", tier: "A", group: "Ops" },
-  { href: "/help", label: "Help", icon: HelpCircle, tier: "B", group: "Ops" },
+  { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard, section: "Dashboard", tier: "A", group: "" },
+  { href: "/members", label: "Members", icon: Users, section: "Members", tier: "A", group: "MEMBERS & CLIENTS" },
+  { href: "/pt", label: "PT Clients", icon: Dumbbell, section: "PT Clients", tier: "A", group: "MEMBERS & CLIENTS" },
+  { href: "/whatsapp", label: "WhatsApp SMS", icon: MessageSquare, section: "WhatsApp SMS", tier: "A", group: "COMMUNICATION" },
+  { href: "/finance", label: "Finance", icon: Wallet, section: "Finance", tier: "A", group: "FINANCE" },
+  { href: "/staff", label: "Staff", icon: UserCog, section: "Staff", tier: "A", group: "STAFF & MANAGEMENT" },
+  { href: "/attendance", label: "Attendance", icon: CalendarDays, section: "Attendance", tier: "A", group: "OPERATIONS" },
+  { href: "/leave", label: "Leave Tracker", icon: Plane, section: "Leave Tracker", tier: "A", group: "OPERATIONS" },
+  { href: "/settings", label: "Settings", icon: Settings, section: "Settings", tier: "A", group: "SYSTEM" },
+  { href: "/logs", label: "Logs", icon: ClipboardList, section: "Logs", tier: "A", group: "SYSTEM" },
+  { href: "/support", label: "Support", icon: FileText, section: "Support", tier: "A", group: "SYSTEM" },
+  { href: "/backend", label: "Backend", icon: Server, section: "Backend", tier: "A", group: "SYSTEM" },
 ];
+
+export const NAV_GROUP_ORDER = [
+  "",
+  "MEMBERS & CLIENTS",
+  "COMMUNICATION",
+  "OPERATIONS",
+  "FINANCE",
+  "STAFF & MANAGEMENT",
+  "SYSTEM",
+] as const;
 
 export const MOBILE_PRIMARY = [
   "/dashboard",
@@ -54,3 +73,7 @@ export const MOBILE_PRIMARY = [
   "/finance",
   "/more",
 ];
+
+export function sectionHref(section: string) {
+  return NAV_ITEMS.find((i) => i.section === section)?.href || "/dashboard";
+}

@@ -15,9 +15,29 @@ export type MemberMessageAction = {
   reason?: string;
 };
 
+export type WhatsAppSendMeta = {
+  sentAt: string;
+  sentBy: string;
+};
+
+const DISPLAY_TIME_ZONES: Record<string, string> = {
+  IST: "Asia/Kolkata",
+  AEST: "Australia/Sydney",
+};
+
+const BILLING_CYCLE_TEMPLATE_KEYS = new Set(["reminder", "monthReminder"]);
+
 function reminderSentForCurrentBilling(member: Member) {
   const billingKey = localCalendarDateKey(member.billingDate);
   if (!billingKey) return false;
+
+  const last = member.lastSmsSent;
+  if (last && typeof last === "object") {
+    const reminder = (last as Record<string, { sentAt?: string; ts?: string }>).reminder;
+    const sentAt = reminder?.sentAt || reminder?.ts || "";
+    if (sentAt && shouldShowSmsSentBadge(member, "reminder", sentAt)) return true;
+  }
+
   const history = Array.isArray(member.smsHistory) ? member.smsHistory : [];
   return history.some((entry) => {
     const row = entry as Record<string, unknown>;
@@ -90,4 +110,113 @@ export function shortStatus(status?: string | null) {
   const s = String(status || "");
   if (!s) return "—";
   return s.length > 10 ? `${s.slice(0, 4)}…` : s;
+}
+
+export function formatDateTimeTz(value?: string | Date | null, tz = "IST") {
+  if (!value) return "";
+  const dt = value instanceof Date ? value : new Date(value);
+  if (Number.isNaN(dt.getTime())) return "";
+  const zone = DISPLAY_TIME_ZONES[tz] || DISPLAY_TIME_ZONES.IST;
+  return new Intl.DateTimeFormat("en-GB", {
+    day: "2-digit",
+    month: "short",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: true,
+    timeZone: zone,
+  }).format(dt);
+}
+
+/** Reminder/welcome chips only count sends in the current billing/join cycle. */
+export function shouldShowSmsSentBadge(
+  member: Member | null | undefined,
+  templateKey: string,
+  sentAt?: string | null,
+) {
+  const key = String(templateKey || "").trim();
+  const sentKey = localCalendarDateKey(sentAt || "");
+  if (!sentKey) return false;
+
+  if (BILLING_CYCLE_TEMPLATE_KEYS.has(key)) {
+    const billingKey = localCalendarDateKey(member?.billingDate || "");
+    if (!billingKey) return true;
+    return sentKey >= billingKey;
+  }
+
+  if (key === "welcome") {
+    const anchorKey = localCalendarDateKey(member?.joiningDate || member?.billingDate || "");
+    if (!anchorKey) return true;
+    return sentKey >= anchorKey;
+  }
+
+  return true;
+}
+
+export function getLastWhatsAppSendMeta(
+  member: Member | null | undefined,
+  templateKey?: string | null,
+): WhatsAppSendMeta | null {
+  if (!member) return null;
+  const history = Array.isArray(member.messageHistory)
+    ? (member.messageHistory as Record<string, unknown>[])
+    : [];
+
+  if (!templateKey) {
+    const entry = history.find(
+      (ev) => ev && ev.channel === "whatsapp" && ev.status === "opened",
+    );
+    if (!entry) return null;
+    return {
+      sentAt: String(entry.sentAt || entry.ts || ""),
+      sentBy: String(entry.sentBy || entry.by || ""),
+    };
+  }
+
+  const candidates: { ms: number; sentAt: string; sentBy: string }[] = [];
+  const pushCand = (sentAt?: unknown, sentBy?: unknown) => {
+    const raw = String(sentAt || "").trim();
+    if (!raw) return;
+    const ms = new Date(raw).getTime();
+    if (!Number.isFinite(ms)) return;
+    candidates.push({ ms, sentAt: raw, sentBy: String(sentBy || "").trim() });
+  };
+
+  const last = member.lastSmsSent;
+  if (last && typeof last === "object") {
+    const d = (last as Record<string, { sentAt?: string; ts?: string; sentBy?: string; by?: string }>)[
+      templateKey
+    ];
+    if (d && (d.sentAt || d.ts)) pushCand(d.sentAt || d.ts, d.sentBy || d.by);
+  }
+
+  for (const ev of history) {
+    if (!ev || ev.channel !== "whatsapp" || ev.status !== "opened") continue;
+    if (ev.templateKey !== templateKey) continue;
+    if (ev.sentAt || ev.ts) pushCand(ev.sentAt || ev.ts, ev.sentBy || ev.by);
+  }
+
+  if (!candidates.length) return null;
+  candidates.sort((a, b) => b.ms - a.ms);
+  const best = candidates[0];
+  return { sentAt: best.sentAt, sentBy: best.sentBy };
+}
+
+/** Production chip text: "Sent 10 Jul 2026, 12:55 pm (IST) by Deep" */
+export function getSmsSentInfoText(
+  member: Member | null | undefined,
+  templateKey?: string | null,
+  tz = "IST",
+) {
+  if (!templateKey || templateKey === "none") return "";
+  const meta = getLastWhatsAppSendMeta(member, templateKey);
+  if (!meta?.sentAt) return "";
+  if (!shouldShowSmsSentBadge(member, templateKey, meta.sentAt)) return "";
+  const sentByNorm = String(meta.sentBy || "")
+    .trim()
+    .toLowerCase();
+  if (sentByNorm === "owner") return "";
+  const when = formatDateTimeTz(meta.sentAt, tz);
+  if (!when) return "";
+  return meta.sentBy ? `Sent ${when} (${tz}) by ${meta.sentBy}` : `Sent ${when} (${tz})`;
 }

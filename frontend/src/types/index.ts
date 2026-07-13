@@ -38,6 +38,9 @@ export type Member = {
   photo?: string;
   photoVersion?: number;
   paymentHistory?: Payment[];
+  lastSmsSent?: Record<string, { sentAt?: string; sentBy?: string; ts?: string; by?: string }>;
+  messageHistory?: Array<Record<string, unknown>>;
+  smsHistory?: Array<Record<string, unknown>>;
   payMonth?: string;
   pay_month?: string;
   notes?: string;

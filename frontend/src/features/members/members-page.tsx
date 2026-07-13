@@ -34,6 +34,7 @@ import {
   isBillingToday,
   isNewMember,
   primaryMessageActionForMember,
+  getSmsSentInfoText,
   shortStatus,
 } from "@/lib/domain/member-actions";
 import { MemberExpandedDetails } from "@/features/members/member-expanded-details";
@@ -416,7 +417,10 @@ export function MembersPage() {
     setShowForm(true);
   };
 
-  const openWhatsApp = (m: Member, kind: "reminder" | "welcome" | "fine" | "hold" | "deactivate" = "reminder") => {
+  const openWhatsApp = (
+    m: Member,
+    kind: "reminder" | "welcome" | "fine" | "hold" | "deactivate" = "reminder",
+  ) => {
     if (!m.mobile) {
       toast.error("No mobile number on this member");
       return;
@@ -434,6 +438,38 @@ export function MembersPage() {
               ? `Hi ${m.name || ""}, your membership is Deactivated. Contact Action Plus Gym to reactivate.`
               : `Hi ${m.name || ""}, this is a payment reminder from Action Plus Gym.`;
     window.open(`https://wa.me/${phone}?text=${encodeURIComponent(text)}`, "_blank");
+
+    const sentAt = new Date().toISOString();
+    const sentBy = String(user?.name || user?.email || "Staff").trim() || "Staff";
+    const prevLast =
+      m.lastSmsSent && typeof m.lastSmsSent === "object"
+        ? (m.lastSmsSent as Record<string, unknown>)
+        : {};
+    const prevHistory = Array.isArray(m.messageHistory)
+      ? (m.messageHistory as Record<string, unknown>[])
+      : [];
+    void membersApi
+      .patch(m.memberId, {
+        lastSmsSent: {
+          ...prevLast,
+          [kind]: { sentAt, sentBy },
+        },
+        messageHistory: [
+          {
+            channel: "whatsapp",
+            status: "opened",
+            templateKey: kind,
+            sentAt,
+            sentBy,
+            ts: sentAt,
+          },
+          ...prevHistory,
+        ].slice(0, 80),
+      } as Partial<Member>)
+      .then(() => qc.invalidateQueries({ queryKey: ["members"] }))
+      .catch(() => {
+        /* chip refresh is best-effort; WhatsApp already opened */
+      });
   };
 
   const sectionsToShow = (focusStatus ? [focusStatus] : [...STATUS_KEYS]) as StatusKey[];
@@ -761,6 +797,8 @@ export function MembersPage() {
                               const msg = primaryMessageActionForMember(m, {
                                 isOwner: String(user?.id || "").toLowerCase() === "owner",
                               });
+                              const statusSentText =
+                                msg.key !== "none" ? getSmsSentInfoText(m, msg.key) : "";
                               const isOwner =
                                 String(user?.id || "").toLowerCase() === "owner" ||
                                 String(user?.staffRole || "").toLowerCase() === "master_owner";
@@ -803,7 +841,7 @@ export function MembersPage() {
                                           <div className="flex items-center gap-1 truncate">
                                             <span className="truncate font-medium">{m.name || "—"}</span>
                                             {isNewMember(m) ? (
-                                              <span className="rounded-full bg-sky-100 px-1 py-0.5 text-[8px] font-semibold uppercase text-sky-800 dark:bg-sky-900/50 dark:text-sky-200">
+                                              <span className="inline-flex shrink-0 items-center rounded-md bg-[#EF4444] px-1.5 py-0.5 text-[8px] font-semibold uppercase leading-none text-white">
                                                 New
                                               </span>
                                             ) : null}
@@ -864,6 +902,14 @@ export function MembersPage() {
                                             <MessageCircle className="h-3 w-3" />
                                             {msg.label}
                                           </Button>
+                                        ) : null}
+                                        {statusSentText ? (
+                                          <div
+                                            className="max-w-[230px] truncate rounded-md border border-amber-200 bg-amber-50 px-2 py-1 text-[9px] text-amber-800 dark:border-amber-900 dark:bg-amber-950/40 dark:text-amber-200"
+                                            title={statusSentText}
+                                          >
+                                            {statusSentText}
+                                          </div>
                                         ) : null}
                                         <Button
                                           size="sm"

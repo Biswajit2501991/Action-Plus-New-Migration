@@ -214,8 +214,16 @@ export function sectionsWithRoleDefaults(user: AuthUser | null | undefined): Aut
 export function canAccessSection(user: AuthUser | null | undefined, section: string): boolean {
   if (!user) return false;
   if (user.id === "owner") return true;
-  const sections = user.sections || [];
-  return sections.includes(section);
+
+  const sections = Array.isArray(user.sections) ? user.sections : [];
+  const listed = sections.includes(section) || section === "Support" || section === "Logs";
+  if (!listed) return false;
+
+  if (section === "Attendance") return hasAccess(user, "attendance", "viewAttendance");
+  if (section === "Logs") return hasAccess(user, "logs", "viewLogs");
+  if (section === "Support") return hasAccess(user, "support", "viewSupportTemplates");
+  if (section === "Backend") return hasAccess(user, "backend", "viewBackendPage");
+  return true;
 }
 
 export function hasAccess(
