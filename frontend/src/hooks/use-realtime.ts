@@ -41,7 +41,13 @@ export function useRealtimeSync(enabled: boolean) {
             if (c.includes("finance")) qc.invalidateQueries({ queryKey: ["finance"] });
             if (c.includes("log")) qc.invalidateQueries({ queryKey: ["logs"] });
             if (c.includes("attendance")) qc.invalidateQueries({ queryKey: ["attendance"] });
-            if (c.includes("sms")) qc.invalidateQueries({ queryKey: ["sms-events"] });
+            if (c.includes("sms") || c.includes("whatsapp")) {
+              qc.invalidateQueries({ queryKey: ["whatsapp"] });
+              qc.invalidateQueries({ queryKey: ["whatsapp-templates"] });
+            }
+            if (c.includes("gym") || c.includes("branding")) {
+              qc.invalidateQueries({ queryKey: ["gym-codes"] });
+            }
           } catch {
             // ignore malformed frames
           }

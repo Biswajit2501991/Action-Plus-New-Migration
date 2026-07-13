@@ -12,6 +12,7 @@ import {
   visitorsApi,
   whatsappApi,
 } from "@/services/api";
+import { STALE } from "@/lib/query-cache";
 import { useAuthStore } from "@/stores";
 
 export function useMembers() {
@@ -20,6 +21,7 @@ export function useMembers() {
     queryKey: ["members"],
     queryFn: membersApi.list,
     enabled: authed,
+    staleTime: STALE.lists,
   });
 }
 
@@ -29,6 +31,7 @@ export function useVisitors() {
     queryKey: ["visitors"],
     queryFn: visitorsApi.list,
     enabled: authed,
+    staleTime: STALE.lists,
   });
 }
 
@@ -38,6 +41,7 @@ export function useUsers() {
     queryKey: ["users"],
     queryFn: usersApi.list,
     enabled: authed,
+    staleTime: STALE.lists,
   });
 }
 
@@ -47,6 +51,7 @@ export function useSettings(scope?: "core" | "leave" | "pt" | "full") {
     queryKey: ["settings", scope || "default"],
     queryFn: () => settingsApi.get(scope),
     enabled: authed,
+    staleTime: STALE.settings,
   });
 }
 
@@ -62,6 +67,7 @@ export function useFinance(month?: string) {
       return { transactions: list, summary };
     },
     enabled: authed,
+    staleTime: STALE.finance,
   });
 }
 
@@ -71,6 +77,7 @@ export function useLogs() {
     queryKey: ["logs"],
     queryFn: () => logsApi.listAll(),
     enabled: authed,
+    staleTime: STALE.volatile,
   });
 }
 
@@ -103,6 +110,7 @@ export function useAttendance(opts?: { startDate?: string; endDate?: string; ena
     queryKey: ["attendance", range.startDate, range.endDate],
     queryFn: () => attendanceApi.records(range),
     enabled: authed && opts?.enabled !== false,
+    staleTime: STALE.finance,
   });
 }
 
@@ -112,6 +120,7 @@ export function useGymCodes() {
     queryKey: ["gym-codes"],
     queryFn: gymCodesApi.list,
     enabled: authed,
+    staleTime: STALE.settings,
   });
 }
 
@@ -142,5 +151,6 @@ export function useWhatsapp() {
       };
     },
     enabled: authed,
+    staleTime: STALE.volatile,
   });
 }

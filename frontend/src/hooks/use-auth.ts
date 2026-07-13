@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect } from "react";
 import { useRouter } from "next/navigation";
+import { useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import {
   fetchMe,
@@ -12,6 +13,10 @@ import {
 } from "@/services/api/auth";
 import { attendanceApi } from "@/services/api";
 import { readAuthSession, touchAuthSession } from "@/lib/auth-storage";
+import {
+  clearAppQueryCache,
+  invalidateBranchScopedQueries,
+} from "@/lib/query-cache";
 import { useAuthStore, useBranchStore } from "@/stores";
 import { ApiError } from "@/services/api/client";
 import type { AuthUser } from "@/types";
@@ -38,6 +43,7 @@ async function punchSafe(type: "login" | "logout", actorName?: string) {
 
 export function useAuth() {
   const router = useRouter();
+  const qc = useQueryClient();
   const { user, hydrated, setUser, setHydrated, clear } = useAuthStore();
   const setActiveBranchId = useBranchStore((s) => s.setActiveBranchId);
 
@@ -56,16 +62,18 @@ export function useAuth() {
       touchAuthSession();
     } catch {
       clear();
+      clearAppQueryCache(qc);
     } finally {
       setHydrated(true);
     }
-  }, [clear, setActiveBranchId, setHydrated, setUser]);
+  }, [clear, qc, setActiveBranchId, setHydrated, setUser]);
 
   useEffect(() => {
     if (!hydrated) void hydrate();
   }, [hydrate, hydrated]);
 
   const login = async (identifier: string, password: string) => {
+    clearAppQueryCache(qc);
     const data = await loginApi(identifier, password);
     setUser(data.user);
     setActiveBranchId(data.user.activeBranchId || data.user.gymCodeId || null);
@@ -78,6 +86,7 @@ export function useAuth() {
     const actor = user?.name || user?.id;
     await punchSafe("logout", actor);
     await logoutApi();
+    clearAppQueryCache(qc);
     clear();
     router.replace("/login");
   };
@@ -103,6 +112,7 @@ export function useAuth() {
           assignedBranchIds: data.assignedBranchIds || user.assignedBranchIds,
         });
       }
+      await invalidateBranchScopedQueries(qc);
       toast.success("Branch switched");
     } catch (err) {
       toast.error(err instanceof ApiError ? err.message : "Could not switch branch");

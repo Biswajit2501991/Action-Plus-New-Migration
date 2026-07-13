@@ -24,6 +24,7 @@ import { useAuth } from "@/hooks/use-auth";
 import { useRealtimeSync } from "@/hooks/use-realtime";
 import { useGymCodes } from "@/hooks/use-data";
 import { useStaffPhotoHydration } from "@/hooks/use-staff-photo-hydration";
+import { useWarmAppDataCache } from "@/hooks/use-warm-app-cache";
 import { useUiStore } from "@/stores";
 import { Button } from "@/components/ui/button";
 import { Select } from "@/components/ui/input";
@@ -54,6 +55,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
 
   useRealtimeSync(isAuthenticated);
   useStaffPhotoHydration(user ? [user] : []);
+  useWarmAppDataCache(isAuthenticated);
 
   const brand = useMemo(
     () =>
