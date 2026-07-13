@@ -10,6 +10,7 @@ import {
   requestPasswordReset,
   switchActiveBranch,
 } from "@/services/api/auth";
+import { attendanceApi } from "@/services/api";
 import { readAuthSession, touchAuthSession } from "@/lib/auth-storage";
 import { useAuthStore, useBranchStore } from "@/stores";
 import { ApiError } from "@/services/api/client";
@@ -20,6 +21,19 @@ function unwrapUser(payload: { user: AuthUser } | AuthUser): AuthUser {
     return payload.user as AuthUser;
   }
   return payload as AuthUser;
+}
+
+async function punchSafe(type: "login" | "logout", actorName?: string) {
+  try {
+    await attendanceApi.punch({
+      type,
+      at: new Date().toISOString(),
+      timeZone: "IST",
+      actorName: actorName || undefined,
+    });
+  } catch {
+    /* punch is best-effort — never block auth */
+  }
 }
 
 export function useAuth() {
@@ -55,11 +69,14 @@ export function useAuth() {
     const data = await loginApi(identifier, password);
     setUser(data.user);
     setActiveBranchId(data.user.activeBranchId || data.user.gymCodeId || null);
+    await punchSafe("login", data.user.name || data.user.id);
     toast.success(`Welcome back, ${data.user.name || data.user.id}`);
     return data.user;
   };
 
   const logout = async () => {
+    const actor = user?.name || user?.id;
+    await punchSafe("logout", actor);
     await logoutApi();
     clear();
     router.replace("/login");

@@ -74,12 +74,35 @@ export function useLogs() {
   });
 }
 
-export function useAttendance() {
-  const authed = Boolean(useAuthStore((s) => s.user));
+export function useAttendance(opts?: { startDate?: string; endDate?: string; enabled?: boolean }) {
+  const user = useAuthStore((s) => s.user);
+  const authed = Boolean(user);
+  const isOwner =
+    String(user?.id || "").toLowerCase() === "owner" ||
+    String(user?.staffRole || user?.role || "")
+      .toLowerCase()
+      .includes("owner");
+  const range = (() => {
+    if (opts?.startDate && opts?.endDate) {
+      return { startDate: opts.startDate, endDate: opts.endDate };
+    }
+    const end = new Date();
+    const start = new Date();
+    if (isOwner) start.setFullYear(start.getFullYear() - 5);
+    else start.setMonth(start.getMonth() - 3);
+    const fmt = (d: Date) => {
+      const y = d.getFullYear();
+      const m = String(d.getMonth() + 1).padStart(2, "0");
+      const day = String(d.getDate()).padStart(2, "0");
+      return `${y}-${m}-${day}`;
+    };
+    return { startDate: fmt(start), endDate: fmt(end) };
+  })();
+
   return useQuery({
-    queryKey: ["attendance"],
-    queryFn: () => attendanceApi.records(),
-    enabled: authed,
+    queryKey: ["attendance", range.startDate, range.endDate],
+    queryFn: () => attendanceApi.records(range),
+    enabled: authed && opts?.enabled !== false,
   });
 }
 

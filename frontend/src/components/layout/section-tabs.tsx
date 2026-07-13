@@ -12,15 +12,15 @@ import { Button } from "@/components/ui/button";
 import { Select, Textarea } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
 import type { AuthUser } from "@/types";
-
-const LATE_NOTE_CATEGORIES = [
-  { value: "traffic", label: "Traffic" },
-  { value: "rain", label: "Rain" },
-  { value: "medical", label: "Medical" },
-  { value: "family", label: "Family" },
-  { value: "personal", label: "Personal" },
-  { value: "other", label: "Other" },
-] as const;
+import {
+  ATTENDANCE_NOTE_CATEGORIES,
+  ATTENDANCE_NOTE_CATEGORY_LABELS,
+  ATTENDANCE_NOTE_MAX_LENGTH,
+  isAttendanceNotesEnabled,
+  validateAttendanceNotePayload,
+} from "@/lib/domain/attendance";
+import { useSettings } from "@/hooks/use-data";
+import { localTodayCalendarKey } from "@/lib/domain/billing";
 
 function visibleSectionTabs(user: AuthUser | null | undefined) {
   return SECTION_ORDER.filter((section) => canAccessSection(user, section)).map((section) => {
@@ -32,6 +32,7 @@ function visibleSectionTabs(user: AuthUser | null | undefined) {
 export function AppSectionTabs() {
   const pathname = usePathname();
   const user = useAuthStore((s) => s.user);
+  const { data: settings } = useSettings();
   const [lateOpen, setLateOpen] = useState(false);
   const [category, setCategory] = useState<string>("traffic");
   const [note, setNote] = useState("");
@@ -39,18 +40,22 @@ export function AppSectionTabs() {
 
   const tabs = useMemo(() => visibleSectionTabs(user), [user]);
 
-  const canLateNote = Boolean(user) && hasAccess(user, "attendance", "submitOwnLateNote");
+  const notesEnabled = isAttendanceNotesEnabled(settings as Record<string, unknown>);
+  const canLateNote =
+    Boolean(user) &&
+    notesEnabled &&
+    hasAccess(user, "attendance", "submitOwnLateNote");
 
   const submitLateNote = async () => {
-    if (!note.trim()) {
-      toast.error("Please enter a short note");
-      return;
-    }
-    setSaving(true);
     try {
-      await attendanceApi.addNote({
+      const payload = validateAttendanceNotePayload({
         noteCategory: category,
-        note: note.trim(),
+        note,
+      });
+      setSaving(true);
+      await attendanceApi.addNote({
+        ...payload,
+        attendanceDate: localTodayCalendarKey(),
       });
       toast.success("Late note saved");
       setLateOpen(false);
@@ -116,9 +121,9 @@ export function AppSectionTabs() {
             <div>
               <label className="text-xs text-muted-foreground">Category</label>
               <Select className="mt-1" value={category} onChange={(e) => setCategory(e.target.value)}>
-                {LATE_NOTE_CATEGORIES.map((c) => (
-                  <option key={c.value} value={c.value}>
-                    {c.label}
+                {ATTENDANCE_NOTE_CATEGORIES.filter((c) => c !== "optional").map((c) => (
+                  <option key={c} value={c}>
+                    {ATTENDANCE_NOTE_CATEGORY_LABELS[c]}
                   </option>
                 ))}
               </Select>
@@ -130,7 +135,7 @@ export function AppSectionTabs() {
                 value={note}
                 onChange={(e) => setNote(e.target.value)}
                 placeholder="Brief reason for being late…"
-                maxLength={280}
+                maxLength={ATTENDANCE_NOTE_MAX_LENGTH}
               />
             </div>
             <div className="flex justify-end gap-2">

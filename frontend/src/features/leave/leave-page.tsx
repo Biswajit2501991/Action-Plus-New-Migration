@@ -1,66 +1,506 @@
 "use client";
-import { useState } from "react";
-import { useMutation, useQueryClient } from "@tanstack/react-query";
+
+import { useMemo, useState } from "react";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
-import { PageHeader, Badge, Skeleton } from "@/components/ui/misc";
+import { PageHeader, Badge, Skeleton, EmptyState } from "@/components/ui/misc";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
-import { Input, Label, Textarea } from "@/components/ui/input";
-import { useSettings } from "@/hooks/use-data";
-import { leaveApi } from "@/services/api";
-import { formatDate } from "@/lib/utils";
+import { Input, Label, Select, Textarea } from "@/components/ui/input";
+import { useAttendance, useSettings, useUsers } from "@/hooks/use-data";
+import { attendanceApi, leaveApi } from "@/services/api";
+import { cn, formatDate } from "@/lib/utils";
+import { hasAccess } from "@/lib/domain/permissions";
+import { mergeApprovedLeaveIntoAttendance } from "@/lib/domain/attendance-records";
+import { localTodayCalendarKey } from "@/lib/domain/billing";
+import {
+  LEAVE_TYPES,
+  annualLeaveBalanceRemaining,
+  buildStaffLoginAliasMap,
+  findLeaveDateConflicts,
+  formatLeaveOverlapError,
+  leaveDaysBetween,
+  leaveStatusBadgeVariant,
+  leaveSubmitErrorMessage,
+  normalizeLeaveRequest,
+  normalizeLeaveStatus,
+  staffDisplayName,
+} from "@/lib/domain/leave";
 import { useAuthStore } from "@/stores";
+import { ApiError } from "@/services/api/client";
 import type { LeaveRequest } from "@/types";
 
 export function LeavePage() {
   const user = useAuthStore((s) => s.user);
   const qc = useQueryClient();
   const { data: settings, isLoading } = useSettings();
-  const requests = (settings?.leaveRequests || []) as LeaveRequest[];
-  const [form, setForm] = useState({ fromDate: "", toDate: "", reason: "" });
+  const { data: users = [] } = useUsers();
+  const { data: attendanceRecords = [] } = useAttendance();
+
+  const canCreate = hasAccess(user, "leave", "viewCreateLeaveRequest");
+  const canViewRequests = hasAccess(user, "leave", "viewLeaveRequests");
+  const canViewBalance = hasAccess(user, "leave", "viewAnnualLeaveBalance");
+  const canViewHistory = hasAccess(user, "leave", "viewLeaveHistory");
+
+  const isOwnerOrManager =
+    String(user?.id || "").toLowerCase() === "owner" ||
+    String(user?.id || "").toLowerCase() === "manager" ||
+    String(user?.staffRole || user?.role || "")
+      .toLowerCase()
+      .includes("owner") ||
+    String(user?.staffRole || user?.role || "")
+      .toLowerCase()
+      .includes("manager");
+  const canApprove = isOwnerOrManager && canViewRequests;
+  const isOwnerView = isOwnerOrManager;
+
+  const staff = useMemo(() => (users || []).filter((u) => !u.blocked), [users]);
+  const aliasMap = useMemo(() => buildStaffLoginAliasMap(staff), [staff]);
+  const calendarYear = new Date().getFullYear();
+  const today = localTodayCalendarKey();
+
+  const leaveRequests = useMemo(
+    () =>
+      ((settings?.leaveRequests || []) as LeaveRequest[]).map((r) => normalizeLeaveRequest(r)),
+    [settings?.leaveRequests],
+  );
+
+  const [form, setForm] = useState({
+    userId: "",
+    type: "Casual",
+    startDate: today,
+    endDate: today,
+    reason: "",
+  });
+  const [formError, setFormError] = useState("");
+  const [historyFilter, setHistoryFilter] = useState("");
+
+  // Keep form userId in sync once user loads
+  const effectiveFormUserId = form.userId || user?.id || "";
+
+  const { data: balanceData, isLoading: balanceLoading } = useQuery({
+    queryKey: ["leave-balance", calendarYear],
+    queryFn: () => leaveApi.balances(calendarYear),
+    enabled: Boolean(user) && canViewBalance,
+  });
+
   const create = useMutation({
-    mutationFn: () => leaveApi.create({ ...form, staffId: user?.id, status: "pending" }),
-    onSuccess: async () => { toast.success("Leave requested"); setForm({ fromDate: "", toDate: "", reason: "" }); await qc.invalidateQueries({ queryKey: ["settings"] }); },
-    onError: (e: Error) => toast.error(e.message),
+    mutationFn: async () => {
+      setFormError("");
+      const userId = isOwnerView ? effectiveFormUserId : String(user?.id || "");
+      if (!userId) throw new Error("Staff is required");
+      if (!form.startDate || !form.endDate) throw new Error("Please enter valid start and end dates.");
+      if (form.endDate < form.startDate) throw new Error("End date cannot be before start date.");
+
+      const conflicts = findLeaveDateConflicts(
+        form.startDate,
+        form.endDate,
+        leaveRequests,
+        userId,
+        { aliasMap },
+      );
+      if (conflicts.hasConflict) {
+        throw Object.assign(new Error(formatLeaveOverlapError(conflicts.conflicts)), {
+          code: "leave-overlap",
+          conflictDates: conflicts.conflicts,
+        });
+      }
+
+      return leaveApi.create({
+        userId,
+        staffId: userId,
+        type: form.type,
+        startDate: form.startDate,
+        endDate: form.endDate,
+        reason: form.reason.trim(),
+        days: leaveDaysBetween(form.startDate, form.endDate),
+      });
+    },
+    onSuccess: async () => {
+      toast.success("Leave requested");
+      setForm({
+        userId: isOwnerView ? "" : user?.id || "",
+        type: "Casual",
+        startDate: today,
+        endDate: today,
+        reason: "",
+      });
+      setFormError("");
+      await qc.invalidateQueries({ queryKey: ["settings"] });
+      await qc.invalidateQueries({ queryKey: ["leave-balance"] });
+    },
+    onError: (e: Error) => {
+      const msg =
+        e instanceof ApiError
+          ? leaveSubmitErrorMessage({
+              message: e.message,
+              status: e.status,
+              code: e.code,
+            })
+          : leaveSubmitErrorMessage(e as { message?: string; code?: string; conflictDates?: string[] });
+      setFormError(msg);
+      toast.error(msg);
+    },
   });
+
   const update = useMutation({
-    mutationFn: ({ id, status }: { id: string; status: string }) => leaveApi.update(id, { status }),
-    onSuccess: async () => { toast.success("Updated"); await qc.invalidateQueries({ queryKey: ["settings"] }); },
+    mutationFn: async ({ id, status }: { id: string; status: "Approved" | "Rejected" }) => {
+      const updated = await leaveApi.update(id, { status });
+      const request = normalizeLeaveRequest(
+        updated || leaveRequests.find((r) => r.id === id) || { id },
+      );
+      if (status === "Approved") {
+        const synced = mergeApprovedLeaveIntoAttendance(
+          attendanceRecords,
+          request,
+          String(user?.name || user?.id || ""),
+        );
+        const touched = synced.filter(
+          (row) =>
+            row.leaveRequestId === id ||
+            (String(row.userId || row.staffId) === String(request.userId || request.staffId) &&
+              row.status === "Leave" &&
+              row.leaveAutoSynced),
+        );
+        if (touched.length) {
+          await attendanceApi.saveRecords(touched).catch(() => undefined);
+          await qc.invalidateQueries({ queryKey: ["attendance"] });
+        }
+      }
+      return updated;
+    },
+    onSuccess: async (_data, vars) => {
+      toast.success(vars.status === "Approved" ? "Leave approved" : "Leave rejected");
+      await qc.invalidateQueries({ queryKey: ["settings"] });
+      await qc.invalidateQueries({ queryKey: ["leave-balance"] });
+    },
+    onError: (e: Error) => toast.error(e.message || "Update failed"),
   });
+
+  const historyRows = useMemo(() => {
+    const cutoff = new Date();
+    cutoff.setFullYear(cutoff.getFullYear() - 2);
+    const cutoffKey = localTodayCalendarKey().slice(0, 4); // not ideal - use proper
+    void cutoffKey;
+    return leaveRequests
+      .filter((r) => normalizeLeaveStatus(r.status) === "Approved")
+      .filter((r) => {
+        const start = r.startDate || r.fromDate || "";
+        if (!start) return false;
+        const d = new Date(start);
+        return !Number.isNaN(d.getTime()) && d >= cutoff;
+      })
+      .filter((r) => {
+        if (!historyFilter) return true;
+        return String(r.userId || r.staffId) === historyFilter;
+      })
+      .sort((a, b) =>
+        String(b.startDate || b.fromDate || "").localeCompare(String(a.startDate || a.fromDate || "")),
+      );
+  }, [leaveRequests, historyFilter]);
+
+  const balanceRows = useMemo(() => {
+    const apiRows = Array.isArray(balanceData?.rows) ? balanceData.rows : [];
+    if (apiRows.length) {
+      return apiRows.map((row) => {
+        const id = String(
+          (row as { userId?: string; staffLoginId?: string }).userId ||
+            row.staffLoginId ||
+            "",
+        ).trim();
+        const name = String(
+          (row as { name?: string; staffName?: string }).name ||
+            row.staffName ||
+            staffDisplayName(staff, id) ||
+            id ||
+            "—",
+        );
+        const remaining = Number(
+          (row as { balance?: number; remainingDays?: number }).balance ??
+            row.remainingDays ??
+            0,
+        );
+        return {
+          id: id || name,
+          name,
+          remaining: Number.isFinite(remaining) ? remaining : 0,
+          used: Number(row.usedDays ?? 0),
+          base: Number(row.baseDays ?? balanceData?.baseDays ?? 24),
+        };
+      });
+    }
+    const base = Number(balanceData?.baseDays ?? 24);
+    const adjustments = (balanceData?.adjustments || []) as Array<Record<string, unknown>>;
+    return staff.map((s) => ({
+      id: s.id,
+      name: s.name || s.id,
+      remaining: annualLeaveBalanceRemaining(leaveRequests, s.id, {
+        year: calendarYear,
+        baseDays: base,
+        aliasMap,
+        adjustments: adjustments as never,
+      }),
+      used: 0,
+      base,
+    }));
+  }, [balanceData, staff, leaveRequests, aliasMap, calendarYear]);
+
   if (isLoading) return <Skeleton className="h-96" />;
+
   return (
-    <div>
-      <PageHeader title="Leave Tracker" description="Create and review staff leave requests." />
-      <Card className="mb-6">
-        <CardContent className="grid gap-3 p-5 md:grid-cols-4">
-          <div><Label>From</Label><Input className="mt-1" type="date" value={form.fromDate} onChange={(e)=>setForm({...form, fromDate:e.target.value})} /></div>
-          <div><Label>To</Label><Input className="mt-1" type="date" value={form.toDate} onChange={(e)=>setForm({...form, toDate:e.target.value})} /></div>
-          <div className="md:col-span-2"><Label>Reason</Label><Textarea className="mt-1" value={form.reason} onChange={(e)=>setForm({...form, reason:e.target.value})} /></div>
-          <Button onClick={()=>create.mutate()} disabled={create.isPending}>Submit request</Button>
-        </CardContent>
-      </Card>
-      <Card>
-        <CardContent className="space-y-3 p-5">
-          {requests.map((r) => (
-            <div key={r.id} className="flex flex-wrap items-center justify-between gap-3 rounded-xl border px-3 py-2 text-sm">
-              <div>
-                <p className="font-medium">{r.staffId} · {formatDate(r.fromDate)} → {formatDate(r.toDate)}</p>
-                <p className="text-xs text-muted-foreground">{r.reason}</p>
+    <div className="space-y-5">
+      <PageHeader
+        title="Leave Tracker"
+        description="Request leave, review approvals, balances, and two-year history."
+      />
+
+      {canCreate ? (
+        <Card className="overflow-hidden border-sky-100 shadow-sm dark:border-border">
+          <div className="border-b border-sky-100 bg-gradient-to-r from-sky-50 to-white px-4 py-3 dark:border-border dark:from-sky-950/30 dark:to-card">
+            <h2 className="text-sm font-semibold text-slate-900 dark:text-foreground">
+              Create Leave Request
+            </h2>
+            <p className="text-xs text-muted-foreground">
+              Choose type and dates. Overlaps with pending/approved leave are blocked.
+            </p>
+          </div>
+          <CardContent className="grid gap-3 p-4 md:grid-cols-2 lg:grid-cols-6">
+            {isOwnerView ? (
+              <div className="lg:col-span-2">
+                <Label>Staff</Label>
+                <Select
+                  className="mt-1"
+                  value={effectiveFormUserId}
+                  onChange={(e) => setForm((f) => ({ ...f, userId: e.target.value }))}
+                >
+                  <option value="">Select staff…</option>
+                  {staff.map((s) => (
+                    <option key={s.id} value={s.id}>
+                      {s.name || s.id}
+                    </option>
+                  ))}
+                </Select>
               </div>
-              <div className="flex items-center gap-2">
-                <Badge variant={r.status === "approved" ? "success" : r.status === "rejected" ? "danger" : "warning"}>{r.status}</Badge>
-                {r.status === "pending" ? (
-                  <>
-                    <Button size="sm" variant="outline" onClick={()=>update.mutate({ id: r.id, status: "approved" })}>Approve</Button>
-                    <Button size="sm" variant="ghost" onClick={()=>update.mutate({ id: r.id, status: "rejected" })}>Reject</Button>
-                  </>
+            ) : null}
+            <div>
+              <Label>Type</Label>
+              <Select
+                className="mt-1"
+                value={form.type}
+                onChange={(e) => setForm((f) => ({ ...f, type: e.target.value }))}
+              >
+                {LEAVE_TYPES.map((t) => (
+                  <option key={t} value={t}>
+                    {t}
+                  </option>
+                ))}
+              </Select>
+            </div>
+            <div>
+              <Label>Start</Label>
+              <Input
+                className="mt-1"
+                type="date"
+                value={form.startDate}
+                onChange={(e) => setForm((f) => ({ ...f, startDate: e.target.value }))}
+              />
+            </div>
+            <div>
+              <Label>End</Label>
+              <Input
+                className="mt-1"
+                type="date"
+                value={form.endDate}
+                onChange={(e) => setForm((f) => ({ ...f, endDate: e.target.value }))}
+              />
+            </div>
+            <div className={cn(isOwnerView ? "lg:col-span-6" : "lg:col-span-2", "md:col-span-2")}>
+              <Label>Reason</Label>
+              <Textarea
+                className="mt-1 min-h-[72px]"
+                value={form.reason}
+                onChange={(e) => setForm((f) => ({ ...f, reason: e.target.value }))}
+                placeholder="Optional note for your manager"
+              />
+            </div>
+            {formError ? (
+              <div className="lg:col-span-6 whitespace-pre-wrap rounded-xl border border-rose-200 bg-rose-50 px-3 py-2 text-xs text-rose-800">
+                {formError}
+              </div>
+            ) : null}
+            <div className="flex items-end lg:col-span-6">
+              <Button onClick={() => create.mutate()} disabled={create.isPending}>
+                {create.isPending ? "Submitting…" : "Submit request"}
+              </Button>
+              <span className="ml-3 text-xs text-muted-foreground">
+                {leaveDaysBetween(form.startDate, form.endDate)} day
+                {leaveDaysBetween(form.startDate, form.endDate) === 1 ? "" : "s"}
+              </span>
+            </div>
+          </CardContent>
+        </Card>
+      ) : null}
+
+      {canViewRequests ? (
+        <Card className="border-slate-200 shadow-sm dark:border-border">
+          <div className="border-b border-slate-100 px-4 py-3 dark:border-border">
+            <h2 className="text-sm font-semibold">Leave Requests</h2>
+            <p className="text-xs text-muted-foreground">{leaveRequests.length} total</p>
+          </div>
+          <CardContent className="space-y-2 p-4">
+            {leaveRequests.map((r) => {
+              const status = normalizeLeaveStatus(r.status);
+              return (
+                <div
+                  key={r.id}
+                  className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-slate-200 px-3 py-2.5 text-sm dark:border-border"
+                >
+                  <div className="min-w-0">
+                    <p className="font-medium text-slate-900 dark:text-foreground">
+                      {staffDisplayName(staff, r.userId || r.staffId)} · {r.type || "Casual"} ·{" "}
+                      {r.days || leaveDaysBetween(r.startDate, r.endDate)} day
+                      {(r.days || leaveDaysBetween(r.startDate, r.endDate)) === 1 ? "" : "s"}
+                    </p>
+                    <p className="text-xs text-muted-foreground">
+                      {formatDate(r.startDate || r.fromDate)} → {formatDate(r.endDate || r.toDate)}
+                      {r.reason ? ` · ${r.reason}` : ""}
+                    </p>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <Badge variant={leaveStatusBadgeVariant(status)}>{status}</Badge>
+                    {status === "Pending" && canApprove ? (
+                      <>
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          className="h-7 border-emerald-300 bg-emerald-50 text-emerald-800"
+                          onClick={() => update.mutate({ id: r.id, status: "Approved" })}
+                          disabled={update.isPending}
+                        >
+                          Approve
+                        </Button>
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          className="h-7 text-rose-700"
+                          onClick={() => update.mutate({ id: r.id, status: "Rejected" })}
+                          disabled={update.isPending}
+                        >
+                          Reject
+                        </Button>
+                      </>
+                    ) : null}
+                  </div>
+                </div>
+              );
+            })}
+            {!leaveRequests.length ? (
+              <EmptyState title="No leave requests" description="Submitted leave will appear here." />
+            ) : null}
+          </CardContent>
+        </Card>
+      ) : null}
+
+      {canViewBalance ? (
+        <Card className="border-violet-100 shadow-sm dark:border-border">
+          <div className="border-b border-violet-100 bg-gradient-to-r from-violet-50 to-white px-4 py-3 dark:border-border dark:from-violet-950/30 dark:to-card">
+            <h2 className="text-sm font-semibold">Annual Leave Balance · {calendarYear}</h2>
+            <p className="text-xs text-muted-foreground">
+              Remaining days after approved leave
+              {balanceData?.baseDays ? ` · base ${balanceData.baseDays}` : ""}.
+            </p>
+          </div>
+          <CardContent className="p-4">
+            {balanceLoading ? (
+              <Skeleton className="h-24" />
+            ) : (
+              <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+                {balanceRows.map((row) => (
+                  <div
+                    key={row.id}
+                    className="rounded-xl border border-violet-100 bg-white px-3 py-2.5 dark:border-border dark:bg-card"
+                  >
+                    <div className="text-sm font-semibold">{row.name}</div>
+                    <div className="mt-1 text-lg font-semibold tabular-nums text-violet-800 dark:text-violet-300">
+                      {row.remaining}
+                      <span className="ml-1 text-xs font-medium text-muted-foreground">days left</span>
+                    </div>
+                  </div>
+                ))}
+                {!balanceRows.length ? (
+                  <p className="text-sm text-muted-foreground sm:col-span-2 lg:col-span-3">
+                    No active staff found for leave balance. Check Staff users are not blocked.
+                  </p>
                 ) : null}
               </div>
+            )}
+          </CardContent>
+        </Card>
+      ) : null}
+
+      {canViewHistory ? (
+        <Card className="border-slate-200 shadow-sm dark:border-border">
+          <div className="flex flex-wrap items-end justify-between gap-3 border-b border-slate-100 px-4 py-3 dark:border-border">
+            <div>
+              <h2 className="text-sm font-semibold">Leave History (2 years)</h2>
+              <p className="text-xs text-muted-foreground">Approved leave only</p>
             </div>
-          ))}
-          {!requests.length ? <p className="text-sm text-muted-foreground">No leave requests yet.</p> : null}
-        </CardContent>
-      </Card>
+            {isOwnerView ? (
+              <Select
+                className="h-9 w-[200px]"
+                value={historyFilter}
+                onChange={(e) => setHistoryFilter(e.target.value)}
+              >
+                <option value="">All staff</option>
+                {staff.map((s) => (
+                  <option key={s.id} value={s.id}>
+                    {s.name || s.id}
+                  </option>
+                ))}
+              </Select>
+            ) : null}
+          </div>
+          <CardContent className="overflow-x-auto p-0">
+            <table className="min-w-full text-sm">
+              <thead>
+                <tr className="bg-slate-50 text-left text-xs text-slate-600 dark:bg-muted dark:text-muted-foreground">
+                  <th className="px-4 py-2.5 font-semibold">Staff</th>
+                  <th className="px-4 py-2.5 font-semibold">Type</th>
+                  <th className="px-4 py-2.5 font-semibold">Dates</th>
+                  <th className="px-4 py-2.5 font-semibold">Days</th>
+                  <th className="px-4 py-2.5 font-semibold">Reason</th>
+                </tr>
+              </thead>
+              <tbody>
+                {historyRows.map((r) => (
+                  <tr key={r.id} className="border-t border-slate-100 dark:border-border">
+                    <td className="px-4 py-2.5">
+                      {staffDisplayName(staff, r.userId || r.staffId)}
+                    </td>
+                    <td className="px-4 py-2.5">{r.type || "Casual"}</td>
+                    <td className="whitespace-nowrap px-4 py-2.5">
+                      {formatDate(r.startDate || r.fromDate)} → {formatDate(r.endDate || r.toDate)}
+                    </td>
+                    <td className="px-4 py-2.5 tabular-nums">
+                      {r.days || leaveDaysBetween(r.startDate, r.endDate)}
+                    </td>
+                    <td className="max-w-[240px] truncate px-4 py-2.5 text-muted-foreground">
+                      {r.reason || "—"}
+                    </td>
+                  </tr>
+                ))}
+                {!historyRows.length ? (
+                  <tr>
+                    <td colSpan={5} className="px-4 py-8 text-center text-sm text-muted-foreground">
+                      No approved leave in the last 2 years.
+                    </td>
+                  </tr>
+                ) : null}
+              </tbody>
+            </table>
+          </CardContent>
+        </Card>
+      ) : null}
     </div>
   );
 }

@@ -138,22 +138,54 @@ export type AuditLog = {
 
 export type AttendanceRecord = {
   id?: string;
+  userId?: string;
   staffId?: string;
   date?: string;
   status?: string;
   checkIn?: string;
   checkOut?: string;
+  note?: string;
   notes?: string;
+  firstLoginAt?: string;
+  lastLogoutAt?: string;
+  autoPresentWindowUntil?: string;
+  timeZoneAtMark?: string;
+  autoMarked?: boolean;
+  markedBy?: string;
+  leaveRequestId?: string;
+  leaveAutoSynced?: boolean;
+  updatedBy?: string;
+  updatedAt?: string;
+  [key: string]: unknown;
+};
+
+export type AttendanceNote = {
+  id?: string;
+  staffLoginId?: string;
+  attendanceDate?: string;
+  attendanceRecordId?: string;
+  noteCategory?: string;
+  note?: string;
+  createdAt?: string;
   [key: string]: unknown;
 };
 
 export type LeaveRequest = {
   id: string;
   staffId?: string;
+  userId?: string;
   fromDate?: string;
   toDate?: string;
-  reason?: string;
+  startDate?: string;
+  endDate?: string;
+  type?: string;
   status?: "pending" | "approved" | "rejected" | string;
+  days?: number;
+  reason?: string;
+  approvedBy?: string;
+  actionAt?: string;
+  actionBy?: string;
+  createdAt?: string;
   [key: string]: unknown;
 };
 

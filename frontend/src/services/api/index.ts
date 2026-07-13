@@ -1,6 +1,7 @@
 import { apiFetch } from "@/services/api/client";
 import type {
   AppSettings,
+  AttendanceNote,
   AttendanceRecord,
   AuditLog,
   FinanceSummary,
@@ -101,9 +102,15 @@ export const settingsApi = {
 export const financeApi = {
   list: () => apiFetch<FinanceTransaction[]>("/finance"),
   summary: (month?: string) =>
-    apiFetch<FinanceSummary>(`/finance/summary${month ? `?month=${encodeURIComponent(month)}` : ""}`),
-  reconciliation: (month?: string) =>
-    apiFetch<unknown>(`/finance/reconciliation${month ? `?month=${encodeURIComponent(month)}` : ""}`),
+    apiFetch<FinanceSummary & Record<string, unknown>>(
+      `/finance/summary${month ? `?month=${encodeURIComponent(month)}` : ""}`,
+    ),
+  reconciliation: (year?: number) => {
+    const y = year || new Date().getFullYear();
+    return apiFetch<Record<string, unknown>>(
+      `/finance/reconciliation?year=${encodeURIComponent(String(y))}`,
+    );
+  },
   addExpense: (expense: Record<string, unknown>) =>
     apiFetch<FinanceTransaction>("/finance/expenses", {
       method: "POST",
@@ -113,51 +120,122 @@ export const financeApi = {
     apiFetch<{ ok?: boolean }>(`/finance/expenses/${encodeURIComponent(externalTxId)}`, {
       method: "DELETE",
     }),
-  bulk: (transactions: FinanceTransaction[]) =>
+  bulk: (finance: FinanceTransaction[]) =>
     apiFetch<{ ok?: boolean }>("/finance/bulk", {
       method: "PUT",
-      body: JSON.stringify({ transactions }),
+      body: JSON.stringify({ finance }),
     }),
 };
 
 export const attendanceApi = {
-  records: (params?: { from?: string; to?: string }) => {
-    const q = new URLSearchParams();
-    if (params?.from) q.set("from", params.from);
-    if (params?.to) q.set("to", params.to);
-    const qs = q.toString();
-    return apiFetch<AttendanceRecord[]>(`/attendance/records${qs ? `?${qs}` : ""}`);
+  records: (params: { startDate: string; endDate: string }) => {
+    const q = new URLSearchParams({
+      startDate: params.startDate,
+      endDate: params.endDate,
+    });
+    return apiFetch<AttendanceRecord[]>(`/attendance/records?${q.toString()}`);
   },
-  selfToday: () => apiFetch<AttendanceRecord>("/attendance/records/self/today"),
-  punch: (body: Record<string, unknown>) =>
-    apiFetch<AttendanceRecord>("/attendance/punch", {
-      method: "POST",
-      body: JSON.stringify(body),
-    }),
+  selfToday: async () => {
+    const res = await apiFetch<{ ok?: boolean; record?: AttendanceRecord | null }>(
+      "/attendance/records/self/today",
+    );
+    return res?.record ?? null;
+  },
+  punch: async (body: {
+    type: "login" | "logout";
+    at?: string;
+    timeZone?: string;
+    actorName?: string;
+  }) => {
+    const res = await apiFetch<{ ok?: boolean; record?: AttendanceRecord }>(
+      "/attendance/punch",
+      {
+        method: "POST",
+        body: JSON.stringify(body),
+      },
+    );
+    return res?.record ?? null;
+  },
   saveRecords: (records: AttendanceRecord[]) =>
-    apiFetch<{ ok?: boolean }>("/attendance/records", {
+    apiFetch<{ ok?: boolean; count?: number }>("/attendance/records", {
       method: "PUT",
       body: JSON.stringify({ records }),
     }),
-  addNote: (body: Record<string, unknown>) =>
-    apiFetch<unknown>("/attendance/notes", {
+  cleanup: (body: { startDate: string; endDate: string }) =>
+    apiFetch<{ ok?: boolean; deleted?: number; startDate?: string; endDate?: string }>(
+      "/attendance/cleanup",
+      {
+        method: "POST",
+        body: JSON.stringify(body),
+      },
+    ),
+  addNote: async (body: Record<string, unknown>) => {
+    const res = await apiFetch<{ ok?: boolean; note?: AttendanceNote }>("/attendance/notes", {
       method: "POST",
       body: JSON.stringify(body),
-    }),
-  notes: () => apiFetch<unknown[]>("/attendance/notes"),
+    });
+    return res?.note ?? null;
+  },
+  notes: async (params?: { startDate?: string; endDate?: string; staffLoginId?: string }) => {
+    const q = new URLSearchParams();
+    if (params?.startDate) q.set("startDate", params.startDate);
+    if (params?.endDate) q.set("endDate", params.endDate);
+    if (params?.staffLoginId) q.set("staffLoginId", params.staffLoginId);
+    const qs = q.toString();
+    const res = await apiFetch<{ ok?: boolean; notes?: AttendanceNote[] }>(
+      `/attendance/notes${qs ? `?${qs}` : ""}`,
+    );
+    return Array.isArray(res?.notes) ? res.notes : [];
+  },
+  latestNote: async (params?: { date?: string; staffLoginId?: string }) => {
+    const q = new URLSearchParams();
+    if (params?.date) q.set("date", params.date);
+    if (params?.staffLoginId) q.set("staffLoginId", params.staffLoginId);
+    const qs = q.toString();
+    const res = await apiFetch<{ ok?: boolean; note?: AttendanceNote | null }>(
+      `/attendance/notes/latest${qs ? `?${qs}` : ""}`,
+    );
+    return res?.note ?? null;
+  },
 };
 
 export const leaveApi = {
-  create: (body: Record<string, unknown>) =>
-    apiFetch<LeaveRequest>("/leave-requests", {
+  create: async (body: Record<string, unknown>) => {
+    const res = await apiFetch<{ ok?: boolean; request?: LeaveRequest }>("/leave-requests", {
       method: "POST",
       body: JSON.stringify(body),
-    }),
-  update: (id: string, body: Record<string, unknown>) =>
-    apiFetch<LeaveRequest>(`/leave-requests/${encodeURIComponent(id)}`, {
-      method: "PATCH",
-      body: JSON.stringify(body),
-    }),
+    });
+    return res?.request ?? (res as unknown as LeaveRequest);
+  },
+  update: async (id: string, body: Record<string, unknown>) => {
+    const res = await apiFetch<{ ok?: boolean; request?: LeaveRequest }>(
+      `/leave-requests/${encodeURIComponent(id)}`,
+      {
+        method: "PATCH",
+        body: JSON.stringify(body),
+      },
+    );
+    return res?.request ?? (res as unknown as LeaveRequest);
+  },
+  balances: (year?: number) => {
+    const y = year || new Date().getFullYear();
+    return apiFetch<{
+      calendarYear?: number;
+      baseDays?: number;
+      adjustments?: unknown[];
+      rows?: Array<{
+        userId?: string;
+        name?: string;
+        balance?: number;
+        staffLoginId?: string;
+        staffName?: string;
+        baseDays?: number;
+        usedDays?: number;
+        remainingDays?: number;
+        adjustmentDays?: number;
+      }>;
+    }>(`/leave-balance?year=${encodeURIComponent(String(y))}`);
+  },
 };
 
 export const logsApi = {
