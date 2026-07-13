@@ -17,6 +17,344 @@ export const ALL_SECTIONS = [
 
 export type SectionName = (typeof ALL_SECTIONS)[number] | "Reports" | "Marketing" | "Inventory" | "Help";
 
+export type AccessChildPermission = { key: string; label: string };
+
+export const DASHBOARD_CHILD_PERMISSIONS: AccessChildPermission[] = [
+  { key: "viewDashboardCore", label: "Active / Hold / Deactivated / Cancelled + Filter + Add New Member" },
+  { key: "viewOverdueRetentionAlerts", label: "Overdue Payments and Retention Alerts" },
+  { key: "viewRevenueMonthly", label: "Total Revenue (Monthly)" },
+  { key: "viewRevenueTrend", label: "Revenue Trend" },
+  { key: "viewMembershipTrends", label: "Membership Trends" },
+];
+
+export const FINANCE_CHILD_PERMISSIONS: AccessChildPermission[] = [
+  { key: "viewRevenueAutoMembers", label: "Finance — Revenue (Auto from Members)" },
+  { key: "viewPendingPayments", label: "Finance — Pending Payments Card" },
+  { key: "viewExpenseCard", label: "Finance — Expenses Card" },
+  { key: "viewProfitCard", label: "Finance — Profit Card" },
+  { key: "viewRevenueTrend4Months", label: "Revenue Trend (Last 4 Months)" },
+  { key: "viewPlanPopularity", label: "Plan Popularity" },
+  { key: "viewTransactionsAutoMembers", label: "Transactions (Auto from Members)" },
+  { key: "manageExpenses", label: "Add / Edit Expense Entries" },
+];
+
+export const SETTINGS_CHILD_PERMISSIONS: AccessChildPermission[] = [
+  { key: "managePlans", label: "Plans" },
+  { key: "manageStatuses", label: "Statuses" },
+  { key: "managePaymentMethods", label: "Payment Methods" },
+  { key: "manageExpenseCategories", label: "Expense Categories" },
+  { key: "manageHoldDurations", label: "Hold Durations" },
+  { key: "manageGenders", label: "Genders" },
+  { key: "viewBackendDiskUsage", label: "Disk Usage (Backend)" },
+  { key: "manageFineRule", label: "Fine SMS Rule" },
+];
+
+export const WHATSAPP_CHILD_PERMISSIONS: AccessChildPermission[] = [
+  { key: "viewReminder", label: "Reminder" },
+  { key: "viewMonthReminder", label: "Month-Based Reminder" },
+  { key: "viewSuccess", label: "Success SMS" },
+  { key: "viewFine", label: "Fine SMS" },
+  { key: "viewDeactivate", label: "Deactivate SMS" },
+  { key: "viewHold", label: "Hold SMS" },
+  { key: "viewWelcome", label: "Welcome SMS" },
+  { key: "viewTemplates", label: "WhatsApp Template" },
+];
+
+export const LEAVE_CHILD_PERMISSIONS: AccessChildPermission[] = [
+  { key: "viewCreateLeaveRequest", label: "Create Leave Request" },
+  { key: "viewLeaveRequests", label: "Leave Requests (approve/reject if eligible)" },
+  { key: "viewAnnualLeaveBalance", label: "Annual Leave Balance" },
+  { key: "viewLeaveHistory", label: "Leave History (Last 2 Years)" },
+];
+
+export const MEMBERS_CHILD_PERMISSIONS: AccessChildPermission[] = [
+  { key: "viewMembers", label: "View Members" },
+  { key: "viewVisitors", label: "View Visitors" },
+  { key: "addMembers", label: "Add Members" },
+  { key: "editMembers", label: "Edit Members" },
+  { key: "deleteMembers", label: "Delete Members" },
+];
+
+export const PT_CLIENTS_CHILD_PERMISSIONS: AccessChildPermission[] = [
+  { key: "viewPtClients", label: "View PT Clients" },
+  { key: "editPtPlan", label: "Edit PT Plan" },
+  { key: "editPtWorkout", label: "Edit PT Workout" },
+  { key: "uploadDietDocuments", label: "Upload Diet Documents" },
+];
+
+export const ATTENDANCE_CHILD_PERMISSIONS: AccessChildPermission[] = [
+  { key: "viewAttendance", label: "View Attendance Dashboard" },
+  { key: "markAllPresent", label: "Mark All Present" },
+  { key: "editAttendance", label: "Edit Status / Notes" },
+  { key: "submitOwnLateNote", label: "Submit own late-arrival note (no Attendance tab required)" },
+];
+
+export const LOGS_CHILD_PERMISSIONS: AccessChildPermission[] = [
+  { key: "viewLogs", label: "View Audit Logs" },
+  { key: "exportLogs", label: "Export Logs CSV" },
+  { key: "clearLogs", label: "Clear Logs" },
+];
+
+export const SUPPORT_CHILD_PERMISSIONS: AccessChildPermission[] = [
+  { key: "viewSupportTemplates", label: "View Support Templates" },
+  { key: "editSupportTemplates", label: "Edit / Save Support Templates" },
+];
+
+export const BACKEND_CHILD_PERMISSIONS: AccessChildPermission[] = [
+  { key: "viewBackendPage", label: "View Backend Section" },
+  { key: "controlBackendProcesses", label: "Restart / Turn On / Turn Off Backend" },
+];
+
+export const PAYMENT_QR_CHILD_PERMISSIONS: AccessChildPermission[] = [
+  { key: "viewPaymentQr", label: "View Payment QR (Members toolbar)" },
+  { key: "managePaymentSettings", label: "Manage Payment Settings (Owner)" },
+];
+
+/** Attendance tab visibility — late-note self-submit does not require the tab. */
+export const ATTENDANCE_SECTION_PERMISSION_KEYS = [
+  "viewAttendance",
+  "markAllPresent",
+  "editAttendance",
+] as const;
+
+export type SectionAccessConfig = {
+  section: (typeof ALL_SECTIONS)[number];
+  accessGroup: keyof AccessMap | null;
+  children: AccessChildPermission[];
+  /** Extra child groups shown under the same expand panel (e.g. Payment QR under Members). */
+  extraGroups?: Array<{ group: keyof AccessMap; children: AccessChildPermission[]; title: string }>;
+  /** Keys that keep the section listed (Attendance excludes submitOwnLateNote). */
+  sectionKeys?: readonly string[];
+};
+
+export const SECTION_ACCESS_CONFIG: SectionAccessConfig[] = [
+  { section: "Dashboard", accessGroup: "dashboard", children: DASHBOARD_CHILD_PERMISSIONS },
+  {
+    section: "Members",
+    accessGroup: "members",
+    children: MEMBERS_CHILD_PERMISSIONS,
+    extraGroups: [
+      { group: "paymentQr", children: PAYMENT_QR_CHILD_PERMISSIONS, title: "Payment QR" },
+    ],
+  },
+  { section: "PT Clients", accessGroup: "ptClients", children: PT_CLIENTS_CHILD_PERMISSIONS },
+  { section: "WhatsApp SMS", accessGroup: "whatsapp", children: WHATSAPP_CHILD_PERMISSIONS },
+  { section: "Finance", accessGroup: "finance", children: FINANCE_CHILD_PERMISSIONS },
+  { section: "Staff", accessGroup: null, children: [] },
+  {
+    section: "Attendance",
+    accessGroup: "attendance",
+    children: ATTENDANCE_CHILD_PERMISSIONS,
+    sectionKeys: ATTENDANCE_SECTION_PERMISSION_KEYS,
+  },
+  { section: "Leave Tracker", accessGroup: "leave", children: LEAVE_CHILD_PERMISSIONS },
+  { section: "Settings", accessGroup: "settings", children: SETTINGS_CHILD_PERMISSIONS },
+  { section: "Logs", accessGroup: "logs", children: LOGS_CHILD_PERMISSIONS },
+  { section: "Support", accessGroup: "support", children: SUPPORT_CHILD_PERMISSIONS },
+  { section: "Backend", accessGroup: "backend", children: BACKEND_CHILD_PERMISSIONS },
+];
+
+function setGroupKeys(
+  group: Record<string, boolean> | undefined,
+  children: AccessChildPermission[],
+  value: boolean,
+  preserve?: Record<string, boolean>,
+) {
+  const next: Record<string, boolean> = { ...(group || {}) };
+  for (const child of children) {
+    if (preserve && Object.prototype.hasOwnProperty.call(preserve, child.key)) {
+      next[child.key] = preserve[child.key];
+    } else {
+      next[child.key] = value;
+    }
+  }
+  return next;
+}
+
+export type StaffAccessFormSlice = {
+  sections: string[];
+  access: AccessMap;
+};
+
+/** Parent section checkbox — syncs sections[] and all child access keys. */
+export function toggleAccessParent(
+  form: StaffAccessFormSlice,
+  section: string,
+): StaffAccessFormSlice {
+  const cfg = SECTION_ACCESS_CONFIG.find((c) => c.section === section);
+  const hasSection = form.sections.includes(section);
+  const nextSections = hasSection
+    ? form.sections.filter((s) => s !== section)
+    : [...form.sections, section];
+
+  if (!cfg?.accessGroup) {
+    return { ...form, sections: nextSections };
+  }
+
+  const normalized = normalizeAccess(form.access);
+  const group = cfg.accessGroup;
+  const turningOff = hasSection;
+  const preserve =
+    group === "attendance" && turningOff
+      ? { submitOwnLateNote: normalized.attendance?.submitOwnLateNote !== false }
+      : undefined;
+
+  const nextGroup = setGroupKeys(
+    normalized[group] as Record<string, boolean>,
+    cfg.children,
+    !turningOff,
+    preserve,
+  );
+
+  let nextAccess: AccessMap = {
+    ...normalized,
+    [group]: nextGroup,
+  };
+
+  if (cfg.extraGroups?.length) {
+    for (const extra of cfg.extraGroups) {
+      nextAccess = {
+        ...nextAccess,
+        [extra.group]: setGroupKeys(
+          normalized[extra.group] as Record<string, boolean>,
+          extra.children,
+          !turningOff,
+        ),
+      };
+    }
+  }
+
+  return { sections: nextSections, access: nextAccess };
+}
+
+/** Child permission checkbox — keeps section listed while any relevant child is on. */
+export function toggleAccessChild(
+  form: StaffAccessFormSlice,
+  group: keyof AccessMap,
+  key: string,
+  section: string,
+): StaffAccessFormSlice {
+  const cfg = SECTION_ACCESS_CONFIG.find((c) => c.section === section);
+  const normalized = normalizeAccess(form.access);
+  const currentGroup = { ...(normalized[group] as Record<string, boolean>) };
+  const currentlyOn =
+    group === "paymentQr" && key === "managePaymentSettings"
+      ? currentGroup[key] === true
+      : currentGroup[key] !== false;
+  currentGroup[key] = !currentlyOn;
+
+  const nextAccess: AccessMap = { ...normalized, [group]: currentGroup };
+  const primaryGroup = cfg?.accessGroup;
+  let shouldEnable = false;
+
+  if (primaryGroup) {
+    const primary = nextAccess[primaryGroup] as Record<string, boolean>;
+    if (cfg?.sectionKeys?.length) {
+      shouldEnable = cfg.sectionKeys.some((k) => primary?.[k] !== false);
+    } else {
+      shouldEnable = Object.values(primary || {}).some(Boolean);
+    }
+  }
+
+  const hasSection = form.sections.includes(section);
+  const nextSections = shouldEnable
+    ? hasSection
+      ? form.sections
+      : [...form.sections, section]
+    : form.sections.filter((s) => s !== section);
+
+  return { sections: nextSections, access: nextAccess };
+}
+
+export function toggleAllSectionsAccess(form: StaffAccessFormSlice): StaffAccessFormSlice {
+  const allSelected = ALL_SECTIONS.every((sec) => form.sections.includes(sec));
+  if (!allSelected) {
+    return {
+      sections: [...ALL_SECTIONS],
+      access: normalizeAccess(DEFAULT_ACCESS),
+    };
+  }
+  return {
+    sections: [],
+    access: normalizeAccess({
+      dashboard: {
+        viewDashboardCore: false,
+        viewOverdueRetentionAlerts: false,
+        viewRevenueMonthly: false,
+        viewRevenueTrend: false,
+        viewMembershipTrends: false,
+      },
+      finance: {
+        viewRevenueAutoMembers: false,
+        viewPendingPayments: false,
+        viewExpenseCard: false,
+        viewProfitCard: false,
+        viewRevenueTrend4Months: false,
+        viewPlanPopularity: false,
+        viewTransactionsAutoMembers: false,
+        manageExpenses: false,
+      },
+      settings: {
+        managePlans: false,
+        manageStatuses: false,
+        managePaymentMethods: false,
+        manageExpenseCategories: false,
+        manageHoldDurations: false,
+        manageGenders: false,
+        viewBackendDiskUsage: false,
+        manageFineRule: false,
+      },
+      whatsapp: {
+        viewReminder: false,
+        viewMonthReminder: false,
+        viewSuccess: false,
+        viewFine: false,
+        viewDeactivate: false,
+        viewHold: false,
+        viewWelcome: false,
+        viewTemplates: false,
+      },
+      leave: {
+        viewCreateLeaveRequest: false,
+        viewLeaveRequests: false,
+        viewAnnualLeaveBalance: false,
+        viewLeaveHistory: false,
+      },
+      members: {
+        viewMembers: false,
+        viewVisitors: false,
+        addMembers: false,
+        editMembers: false,
+        deleteMembers: false,
+      },
+      ptClients: {
+        viewPtClients: false,
+        editPtPlan: false,
+        editPtWorkout: false,
+        uploadDietDocuments: false,
+      },
+      attendance: {
+        viewAttendance: false,
+        markAllPresent: false,
+        editAttendance: false,
+        submitOwnLateNote: true,
+      },
+      logs: { viewLogs: false, exportLogs: false, clearLogs: false },
+      support: { viewSupportTemplates: false, editSupportTemplates: false },
+      backend: { viewBackendPage: false, controlBackendProcesses: false },
+      paymentQr: { viewPaymentQr: false, managePaymentSettings: false },
+    }),
+  };
+}
+
+export function isAccessChildEnabled(access: AccessMap, group: keyof AccessMap, key: string) {
+  const normalized = normalizeAccess(access);
+  if (group === "paymentQr" && key === "managePaymentSettings") {
+    return normalized.paymentQr?.managePaymentSettings === true;
+  }
+  return (normalized[group] as Record<string, boolean> | undefined)?.[key] !== false;
+}
+
 export const DEFAULT_ACCESS: AccessMap = {
   dashboard: {
     viewDashboardCore: true,

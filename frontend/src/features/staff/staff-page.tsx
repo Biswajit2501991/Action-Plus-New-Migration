@@ -15,7 +15,6 @@ import { usersApi } from "@/services/api";
 import { adminSetPassword } from "@/services/api/auth";
 import { cn } from "@/lib/utils";
 import {
-  ALL_SECTIONS,
   DEFAULT_ACCESS,
   DEFAULT_ROLE_TEMPLATES,
   isBranchAdminUser,
@@ -23,6 +22,7 @@ import {
   normalizeAccess,
   type RoleTemplate,
 } from "@/lib/domain/permissions";
+import { StaffSectionsAccessEditor } from "@/features/staff/staff-sections-access";
 import { useAuthStore } from "@/stores";
 import type { AccessMap, StaffUser } from "@/types";
 
@@ -88,6 +88,7 @@ export function StaffPage() {
       ...EMPTY_FORM,
       gymCodeId: String(user?.gymCodeId || gymCodes[0]?.id || ""),
       sections: preset?.sections?.length ? [...preset.sections] : EMPTY_FORM.sections,
+      access: normalizeAccess(DEFAULT_ACCESS),
     });
   };
 
@@ -345,11 +346,16 @@ export function StaffPage() {
       </Card>
 
       {creating || editingId ? (
-        <div className="fixed inset-0 z-50 flex items-end justify-center overflow-y-auto bg-black/40 p-2 sm:items-center sm:p-4">
-          <div className="w-full max-w-2xl space-y-4 rounded-2xl border bg-background p-5 shadow-xl">
-            <div className="flex items-start justify-between gap-2">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-3 sm:p-4">
+          <div
+            className="flex max-h-[min(92vh,900px)] w-full max-w-2xl flex-col overflow-hidden rounded-2xl border bg-background shadow-xl"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="staff-edit-title"
+          >
+            <div className="flex shrink-0 items-start justify-between gap-2 border-b px-5 py-4">
               <div>
-                <h2 className="text-lg font-semibold">
+                <h2 id="staff-edit-title" className="text-lg font-semibold">
                   {creating ? "Add Staff" : `Edit · ${editingId}`}
                 </h2>
                 <p className="text-sm text-muted-foreground">
@@ -361,128 +367,108 @@ export function StaffPage() {
               </Button>
             </div>
 
-            {formError ? (
-              <div className="rounded-xl border border-rose-200 bg-rose-50 px-3 py-2 text-xs text-rose-800">
-                {formError}
-              </div>
-            ) : null}
+            <div className="min-h-0 flex-1 space-y-4 overflow-y-auto overscroll-contain px-5 py-4">
+              {formError ? (
+                <div className="rounded-xl border border-rose-200 bg-rose-50 px-3 py-2 text-xs text-rose-800">
+                  {formError}
+                </div>
+              ) : null}
 
-            <div className="grid gap-3 md:grid-cols-2">
-              <div>
-                <Label>Username</Label>
-                <Input
-                  className="mt-1"
-                  value={form.id}
-                  disabled={!creating}
-                  onChange={(e) => setForm((f) => ({ ...f, id: e.target.value }))}
-                />
-              </div>
-              <div>
-                <Label>{creating ? "Password" : "New password (optional)"}</Label>
-                <Input
-                  className="mt-1"
-                  type="password"
-                  value={form.password}
-                  onChange={(e) => setForm((f) => ({ ...f, password: e.target.value }))}
-                />
-              </div>
-              <div>
-                <Label>Name</Label>
-                <Input
-                  className="mt-1"
-                  value={form.name}
-                  onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))}
-                />
-              </div>
-              <div>
-                <Label>Email</Label>
-                <Input
-                  className="mt-1"
-                  value={form.email}
-                  onChange={(e) => setForm((f) => ({ ...f, email: e.target.value }))}
-                />
-              </div>
-              <div>
-                <Label>Gym Branch</Label>
-                <Select
-                  className="mt-1"
-                  value={form.gymCodeId}
-                  onChange={(e) => setForm((f) => ({ ...f, gymCodeId: e.target.value }))}
-                >
-                  <option value="">Select branch…</option>
-                  {gymCodes.map((g) => (
-                    <option key={g.id} value={g.id}>
-                      {gymLabel(g)}
-                    </option>
-                  ))}
-                </Select>
-              </div>
-              {isOwner ? (
+              <div className="grid gap-3 md:grid-cols-2">
                 <div>
-                  <Label>Staff role</Label>
+                  <Label>Username</Label>
+                  <Input
+                    className="mt-1"
+                    value={form.id}
+                    disabled={!creating}
+                    onChange={(e) => setForm((f) => ({ ...f, id: e.target.value }))}
+                  />
+                </div>
+                <div>
+                  <Label>{creating ? "Password" : "New password (optional)"}</Label>
+                  <Input
+                    className="mt-1"
+                    type="password"
+                    value={form.password}
+                    onChange={(e) => setForm((f) => ({ ...f, password: e.target.value }))}
+                  />
+                </div>
+                <div>
+                  <Label>Name</Label>
+                  <Input
+                    className="mt-1"
+                    value={form.name}
+                    onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))}
+                  />
+                </div>
+                <div>
+                  <Label>Email</Label>
+                  <Input
+                    className="mt-1"
+                    value={form.email}
+                    onChange={(e) => setForm((f) => ({ ...f, email: e.target.value }))}
+                  />
+                </div>
+                <div>
+                  <Label>Gym Branch</Label>
                   <Select
                     className="mt-1"
-                    value={form.staffRole}
-                    onChange={(e) =>
-                      setForm((f) => ({
-                        ...f,
-                        staffRole: e.target.value as "staff" | "branch_owner",
-                      }))
-                    }
+                    value={form.gymCodeId}
+                    onChange={(e) => setForm((f) => ({ ...f, gymCodeId: e.target.value }))}
                   >
-                    <option value="staff">Staff</option>
-                    <option value="branch_owner">Branch Owner</option>
+                    <option value="">Select branch…</option>
+                    {gymCodes.map((g) => (
+                      <option key={g.id} value={g.id}>
+                        {gymLabel(g)}
+                      </option>
+                    ))}
                   </Select>
                 </div>
+                {isOwner ? (
+                  <div>
+                    <Label>Staff role</Label>
+                    <Select
+                      className="mt-1"
+                      value={form.staffRole}
+                      onChange={(e) =>
+                        setForm((f) => ({
+                          ...f,
+                          staffRole: e.target.value as "staff" | "branch_owner",
+                        }))
+                      }
+                    >
+                      <option value="staff">Staff</option>
+                      <option value="branch_owner">Branch Owner</option>
+                    </Select>
+                  </div>
+                ) : null}
+              </div>
+
+              <StaffSectionsAccessEditor
+                sections={form.sections}
+                access={form.access}
+                onChange={(next) =>
+                  setForm((f) => ({
+                    ...f,
+                    sections: next.sections,
+                    access: normalizeAccess(next.access),
+                  }))
+                }
+              />
+
+              {isOwner && form.id !== "owner" ? (
+                <label className="inline-flex items-center gap-2 text-sm">
+                  <input
+                    type="checkbox"
+                    checked={form.blocked}
+                    onChange={(e) => setForm((f) => ({ ...f, blocked: e.target.checked }))}
+                  />
+                  Block this account
+                </label>
               ) : null}
             </div>
 
-            <div>
-              <Label>Sections</Label>
-              <div className="mt-2 grid grid-cols-2 gap-1.5 sm:grid-cols-3">
-                {ALL_SECTIONS.map((section) => {
-                  const checked = form.sections.includes(section);
-                  return (
-                    <label
-                      key={section}
-                      className={cn(
-                        "flex cursor-pointer items-center gap-2 rounded-lg border px-2 py-1.5 text-xs",
-                        checked
-                          ? "border-sky-300 bg-sky-50 text-sky-900"
-                          : "border-slate-200 bg-white text-slate-600",
-                      )}
-                    >
-                      <input
-                        type="checkbox"
-                        checked={checked}
-                        onChange={() =>
-                          setForm((f) => ({
-                            ...f,
-                            sections: checked
-                              ? f.sections.filter((s) => s !== section)
-                              : [...f.sections, section],
-                          }))
-                        }
-                      />
-                      {section}
-                    </label>
-                  );
-                })}
-              </div>
-            </div>
-
-            {isOwner && form.id !== "owner" ? (
-              <label className="inline-flex items-center gap-2 text-sm">
-                <input
-                  type="checkbox"
-                  checked={form.blocked}
-                  onChange={(e) => setForm((f) => ({ ...f, blocked: e.target.checked }))}
-                />
-                Block this account
-              </label>
-            ) : null}
-
-            <div className="flex justify-end gap-2">
+            <div className="flex shrink-0 justify-end gap-2 border-t bg-background px-5 py-3">
               <Button variant="outline" onClick={closeModal}>
                 Cancel
               </Button>
