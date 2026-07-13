@@ -49,9 +49,25 @@ export const membersApi = {
       body: JSON.stringify(body),
     }),
   uploadPhoto: (id: string, image: string) =>
-    apiFetch<{ ok?: boolean; photoUrl?: string }>(`/members/${encodeURIComponent(id)}/photo`, {
-      method: "POST",
-      body: JSON.stringify({ image }),
+    apiFetch<{ ok?: boolean; photoUrl?: string; photoVersion?: number; member?: Member }>(
+      `/members/${encodeURIComponent(id)}/photo`,
+      {
+        method: "POST",
+        body: JSON.stringify({ image }),
+      },
+    ),
+  /** Batch signed URLs for list avatars (prod Option A). */
+  photoUrls: (memberIds: string[]) =>
+    apiFetch<{ ok?: boolean; urls?: Array<{ memberId?: string; photoVersion?: number; url?: string }> }>(
+      "/members/photo-urls",
+      {
+        method: "POST",
+        body: JSON.stringify({ memberIds }),
+      },
+    ),
+  deletePhoto: (id: string) =>
+    apiFetch<{ ok?: boolean; member?: Member }>(`/members/${encodeURIComponent(id)}/photo`, {
+      method: "DELETE",
     }),
 };
 

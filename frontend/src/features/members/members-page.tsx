@@ -13,10 +13,13 @@ import {
 import { Badge, EmptyState, PageHeader, Skeleton } from "@/components/ui/misc";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
-import { Input, Label, Select, Textarea } from "@/components/ui/input";
-import { useMembers, useSettings, useVisitors } from "@/hooks/use-data";
+import { Input, Label, Select } from "@/components/ui/input";
+import { useMembers, useSettings, useVisitors, useGymCodes } from "@/hooks/use-data";
+import { useMemberPhotoHydration } from "@/hooks/use-member-photo-hydration";
 import { membersApi, visitorsApi } from "@/services/api";
-import { checkMemberDuplicates, memberSearchHaystack } from "@/lib/domain/members";
+import { MemberPhotoPreviewModal } from "@/features/members/member-photo-modals";
+import { EditMemberModal } from "@/features/members/edit-member-modal";
+import { memberSearchHaystack } from "@/lib/domain/members";
 import {
   isPaymentByPastDue,
   paymentByDateKey,
@@ -95,6 +98,7 @@ export function MembersPage() {
   const { data: members = [], isLoading } = useMembers();
   const { data: visitors = [] } = useVisitors();
   const { data: settings } = useSettings();
+  const { data: gymCodes = [] } = useGymCodes();
   const {
     preview: waPreview,
     sending: waSending,
@@ -134,26 +138,9 @@ export function MembersPage() {
   });
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [metricModal, setMetricModal] = useState<"" | "active" | "hold" | "risk" | "winback">("");
-  const [showForm, setShowForm] = useState(false);
   const [editing, setEditing] = useState<Member | null>(null);
   const [paymentFor, setPaymentFor] = useState<Member | null>(null);
-  const [form, setForm] = useState({
-    memberId: "",
-    name: "",
-    mobile: "",
-    email: "",
-    plan: "",
-    status: "Active",
-    gender: "",
-    dob: "",
-    joiningDate: "",
-    billingDate: "",
-    amount: "",
-    paymentMethod: "",
-    holdDuration: "",
-    staff: "",
-    notes: "",
-  });
+  const [photoPreviewMember, setPhotoPreviewMember] = useState<Member | null>(null);
   const [payForm, setPayForm] = useState({ amount: "", method: "Cash", note: "" });
 
   useEffect(() => {
@@ -282,6 +269,22 @@ export function MembersPage() {
     };
   }, [members, applyFilters, sortMembers]);
 
+  const visiblePhotoPriorityIds = useMemo(() => {
+    const ids: string[] = [];
+    for (const key of STATUS_KEYS) {
+      const list = grouped[key] || [];
+      const totalPages = Math.max(1, Math.ceil(list.length / PAGE_SIZE));
+      const page = pages[key] > totalPages ? 1 : pages[key];
+      const start = (page - 1) * PAGE_SIZE;
+      for (const m of list.slice(start, start + PAGE_SIZE)) {
+        if (m.memberId) ids.push(m.memberId);
+      }
+    }
+    return ids;
+  }, [grouped, pages]);
+
+  useMemberPhotoHydration(members, { priorityIds: visiblePhotoPriorityIds });
+
   const overdueCount = useMemo(
     () => filtered.filter((m) => isPaymentByPastDue(m)).length,
     [filtered],
@@ -315,34 +318,6 @@ export function MembersPage() {
   const toggleSelect = (id: string) => {
     setSelectedIds((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]));
   };
-
-  const saveMutation = useMutation({
-    mutationFn: async () => {
-      const payload: Member = {
-        ...(editing || {}),
-        ...form,
-        memberId: form.memberId || editing?.memberId || uid("M"),
-        amount: Number(form.amount || 0),
-        updatedAt: new Date().toISOString(),
-      };
-      const dups = checkMemberDuplicates(members, payload, editing?.memberId || "");
-      if (dups.duplicatePhone || dups.duplicateMemberId) {
-        throw new Error("Duplicate phone or member ID detected");
-      }
-      if (!payload.name?.trim() || !payload.mobile?.trim() || !payload.plan || !payload.status) {
-        throw new Error("Name, mobile, plan and status are required");
-      }
-      if (!editing) throw new Error("Use Add New Member wizard to create members");
-      return membersApi.patch(editing.memberId, payload);
-    },
-    onSuccess: async () => {
-      toast.success("Member updated");
-      setShowForm(false);
-      setEditing(null);
-      await qc.invalidateQueries({ queryKey: ["members"] });
-    },
-    onError: (e: Error) => toast.error(e.message),
-  });
 
   const deleteMutation = useMutation({
     mutationFn: (id: string) => membersApi.remove(id),
@@ -408,7 +383,6 @@ export function MembersPage() {
 
   const openCreate = () => {
     setEditing(null);
-    setShowForm(false);
     setAddMemberOpen(true);
   };
 
@@ -421,24 +395,16 @@ export function MembersPage() {
 
   const openEdit = (m: Member) => {
     setEditing(m);
-    setForm({
-      memberId: m.memberId || "",
-      name: m.name || "",
-      mobile: m.mobile || "",
-      email: m.email || "",
-      plan: m.plan || "",
-      status: String(m.status || "Active"),
-      gender: m.gender || "",
-      dob: m.dob ? String(m.dob).slice(0, 10) : "",
-      joiningDate: m.joiningDate ? String(m.joiningDate).slice(0, 10) : "",
-      billingDate: m.billingDate ? String(m.billingDate).slice(0, 10) : "",
-      amount: String(m.amount ?? ""),
-      paymentMethod: String(m.paymentMethod || settings?.paymentMethods?.[0] || "Cash"),
-      holdDuration: m.holdDuration || "",
-      staff: String(m.staff || m.trainerId || ""),
-      notes: m.notes || "",
-    });
-    setShowForm(true);
+  };
+
+  const gymLabelFor = (gymCodeId?: string | null) => {
+    const id = String(gymCodeId || "").trim();
+    if (!id) return "";
+    const g = gymCodes.find((c) => String(c.id) === id);
+    if (!g) return "";
+    return g.code
+      ? `${g.code}${g.name || g.label ? ` / ${g.name || g.label}` : ""}`
+      : String(g.name || g.label || "");
   };
 
   const openWhatsApp = (
@@ -846,6 +812,7 @@ export function MembersPage() {
                                   }
                                   onEdit={() => openEdit(m)}
                                   onWhatsApp={(kind) => openWhatsApp(m, kind)}
+                                  onPhotoClick={() => setPhotoPreviewMember(m)}
                                 />
                                 {expanded ? (
                                   <div className="rounded-xl border border-border/70 bg-slate-50/80 px-3 py-3 dark:bg-slate-900/40">
@@ -1044,75 +1011,23 @@ export function MembersPage() {
         </div>
       ) : null}
 
-      {showForm && editing ? (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
-          <div className="max-h-[90vh] w-full max-w-2xl overflow-y-auto rounded-2xl border bg-background p-6 shadow-2xl">
-            <h2 className="text-lg font-semibold">Edit member</h2>
-            <div className="mt-4 grid gap-3 sm:grid-cols-2">
-              {[
-                ["memberId", "Member ID", "text"],
-                ["name", "Full name", "text"],
-                ["mobile", "Mobile", "text"],
-                ["email", "Email", "email"],
-                ["dob", "Date of birth", "date"],
-                ["joiningDate", "Joining date", "date"],
-                ["billingDate", "Billing date", "date"],
-                ["amount", "Amount", "number"],
-                ["staff", "Staff", "text"],
-              ].map(([key, label, type]) => (
-                <div key={key}>
-                  <Label>{label}</Label>
-                  <Input
-                    className="mt-1"
-                    type={type}
-                    value={form[key as keyof typeof form]}
-                    onChange={(e) => setForm({ ...form, [key]: e.target.value })}
-                  />
-                </div>
-              ))}
-              <div>
-                <Label>Plan</Label>
-                <Select className="mt-1" value={form.plan} onChange={(e) => setForm({ ...form, plan: e.target.value })}>
-                  <option value="">Select plan</option>
-                  {(settings?.plans || []).map((p) => <option key={p} value={p}>{p}</option>)}
-                </Select>
-              </div>
-              <div>
-                <Label>Status</Label>
-                <Select className="mt-1" value={form.status} onChange={(e) => setForm({ ...form, status: e.target.value })}>
-                  {(settings?.statuses || STATUS_KEYS).map((s) => <option key={s} value={s}>{s}</option>)}
-                </Select>
-              </div>
-              <div>
-                <Label>Payment method</Label>
-                <Select className="mt-1" value={form.paymentMethod} onChange={(e) => setForm({ ...form, paymentMethod: e.target.value })}>
-                  {(settings?.paymentMethods || ["Cash", "UPI", "Card", "Bank"]).map((m) => (
-                    <option key={m} value={m}>{m}</option>
-                  ))}
-                </Select>
-              </div>
-              {form.status === "Hold" ? (
-                <div>
-                  <Label>Hold duration</Label>
-                  <Select className="mt-1" value={form.holdDuration} onChange={(e) => setForm({ ...form, holdDuration: e.target.value })}>
-                    <option value="">Select</option>
-                    {(settings?.holdDurations || ["1 Month", "2 Months", "3 Months"]).map((h) => (
-                      <option key={h} value={h}>{h}</option>
-                    ))}
-                  </Select>
-                </div>
-              ) : null}
-              <div className="sm:col-span-2">
-                <Label>Notes</Label>
-                <Textarea className="mt-1" value={form.notes} onChange={(e) => setForm({ ...form, notes: e.target.value })} />
-              </div>
-            </div>
-            <div className="mt-6 flex justify-end gap-2">
-              <Button variant="outline" onClick={() => setShowForm(false)}>Cancel</Button>
-              <Button onClick={() => saveMutation.mutate()} disabled={saveMutation.isPending}>Save</Button>
-            </div>
-          </div>
-        </div>
+      {editing && hasAccess(user, "members", "editMembers") ? (
+        <EditMemberModal
+          key={editing.memberId}
+          member={editing}
+          onClose={() => setEditing(null)}
+          onSaved={async () => {
+            setEditing(null);
+            await qc.invalidateQueries({ queryKey: ["members"] });
+          }}
+          settings={settings}
+          gymCodes={gymCodes}
+          currentUser={user}
+          planOptions={settings?.plans}
+          statusOptions={settings?.statuses || [...STATUS_KEYS]}
+          holdOptions={settings?.holdDurations}
+          paymentOptions={settings?.paymentMethods}
+        />
       ) : null}
 
       {paymentFor ? (
@@ -1153,6 +1068,15 @@ export function MembersPage() {
         sending={waSending}
         onClose={closeWhatsAppPreview}
         onSend={() => void confirmWhatsAppSend()}
+      />
+
+      <MemberPhotoPreviewModal
+        open={Boolean(photoPreviewMember)}
+        onClose={() => setPhotoPreviewMember(null)}
+        member={photoPreviewMember}
+        gymLabel={gymLabelFor(
+          photoPreviewMember?.assignedGymCodeId || photoPreviewMember?.assigned_gym_code_id,
+        )}
       />
     </div>
   );

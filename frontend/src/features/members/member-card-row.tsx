@@ -2,6 +2,7 @@
 
 import { ChevronDown, ChevronUp, MessageCircle } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { MemberAvatar } from "@/components/member-avatar";
 import {
   getSmsSentInfoText,
   isBillingToday,
@@ -31,16 +32,6 @@ function fmtDate(value?: string | null) {
   return `${String(d.getDate()).padStart(2, "0")}/${MONTHS[d.getMonth()]}/${d.getFullYear()}`;
 }
 
-function initials(name?: string) {
-  const parts = String(name || "")
-    .trim()
-    .split(/\s+/)
-    .filter(Boolean);
-  if (!parts.length) return "?";
-  if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase();
-  return `${parts[0][0] || ""}${parts[parts.length - 1][0] || ""}`.toUpperCase();
-}
-
 function statusTone(status?: string) {
   if (status === "Active") return "bg-emerald-50 text-emerald-800 border-emerald-200";
   if (status === "Hold") return "bg-amber-50 text-amber-800 border-amber-200";
@@ -66,6 +57,7 @@ export function MemberCardRow({
   onToggleExpand,
   onEdit,
   onWhatsApp,
+  onPhotoClick,
 }: {
   m: Member;
   selected: boolean;
@@ -78,6 +70,7 @@ export function MemberCardRow({
   onWhatsApp: (
     kind: "reminder" | "monthReminder" | "welcome" | "fine" | "hold" | "deactivate" | "success",
   ) => void;
+  onPhotoClick?: () => void;
 }) {
   const overdue = isPaymentByPastDue(m);
   const billingToday = isBillingToday(m) && !overdue;
@@ -123,18 +116,22 @@ export function MemberCardRow({
         </span>
 
         <span className="flex min-w-0 items-center gap-1.5">
-          <span className="grid h-6 w-6 shrink-0 place-items-center overflow-hidden rounded-full border border-slate-200 bg-slate-100 text-[9px] font-semibold text-slate-600 dark:border-border dark:bg-muted dark:text-muted-foreground">
-            {m.photo || m.photoUrl ? (
-              // eslint-disable-next-line @next/next/no-img-element
-              <img
-                src={String(m.photo || m.photoUrl)}
-                alt=""
-                className="h-full w-full object-cover"
-              />
-            ) : (
-              initials(m.name)
-            )}
-          </span>
+          <button
+            type="button"
+            className="h-6 w-6 shrink-0 overflow-hidden rounded-full border border-slate-200 focus:outline-none focus-visible:ring-2 focus-visible:ring-sky-500 dark:border-border"
+            aria-label="View member photo"
+            onClick={(e) => {
+              e.stopPropagation();
+              onPhotoClick?.();
+            }}
+          >
+            <MemberAvatar
+              member={m}
+              className="h-full w-full"
+              imgClassName="h-full w-full object-cover"
+              textClassName="h-full w-full text-[9px]"
+            />
+          </button>
           <span className="flex min-w-0 items-center gap-1">
             <span className="truncate font-semibold text-slate-900 dark:text-foreground">
               {m.name || "—"}

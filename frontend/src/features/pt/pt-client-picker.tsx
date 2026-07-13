@@ -2,36 +2,10 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Check, ChevronDown, Search } from "lucide-react";
+import { MemberAvatar } from "@/components/member-avatar";
+import { useMemberPhotoHydration } from "@/hooks/use-member-photo-hydration";
 import { cn } from "@/lib/utils";
 import type { Member } from "@/types";
-
-function initials(name?: string) {
-  const parts = String(name || "")
-    .trim()
-    .split(/\s+/)
-    .filter(Boolean);
-  if (!parts.length) return "?";
-  if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase();
-  return `${parts[0][0] || ""}${parts[parts.length - 1][0] || ""}`.toUpperCase();
-}
-
-function MemberAvatar({ member }: { member: Member }) {
-  const photo = member.photoUrl || member.photo;
-  if (photo) {
-    return (
-      <img
-        src={String(photo)}
-        alt={member.name || member.memberId}
-        className="h-10 w-10 shrink-0 rounded-full border border-border object-cover"
-      />
-    );
-  }
-  return (
-    <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full border border-border bg-muted text-xs font-semibold">
-      {initials(member.name)}
-    </div>
-  );
-}
 
 export function PtClientPicker({
   members,
@@ -42,6 +16,10 @@ export function PtClientPicker({
   selectedId: string;
   onSelect: (memberId: string) => void;
 }) {
+  useMemberPhotoHydration(members, {
+    priorityIds: selectedId ? [selectedId] : members.slice(0, 20).map((m) => m.memberId),
+  });
+
   const [open, setOpen] = useState(false);
   const [search, setSearch] = useState("");
   const ref = useRef<HTMLDivElement>(null);
@@ -110,7 +88,12 @@ export function PtClientPicker({
                     active && "bg-sky-50 dark:bg-sky-950/30",
                   )}
                 >
-                  <MemberAvatar member={m} />
+                  <MemberAvatar
+                    member={m}
+                    className="h-10 w-10 shrink-0"
+                    imgClassName="h-10 w-10 shrink-0 rounded-full border border-border object-cover"
+                    textClassName="flex h-10 w-10 shrink-0 items-center justify-center rounded-full border border-border bg-muted text-xs font-semibold"
+                  />
                   <div className="min-w-0 flex-1">
                     <div className="truncate text-sm font-medium">{m.name}</div>
                     <div className="truncate text-xs text-muted-foreground">{m.plan || "No plan"}</div>

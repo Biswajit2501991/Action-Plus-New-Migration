@@ -37,6 +37,7 @@ export type Member = {
   photoUrl?: string;
   photo?: string;
   photoVersion?: number;
+  hasPhoto?: boolean;
   paymentHistory?: Payment[];
   lastSmsSent?: Record<string, { sentAt?: string; sentBy?: string; ts?: string; by?: string }>;
   messageHistory?: Array<Record<string, unknown>>;
@@ -46,6 +47,7 @@ export type Member = {
   notes?: string;
   emergencyContact?: string;
   medicalConditions?: string;
+  medicalAnswers?: Record<string, unknown>;
   updatedAt?: string;
   createdAt?: string;
   [key: string]: unknown;
