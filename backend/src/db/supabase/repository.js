@@ -75,7 +75,7 @@ import {
 } from './paymentIds.js';
 import {
   applySettingsConfigJson,
-  buildSettingsAppConfigWrite,
+  buildSettingsAppConfigWriteFromLive,
   findActiveLookupDuplicate,
   mergeSettingsBulkPatch,
   preserveNonEmptyLookups,
@@ -2048,25 +2048,15 @@ async function writeSettings(settings, scope) {
     await syncRoleTemplatesToDb(sb, gid, s.roleTemplates);
   }
 
-  // Re-read live config row so concurrent sparse writes don't drop sibling flags.
+  // Patch-only config write: keys omitted from `incoming` keep live DB values.
   const { data: liveConfigRow, error: liveConfigErr } = await sb
     .from(T.settings_app_config)
     .select('*')
     .eq('gym_id', gid)
     .maybeSingle();
   if (liveConfigErr) throw liveConfigErr;
-  if (liveConfigRow) {
-    const liveSettings = {};
-    applySettingsConfigJson(liveSettings, liveConfigRow);
-    s = mergeSettingsBulkPatch(liveSettings, incoming);
-    s = preserveNonEmptyLookups(s, existing);
-    s = mergeSettingsPreservingRoleTemplates(
-      hasRoleTemplates ? s : { ...s, roleTemplates: undefined },
-      existing,
-    );
-  }
 
-  const appConfig = buildSettingsAppConfigWrite(s);
+  const appConfig = buildSettingsAppConfigWriteFromLive(liveConfigRow || {}, incoming);
   await sb.from(T.settings_app_config).delete().eq('gym_id', gid);
   await sb.from(T.settings_app_config).insert({
     gym_id: gid,

@@ -89,22 +89,6 @@ type FeatureFlagState = {
   financeUseEstimatedExpense: boolean;
 };
 
-function buildFeatureFlagPatch(
-  current: FeatureFlagState,
-  override: Partial<FeatureFlagState>,
-): FeatureFlagState {
-  return {
-    attendanceNotesEnabled: override.attendanceNotesEnabled ?? current.attendanceNotesEnabled,
-    customTemplatesEnabled: override.customTemplatesEnabled ?? current.customTemplatesEnabled,
-    fineSmsEnabled: override.fineSmsEnabled ?? current.fineSmsEnabled,
-    fineSmsGraceDays: override.fineSmsGraceDays ?? current.fineSmsGraceDays,
-    paymentQrInReminderEnabled:
-      override.paymentQrInReminderEnabled ?? current.paymentQrInReminderEnabled,
-    financeUseEstimatedExpense:
-      override.financeUseEstimatedExpense ?? current.financeUseEstimatedExpense,
-  };
-}
-
 type LookupKey =
   | "plans"
   | "statuses"
@@ -341,7 +325,7 @@ export function SettingsPage() {
   });
 
   const saveFlags = useMutation({
-    mutationFn: (patch: FeatureFlagState) => settingsApi.bulk(patch),
+    mutationFn: (patch: Partial<FeatureFlagState>) => settingsApi.bulk(patch),
     onMutate: async (patch) => {
       await qc.cancelQueries({ queryKey: ["settings"] });
       const previous = qc.getQueriesData<AppSettings>({ queryKey: ["settings"] });
@@ -356,27 +340,19 @@ export function SettingsPage() {
       });
       toast.error(e.message);
     },
-    onSuccess: async () => {
+    onSuccess: async (_data, patch) => {
+      // Keep optimistic patch even if a stale in-flight GET races the invalidate.
+      qc.setQueriesData<AppSettings>({ queryKey: ["settings"] }, (old) =>
+        old ? { ...old, ...patch } : old,
+      );
       toast.success("Settings saved");
       await qc.invalidateQueries({ queryKey: ["settings"] });
     },
   });
 
   const setFeatureFlags = (override: Partial<FeatureFlagState>) => {
-    const cached =
-      qc.getQueryData<AppSettings>(["settings", "default"]) ||
-      qc.getQueriesData<AppSettings>({ queryKey: ["settings"] }).find(([, v]) => v)?.[1];
-    const current: FeatureFlagState = cached
-      ? {
-          attendanceNotesEnabled: cached.attendanceNotesEnabled === true,
-          customTemplatesEnabled: cached.customTemplatesEnabled === true,
-          fineSmsEnabled: cached.fineSmsEnabled !== false,
-          fineSmsGraceDays: Number(cached.fineSmsGraceDays ?? 0) || 0,
-          paymentQrInReminderEnabled: cached.paymentQrInReminderEnabled === true,
-          financeUseEstimatedExpense: cached.financeUseEstimatedExpense !== false,
-        }
-      : flags;
-    saveFlags.mutate(buildFeatureFlagPatch(current, override));
+    // Sparse patch only — backend preserves sibling flags from the live DB row.
+    saveFlags.mutate(override);
   };
 
   const createGym = useMutation({

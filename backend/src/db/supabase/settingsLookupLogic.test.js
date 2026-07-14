@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   applySettingsConfigJson,
-  buildSettingsAppConfigWrite,
+  buildSettingsAppConfigWriteFromLive,
   findActiveLookupDuplicate,
   mergeSettingsBulkPatch,
   preserveNonEmptyLookups,
@@ -82,34 +82,65 @@ describe('mergeSettingsBulkPatch', () => {
     expect(merged.paymentQrInReminderEnabled).toBe(true);
     expect(merged.medicalQuestionnaireTemplate).toEqual({ version: 1 });
   });
-
-  it('keeps enabling a flag without clearing the other', () => {
-    const merged = mergeSettingsBulkPatch(
-      { attendanceNotesEnabled: false, customTemplatesEnabled: true },
-      { attendanceNotesEnabled: true },
-    );
-    expect(merged.attendanceNotesEnabled).toBe(true);
-    expect(merged.customTemplatesEnabled).toBe(true);
-  });
 });
 
-describe('buildSettingsAppConfigWrite', () => {
-  it('writes opt-in flags as true only when explicitly true after merge', () => {
-    const merged = mergeSettingsBulkPatch(
-      { customTemplatesEnabled: true, attendanceNotesEnabled: true },
-      { fineSmsGraceDays: 3 },
+describe('buildSettingsAppConfigWriteFromLive', () => {
+  it('preserves live attendanceNotesEnabled when patch only toggles custom templates', () => {
+    const row = buildSettingsAppConfigWriteFromLive(
+      {
+        fine_sms_enabled: true,
+        fine_sms_grace_days: 2,
+        fine_sms_immediate_roles_json: [],
+        finance_use_estimated_expense: true,
+        config_json: {
+          attendanceNotesEnabled: true,
+          customTemplatesEnabled: false,
+          paymentQrInReminderEnabled: false,
+          medicalQuestionnaireTemplate: { version: 1 },
+        },
+      },
+      { customTemplatesEnabled: true },
     );
-    const row = buildSettingsAppConfigWrite(merged);
-    expect(row.config_json.customTemplatesEnabled).toBe(true);
     expect(row.config_json.attendanceNotesEnabled).toBe(true);
-    expect(row.fine_sms_grace_days).toBe(3);
+    expect(row.config_json.customTemplatesEnabled).toBe(true);
+    expect(row.config_json.medicalQuestionnaireTemplate).toEqual({ version: 1 });
+    expect(row.fine_sms_grace_days).toBe(2);
   });
 
-  it('would have wiped flags without merge (regression guard)', () => {
-    const sparseOnly = { attendanceNotesEnabled: true };
-    const wiped = buildSettingsAppConfigWrite(sparseOnly);
-    expect(wiped.config_json.attendanceNotesEnabled).toBe(true);
-    expect(wiped.config_json.customTemplatesEnabled).toBe(false);
+  it('can turn attendanceNotesEnabled on without wiping custom templates', () => {
+    const row = buildSettingsAppConfigWriteFromLive(
+      {
+        fine_sms_enabled: true,
+        fine_sms_grace_days: 0,
+        fine_sms_immediate_roles_json: [],
+        finance_use_estimated_expense: true,
+        config_json: {
+          attendanceNotesEnabled: false,
+          customTemplatesEnabled: true,
+        },
+      },
+      { attendanceNotesEnabled: true },
+    );
+    expect(row.config_json.attendanceNotesEnabled).toBe(true);
+    expect(row.config_json.customTemplatesEnabled).toBe(true);
+  });
+
+  it('does not invent false for missing live opt-in flags on unrelated patch', () => {
+    const row = buildSettingsAppConfigWriteFromLive(
+      {
+        fine_sms_enabled: true,
+        fine_sms_grace_days: 0,
+        fine_sms_immediate_roles_json: [],
+        finance_use_estimated_expense: true,
+        config_json: {
+          attendanceNotesEnabled: true,
+        },
+      },
+      { fineSmsGraceDays: 5 },
+    );
+    expect(row.config_json.attendanceNotesEnabled).toBe(true);
+    expect(row.config_json.customTemplatesEnabled).toBe(false);
+    expect(row.fine_sms_grace_days).toBe(5);
   });
 });
 

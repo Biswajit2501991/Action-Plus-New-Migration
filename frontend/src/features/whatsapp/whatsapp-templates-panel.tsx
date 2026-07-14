@@ -101,15 +101,8 @@ export function WhatsappTemplatesPanel({
 
   const saveFeatureFlag = useMutation({
     mutationFn: async (enabled: boolean) => {
-      const cached = qc.getQueryData<AppSettings>(["settings", "default"]);
-      await settingsApi.bulk({
-        attendanceNotesEnabled: cached?.attendanceNotesEnabled === true,
-        customTemplatesEnabled: enabled,
-        fineSmsEnabled: cached?.fineSmsEnabled !== false,
-        fineSmsGraceDays: Number(cached?.fineSmsGraceDays ?? 0) || 0,
-        paymentQrInReminderEnabled: cached?.paymentQrInReminderEnabled === true,
-        financeUseEstimatedExpense: cached?.financeUseEstimatedExpense !== false,
-      });
+      // Sparse patch only — never rewrite sibling flags from a stale cache.
+      await settingsApi.bulk({ customTemplatesEnabled: enabled });
     },
     onMutate: async (enabled) => {
       await qc.cancelQueries({ queryKey: ["settings"] });
@@ -123,7 +116,10 @@ export function WhatsappTemplatesPanel({
       ctx?.previous?.forEach(([key, data]) => qc.setQueryData(key, data));
       toast.error(e.message || "Could not update feature flag");
     },
-    onSuccess: async () => {
+    onSuccess: async (_data, enabled) => {
+      qc.setQueriesData<AppSettings>({ queryKey: ["settings"] }, (old) =>
+        old ? { ...old, customTemplatesEnabled: enabled } : old,
+      );
       toast.success("Custom templates setting saved");
       await qc.invalidateQueries({ queryKey: ["settings"] });
       await qc.invalidateQueries({ queryKey: ["custom-templates"] });

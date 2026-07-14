@@ -60,27 +60,87 @@ export function mergeSettingsBulkPatch(existing, incoming) {
   return { ...ex, ...inc };
 }
 
-/** Build the settings_app_config.config_json + column payload from merged settings. */
-export function buildSettingsAppConfigWrite(s) {
-  const settings = s && typeof s === 'object' ? s : {};
+/** Opt-in / config_json keys that must only change when present on the patch. */
+export const SETTINGS_CONFIG_JSON_KEYS = [
+  'medicalQuestionnaireTemplate',
+  'acknowledgementTemplate',
+  'acknowledgementUnder18Template',
+  'gmailWelcomeTemplate',
+  'smsTemplatePresetVersion',
+  'customTemplatesEnabled',
+  'attendanceNotesEnabled',
+  'paymentQrInReminderEnabled',
+];
+
+const OPT_IN_BOOL_KEYS = new Set([
+  'customTemplatesEnabled',
+  'attendanceNotesEnabled',
+  'paymentQrInReminderEnabled',
+]);
+
+/**
+ * Build settings_app_config write payload from the live DB row + sparse incoming
+ * patch. Keys absent from `incoming` keep their live values — this prevents
+ * stale full-flag clients from wiping attendanceNotesEnabled / customTemplates.
+ */
+export function buildSettingsAppConfigWriteFromLive(liveConfigRow, incoming) {
+  const live = liveConfigRow && typeof liveConfigRow === 'object' ? liveConfigRow : {};
+  const patch = incoming && typeof incoming === 'object' ? incoming : {};
+  const liveCfg =
+    live.config_json && typeof live.config_json === 'object' ? { ...live.config_json } : {};
+
+  const nextCfg = { ...liveCfg };
+  for (const key of SETTINGS_CONFIG_JSON_KEYS) {
+    if (!Object.prototype.hasOwnProperty.call(patch, key)) continue;
+    if (OPT_IN_BOOL_KEYS.has(key)) {
+      nextCfg[key] = patch[key] === true;
+    } else {
+      nextCfg[key] = patch[key] == null ? null : patch[key];
+    }
+  }
+
+  // Always persist known opt-in keys as booleans so reads stay consistent.
+  nextCfg.customTemplatesEnabled = nextCfg.customTemplatesEnabled === true;
+  nextCfg.attendanceNotesEnabled = nextCfg.attendanceNotesEnabled === true;
+  nextCfg.paymentQrInReminderEnabled = nextCfg.paymentQrInReminderEnabled === true;
+
+  const fineSmsEnabled = Object.prototype.hasOwnProperty.call(patch, 'fineSmsEnabled')
+    ? patch.fineSmsEnabled !== false
+    : live.fine_sms_enabled !== false;
+  const fineSmsGraceDays = Object.prototype.hasOwnProperty.call(patch, 'fineSmsGraceDays')
+    ? Number(patch.fineSmsGraceDays || 0)
+    : Number(live.fine_sms_grace_days || 0);
+  const fineSmsImmediateRoles = Object.prototype.hasOwnProperty.call(patch, 'fineSmsImmediateRoles')
+    ? (Array.isArray(patch.fineSmsImmediateRoles) ? patch.fineSmsImmediateRoles : [])
+    : (live.fine_sms_immediate_roles_json || []);
+  const financeUseEstimatedExpense = Object.prototype.hasOwnProperty.call(
+    patch,
+    'financeUseEstimatedExpense',
+  )
+    ? patch.financeUseEstimatedExpense !== false
+    : live.finance_use_estimated_expense !== false;
+
   return {
-    fine_sms_enabled: settings.fineSmsEnabled !== false,
-    fine_sms_grace_days: Number(settings.fineSmsGraceDays || 0),
-    fine_sms_immediate_roles_json: Array.isArray(settings.fineSmsImmediateRoles)
-      ? settings.fineSmsImmediateRoles
-      : [],
-    finance_use_estimated_expense: settings.financeUseEstimatedExpense !== false,
+    fine_sms_enabled: fineSmsEnabled,
+    fine_sms_grace_days: fineSmsGraceDays,
+    fine_sms_immediate_roles_json: fineSmsImmediateRoles,
+    finance_use_estimated_expense: financeUseEstimatedExpense,
     config_json: {
-      medicalQuestionnaireTemplate: settings.medicalQuestionnaireTemplate || null,
-      acknowledgementTemplate: settings.acknowledgementTemplate || null,
-      acknowledgementUnder18Template: settings.acknowledgementUnder18Template || null,
-      gmailWelcomeTemplate: settings.gmailWelcomeTemplate || null,
-      smsTemplatePresetVersion: settings.smsTemplatePresetVersion || null,
-      customTemplatesEnabled: settings.customTemplatesEnabled === true,
-      attendanceNotesEnabled: settings.attendanceNotesEnabled === true,
-      paymentQrInReminderEnabled: settings.paymentQrInReminderEnabled === true,
+      medicalQuestionnaireTemplate: nextCfg.medicalQuestionnaireTemplate || null,
+      acknowledgementTemplate: nextCfg.acknowledgementTemplate || null,
+      acknowledgementUnder18Template: nextCfg.acknowledgementUnder18Template || null,
+      gmailWelcomeTemplate: nextCfg.gmailWelcomeTemplate || null,
+      smsTemplatePresetVersion: nextCfg.smsTemplatePresetVersion || null,
+      customTemplatesEnabled: nextCfg.customTemplatesEnabled === true,
+      attendanceNotesEnabled: nextCfg.attendanceNotesEnabled === true,
+      paymentQrInReminderEnabled: nextCfg.paymentQrInReminderEnabled === true,
     },
   };
+}
+
+/** @deprecated Prefer buildSettingsAppConfigWriteFromLive for sparse patches. */
+export function buildSettingsAppConfigWrite(s) {
+  return buildSettingsAppConfigWriteFromLive({}, s || {});
 }
 
 /**

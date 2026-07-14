@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { toast } from "sonner";
@@ -32,17 +32,13 @@ function visibleSectionTabs(user: AuthUser | null | undefined) {
 export function AppSectionTabs() {
   const pathname = usePathname();
   const user = useAuthStore((s) => s.user);
-  const { data: settings, refetch: refetchSettings } = useSettings();
+  const { data: settings } = useSettings();
   const [lateOpen, setLateOpen] = useState(false);
   const [category, setCategory] = useState<string>("traffic");
   const [note, setNote] = useState("");
   const [saving, setSaving] = useState(false);
 
   const tabs = useMemo(() => visibleSectionTabs(user), [user]);
-
-  useEffect(() => {
-    void refetchSettings();
-  }, [refetchSettings]);
 
   const notesEnabled = isAttendanceNotesEnabled(settings as Record<string, unknown>);
   const canLateNote =
