@@ -65,6 +65,32 @@ export function AddMemberHost() {
     },
     onSuccess: async (payload) => {
       toast.success(`${payload.name || "Member"} has been saved successfully`);
+      try {
+        const raw = sessionStorage.getItem("apg.convertVisitor.pending");
+        if (raw) {
+          sessionStorage.removeItem("apg.convertVisitor.pending");
+          const { id } = JSON.parse(raw) as { id?: string };
+          if (id) {
+            const { visitorsApi } = await import("@/services/api");
+            const list = await visitorsApi.list();
+            const hit = list.find((v) => v.id === id);
+            if (hit) {
+              await visitorsApi.bulk([
+                {
+                  ...hit,
+                  status: "Converted",
+                  convertedAt: new Date().toISOString(),
+                  convertedMemberId: payload.memberId,
+                },
+                ...list.filter((v) => v.id !== id),
+              ]);
+              await qc.invalidateQueries({ queryKey: ["visitors"] });
+            }
+          }
+        }
+      } catch {
+        /* convert bookkeeping best-effort */
+      }
       setOpen(false);
       await qc.invalidateQueries({ queryKey: ["members"] });
     },

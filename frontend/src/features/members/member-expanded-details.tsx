@@ -322,6 +322,7 @@ export function MemberExpandedDetails({
   holdOptions,
   onEdit,
   onAddPayment,
+  onEditPayment,
   onWhatsApp,
   onWelcomeMail,
   onUploadDocument,
@@ -335,6 +336,7 @@ export function MemberExpandedDetails({
   holdOptions: string[];
   onEdit: () => void;
   onAddPayment: () => void;
+  onEditPayment?: (payment: Payment) => void;
   onWhatsApp: (kind: WhatsAppKind) => void;
   onWelcomeMail: () => void;
   onUploadDocument: (file: File) => void;
@@ -676,6 +678,9 @@ export function MemberExpandedDetails({
                     <th className="px-2 py-1 text-left font-semibold">Method</th>
                     <th className="px-2 py-1 text-left font-semibold">Recorded By</th>
                     <th className="px-2 py-1 text-left font-semibold">Source</th>
+                    {onEditPayment ? (
+                      <th className="px-2 py-1 text-left font-semibold">Actions</th>
+                    ) : null}
                   </tr>
                 </thead>
                 <tbody>
@@ -695,6 +700,17 @@ export function MemberExpandedDetails({
                       <td className="whitespace-nowrap px-2 py-1 capitalize">
                         {dash(row.source)}
                       </td>
+                      {onEditPayment ? (
+                        <td className="whitespace-nowrap px-2 py-1">
+                          <button
+                            type="button"
+                            className="text-[10px] font-semibold text-emerald-700 underline underline-offset-2 dark:text-emerald-300"
+                            onClick={() => onEditPayment(row)}
+                          >
+                            Edit
+                          </button>
+                        </td>
+                      ) : null}
                     </tr>
                   ))}
                 </tbody>

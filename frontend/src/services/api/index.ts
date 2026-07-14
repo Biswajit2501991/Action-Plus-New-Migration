@@ -576,13 +576,38 @@ export type PaymentQrItem = {
 };
 
 export const paymentQrApi = {
-  list: (params?: { gymCodeId?: string; activeOnly?: boolean }) => {
+  list: (params?: { gymCodeId?: string; activeOnly?: boolean; includeInactive?: boolean }) => {
     const q = new URLSearchParams();
     if (params?.gymCodeId) q.set("gymCodeId", params.gymCodeId);
     if (params?.activeOnly === false) q.set("activeOnly", "false");
+    if (params?.includeInactive) q.set("includeInactive", "true");
     const qs = q.toString();
     return apiFetch<{ ok?: boolean; gymCodeId?: string; items?: PaymentQrItem[] }>(
       `/payment-qr${qs ? `?${qs}` : ""}`,
     );
   },
+  create: (body: Record<string, unknown>) =>
+    apiFetch<{ ok?: boolean; item?: PaymentQrItem }>("/payment-qr", {
+      method: "POST",
+      body: JSON.stringify(body),
+    }),
+  update: (id: string, body: Record<string, unknown>) =>
+    apiFetch<{ ok?: boolean; item?: PaymentQrItem }>(
+      `/payment-qr/${encodeURIComponent(id)}`,
+      {
+        method: "PATCH",
+        body: JSON.stringify(body),
+      },
+    ),
+  uploadImage: (id: string, image: string, gymCodeId?: string) =>
+    apiFetch<{ ok?: boolean; item?: PaymentQrItem }>(
+      `/payment-qr/${encodeURIComponent(id)}/image`,
+      {
+        method: "POST",
+        body: JSON.stringify({
+          image,
+          gymCodeId: gymCodeId || undefined,
+        }),
+      },
+    ),
 };

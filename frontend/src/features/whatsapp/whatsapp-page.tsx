@@ -8,6 +8,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { useMembers, useWhatsapp } from "@/hooks/use-data";
 import { useAuthStore } from "@/stores";
+import { hasAccess } from "@/lib/domain/permissions";
 import {
   getSmsSentInfoText,
   primaryMessageActionForMember,
@@ -31,6 +32,17 @@ import { useWhatsappSend } from "@/features/whatsapp/use-whatsapp-send";
 
 const PAGE_SIZE = 10;
 
+const TAB_PERMISSION: Record<WhatsAppTemplateKey | "templates", string> = {
+  reminder: "viewReminder",
+  monthReminder: "viewMonthReminder",
+  success: "viewSuccess",
+  fine: "viewFine",
+  deactivate: "viewDeactivate",
+  hold: "viewHold",
+  welcome: "viewWelcome",
+  templates: "viewTemplates",
+};
+
 export function WhatsappPage() {
   const user = useAuthStore((s) => s.user);
   const isOwner = user?.id === "owner" || String(user?.staffRole || user?.role || "").toLowerCase() === "owner";
@@ -38,10 +50,25 @@ export function WhatsappPage() {
   const { data: whatsappData, isLoading: waLoading } = useWhatsapp();
   const { templates, preview, sending, openPreview, closePreview, confirmSend } = useWhatsappSend();
 
+  const allowedTabs = useMemo(
+    () =>
+      WHATSAPP_TYPE_META.filter((tab) =>
+        hasAccess(user, "whatsapp", TAB_PERMISSION[tab.key]),
+      ),
+    [user],
+  );
+
   const [activeType, setActiveType] = useState<WhatsAppTemplateKey | "templates">("reminder");
   const [search, setSearch] = useState("");
   const [page, setPage] = useState(1);
   const [activityPage, setActivityPage] = useState(1);
+
+  useEffect(() => {
+    if (!allowedTabs.length) return;
+    if (!allowedTabs.some((t) => t.key === activeType)) {
+      setActiveType(allowedTabs[0].key);
+    }
+  }, [allowedTabs, activeType]);
 
   const byType = useMemo(
     () => membersByWhatsAppType(members, { isOwner }),
@@ -107,7 +134,7 @@ export function WhatsappPage() {
 
       <div className="overflow-x-auto">
         <div className="flex min-w-max items-center gap-1.5 rounded-2xl border border-border/60 bg-card/40 p-1.5 backdrop-blur-sm dark:border-white/5 dark:bg-slate-950/50">
-          {WHATSAPP_TYPE_META.map((tab) => {
+          {allowedTabs.map((tab) => {
             const active = activeType === tab.key;
             return (
               <button
@@ -136,7 +163,13 @@ export function WhatsappPage() {
         </div>
       </div>
 
-      {activeType === "templates" ? (
+      {!allowedTabs.length ? (
+        <Card>
+          <CardContent className="p-6 text-sm text-muted-foreground">
+            No WhatsApp message types are enabled for your account.
+          </CardContent>
+        </Card>
+      ) : activeType === "templates" ? (
         <WhatsappTemplatesPanel
           systemTemplates={templates}
           onOpenMessagingCenter={() => setActiveType("reminder")}

@@ -302,6 +302,35 @@ export function AddMemberWizard({
 
   useEffect(() => {
     if (!open) return;
+    try {
+      const raw = sessionStorage.getItem("apg.convertVisitor");
+      if (!raw) return;
+      sessionStorage.removeItem("apg.convertVisitor");
+      const v = JSON.parse(raw) as {
+        fullName?: string;
+        email?: string;
+        mobile?: string;
+        dob?: string;
+        gender?: string;
+        id?: string;
+      };
+      setForm((f) => ({
+        ...f,
+        name: String(v.fullName || f.name || ""),
+        email: String(v.email || f.email || ""),
+        mobile: String(v.mobile || f.mobile || ""),
+        dob: String(v.dob || f.dob || "").slice(0, 10),
+        gender: String(v.gender || f.gender || ""),
+        remark: v.id ? `Converted from visitor ${v.id}` : f.remark,
+      }));
+      setStep(1);
+    } catch {
+      /* ignore */
+    }
+  }, [open]);
+
+  useEffect(() => {
+    if (!open) return;
     setForm((f) => {
       if (owner) {
         const next = String(f.assignedGymCodeId || "").trim() || defaultBranch;

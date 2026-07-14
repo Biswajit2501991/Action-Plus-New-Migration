@@ -55,13 +55,23 @@ export type Member = {
 
 export type Visitor = {
   id: string;
+  fullName?: string;
   name?: string;
   mobile?: string;
   email?: string;
+  dob?: string;
+  gender?: string;
   visitDate?: string;
   notes?: string;
   status?: string;
+  callBackRequired?: boolean;
+  tentativeJoiningDate?: string;
+  lastCalledAt?: string;
+  lastCalledBy?: string;
   assignedGymCodeId?: string;
+  addedAt?: string;
+  convertedAt?: string;
+  convertedMemberId?: string;
   [key: string]: unknown;
 };
 

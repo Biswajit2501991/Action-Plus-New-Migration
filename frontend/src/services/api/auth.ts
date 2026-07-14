@@ -53,6 +53,16 @@ export async function adminSetPassword(staffId: string, newPassword: string) {
   );
 }
 
+export async function rejectPasswordReset(staffId: string) {
+  return apiFetch<{ ok?: boolean; staffId?: string; status?: string }>(
+    "/auth/reject-password-reset",
+    {
+      method: "POST",
+      body: JSON.stringify({ staffId }),
+    },
+  );
+}
+
 export type SwitchBranchResponse = {
   ok?: boolean;
   token?: string;

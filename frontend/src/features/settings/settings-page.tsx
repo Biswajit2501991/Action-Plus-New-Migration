@@ -25,6 +25,8 @@ import { hasAccess, isMasterOwnerUser } from "@/lib/domain/permissions";
 import { cn } from "@/lib/utils";
 import { useAuthStore } from "@/stores";
 import type { AppSettings, GymCode } from "@/types";
+import { LocalBackupPanel } from "@/features/settings/local-backup-panel";
+import { PaymentQrManagePanel } from "@/features/settings/payment-qr-manage-panel";
 
 function readFileAsDataUrl(file: File) {
   return new Promise<string>((resolve, reject) => {
@@ -872,6 +874,9 @@ export function SettingsPage() {
                 />
               </div>
             ) : null}
+
+            {isOwner ? <LocalBackupPanel /> : null}
+            <PaymentQrManagePanel gymCodes={gymCodes} />
           </CardContent>
         ) : null}
       </Card>

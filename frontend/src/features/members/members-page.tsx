@@ -18,8 +18,11 @@ import { Input, Label, Select } from "@/components/ui/input";
 import { useMembers, useSettings, useVisitors, useGymCodes } from "@/hooks/use-data";
 import { useMemberPhotoHydration } from "@/hooks/use-member-photo-hydration";
 import { membersApi, visitorsApi } from "@/services/api";
+import { captureHistoryFromCache } from "@/stores/history-store";
 import { MemberPhotoPreviewModal } from "@/features/members/member-photo-modals";
 import { EditMemberModal } from "@/features/members/edit-member-modal";
+import { VisitorFormModal, type VisitorFormValues } from "@/features/members/visitor-form-modal";
+import { PaymentEntryModal } from "@/features/members/payment-entry-modal";
 import {
   MemberMetricModal,
   type MetricModalKey,
@@ -32,9 +35,9 @@ import {
   localCalendarDateKey,
 } from "@/lib/domain/billing";
 import { formatCurrency, formatDate, downloadTextFile, toCsv, cn } from "@/lib/utils";
-import { hasAccess } from "@/lib/domain/permissions";
+import { hasAccess, isMasterOwnerUser } from "@/lib/domain/permissions";
 import { useAuthStore, useUiStore } from "@/stores";
-import type { Member, Visitor } from "@/types";
+import type { Member, Payment, Visitor } from "@/types";
 import { isBillingToday, isNewMember } from "@/lib/domain/member-actions";
 import { MemberExpandedDetails } from "@/features/members/member-expanded-details";
 import { PaymentQrButton } from "@/features/members/payment-qr-viewer";
@@ -85,6 +88,23 @@ function ym(value?: string | null) {
 function paymentByDisplay(m: Member) {
   const key = paymentByDateKey(m);
   return key || m.billingDate || "";
+}
+
+function visitorDisplayName(v: Visitor) {
+  return String(v.fullName || v.name || "Visitor").trim();
+}
+
+function wasCalledToday(v: Visitor) {
+  const at = String(v.lastCalledAt || "").trim();
+  if (!at) return false;
+  return localCalendarDateKey(at) === localTodayCalendarKey();
+}
+
+function needsCallbackToday(v: Visitor) {
+  if (String(v.status || "") === "Converted") return false;
+  const join = String(v.tentativeJoiningDate || "").slice(0, 10);
+  if (join !== localTodayCalendarKey()) return false;
+  return !wasCalledToday(v);
 }
 
 export function MembersPage() {
@@ -139,8 +159,9 @@ export function MembersPage() {
   const [metricModal, setMetricModal] = useState<MetricModalKey | "">("");
   const [editing, setEditing] = useState<Member | null>(null);
   const [paymentFor, setPaymentFor] = useState<Member | null>(null);
+  const [editingPayment, setEditingPayment] = useState<Payment | null>(null);
   const [photoPreviewMember, setPhotoPreviewMember] = useState<Member | null>(null);
-  const [payForm, setPayForm] = useState({ amount: "", method: "Cash", note: "" });
+  const [visitorEditing, setVisitorEditing] = useState<Visitor | null | "new">(null);
 
   useEffect(() => {
     // Applied filters persist for this browser so staff keep their saved filter set.
@@ -348,6 +369,7 @@ export function MembersPage() {
 
   const statusMutation = useMutation({
     mutationFn: async ({ ids, status, holdDuration }: { ids: string[]; status: string; holdDuration?: string }) => {
+      captureHistoryFromCache(qc, "Member status change");
       await Promise.all(
         ids.map((id) => {
           const current = members.find((m) => m.memberId === id);
@@ -369,35 +391,80 @@ export function MembersPage() {
     onError: (e: Error) => toast.error(e.message),
   });
 
-  const paymentMutation = useMutation({
-    mutationFn: async () => {
-      if (!paymentFor) return;
-      return membersApi.addPayment(paymentFor.memberId, {
-        id: uid("pay"),
-        amount: Number(payForm.amount || 0),
-        method: payForm.method,
-        note: payForm.note,
-        paidAt: new Date().toISOString(),
-      });
+  const visitorSave = useMutation({
+    mutationFn: async (values: VisitorFormValues) => {
+      const id = String(values.id || uid("V"));
+      const next: Visitor = {
+        id,
+        fullName: values.fullName.trim(),
+        name: values.fullName.trim(),
+        email: values.email.trim(),
+        dob: values.dob,
+        mobile: values.mobile.trim(),
+        gender: values.gender,
+        callBackRequired: values.callBackRequired,
+        tentativeJoiningDate: values.tentativeJoiningDate || "",
+        status: values.status || "New",
+        assignedGymCodeId: values.assignedGymCodeId || user?.activeBranchId || user?.gymCodeId || "",
+        addedAt: values.addedAt || new Date().toISOString(),
+        lastCalledAt: values.lastCalledAt,
+        lastCalledBy: values.lastCalledBy,
+        convertedAt: values.convertedAt,
+        convertedMemberId: values.convertedMemberId,
+      };
+      const rest = visitors.filter((v) => v.id !== id);
+      return visitorsApi.bulk([next, ...rest]);
     },
     onSuccess: async () => {
-      toast.success("Payment recorded");
-      setPaymentFor(null);
-      setPayForm({ amount: "", method: "Cash", note: "" });
-      await qc.invalidateQueries({ queryKey: ["members"] });
-      await qc.invalidateQueries({ queryKey: ["finance"] });
+      toast.success("Visitor saved");
+      setVisitorEditing(null);
+      await qc.invalidateQueries({ queryKey: ["visitors"] });
     },
     onError: (e: Error) => toast.error(e.message),
   });
 
-  const visitorSave = useMutation({
-    mutationFn: async (visitor: Visitor) =>
-      visitorsApi.bulk([visitor, ...visitors.filter((v) => v.id !== visitor.id)]),
+  const markVisitorCalled = useMutation({
+    mutationFn: async (visitor: Visitor) => {
+      const updated: Visitor = {
+        ...visitor,
+        lastCalledAt: new Date().toISOString(),
+        lastCalledBy: user?.name || user?.id || "staff",
+      };
+      return visitorsApi.bulk([
+        updated,
+        ...visitors.filter((v) => v.id !== visitor.id),
+      ]);
+    },
     onSuccess: async () => {
-      toast.success("Visitor saved");
+      toast.success("Visitor marked as called.");
       await qc.invalidateQueries({ queryKey: ["visitors"] });
     },
+    onError: (e: Error) => toast.error(e.message),
   });
+
+  const convertVisitor = (visitor: Visitor) => {
+    try {
+      sessionStorage.setItem(
+        "apg.convertVisitor",
+        JSON.stringify({
+          id: visitor.id,
+          fullName: visitorDisplayName(visitor),
+          email: visitor.email || "",
+          mobile: visitor.mobile || "",
+          dob: visitor.dob || "",
+          gender: visitor.gender || "",
+        }),
+      );
+      sessionStorage.setItem(
+        "apg.convertVisitor.pending",
+        JSON.stringify({ id: visitor.id }),
+      );
+    } catch {
+      /* ignore */
+    }
+    setAddMemberOpen(true);
+    toast.message("Add Member opened — visitor details prefilled when available.");
+  };
 
   const openCreate = () => {
     setEditing(null);
@@ -555,37 +622,77 @@ export function MembersPage() {
       {tab === "visitors" ? (
         <Card>
           <CardContent className="space-y-3 p-5">
-            <Button
-              size="sm"
-              onClick={() => {
-                const name = prompt("Visitor name");
-                if (!name) return;
-                const mobile = prompt("Mobile") || "";
-                visitorSave.mutate({ id: uid("V"), name, mobile, visitDate: new Date().toISOString() });
-              }}
-            >
-              Add visitor
-            </Button>
-            {visitors.map((v) => (
-              <div key={v.id} className="flex items-center justify-between rounded-xl border px-3 py-2 text-sm">
-                <div>
-                  <p className="font-medium">{v.name}</p>
-                  <p className="text-xs text-muted-foreground">
-                    {v.mobile} · {formatDate(v.visitDate)}
-                  </p>
-                </div>
-                <Button
-                  size="sm"
-                  variant="ghost"
-                  onClick={async () => {
-                    await visitorsApi.remove(v.id);
-                    await qc.invalidateQueries({ queryKey: ["visitors"] });
-                  }}
-                >
-                  Remove
-                </Button>
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <div>
+                <h3 className="text-sm font-semibold">Visitors</h3>
+                <p className="text-xs text-muted-foreground">
+                  Full visitor form with callbacks and convert-to-member.
+                </p>
               </div>
-            ))}
+              <Button size="sm" onClick={() => setVisitorEditing("new")}>
+                Add Visitor
+              </Button>
+            </div>
+            {visitors.map((v) => {
+              const callbackDue = needsCallbackToday(v);
+              return (
+                <div
+                  key={v.id}
+                  className="flex flex-wrap items-center justify-between gap-2 rounded-xl border px-3 py-2 text-sm"
+                >
+                  <div className="min-w-0">
+                    <p className="font-medium">
+                      {visitorDisplayName(v)}{" "}
+                      <span className="text-xs font-normal text-muted-foreground">
+                        · {v.status || "New"}
+                      </span>
+                      {callbackDue ? (
+                        <span className="ml-2 rounded-md bg-amber-100 px-1.5 py-0.5 text-[10px] font-semibold text-amber-900 dark:bg-amber-950/50 dark:text-amber-200">
+                          Call today
+                        </span>
+                      ) : null}
+                    </p>
+                    <p className="text-xs text-muted-foreground">
+                      {v.mobile || "—"} · {v.email || "—"}
+                      {v.tentativeJoiningDate
+                        ? ` · Join ${formatDate(v.tentativeJoiningDate)}`
+                        : ""}
+                    </p>
+                  </div>
+                  <div className="flex flex-wrap gap-1.5">
+                    {callbackDue || v.callBackRequired ? (
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        disabled={wasCalledToday(v) || markVisitorCalled.isPending}
+                        onClick={() => markVisitorCalled.mutate(v)}
+                      >
+                        {wasCalledToday(v) ? "Called today" : "Mark as Called"}
+                      </Button>
+                    ) : null}
+                    {String(v.status || "") !== "Converted" ? (
+                      <Button size="sm" variant="outline" onClick={() => convertVisitor(v)}>
+                        Convert to Member
+                      </Button>
+                    ) : null}
+                    <Button size="sm" variant="outline" onClick={() => setVisitorEditing(v)}>
+                      Edit
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      onClick={async () => {
+                        await visitorsApi.remove(v.id);
+                        await qc.invalidateQueries({ queryKey: ["visitors"] });
+                        toast.success("Visitor removed");
+                      }}
+                    >
+                      Remove
+                    </Button>
+                  </div>
+                </div>
+              );
+            })}
             {!visitors.length ? <EmptyState title="No visitors yet" /> : null}
           </CardContent>
         </Card>
@@ -923,7 +1030,14 @@ export function MembersPage() {
                                         settings?.holdDurations || ["1 Month", "2 Months", "3 Months"]
                                       }
                                       onEdit={() => openEdit(m)}
-                                      onAddPayment={() => setPaymentFor(m)}
+                                      onAddPayment={() => {
+                                        setEditingPayment(null);
+                                        setPaymentFor(m);
+                                      }}
+                                      onEditPayment={(payment) => {
+                                        setEditingPayment(payment);
+                                        setPaymentFor(m);
+                                      }}
                                       onWhatsApp={(kind) => openWhatsApp(m, kind)}
                                       onWelcomeMail={() => openWelcomeMail(m)}
                                       onUploadDocument={(file) => void uploadMemberDocument(m, file)}
@@ -1176,36 +1290,37 @@ export function MembersPage() {
       ) : null}
 
       {paymentFor ? (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
-          <div className="w-full max-w-md rounded-2xl border bg-background p-6 shadow-2xl">
-            <h2 className="text-lg font-semibold">Record payment</h2>
-            <p className="text-sm text-muted-foreground">
-              {paymentFor.name} · plan {paymentFor.plan || "—"}
-            </p>
-            <div className="mt-4 space-y-3">
-              <div>
-                <Label>Amount</Label>
-                <Input className="mt-1" type="number" value={payForm.amount} onChange={(e) => setPayForm({ ...payForm, amount: e.target.value })} />
-              </div>
-              <div>
-                <Label>Method</Label>
-                <Select className="mt-1" value={payForm.method} onChange={(e) => setPayForm({ ...payForm, method: e.target.value })}>
-                  {(settings?.paymentMethods || ["Cash", "UPI", "Card", "Bank"]).map((m) => (
-                    <option key={m} value={m}>{m}</option>
-                  ))}
-                </Select>
-              </div>
-              <div>
-                <Label>Note</Label>
-                <Input className="mt-1" value={payForm.note} onChange={(e) => setPayForm({ ...payForm, note: e.target.value })} />
-              </div>
-            </div>
-            <div className="mt-6 flex justify-end gap-2">
-              <Button variant="outline" onClick={() => setPaymentFor(null)}>Cancel</Button>
-              <Button onClick={() => paymentMutation.mutate()} disabled={paymentMutation.isPending}>Save payment</Button>
-            </div>
-          </div>
-        </div>
+        <PaymentEntryModal
+          member={paymentFor}
+          payment={editingPayment}
+          paymentMethods={settings?.paymentMethods}
+          canDelete={isMasterOwnerUser(user)}
+          onClose={() => {
+            setPaymentFor(null);
+            setEditingPayment(null);
+          }}
+          onSaved={async () => {
+            setPaymentFor(null);
+            setEditingPayment(null);
+            await qc.invalidateQueries({ queryKey: ["members"] });
+            await qc.invalidateQueries({ queryKey: ["finance"] });
+          }}
+        />
+      ) : null}
+
+      {visitorEditing !== null ? (
+        <VisitorFormModal
+          visitor={visitorEditing === "new" ? null : visitorEditing}
+          saving={visitorSave.isPending}
+          genders={settings?.genders}
+          gymCodes={gymCodes}
+          lockBranchId={user?.activeBranchId || user?.gymCodeId}
+          canPickBranch={isMasterOwnerUser(user) || (gymCodes?.length || 0) > 1}
+          onClose={() => setVisitorEditing(null)}
+          onSave={async (values) => {
+            await visitorSave.mutateAsync(values);
+          }}
+        />
       ) : null}
 
       <MessagePreviewModal

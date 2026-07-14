@@ -11,7 +11,7 @@ import { Input, Label, Select } from "@/components/ui/input";
 import { StaffAvatar } from "@/components/staff-avatar";
 import { useGymCodes, useSettings, useUsers } from "@/hooks/use-data";
 import { useStaffPhotoHydration } from "@/hooks/use-staff-photo-hydration";
-import { usersApi } from "@/services/api";
+import { usersApi, settingsApi } from "@/services/api";
 import { adminSetPassword } from "@/services/api/auth";
 import { cn } from "@/lib/utils";
 import {
@@ -22,8 +22,10 @@ import {
   normalizeAccess,
   type RoleTemplate,
 } from "@/lib/domain/permissions";
+import { SECTION_ORDER } from "@/lib/nav";
 import { StaffSectionsAccessEditor } from "@/features/staff/staff-sections-access";
 import { useAuthStore } from "@/stores";
+import { captureHistoryFromCache } from "@/stores/history-store";
 import type { AccessMap, StaffUser } from "@/types";
 
 type StaffForm = {
@@ -78,6 +80,14 @@ export function StaffPage() {
   const [creating, setCreating] = useState(false);
   const [form, setForm] = useState<StaffForm>(EMPTY_FORM);
   const [formError, setFormError] = useState("");
+  const [templateDraft, setTemplateDraft] = useState<RoleTemplate | null>(null);
+  const [templateBusy, setTemplateBusy] = useState(false);
+
+  const persistTemplates = async (next: RoleTemplate[]) => {
+    captureHistoryFromCache(qc, "Role templates change");
+    await settingsApi.roleTemplates(next);
+    await qc.invalidateQueries({ queryKey: ["settings"] });
+  };
 
   const openCreate = (preset?: RoleTemplate) => {
     if (!canManage) return;
@@ -251,10 +261,159 @@ export function StaffPage() {
               <Button size="sm" variant="outline" className="w-full" onClick={() => openCreate(role)}>
                 Create Staff with this Role
               </Button>
+              {isOwner ? (
+                <div className="flex gap-1.5">
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    className="flex-1"
+                    onClick={() => setTemplateDraft({ ...role, sections: [...(role.sections || [])] })}
+                  >
+                    Edit
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    className="flex-1 text-rose-600"
+                    disabled={templateBusy}
+                    onClick={async () => {
+                      if (!window.confirm(`Delete role template “${role.title}”?`)) return;
+                      try {
+                        setTemplateBusy(true);
+                        await persistTemplates(roleTemplates.filter((r) => r.id !== role.id));
+                        toast.success("Role template deleted");
+                      } catch (e) {
+                        toast.error(e instanceof Error ? e.message : "Delete failed");
+                      } finally {
+                        setTemplateBusy(false);
+                      }
+                    }}
+                  >
+                    Delete
+                  </Button>
+                </div>
+              ) : null}
             </CardContent>
           </Card>
         ))}
+        {isOwner ? (
+          <Card className="border-dashed border-slate-300 shadow-none dark:border-border">
+            <CardContent className="flex h-full flex-col justify-center gap-2 p-4">
+              <p className="text-sm font-semibold">New role template</p>
+              <p className="text-[11px] text-muted-foreground">
+                Create reusable section presets for staff onboarding.
+              </p>
+              <Button
+                size="sm"
+                onClick={() =>
+                  setTemplateDraft({
+                    id: `role_${Date.now()}`,
+                    title: "",
+                    subtitle: "",
+                    sections: ["Dashboard", "Members"],
+                    color: "border-slate-200 bg-slate-50",
+                  })
+                }
+              >
+                <Plus className="h-4 w-4" /> Add Template
+              </Button>
+            </CardContent>
+          </Card>
+        ) : null}
       </div>
+
+      {templateDraft && isOwner ? (
+        <div className="fixed inset-0 z-[120] flex items-center justify-center bg-black/40 p-4">
+          <div className="w-full max-w-lg space-y-3 rounded-2xl border bg-background p-5 shadow-2xl">
+            <h3 className="text-base font-semibold">
+              {roleTemplates.some((r) => r.id === templateDraft.id)
+                ? "Edit Role Template"
+                : "Add Role Template"}
+            </h3>
+            <div>
+              <Label>Title</Label>
+              <Input
+                className="mt-1"
+                value={templateDraft.title}
+                onChange={(e) =>
+                  setTemplateDraft({ ...templateDraft, title: e.target.value })
+                }
+              />
+            </div>
+            <div>
+              <Label>Subtitle</Label>
+              <Input
+                className="mt-1"
+                value={templateDraft.subtitle || ""}
+                onChange={(e) =>
+                  setTemplateDraft({ ...templateDraft, subtitle: e.target.value })
+                }
+              />
+            </div>
+            <div>
+              <Label>Sections</Label>
+              <div className="mt-2 grid max-h-48 grid-cols-2 gap-2 overflow-y-auto rounded-xl border p-3 text-xs">
+                {SECTION_ORDER.map((sec) => {
+                  const on = (templateDraft.sections || []).includes(sec);
+                  return (
+                    <label key={sec} className="inline-flex items-center gap-2">
+                      <input
+                        type="checkbox"
+                        checked={on}
+                        onChange={() => {
+                          const cur = new Set(templateDraft.sections || []);
+                          if (on) cur.delete(sec);
+                          else cur.add(sec);
+                          setTemplateDraft({
+                            ...templateDraft,
+                            sections: SECTION_ORDER.filter((s) => cur.has(s)),
+                          });
+                        }}
+                      />
+                      {sec}
+                    </label>
+                  );
+                })}
+              </div>
+            </div>
+            <div className="flex justify-end gap-2">
+              <Button variant="outline" onClick={() => setTemplateDraft(null)}>
+                Cancel
+              </Button>
+              <Button
+                disabled={templateBusy}
+                onClick={async () => {
+                  if (!templateDraft.title.trim()) {
+                    toast.error("Title is required");
+                    return;
+                  }
+                  try {
+                    setTemplateBusy(true);
+                    const next = [
+                      ...roleTemplates.filter((r) => r.id !== templateDraft.id),
+                      {
+                        ...templateDraft,
+                        title: templateDraft.title.trim(),
+                        subtitle: String(templateDraft.subtitle || "").trim(),
+                        sections: templateDraft.sections || [],
+                      },
+                    ];
+                    await persistTemplates(next);
+                    toast.success("Role template saved");
+                    setTemplateDraft(null);
+                  } catch (e) {
+                    toast.error(e instanceof Error ? e.message : "Save failed");
+                  } finally {
+                    setTemplateBusy(false);
+                  }
+                }}
+              >
+                {templateBusy ? "Saving…" : "Save Template"}
+              </Button>
+            </div>
+          </div>
+        </div>
+      ) : null}
 
       <Card className="border-slate-200 shadow-sm dark:border-border">
         <CardContent className="overflow-x-auto p-0">
