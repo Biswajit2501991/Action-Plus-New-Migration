@@ -1,7 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import {
   applySettingsConfigJson,
+  buildSettingsAppConfigWrite,
   findActiveLookupDuplicate,
+  mergeSettingsBulkPatch,
   preserveNonEmptyLookups,
   shouldSkipLookupCategorySync,
   stripSettingsLookupKeys,
@@ -60,6 +62,54 @@ describe('applySettingsConfigJson', () => {
       config_json: {},
     });
     expect(settings.customTemplatesEnabled).toBeUndefined();
+  });
+});
+
+describe('mergeSettingsBulkPatch', () => {
+  it('preserves sibling feature flags when only one flag is patched', () => {
+    const merged = mergeSettingsBulkPatch(
+      {
+        attendanceNotesEnabled: true,
+        customTemplatesEnabled: true,
+        paymentQrInReminderEnabled: true,
+        medicalQuestionnaireTemplate: { version: 1 },
+        fineSmsEnabled: true,
+      },
+      { attendanceNotesEnabled: false },
+    );
+    expect(merged.attendanceNotesEnabled).toBe(false);
+    expect(merged.customTemplatesEnabled).toBe(true);
+    expect(merged.paymentQrInReminderEnabled).toBe(true);
+    expect(merged.medicalQuestionnaireTemplate).toEqual({ version: 1 });
+  });
+
+  it('keeps enabling a flag without clearing the other', () => {
+    const merged = mergeSettingsBulkPatch(
+      { attendanceNotesEnabled: false, customTemplatesEnabled: true },
+      { attendanceNotesEnabled: true },
+    );
+    expect(merged.attendanceNotesEnabled).toBe(true);
+    expect(merged.customTemplatesEnabled).toBe(true);
+  });
+});
+
+describe('buildSettingsAppConfigWrite', () => {
+  it('writes opt-in flags as true only when explicitly true after merge', () => {
+    const merged = mergeSettingsBulkPatch(
+      { customTemplatesEnabled: true, attendanceNotesEnabled: true },
+      { fineSmsGraceDays: 3 },
+    );
+    const row = buildSettingsAppConfigWrite(merged);
+    expect(row.config_json.customTemplatesEnabled).toBe(true);
+    expect(row.config_json.attendanceNotesEnabled).toBe(true);
+    expect(row.fine_sms_grace_days).toBe(3);
+  });
+
+  it('would have wiped flags without merge (regression guard)', () => {
+    const sparseOnly = { attendanceNotesEnabled: true };
+    const wiped = buildSettingsAppConfigWrite(sparseOnly);
+    expect(wiped.config_json.attendanceNotesEnabled).toBe(true);
+    expect(wiped.config_json.customTemplatesEnabled).toBe(false);
   });
 });
 

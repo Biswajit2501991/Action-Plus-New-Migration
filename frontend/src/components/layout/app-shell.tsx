@@ -53,7 +53,7 @@ function DesktopShell({ children }: { children: React.ReactNode }) {
     toggleFavorite,
     pushRecent,
   } = useUiStore();
-  const { theme, setTheme } = useTheme();
+  const { setTheme, resolvedTheme } = useTheme();
   const [fabHover, setFabHover] = useState(false);
 
   const brand = useMemo(
@@ -275,8 +275,9 @@ function DesktopShell({ children }: { children: React.ReactNode }) {
             <Button
               variant="ghost"
               size="icon"
-              onClick={() => setTheme(theme === "dark" ? "light" : "dark")}
-              aria-label="Toggle theme"
+              onClick={() => setTheme(resolvedTheme === "dark" ? "light" : "dark")}
+              aria-label="Toggle Day Night theme"
+              title="Toggle Day / Night (turns off Auto in Settings)"
             >
               <Sun className="h-4 w-4 dark:hidden" />
               <Moon className="hidden h-4 w-4 dark:block" />

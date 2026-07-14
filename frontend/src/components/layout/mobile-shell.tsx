@@ -43,7 +43,7 @@ export function MobileShell({ children }: { children: React.ReactNode }) {
   const { user, changeBranch, isAuthenticated } = useAuth();
   const { data: gymCodes } = useGymCodes();
   const { setCommandOpen, addMemberOpen, setAddMemberOpen } = useUiStore();
-  const { theme, setTheme } = useTheme();
+  const { setTheme, resolvedTheme } = useTheme();
 
   const brand = useMemo(
     () =>
@@ -87,8 +87,9 @@ export function MobileShell({ children }: { children: React.ReactNode }) {
             variant="ghost"
             size="icon"
             className="rounded-xl"
-            onClick={() => setTheme(theme === "dark" ? "light" : "dark")}
-            aria-label="Toggle theme"
+            onClick={() => setTheme(resolvedTheme === "dark" ? "light" : "dark")}
+            aria-label="Toggle Day Night theme"
+            title="Toggle Day / Night (turns off Auto in Settings)"
           >
             <Sun className="h-4 w-4 dark:hidden" />
             <Moon className="hidden h-4 w-4 dark:block" />

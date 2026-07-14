@@ -50,6 +50,40 @@ export function preserveNonEmptyLookups(incoming, existing) {
 }
 
 /**
+ * Settings bulk sends sparse patches (e.g. one feature flag). Merge onto the
+ * current row so omitted keys — especially opt-in flags in config_json — are
+ * not rewritten as false/null.
+ */
+export function mergeSettingsBulkPatch(existing, incoming) {
+  const ex = existing && typeof existing === 'object' ? existing : {};
+  const inc = incoming && typeof incoming === 'object' ? incoming : {};
+  return { ...ex, ...inc };
+}
+
+/** Build the settings_app_config.config_json + column payload from merged settings. */
+export function buildSettingsAppConfigWrite(s) {
+  const settings = s && typeof s === 'object' ? s : {};
+  return {
+    fine_sms_enabled: settings.fineSmsEnabled !== false,
+    fine_sms_grace_days: Number(settings.fineSmsGraceDays || 0),
+    fine_sms_immediate_roles_json: Array.isArray(settings.fineSmsImmediateRoles)
+      ? settings.fineSmsImmediateRoles
+      : [],
+    finance_use_estimated_expense: settings.financeUseEstimatedExpense !== false,
+    config_json: {
+      medicalQuestionnaireTemplate: settings.medicalQuestionnaireTemplate || null,
+      acknowledgementTemplate: settings.acknowledgementTemplate || null,
+      acknowledgementUnder18Template: settings.acknowledgementUnder18Template || null,
+      gmailWelcomeTemplate: settings.gmailWelcomeTemplate || null,
+      smsTemplatePresetVersion: settings.smsTemplatePresetVersion || null,
+      customTemplatesEnabled: settings.customTemplatesEnabled === true,
+      attendanceNotesEnabled: settings.attendanceNotesEnabled === true,
+      paymentQrInReminderEnabled: settings.paymentQrInReminderEnabled === true,
+    },
+  };
+}
+
+/**
  * Refuse to delete every row in a category when the payload sends an empty list
  * but the database still has active values (prevents accidental mass wipe).
  */

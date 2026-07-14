@@ -1,9 +1,10 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { useTheme } from "next-themes";
 import { toast } from "sonner";
-import { ChevronDown, ChevronUp, Settings2 } from "lucide-react";
+import { ChevronDown, ChevronUp, Moon, Settings2, Sun } from "lucide-react";
 import { PageHeader, Skeleton } from "@/components/ui/misc";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -13,6 +14,7 @@ import { useGymCodes, useSettings } from "@/hooks/use-data";
 import { gymCodesApi, settingsApi } from "@/services/api";
 import { resolveClientBranchBranding } from "@/lib/domain/branch-branding";
 import { hasAccess, isMasterOwnerUser } from "@/lib/domain/permissions";
+import { cn } from "@/lib/utils";
 import { useAuthStore } from "@/stores";
 import type { AppSettings, GymCode } from "@/types";
 
@@ -97,14 +99,123 @@ function lookupValues(settings: AppSettings | undefined, key: LookupKey) {
   return Array.isArray(raw) ? (raw as string[]) : [];
 }
 
+function AppearanceCard({
+  followSystemTheme,
+  activeAppearance,
+  themeReady,
+  resolvedTheme,
+  open,
+  onToggleOpen,
+  onFollowSystem,
+  onSetTheme,
+}: {
+  followSystemTheme: boolean;
+  activeAppearance: string;
+  themeReady: boolean;
+  resolvedTheme?: string;
+  open: boolean;
+  onToggleOpen: () => void;
+  onFollowSystem: (on: boolean) => void;
+  onSetTheme: (theme: string) => void;
+}) {
+  return (
+    <Card className="overflow-hidden border-slate-200 shadow-sm dark:border-border">
+      <button
+        type="button"
+        className="flex w-full items-center justify-between gap-2 border-b border-slate-100 bg-gradient-to-r from-slate-50 to-white px-4 py-3 text-left dark:border-border dark:from-muted/40 dark:to-card"
+        onClick={onToggleOpen}
+      >
+        <div className="flex items-center gap-2">
+          <Sun className="h-4 w-4 text-slate-500 dark:hidden" />
+          <Moon className="hidden h-4 w-4 text-slate-500 dark:block" />
+          <div>
+            <div className="text-sm font-semibold">Appearance</div>
+            <div className="text-xs text-muted-foreground">Day / Night theme for this device</div>
+          </div>
+        </div>
+        {open ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
+      </button>
+      {open ? (
+        <CardContent className="space-y-4 p-4">
+          <div className="flex items-start justify-between gap-4 rounded-2xl border border-slate-200 bg-white p-4 dark:border-border dark:bg-card">
+            <div className="min-w-0">
+              <h3 className="text-sm font-semibold">Auto Day / Night</h3>
+              <p className="mt-1 text-xs text-muted-foreground">
+                Match this laptop or phone’s system light/dark setting. When off, use Day/Night
+                below or the header button to pick manually.
+              </p>
+              <p className="mt-2 text-[11px] text-muted-foreground">
+                Currently showing{" "}
+                <span className="font-semibold text-foreground">{activeAppearance}</span>
+                {followSystemTheme ? " · following system" : " · manual"}
+              </p>
+            </div>
+            <button
+              type="button"
+              role="switch"
+              aria-checked={followSystemTheme}
+              aria-label="Auto Day Night from system"
+              disabled={!themeReady}
+              onClick={() => onFollowSystem(!followSystemTheme)}
+              className={cn(
+                "relative h-7 w-12 shrink-0 rounded-full transition-colors",
+                followSystemTheme
+                  ? "bg-slate-900 dark:bg-teal-600"
+                  : "bg-slate-300 dark:bg-slate-600",
+                !themeReady && "opacity-50",
+              )}
+            >
+              <span
+                className={cn(
+                  "absolute top-0.5 left-0.5 h-6 w-6 rounded-full bg-white shadow-sm transition-transform",
+                  followSystemTheme && "translate-x-5",
+                )}
+              />
+            </button>
+          </div>
+          {!followSystemTheme ? (
+            <div className="flex flex-wrap gap-2">
+              <Button
+                type="button"
+                variant={resolvedTheme === "light" ? "default" : "secondary"}
+                size="sm"
+                onClick={() => onSetTheme("light")}
+              >
+                <Sun className="h-3.5 w-3.5" />
+                Day
+              </Button>
+              <Button
+                type="button"
+                variant={resolvedTheme === "dark" ? "default" : "secondary"}
+                size="sm"
+                onClick={() => onSetTheme("dark")}
+              >
+                <Moon className="h-3.5 w-3.5" />
+                Night
+              </Button>
+            </div>
+          ) : null}
+        </CardContent>
+      ) : null}
+    </Card>
+  );
+}
+
 export function SettingsPage() {
   const user = useAuthStore((s) => s.user);
   const qc = useQueryClient();
   const { data: settings, isLoading } = useSettings();
   const { data: gymCodes = [], isLoading: gymLoading } = useGymCodes();
   const isOwner = isMasterOwnerUser(user);
+  const { theme, setTheme, resolvedTheme } = useTheme();
+  const [themeReady, setThemeReady] = useState(false);
+
+  useEffect(() => {
+    setThemeReady(true);
+  }, []);
 
   const [openCat, setOpenCat] = useState<Record<string, boolean>>({
+    appearance: true,
     branch: true,
     business: true,
     member: true,
@@ -115,6 +226,8 @@ export function SettingsPage() {
   const [brandingDrafts, setBrandingDrafts] = useState<Record<string, string>>({});
 
   const canFine = hasAccess(user, "settings", "manageFineRule");
+  const followSystemTheme = themeReady && theme === "system";
+  const activeAppearance = themeReady && resolvedTheme === "dark" ? "Night" : "Day";
 
   const flags = useMemo(
     () => ({
@@ -277,13 +390,50 @@ export function SettingsPage() {
     );
   };
 
-  if (isLoading) return <Skeleton className="h-96" />;
+  if (isLoading) {
+    return (
+      <div className="space-y-5">
+        <PageHeader
+          title="Settings"
+          description="Appearance, branches, lookups, Fine SMS rules, and feature flags."
+        />
+        <AppearanceCard
+          followSystemTheme={followSystemTheme}
+          activeAppearance={activeAppearance}
+          themeReady={themeReady}
+          resolvedTheme={resolvedTheme}
+          open={openCat.appearance !== false}
+          onToggleOpen={() => toggleCat("appearance")}
+          onFollowSystem={(on) => {
+            if (on) setTheme("system");
+            else setTheme(resolvedTheme === "dark" ? "dark" : "light");
+          }}
+          onSetTheme={setTheme}
+        />
+        <Skeleton className="h-96" />
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-5">
       <PageHeader
         title="Settings"
-        description="Branches, lookups, Fine SMS rules, and feature flags."
+        description="Appearance, branches, lookups, Fine SMS rules, and feature flags."
+      />
+
+      <AppearanceCard
+        followSystemTheme={followSystemTheme}
+        activeAppearance={activeAppearance}
+        themeReady={themeReady}
+        resolvedTheme={resolvedTheme}
+        open={openCat.appearance !== false}
+        onToggleOpen={() => toggleCat("appearance")}
+        onFollowSystem={(on) => {
+          if (on) setTheme("system");
+          else setTheme(resolvedTheme === "dark" ? "dark" : "light");
+        }}
+        onSetTheme={setTheme}
       />
 
       {/* Branch & System */}
