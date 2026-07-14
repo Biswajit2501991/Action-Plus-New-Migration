@@ -192,70 +192,75 @@ export function PtWorkoutTab({
         </div>
       </div>
 
-      <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
-        <div
-          className={cn(
-            reviewPending &&
-              "rounded-xl border border-amber-200 bg-amber-50/60 p-2 dark:border-amber-700/50 dark:bg-amber-950/25",
-          )}
-        >
-          <div className="flex flex-wrap items-center justify-between gap-2">
+      <div
+        className={cn(
+          "space-y-2",
+          reviewPending &&
+            "rounded-xl border border-amber-200 bg-amber-50/60 p-2 dark:border-amber-700/50 dark:bg-amber-950/25",
+        )}
+      >
+        <div className="grid grid-cols-1 items-end gap-3 sm:grid-cols-2">
+          <div className="space-y-1.5">
             <Label
               htmlFor="pt-workout-date-input"
-              className={cn(reviewPending && "text-amber-800 dark:text-amber-200")}
+              className={cn(
+                "block min-h-5 leading-5",
+                reviewPending && "text-amber-800 dark:text-amber-200",
+              )}
             >
               Workout Date
               {reviewPending ? (
                 <span className="ml-1.5 text-xs font-semibold text-amber-700 dark:text-amber-300">
-                  — Review Workout Date
+                  — Review
                 </span>
               ) : null}
             </Label>
-            {reviewPending ? (
-              <Button
-                type="button"
-                size="sm"
-                variant="outline"
-                className="border-amber-300 text-amber-800"
-                onClick={onConfirmReview}
-              >
-                Use this date
-              </Button>
-            ) : null}
+            <Input
+              id="pt-workout-date-input"
+              type="date"
+              value={workoutDate}
+              onChange={(e) => handleWorkoutDateChange(e.target.value)}
+              disabled={!canEdit}
+            />
           </div>
-          <Input
-            id="pt-workout-date-input"
-            type="date"
-            className="mt-1"
-            value={workoutDate}
-            onChange={(e) => handleWorkoutDateChange(e.target.value)}
-            disabled={!canEdit}
-          />
-          <p className="mt-1.5 text-[11px] text-muted-foreground">
-            Calendar month follows this date. Change it to jump the scheduler, then Save a focus.
-          </p>
-          {reviewPending ? (
-            <p className="mt-1.5 text-xs font-medium text-amber-700 dark:text-amber-300" role="status">
+          <div className="space-y-1.5">
+            <Label htmlFor="pt-assigned-trainer" className="block min-h-5 leading-5">
+              Assigned Trainer
+            </Label>
+            <Select
+              id="pt-assigned-trainer"
+              value={profile.trainerId || ""}
+              onChange={(e) => onPersistTrainer(e.target.value)}
+              disabled={!canEdit}
+            >
+              <option value="">Select trainer</option>
+              {trainers.map((t) => (
+                <option key={t.id} value={t.id}>
+                  {t.name || t.id}
+                </option>
+              ))}
+            </Select>
+          </div>
+        </div>
+        <p className="text-[11px] text-muted-foreground">
+          Calendar month follows Workout Date. Change it to jump the scheduler, then Save a focus.
+        </p>
+        {reviewPending ? (
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <p className="text-xs font-medium text-amber-700 dark:text-amber-300" role="status">
               You switched PT client. Confirm this workout date still applies to the new client.
             </p>
-          ) : null}
-        </div>
-        <div>
-          <Label>Assigned Trainer</Label>
-          <Select
-            className="mt-1"
-            value={profile.trainerId || ""}
-            onChange={(e) => onPersistTrainer(e.target.value)}
-            disabled={!canEdit}
-          >
-            <option value="">Select trainer</option>
-            {trainers.map((t) => (
-              <option key={t.id} value={t.id}>
-                {t.name || t.id}
-              </option>
-            ))}
-          </Select>
-        </div>
+            <Button
+              type="button"
+              size="sm"
+              variant="outline"
+              className="shrink-0 border-amber-300 text-amber-800"
+              onClick={onConfirmReview}
+            >
+              Use this date
+            </Button>
+          </div>
+        ) : null}
       </div>
 
       <div className="space-y-3 rounded-xl border border-border bg-card p-3">
