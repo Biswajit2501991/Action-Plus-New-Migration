@@ -75,42 +75,36 @@ export function LoginForm() {
 
   return (
     <div
-      className="relative flex min-h-screen items-center justify-center overflow-hidden px-4 py-10"
+      className="relative flex min-h-[100dvh] min-h-screen items-center justify-center overflow-hidden px-4 py-10"
       style={{
         fontFamily: "var(--font-login-sans), ui-sans-serif, system-ui, sans-serif",
       }}
     >
-      {/* Atmospheric full-bleed plane */}
-      <div className="pointer-events-none absolute inset-0 bg-[#070b12]" />
-      <div
-        className="pointer-events-none absolute inset-0 opacity-90"
-        style={{
-          background:
-            "radial-gradient(ellipse 80% 55% at 15% 10%, rgba(20,184,166,0.28), transparent 55%), radial-gradient(ellipse 70% 50% at 90% 85%, rgba(14,116,144,0.22), transparent 50%), radial-gradient(ellipse 50% 40% at 50% 50%, rgba(15,23,42,0.5), transparent 70%)",
-        }}
-      />
-      <div
-        className="login-ambient pointer-events-none absolute -left-1/4 top-[-20%] h-[70vh] w-[70vw] rounded-full bg-teal-500/15 blur-3xl"
-        aria-hidden
-      />
-      <div
-        className="login-ambient-delay pointer-events-none absolute -right-1/4 bottom-[-10%] h-[55vh] w-[55vw] rounded-full bg-cyan-600/10 blur-3xl"
-        aria-hidden
-      />
-      <div
-        className="pointer-events-none absolute inset-0 opacity-[0.07]"
-        style={{
-          backgroundImage:
-            "linear-gradient(rgba(255,255,255,0.06) 1px, transparent 1px), linear-gradient(90deg, rgba(255,255,255,0.06) 1px, transparent 1px)",
-          backgroundSize: "64px 64px",
-          maskImage: "radial-gradient(ellipse at center, black 20%, transparent 75%)",
-        }}
-        aria-hidden
-      />
+      {/* Full-screen floating colour field */}
+      <div className="login-colour-stage pointer-events-none fixed inset-0" aria-hidden>
+        <div className="absolute inset-0 bg-[#05080f]" />
+        <div className="login-colour-wash absolute inset-0" />
+        <span className="login-orb login-orb-a" />
+        <span className="login-orb login-orb-b" />
+        <span className="login-orb login-orb-c" />
+        <span className="login-orb login-orb-d" />
+        <span className="login-orb login-orb-e" />
+        <span className="login-orb login-orb-f" />
+        <span className="login-orb login-orb-g" />
+        <span className="login-orb login-orb-h" />
+        <div
+          className="absolute inset-0 opacity-[0.05]"
+          style={{
+            backgroundImage:
+              "linear-gradient(rgba(255,255,255,0.08) 1px, transparent 1px), linear-gradient(90deg, rgba(255,255,255,0.08) 1px, transparent 1px)",
+            backgroundSize: "80px 80px",
+          }}
+        />
+      </div>
 
       <form
         onSubmit={onSubmit}
-        className="login-panel relative w-full max-w-[420px] rounded-[1.75rem] border border-white/10 bg-white/[0.06] p-8 shadow-[0_30px_80px_-20px_rgba(0,0,0,0.65)] backdrop-blur-2xl sm:p-9"
+        className="login-panel relative z-10 w-full max-w-[420px] rounded-[1.75rem] border border-white/12 bg-white/[0.08] p-8 shadow-[0_40px_100px_-28px_rgba(0,0,0,0.75),0_0_80px_-20px_rgba(45,212,191,0.35)] backdrop-blur-2xl sm:p-9"
       >
         <div className="flex flex-col items-center text-center">
           <div className="login-logo relative h-[4.5rem] w-[4.5rem] overflow-hidden rounded-full ring-1 ring-teal-300/30 shadow-[0_0_40px_-8px_rgba(45,212,191,0.55)]">
