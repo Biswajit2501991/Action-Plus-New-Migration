@@ -1,9 +1,9 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { Fragment, useMemo, useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
-import { Camera, Plus } from "lucide-react";
+import { Camera, ChevronDown, ChevronUp, Eye, EyeOff, Plus } from "lucide-react";
 import { PageHeader, Badge, Skeleton, EmptyState } from "@/components/ui/misc";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -13,7 +13,7 @@ import { PhotoSourcePickerModal } from "@/features/members/member-photo-modals";
 import { useGymCodes, useUsers } from "@/hooks/use-data";
 import { useStaffPhotoHydration } from "@/hooks/use-staff-photo-hydration";
 import { compressMemberPhotoFile } from "@/lib/domain/member-photo-compress";
-import { usersApi } from "@/services/api";
+import { logsApi, usersApi } from "@/services/api";
 import { adminSetPassword } from "@/services/api/auth";
 import {
   DEFAULT_ACCESS,
@@ -25,7 +25,7 @@ import {
 import { StaffSectionsAccessEditor } from "@/features/staff/staff-sections-access";
 import { RoleTemplatesPanel } from "@/features/staff/role-templates-panel";
 import { useAuthStore } from "@/stores";
-import type { AccessMap, StaffUser } from "@/types";
+import type { AccessMap, GymCode, StaffUser } from "@/types";
 
 type StaffForm = {
   id: string;
@@ -34,6 +34,7 @@ type StaffForm = {
   password: string;
   staffRole: "staff" | "branch_owner";
   gymCodeId: string;
+  assignedBranchIds: string[];
   sections: string[];
   blocked: boolean;
   access: AccessMap;
@@ -48,16 +49,56 @@ const EMPTY_FORM: StaffForm = {
   password: "",
   staffRole: "staff",
   gymCodeId: "",
+  assignedBranchIds: [],
   sections: ["Dashboard", "Members"],
   blocked: false,
   access: normalizeAccess(DEFAULT_ACCESS),
   photoDataUrl: "",
 };
 
-function gymLabel(code: { code?: string; name?: string; label?: string; id?: string }) {
-  return code.code
-    ? `${code.code}${code.name || code.label ? ` / ${code.name || code.label}` : ""}`
-    : code.name || code.label || code.id || "—";
+function gymLabel(code: {
+  code?: string;
+  name?: string;
+  label?: string;
+  branchName?: string;
+  id?: string;
+}) {
+  const name = code.name || code.label || code.branchName;
+  return code.code ? `${code.code}${name ? ` / ${name}` : ""}` : name || code.id || "—";
+}
+
+function staffPasswordDisplay(u: StaffUser, shown: boolean) {
+  const plain = String(u.password || "").trim();
+  if (!shown) return "••••••••";
+  if (plain) return plain;
+  if (u.hasPassword) return "(set — save a new password to view)";
+  return "(not set)";
+}
+
+function staffAssignedIds(u: StaffUser): string[] {
+  if (Array.isArray(u.assignedBranchIds) && u.assignedBranchIds.length) {
+    return u.assignedBranchIds.map((id) => String(id || "").trim()).filter(Boolean);
+  }
+  const single = String(u.gymCodeId || u.homeBranchId || "").trim();
+  return single ? [single] : [];
+}
+
+function staffBranchesSummary(u: StaffUser, gymCodes: GymCode[]) {
+  const ids = staffAssignedIds(u);
+  if (!ids.length) return "—";
+  return ids
+    .map((id) => {
+      const g = gymCodes.find((c) => String(c.id) === String(id));
+      return g ? gymLabel(g) : id;
+    })
+    .join(", ");
+}
+
+function staffRoleLabel(u: StaffUser) {
+  const r = String(u.staffRole || u.role || "staff").toLowerCase();
+  if (u.id === "owner" || r === "master_owner") return "Master";
+  if (r === "branch_owner") return "Branch Owner";
+  return "Staff";
 }
 
 export function StaffPage() {
@@ -75,6 +116,9 @@ export function StaffPage() {
   const [form, setForm] = useState<StaffForm>(EMPTY_FORM);
   const [formError, setFormError] = useState("");
   const [photoPickerOpen, setPhotoPickerOpen] = useState(false);
+  const [shownPasswords, setShownPasswords] = useState<Record<string, boolean>>({});
+  const [showEditCurrentPassword, setShowEditCurrentPassword] = useState(false);
+  const [expandedStaffId, setExpandedStaffId] = useState<string | null>(null);
 
   const editingUser = useMemo(
     () => (editingId ? users.find((u) => u.id === editingId) || null : null),
@@ -93,14 +137,47 @@ export function StaffPage() {
     return editingUser;
   }, [editingUser, form.photoDataUrl, form.id, form.name]);
 
+  const showOwnerMultiBranch =
+    isOwner && (creating ? form.id.trim() !== "owner" : editingId !== "owner");
+
+  const toggleShowPassword = (u: StaffUser) => {
+    const nextShown = !shownPasswords[u.id];
+    setShownPasswords((prev) => ({ ...prev, [u.id]: nextShown }));
+    void logsApi
+      .create({
+        action: "staff.password.view_toggled",
+        entityType: "user",
+        entityId: u.id,
+        meta: { shown: nextShown },
+      })
+      .catch(() => {});
+  };
+
+  const toggleAssignedBranch = (branchId: string) => {
+    const id = String(branchId || "").trim();
+    if (!id) return;
+    setForm((prev) => {
+      const current = Array.isArray(prev.assignedBranchIds) ? [...prev.assignedBranchIds] : [];
+      const has = current.includes(id);
+      const nextIds = has ? current.filter((x) => x !== id) : [...current, id];
+      let nextGym = prev.gymCodeId;
+      if (!nextIds.length) nextGym = "";
+      else if (!nextIds.includes(String(prev.gymCodeId || ""))) nextGym = nextIds[0];
+      return { ...prev, assignedBranchIds: nextIds, gymCodeId: nextGym };
+    });
+  };
+
   const openCreate = (preset?: RoleTemplate) => {
     if (!canManage) return;
+    const defaultBranch = String(user?.gymCodeId || gymCodes[0]?.id || "");
     setCreating(true);
     setEditingId(null);
     setFormError("");
+    setShowEditCurrentPassword(false);
     setForm({
       ...EMPTY_FORM,
-      gymCodeId: String(user?.gymCodeId || gymCodes[0]?.id || ""),
+      gymCodeId: defaultBranch,
+      assignedBranchIds: defaultBranch ? [defaultBranch] : [],
       sections: preset?.sections?.length ? [...preset.sections] : EMPTY_FORM.sections,
       access: normalizeAccess(DEFAULT_ACCESS),
     });
@@ -108,16 +185,20 @@ export function StaffPage() {
 
   const openEdit = (u: StaffUser) => {
     if (!canManage) return;
+    const assigned = staffAssignedIds(u);
+    const defaultBranch = String(u.gymCodeId || assigned[0] || "");
     setCreating(false);
     setEditingId(u.id);
     setFormError("");
+    setShowEditCurrentPassword(false);
     setForm({
       id: u.id,
       name: u.name || "",
       email: u.email || "",
       password: "",
       staffRole: u.staffRole === "branch_owner" ? "branch_owner" : "staff",
-      gymCodeId: String(u.gymCodeId || u.homeBranchId || ""),
+      gymCodeId: defaultBranch,
+      assignedBranchIds: assigned.length ? assigned : defaultBranch ? [defaultBranch] : [],
       sections: Array.isArray(u.sections) ? [...u.sections] : [],
       blocked: Boolean(u.blocked),
       access: normalizeAccess(u.access),
@@ -131,6 +212,7 @@ export function StaffPage() {
     setFormError("");
     setForm(EMPTY_FORM);
     setPhotoPickerOpen(false);
+    setShowEditCurrentPassword(false);
   };
 
   const save = useMutation({
@@ -145,15 +227,41 @@ export function StaffPage() {
         throw new Error("A staff member with this username already exists.");
       }
       if (!form.sections.length) throw new Error("Please select at least one section.");
-      if (id !== "owner" && !form.gymCodeId) {
-        throw new Error("Please assign this staff member to a gym branch.");
-      }
 
       const before = editingId ? users.find((u) => u.id === editingId) : null;
       const staffRole =
         id === "owner" ? "master_owner" : isOwner ? form.staffRole : "staff";
-      const gymCodeId = id === "owner" ? null : form.gymCodeId;
-      const assignedBranchIds = gymCodeId ? [String(gymCodeId)] : [];
+
+      const formBranchIds = (Array.isArray(form.assignedBranchIds) ? form.assignedBranchIds : [])
+        .map((x) => String(x || "").trim())
+        .filter(Boolean);
+
+      let assignedBranchIds: string[] = [];
+      let gymCodeId: string | null = form.gymCodeId || before?.gymCodeId || null;
+
+      if (id === "owner") {
+        assignedBranchIds = [];
+        gymCodeId = null;
+      } else if (staffRole === "branch_owner") {
+        assignedBranchIds = formBranchIds;
+        if (!assignedBranchIds.length) {
+          throw new Error("Branch Owner must be assigned to at least one gym branch.");
+        }
+        if (!gymCodeId || !assignedBranchIds.includes(String(gymCodeId))) {
+          gymCodeId = assignedBranchIds[0];
+        }
+      } else if (isOwner && formBranchIds.length > 0) {
+        assignedBranchIds = formBranchIds;
+        if (!gymCodeId || !assignedBranchIds.includes(String(gymCodeId))) {
+          gymCodeId = assignedBranchIds[0];
+        }
+      } else {
+        assignedBranchIds = gymCodeId ? [String(gymCodeId)] : [];
+      }
+
+      if (id !== "owner" && !gymCodeId) {
+        throw new Error("Please assign this staff member to a gym branch (gym code).");
+      }
 
       const updatedUser: StaffUser = {
         ...(before || {}),
@@ -223,32 +331,35 @@ export function StaffPage() {
           ? "Staff deleted"
           : deactivated
             ? "Staff deactivated (has history)"
-            : "No changes",
+            : "No staff removed",
       );
       await qc.invalidateQueries({ queryKey: ["users"] });
     },
     onError: (e: Error) => toast.error(e.message),
   });
 
-  if (isLoading) return <Skeleton className="h-96 w-full" />;
-
-  if (!canManage) {
+  if (isLoading) {
     return (
-      <div className="rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-800">
-        Staff management is limited to owners and branch owners.
+      <div className="space-y-4 p-4 md:p-6">
+        <Skeleton className="h-10 w-64" />
+        <Skeleton className="h-64 w-full" />
       </div>
     );
   }
 
+  const colSpan = (isOwner ? 5 : 4) + 1;
+
   return (
-    <div className="space-y-5">
+    <div className="mx-auto max-w-7xl space-y-4 p-4 md:p-6">
       <PageHeader
         title="Staff"
         description="Roles, branch assignment, section access, and staff accounts."
         actions={
-          <Button onClick={() => openCreate()}>
-            <Plus className="h-4 w-4" /> Add Staff
-          </Button>
+          canManage ? (
+            <Button onClick={() => openCreate()}>
+              <Plus className="h-4 w-4" /> Add Staff
+            </Button>
+          ) : null
         }
       />
 
@@ -260,84 +371,166 @@ export function StaffPage() {
             <thead>
               <tr className="bg-slate-50 text-left text-xs text-slate-600 dark:bg-muted dark:text-muted-foreground">
                 <th className="px-4 py-3 font-semibold">Staff</th>
+                {isOwner ? <th className="px-4 py-3 font-semibold">Password</th> : null}
                 <th className="px-4 py-3 font-semibold">Role</th>
-                <th className="px-4 py-3 font-semibold">Branch</th>
-                <th className="px-4 py-3 font-semibold">Sections</th>
+                <th className="px-4 py-3 font-semibold">Branches</th>
                 <th className="px-4 py-3 font-semibold">Status</th>
-                <th className="px-4 py-3 font-semibold">Actions</th>
+                <th className="px-4 py-3 font-semibold">More</th>
               </tr>
             </thead>
             <tbody>
               {users.map((u) => {
-                const branch = gymCodes.find(
-                  (g) => String(g.id) === String(u.gymCodeId || u.homeBranchId || ""),
-                );
+                const shown = Boolean(shownPasswords[u.id]);
+                const expanded = expandedStaffId === u.id;
+                const branchesLabel = staffBranchesSummary(u, gymCodes);
                 return (
-                  <tr key={u.id} className="border-t border-slate-100 dark:border-border">
-                    <td className="px-4 py-3">
-                      <div className="flex items-center gap-2">
-                        <StaffAvatar user={u} className="h-8 w-8 text-[10px]" />
-                        <div>
-                          <div className="font-medium">{u.name || u.id}</div>
-                          <div className="text-xs text-muted-foreground">
-                            {u.id}
-                            {u.email ? ` · ${u.email}` : ""}
-                          </div>
+                  <Fragment key={u.id}>
+                    <tr className="border-t border-slate-100 dark:border-border">
+                      <td className="px-4 py-3">
+                        <div className="flex min-w-0 items-center gap-2 whitespace-nowrap">
+                          <StaffAvatar user={u} className="h-8 w-8 shrink-0 text-[10px]" />
+                          <span className="truncate font-medium text-slate-900 dark:text-slate-50">
+                            {u.name || u.id}
+                            <span className="font-normal text-muted-foreground">
+                              {" "}
+                              · {u.id}
+                              {u.email ? ` · ${u.email}` : ""}
+                            </span>
+                          </span>
                         </div>
-                      </div>
-                    </td>
-                    <td className="px-4 py-3 whitespace-nowrap">
-                      {u.staffRole || u.role || "staff"}
-                    </td>
-                    <td className="px-4 py-3 whitespace-nowrap text-xs">
-                      {branch ? gymLabel(branch) : u.gymCodeId || "—"}
-                    </td>
-                    <td className="max-w-[220px] truncate px-4 py-3 text-xs text-muted-foreground">
-                      {(u.sections || []).join(", ") || "—"}
-                    </td>
-                    <td className="px-4 py-3">
-                      <Badge variant={u.blocked ? "danger" : "success"}>
-                        {u.blocked ? "Blocked" : "Active"}
-                      </Badge>
-                    </td>
-                    <td className="px-4 py-3">
-                      <div className="flex flex-wrap gap-1.5">
-                        <Button size="sm" variant="outline" onClick={() => openEdit(u)}>
-                          Edit
+                      </td>
+                      {isOwner ? (
+                        <td className="px-4 py-3 whitespace-nowrap">
+                          <div className="flex items-center gap-2">
+                            <span className="font-mono text-xs text-slate-800 dark:text-slate-200">
+                              {staffPasswordDisplay(u, shown)}
+                            </span>
+                            <button
+                              type="button"
+                              className="inline-flex items-center gap-1 text-xs font-medium text-indigo-600 hover:underline dark:text-indigo-300"
+                              onClick={() => toggleShowPassword(u)}
+                            >
+                              {shown ? (
+                                <EyeOff className="h-3.5 w-3.5" />
+                              ) : (
+                                <Eye className="h-3.5 w-3.5" />
+                              )}
+                              {shown ? "Hide" : "Show"}
+                            </button>
+                          </div>
+                        </td>
+                      ) : null}
+                      <td className="px-4 py-3 whitespace-nowrap text-xs">{staffRoleLabel(u)}</td>
+                      <td
+                        className="max-w-[14rem] truncate px-4 py-3 text-xs text-slate-700 dark:text-slate-300"
+                        title={branchesLabel}
+                      >
+                        {branchesLabel}
+                      </td>
+                      <td className="px-4 py-3">
+                        <Badge variant={u.blocked ? "danger" : "success"}>
+                          {u.blocked ? "Blocked" : "Active"}
+                        </Badge>
+                      </td>
+                      <td className="px-4 py-3">
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          className="h-8 gap-1"
+                          onClick={() =>
+                            setExpandedStaffId((prev) => (prev === u.id ? null : u.id))
+                          }
+                          aria-expanded={expanded}
+                        >
+                          {expanded ? (
+                            <ChevronUp className="h-3.5 w-3.5" />
+                          ) : (
+                            <ChevronDown className="h-3.5 w-3.5" />
+                          )}
+                          {expanded ? "Less" : "More"}
                         </Button>
-                        {isOwner && u.id !== "owner" ? (
-                          <>
-                            <Button
-                              size="sm"
-                              variant="outline"
-                              onClick={() => toggleBlock.mutate(u)}
-                            >
-                              {u.blocked ? "Unblock" : "Block"}
-                            </Button>
-                            <Button
-                              size="sm"
-                              variant="ghost"
-                              className="text-rose-700"
-                              onClick={() => {
-                                if (confirm(`Delete or deactivate ${u.name || u.id}?`)) {
-                                  removeStaff.mutate(u);
-                                }
-                              }}
-                            >
-                              Delete
-                            </Button>
-                          </>
-                        ) : null}
-                      </div>
-                    </td>
-                  </tr>
+                      </td>
+                    </tr>
+                    {expanded ? (
+                      <tr className="border-t border-slate-100 bg-slate-50/70 dark:border-border dark:bg-white/[0.03]">
+                        <td colSpan={colSpan} className="px-4 py-3">
+                          <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                            <div className="min-w-0 space-y-1 text-xs text-slate-600 dark:text-slate-300">
+                              <p>
+                                <span className="font-medium text-slate-800 dark:text-slate-100">
+                                  Email:{" "}
+                                </span>
+                                {u.email || "—"}
+                              </p>
+                              <p>
+                                <span className="font-medium text-slate-800 dark:text-slate-100">
+                                  Sections:{" "}
+                                </span>
+                                {(u.sections || []).join(", ") || "—"}
+                              </p>
+                              <p>
+                                <span className="font-medium text-slate-800 dark:text-slate-100">
+                                  Assigned branches:{" "}
+                                </span>
+                                {branchesLabel}
+                              </p>
+                              <p>
+                                <span className="font-medium text-slate-800 dark:text-slate-100">
+                                  Default branch at login:{" "}
+                                </span>
+                                {(() => {
+                                  const g = gymCodes.find(
+                                    (c) => String(c.id) === String(u.gymCodeId || ""),
+                                  );
+                                  return g ? gymLabel(g) : u.gymCodeId || "—";
+                                })()}
+                              </p>
+                            </div>
+                            <div className="flex flex-wrap gap-1.5">
+                              {canManage ? (
+                                <Button size="sm" variant="outline" onClick={() => openEdit(u)}>
+                                  Edit
+                                </Button>
+                              ) : null}
+                              {isOwner && u.id !== "owner" ? (
+                                <>
+                                  <Button
+                                    size="sm"
+                                    variant="outline"
+                                    onClick={() => toggleBlock.mutate(u)}
+                                  >
+                                    {u.blocked ? "Unblock" : "Block"}
+                                  </Button>
+                                  <Button
+                                    size="sm"
+                                    variant="ghost"
+                                    className="text-rose-700"
+                                    onClick={() => {
+                                      if (confirm(`Delete or deactivate ${u.name || u.id}?`)) {
+                                        removeStaff.mutate(u);
+                                      }
+                                    }}
+                                  >
+                                    Delete
+                                  </Button>
+                                </>
+                              ) : null}
+                            </div>
+                          </div>
+                        </td>
+                      </tr>
+                    ) : null}
+                  </Fragment>
                 );
               })}
             </tbody>
           </table>
           {!users.length ? (
             <div className="p-6">
-              <EmptyState title="No staff found" description="Create a staff account to get started." />
+              <EmptyState
+                title="No staff found"
+                description="Create a staff account to get started."
+              />
             </div>
           ) : null}
         </CardContent>
@@ -357,7 +550,7 @@ export function StaffPage() {
                   {creating ? "Add Staff" : `Edit · ${editingId}`}
                 </h2>
                 <p className="text-sm text-muted-foreground">
-                  Username, branch, sections, and optional password.
+                  Username, branches, sections, and optional password.
                 </p>
               </div>
               <Button size="sm" variant="ghost" onClick={closeModal}>
@@ -424,7 +617,39 @@ export function StaffPage() {
                     type="password"
                     value={form.password}
                     onChange={(e) => setForm((f) => ({ ...f, password: e.target.value }))}
+                    autoComplete="new-password"
                   />
+                  {!creating && isOwner && editingUser ? (
+                    <div className="mt-2 flex items-center gap-2 rounded-lg border border-slate-200 bg-slate-50 px-2.5 py-1.5 text-xs dark:border-white/10 dark:bg-white/[0.03]">
+                      <span className="text-muted-foreground">Current:</span>
+                      <span className="font-mono text-slate-800 dark:text-slate-200">
+                        {staffPasswordDisplay(editingUser, showEditCurrentPassword)}
+                      </span>
+                      <button
+                        type="button"
+                        className="ml-auto inline-flex items-center gap-1 font-medium text-indigo-600 hover:underline dark:text-indigo-300"
+                        onClick={() => {
+                          const next = !showEditCurrentPassword;
+                          setShowEditCurrentPassword(next);
+                          void logsApi
+                            .create({
+                              action: "staff.password.view_toggled",
+                              entityType: "user",
+                              entityId: editingUser.id,
+                              meta: { shown: next, source: "edit-modal" },
+                            })
+                            .catch(() => {});
+                        }}
+                      >
+                        {showEditCurrentPassword ? (
+                          <EyeOff className="h-3.5 w-3.5" />
+                        ) : (
+                          <Eye className="h-3.5 w-3.5" />
+                        )}
+                        {showEditCurrentPassword ? "Hide" : "Show"}
+                      </button>
+                    </div>
+                  ) : null}
                 </div>
                 <div>
                   <Label>Name</Label>
@@ -442,40 +667,147 @@ export function StaffPage() {
                     onChange={(e) => setForm((f) => ({ ...f, email: e.target.value }))}
                   />
                 </div>
+                {isOwner && showOwnerMultiBranch ? (
+                  <div className="md:col-span-2">
+                    <Label>Access role</Label>
+                    <Select
+                      className="mt-1"
+                      value={form.staffRole}
+                      onChange={(e) => {
+                        const nextRole = e.target.value as "staff" | "branch_owner";
+                        setForm((prev) => {
+                          const branch = prev.gymCodeId || String(gymCodes[0]?.id || "");
+                          const assigned = Array.isArray(prev.assignedBranchIds)
+                            ? [...prev.assignedBranchIds]
+                            : [];
+                          if (nextRole === "branch_owner") {
+                            const nextAssigned = assigned.length
+                              ? assigned
+                              : branch
+                                ? [branch]
+                                : [];
+                            return {
+                              ...prev,
+                              staffRole: nextRole,
+                              assignedBranchIds: nextAssigned,
+                              gymCodeId: nextAssigned.includes(prev.gymCodeId)
+                                ? prev.gymCodeId
+                                : nextAssigned[0] || "",
+                            };
+                          }
+                          const single = branch || assigned[0] || "";
+                          return {
+                            ...prev,
+                            staffRole: "staff",
+                            gymCodeId: single,
+                            assignedBranchIds:
+                              assigned.length > 1 ? assigned : single ? [single] : [],
+                          };
+                        });
+                      }}
+                    >
+                      <option value="staff">Staff</option>
+                      <option value="branch_owner">Branch Owner (admin)</option>
+                    </Select>
+                    <p className="mt-1 text-xs text-muted-foreground">
+                      Use checkboxes below for multi-branch access. Branch Owner can manage staff
+                      in assigned branches.
+                    </p>
+                  </div>
+                ) : null}
+              </div>
+
+              {showOwnerMultiBranch ? (
+                <div className="space-y-3">
+                  <div>
+                    <Label>
+                      Assigned branches <span className="text-rose-500">*</span>
+                    </Label>
+                    <div
+                      className="mt-1 max-h-40 space-y-2 overflow-y-auto rounded-xl border border-slate-300 bg-white p-2 dark:border-border dark:bg-background"
+                      data-testid="staff-assigned-branches"
+                    >
+                      {gymCodes.map((c) => (
+                        <label
+                          key={c.id}
+                          className="flex items-center gap-2 text-sm text-slate-800 dark:text-slate-100"
+                        >
+                          <input
+                            type="checkbox"
+                            checked={form.assignedBranchIds.includes(String(c.id))}
+                            onChange={() => toggleAssignedBranch(String(c.id))}
+                          />
+                          <span>{gymLabel(c)}</span>
+                        </label>
+                      ))}
+                      {!gymCodes.length ? (
+                        <p className="px-1 py-2 text-xs text-muted-foreground">No gym codes yet.</p>
+                      ) : null}
+                    </div>
+                    <p className="mt-1 text-xs text-muted-foreground">
+                      Select one or more branches. Staff with multiple branches can switch from the
+                      top-right profile menu after login.
+                    </p>
+                  </div>
+                  <div>
+                    <Label>
+                      Default branch at login <span className="text-rose-500">*</span>
+                    </Label>
+                    <Select
+                      className="mt-1"
+                      value={form.gymCodeId}
+                      onChange={(e) => setForm((f) => ({ ...f, gymCodeId: e.target.value }))}
+                      data-testid="staff-gym-code-select"
+                      required
+                    >
+                      <option value="">Select default branch…</option>
+                      {form.assignedBranchIds.map((branchId) => {
+                        const c = gymCodes.find((g) => String(g.id) === String(branchId));
+                        if (!c) return null;
+                        return (
+                          <option key={c.id} value={String(c.id)}>
+                            {gymLabel(c)}
+                          </option>
+                        );
+                      })}
+                    </Select>
+                    <p className="mt-1 text-xs text-muted-foreground">
+                      Which branch they land on after login. They can still switch to any assigned
+                      branch from the top-right menu.
+                    </p>
+                  </div>
+                </div>
+              ) : editingId !== "owner" && !(creating && form.id.trim() === "owner") ? (
                 <div>
-                  <Label>Gym Branch</Label>
+                  <Label>
+                    Gym Branch (Gym Code) <span className="text-rose-500">*</span>
+                  </Label>
                   <Select
                     className="mt-1"
                     value={form.gymCodeId}
-                    onChange={(e) => setForm((f) => ({ ...f, gymCodeId: e.target.value }))}
+                    onChange={(e) => {
+                      const next = e.target.value;
+                      setForm((prev) => ({
+                        ...prev,
+                        gymCodeId: next,
+                        assignedBranchIds: next ? [next] : [],
+                      }));
+                    }}
+                    data-testid="staff-gym-code-select"
+                    required
                   >
-                    <option value="">Select branch…</option>
+                    <option value="">Select a branch…</option>
                     {gymCodes.map((g) => (
-                      <option key={g.id} value={g.id}>
+                      <option key={g.id} value={String(g.id)}>
                         {gymLabel(g)}
                       </option>
                     ))}
                   </Select>
+                  <p className="mt-1 text-xs text-muted-foreground">
+                    Staff will only see members assigned to this branch.
+                  </p>
                 </div>
-                {isOwner ? (
-                  <div>
-                    <Label>Staff role</Label>
-                    <Select
-                      className="mt-1"
-                      value={form.staffRole}
-                      onChange={(e) =>
-                        setForm((f) => ({
-                          ...f,
-                          staffRole: e.target.value as "staff" | "branch_owner",
-                        }))
-                      }
-                    >
-                      <option value="staff">Staff</option>
-                      <option value="branch_owner">Branch Owner</option>
-                    </Select>
-                  </div>
-                ) : null}
-              </div>
+              ) : null}
 
               <StaffSectionsAccessEditor
                 sections={form.sections}

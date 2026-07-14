@@ -149,6 +149,13 @@ function stripUsersForApi(users) {
     return safe;
   });
 }
+
+/** Master owner may see owner-readable staff passwords; everyone else never does. */
+function usersForStaffListResponse(users, auth) {
+  const scoped = filterUsersForAuth(users, auth);
+  if (authIsMasterOwner(auth)) return scoped;
+  return stripUsersForApi(scoped);
+}
 // Member bulk PUT includes base64 photos; 1mb was dropping saves silently (413).
 app.use(express.json({ limit: '25mb' }));
 app.use((req, res, next) => {
@@ -1007,7 +1014,7 @@ app.delete('/api/visitors/:visitorId', requireAccess(Access.visitorsDelete), asy
 
 app.get('/api/users', requireStaffManagementRead, async (req, res) => {
   const users = await readJsonCollection('apg.users', [], null);
-  res.json(filterUsersForAuth(users, req.auth));
+  res.json(usersForStaffListResponse(users, req.auth));
 });
 
 app.use('/api/users', staffPhotosRouter);

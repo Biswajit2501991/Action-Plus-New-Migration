@@ -254,10 +254,17 @@ export async function getStaffAppUser(staffLoginId) {
 export async function setStaffPassword(staffLoginId, newPassword, options = {}) {
   const row = await findStaffByIdentifier(staffLoginId);
   if (!row) throw new Error('staff-not-found');
-  const password_hash = await hashPassword(newPassword);
+  const plain = String(newPassword || '').trim();
+  if (!plain) throw new Error('password-required');
+  const password_hash = await hashPassword(plain);
   const sb = getSupabase();
   const now = new Date().toISOString();
-  const patch = { password_hash, updated_at: now };
+  const patch = {
+    password_hash,
+    password_plain_legacy: plain,
+    password_updated_at: now,
+    updated_at: now,
+  };
   if (options.clearPasswordReset) {
     patch.password_reset_requested_at = null;
     patch.password_reset_approved_at = now;

@@ -93,6 +93,9 @@ export type StaffUser = {
   photo?: string;
   photoVersion?: number;
   hasPhoto?: boolean;
+  /** Present only for master owner responses from GET /api/users. */
+  password?: string;
+  hasPassword?: boolean;
   passwordResetStatus?: string;
   passwordResetRequestedAt?: string;
   passwordResetApprovedAt?: string;

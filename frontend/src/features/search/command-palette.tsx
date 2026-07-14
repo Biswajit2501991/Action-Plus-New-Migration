@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useQueryClient } from "@tanstack/react-query";
 import { Command } from "cmdk";
@@ -22,11 +22,19 @@ export function CommandPalette() {
   const { data: gymCodes = [] } = useGymCodes();
   const [q, setQ] = useState("");
   const [editing, setEditing] = useState<Member | null>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
 
   const canEditMember = hasAccess(user, "members", "editMembers");
 
   useEffect(() => {
-    if (!commandOpen) setQ("");
+    if (!commandOpen) {
+      setQ("");
+      return;
+    }
+    const id = window.requestAnimationFrame(() => {
+      inputRef.current?.focus();
+    });
+    return () => window.cancelAnimationFrame(id);
   }, [commandOpen]);
 
   const nav = useMemo(
@@ -70,6 +78,8 @@ export function CommandPalette() {
             shouldFilter={false}
           >
             <Command.Input
+              ref={inputRef}
+              autoFocus
               value={q}
               onValueChange={setQ}
               placeholder="Search members, pages, invoices…"

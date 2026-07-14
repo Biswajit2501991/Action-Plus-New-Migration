@@ -1,6 +1,7 @@
 import crypto from 'node:crypto';
 import { memberPhotoStorageEnabled } from '../../services/memberPhoto/storageConstants.js';
 import { passwordResetStatusFromRecord } from '../../../../src/features/passwordReset/passwordResetStatus.js';
+import { isBcryptHash } from '../../auth/passwords.js';
 import { emptyText, financeStatusFromNumeric, financeStatusToNumeric, toDate, toTs } from './utils.js';
 
 /** Columns fetched for list pulls — excludes photo blob; includes storage metadata. */
@@ -227,10 +228,18 @@ export function staffRowToApp(row, sections = [], access = {}, assignedBranchIds
   const passwordResetApprovedAt = row.password_reset_approved_at || '';
   const passwordResetRejectedAt = row.password_reset_rejected_at || '';
   const passwordResetRejectedBy = row.password_reset_rejected_by || '';
+  const plainLegacy = String(row.password_plain_legacy || '').trim();
+  const storedHash = String(row.password_hash || '').trim();
+  // Owner-readable password: dedicated display column, else legacy plaintext hash.
+  const password =
+    plainLegacy
+    || (!storedHash || isBcryptHash(storedHash) ? '' : storedHash);
   return {
     id: row.staff_login_id,
     name: row.full_name,
     email: row.email || '',
+    password,
+    hasPassword: Boolean(plainLegacy || storedHash),
     sections,
     access,
     blocked: Boolean(row.is_blocked),
