@@ -343,20 +343,29 @@ export const logsApi = {
     const maxPages = Math.ceil(requestedLimit / pageSize) + 1;
     let offset = 0;
     const all: AuditLog[] = [];
+    const seen = new Set<string>();
     for (let page = 0; page < maxPages && all.length < requestedLimit; page += 1) {
       const batch = await logsApi.list({
         view: "list",
         days,
-        limit: requestedLimit,
+        limit: pageSize,
         offset,
       });
       if (!Array.isArray(batch) || batch.length === 0) break;
-      all.push(...batch);
+      for (const row of batch) {
+        const id = String(row?.id || "").trim();
+        if (id) {
+          if (seen.has(id)) continue;
+          seen.add(id);
+        }
+        all.push(row);
+        if (all.length >= requestedLimit) break;
+      }
       if (all.length >= requestedLimit) break;
       if (batch.length < pageSize) break;
       offset += batch.length;
     }
-    return all.length > requestedLimit ? all.slice(0, requestedLimit) : all;
+    return all;
   },
   get: (logId: string) => apiFetch<AuditLog>(`/logs/${encodeURIComponent(logId)}`),
   create: (log: Partial<AuditLog>) =>

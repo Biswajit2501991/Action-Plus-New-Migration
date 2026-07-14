@@ -1,5 +1,21 @@
 import type { AuditLog } from "@/types";
 
+/** Keep first occurrence of each log id (list order is newest-first). */
+export function dedupeAuditLogs(logs: AuditLog[] | null | undefined): AuditLog[] {
+  const list = Array.isArray(logs) ? logs : [];
+  const seen = new Set<string>();
+  const out: AuditLog[] = [];
+  for (let i = 0; i < list.length; i += 1) {
+    const row = list[i];
+    const id = String(row?.id || "").trim();
+    const key = id || `__idx-${i}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(row);
+  }
+  return out;
+}
+
 const AUDIT_ACTION_LABEL_OVERRIDES: Record<string, string> = {
   "custom_template.created": "Custom template created",
   "custom_template.updated": "Custom template updated",

@@ -12,6 +12,7 @@ import { useLogs } from "@/hooks/use-data";
 import { logsApi } from "@/services/api";
 import { downloadTextFile, formatDate } from "@/lib/utils";
 import {
+  dedupeAuditLogs,
   formatAuditActionLabel,
   getChangedFields,
   isoDate,
@@ -100,7 +101,7 @@ export function LogsPage() {
 
   const filtered = useMemo(() => {
     const q = filter.toLowerCase().trim();
-    return logs.filter((l) => {
+    return dedupeAuditLogs(logs).filter((l) => {
       const ts = logTimestamp(l);
       if (sinceTs && ts && new Date(ts).getTime() < sinceTs) return false;
       if (actorFilter && logActor(l) !== actorFilter) return false;
@@ -331,13 +332,14 @@ export function LogsPage() {
               </tr>
             </thead>
             <tbody>
-              {pageRows.map((raw) => {
+              {pageRows.map((raw, rowIdx) => {
                 const l = resolveEntry(raw);
+                const rowKey = String(l.id || "").trim() || `log-row-${rowIdx}`;
                 const open = expandedId === l.id;
                 const detailState = expandedDetail[l.id];
                 const changes = getChangedFields(l);
                 return (
-                  <Fragment key={l.id}>
+                  <Fragment key={rowKey}>
                     <tr
                       className="cursor-pointer border-t border-slate-100 hover:bg-slate-50/80 dark:border-border dark:hover:bg-muted/40"
                       onClick={() => setExpandedId(open ? "" : l.id)}
