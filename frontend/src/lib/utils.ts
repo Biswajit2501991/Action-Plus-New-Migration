@@ -30,6 +30,10 @@ export function formatMonthKey(date = new Date()) {
   return `${y}-${m}`;
 }
 
+export function uid(prefix = "id") {
+  return `${prefix}_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
+}
+
 export function downloadTextFile(filename: string, content: string, mime = "text/csv") {
   const blob = new Blob([content], { type: mime });
   const url = URL.createObjectURL(blob);

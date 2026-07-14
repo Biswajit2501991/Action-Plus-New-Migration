@@ -28,14 +28,6 @@ import { isMasterOwnerUser } from "@/lib/domain/permissions";
 import { cn } from "@/lib/utils";
 import { membersApi } from "@/services/api";
 import type { AppSettings, AuthUser, GymCode, Member } from "@/types";
-import {
-  HoldActivationFeeModal,
-  getReactivationFeeRule,
-  inactiveMonthsFromBilling,
-  type HoldActivationPromptState,
-} from "@/features/members/hold-activation-fee-modal";
-import { captureHistoryFromCache } from "@/stores/history-store";
-import { useQueryClient } from "@tanstack/react-query";
 
 const MEDICAL_YES_NO_FIELDS: [string, string][] = [
   ["heartDisease", "Heart Disease"],
@@ -236,7 +228,6 @@ export function EditMemberModal({
   holdOptions,
   paymentOptions,
 }: Props) {
-  const qc = useQueryClient();
   const isOwner = isMasterOwnerUser(currentUser);
   const canEditFormNo = isOwner;
   const [edit, setEdit] = useState<EditDraft>(() => buildEditDraft(member));
@@ -246,8 +237,6 @@ export function EditMemberModal({
   const [saving, setSaving] = useState(false);
   const [injuryDraft, setInjuryDraft] = useState("");
   const [injuryBusy, setInjuryBusy] = useState(false);
-  const [holdPrompt, setHoldPrompt] = useState<HoldActivationPromptState | null>(null);
-  const [holdSaving, setHoldSaving] = useState(false);
 
   useEffect(() => {
     setEdit(buildEditDraft(member));
@@ -477,44 +466,12 @@ export function EditMemberModal({
     }
   };
 
-  const save = async (opts?: {
-    skipReactivationFeeCheck?: boolean;
-    amountOverride?: number;
-    billingDateOverride?: string;
-    statusOverride?: string;
-  }) => {
-    if (isInvalid || (!dirty && !opts?.skipReactivationFeeCheck) || saving) return;
-    const nextStatus = String(opts?.statusOverride || edit.status || "Active");
-    const prevStatus = String(member.status || "Active");
-    const activating =
-      nextStatus === "Active" &&
-      (prevStatus === "Hold" || prevStatus === "Deactivated");
-
-    if (activating && !opts?.skipReactivationFeeCheck) {
-      const months = inactiveMonthsFromBilling(member.billingDate || edit.billingDate);
-      const rule = getReactivationFeeRule(months);
-      if (rule) {
-        setHoldPrompt({
-          memberId: member.memberId,
-          memberName: member.name,
-          nextStatus: "Active",
-          inactiveMonths: months,
-          admissionType: rule.admissionType,
-          baseAmount: String(Number(edit.amount || member.amount || 0) || ""),
-          billingDate: isoDate(edit.billingDate) || new Date().toISOString().slice(0, 10),
-          pendingEdit: { ...edit, status: "Active" },
-        });
-        return;
-      }
-    }
-
+  const save = async () => {
+    if (isInvalid || !dirty || saving) return;
     setSaving(true);
     try {
-      captureHistoryFromCache(qc, `Edit member ${member.memberId}`);
       const id = String(member.memberId || "").trim();
-      const billing = opts?.billingDateOverride || isoDate(edit.billingDate);
-      const amount =
-        opts?.amountOverride != null ? opts.amountOverride : Number(edit.amount || 0);
+      const billing = isoDate(edit.billingDate);
       const payload: Partial<Member> = {
         formNo: edit.formNo,
         memberId: edit.memberId,
@@ -522,10 +479,10 @@ export function EditMemberModal({
         mobile: String(edit.mobile || "").trim(),
         email: String(edit.email || "").trim(),
         plan: edit.plan,
-        status: nextStatus,
-        holdDuration: nextStatus === "Hold" ? edit.holdDuration || "" : "",
+        status: edit.status,
+        holdDuration: edit.status === "Hold" ? edit.holdDuration || "" : "",
         billingDate: billing,
-        amount,
+        amount: Number(edit.amount || 0),
         paymentMethod: edit.paymentMethod,
         nextPaymentDate: nextPaymentDateFromBillingDate(billing),
         paymentBy: paymentByFromBillingDate(billing),
@@ -537,11 +494,7 @@ export function EditMemberModal({
       };
       delete (payload as { photo?: string }).photo;
       await membersApi.patch(id, payload);
-      toast.success(
-        opts?.amountOverride != null
-          ? `Activated with total amount ₹${Number(opts.amountOverride).toLocaleString("en-IN")}.`
-          : "Member updated",
-      );
+      toast.success("Member updated");
       await onSaved();
       onClose();
     } catch (err) {
@@ -1032,30 +985,6 @@ export function EditMemberModal({
         onPickFile={(file) => void uploadPhoto(file)}
         title="Member photo"
       />
-      {holdPrompt ? (
-        <HoldActivationFeeModal
-          prompt={holdPrompt}
-          saving={holdSaving || saving}
-          onCancel={() => {
-            setHoldPrompt(null);
-            toast.message("Activation cancelled.");
-          }}
-          onConfirm={async ({ total, billingDate }) => {
-            setHoldSaving(true);
-            try {
-              setHoldPrompt(null);
-              await save({
-                skipReactivationFeeCheck: true,
-                amountOverride: total,
-                billingDateOverride: billingDate,
-                statusOverride: "Active",
-              });
-            } finally {
-              setHoldSaving(false);
-            }
-          }}
-        />
-      ) : null}
     </div>
   );
 }

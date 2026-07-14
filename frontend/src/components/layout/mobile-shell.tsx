@@ -28,6 +28,8 @@ import { Button } from "@/components/ui/button";
 import { Select } from "@/components/ui/input";
 import { CommandPalette } from "@/features/search/command-palette";
 import { AddMemberHost } from "@/features/members/add-member-host";
+import { HistoryControls } from "@/components/layout/history-controls";
+import { PasswordResetHost } from "@/features/staff/password-reset-host";
 import { LateArrivalNoteHost } from "@/features/attendance/late-arrival-note-host";
 import { MobileAccessGuard } from "@/components/layout/mobile-access-guard";
 
@@ -118,6 +120,10 @@ export function MobileShell({ children }: { children: React.ReactNode }) {
             <Search className="h-4 w-4 shrink-0" />
             <span className="truncate">Search members…</span>
           </button>
+          <HistoryControls />
+          <div className="relative">
+            <PasswordResetHost />
+          </div>
           {(gymCodes?.length || 0) > 1 ? (
             <Select
               className="h-11 w-[7.5rem] rounded-2xl border-black/5 bg-white/80 text-xs dark:border-white/8 dark:bg-white/[0.04]"

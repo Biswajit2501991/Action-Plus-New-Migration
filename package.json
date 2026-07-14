@@ -48,7 +48,9 @@
     "dev:frontend": "npm run dev --prefix frontend",
     "build:frontend": "npm run build --prefix frontend",
     "start:frontend": "npm run start --prefix frontend",
-    "start:pulsgyms:v2": "zsh scripts/start-pulsgyms-v2.sh"
+    "start:pulsgyms:v2": "zsh scripts/start-pulsgyms-v2.sh",
+    "start:v2:prod": "zsh scripts/start-v2-prod.sh",
+    "smoke:v2": "zsh scripts/smoke-v2.sh"
   },
   "devDependencies": {
     "@axe-core/playwright": "^4.11.3",

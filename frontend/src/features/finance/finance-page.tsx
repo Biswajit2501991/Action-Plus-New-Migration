@@ -27,12 +27,13 @@ import {
   formatMonthKey,
   toCsv,
 } from "@/lib/utils";
-import { hasAccess } from "@/lib/domain/permissions";
+import { hasAccess, isMasterOwnerUser } from "@/lib/domain/permissions";
 import { localTodayCalendarKey } from "@/lib/domain/billing";
 import { useAuthStore } from "@/stores";
+import { PaymentQrSettingsPanel } from "@/features/finance/payment-qr-settings-panel";
 
 const PAGE_SIZE = 12;
-type FinanceView = "transactions" | "expenses";
+type FinanceView = "transactions" | "expenses" | "paymentQr";
 type TypeFilter = "all" | "income" | "expense";
 
 export function FinancePage() {
@@ -61,6 +62,8 @@ export function FinancePage() {
   const canYtd = hasAccess(user, "finance", "viewYtdCollected");
   const canTransactions = hasAccess(user, "finance", "viewTransactionsAutoMembers");
   const canManageExpenses = hasAccess(user, "finance", "manageExpenses");
+  const canManagePaymentQr =
+    isMasterOwnerUser(user) || hasAccess(user, "paymentQr", "managePaymentSettings");
 
   const ledger = useMemo(
     () => buildFinanceLedgerRows(members, data?.transactions || []),
@@ -218,6 +221,9 @@ export function FinancePage() {
           [
             { key: "transactions" as const, label: "Transactions" },
             { key: "expenses" as const, label: "Expenses" },
+            ...(canManagePaymentQr
+              ? [{ key: "paymentQr" as const, label: "Payment QR" }]
+              : []),
           ] as const
         ).map((tab) => (
           <button
@@ -227,7 +233,7 @@ export function FinancePage() {
             className={cn(
               "rounded-full border px-3 py-1.5 text-xs font-semibold transition",
               view === tab.key
-                ? "border-sky-300 bg-sky-50 text-sky-800"
+                ? "border-slate-900 bg-slate-900 text-white dark:border-teal-400 dark:bg-teal-400 dark:text-slate-950"
                 : "border-slate-200 bg-white text-slate-600 hover:bg-slate-50 dark:border-border dark:bg-card",
             )}
           >
@@ -318,7 +324,9 @@ export function FinancePage() {
         </Card>
       ) : null}
 
-      {view === "transactions" ? (
+      {view === "paymentQr" ? (
+        <PaymentQrSettingsPanel />
+      ) : view === "transactions" ? (
         <>
           <Card className="border-slate-200 shadow-sm dark:border-border">
             <CardContent className="space-y-3 p-4">

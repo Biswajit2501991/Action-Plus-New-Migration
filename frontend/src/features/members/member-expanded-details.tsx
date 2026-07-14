@@ -323,6 +323,8 @@ export function MemberExpandedDetails({
   onEdit,
   onAddPayment,
   onEditPayment,
+  onDeletePayment,
+  onEditPayMonth,
   onWhatsApp,
   onWelcomeMail,
   onUploadDocument,
@@ -337,6 +339,8 @@ export function MemberExpandedDetails({
   onEdit: () => void;
   onAddPayment: () => void;
   onEditPayment?: (payment: Payment) => void;
+  onDeletePayment?: (payment: Payment) => void;
+  onEditPayMonth?: (monthKey: string) => void;
   onWhatsApp: (kind: WhatsAppKind) => void;
   onWelcomeMail: () => void;
   onUploadDocument: (file: File) => void;
@@ -444,7 +448,13 @@ export function MemberExpandedDetails({
         ]
       : []),
     { key: "paymentMethod", label: "Payment Method", value: dash(m.paymentMethod), required: true },
-    { key: "payMonth", label: "Paid for Month", value: payMonthDisplay(m), required: true },
+    {
+      key: "payMonth",
+      label: "Paid for Month",
+      value: payMonthDisplay(m),
+      required: true,
+      hint: canEdit && onEditPayMonth ? "Use Edit month to change" : undefined,
+    },
   ];
 
   const visible = (fields: DetailField[]) =>
@@ -622,6 +632,28 @@ export function MemberExpandedDetails({
             <FieldCard key={field.key} field={field} />
           ))}
         </div>
+        {canEdit && onEditPayMonth ? (
+          <div className="mt-2 flex flex-wrap items-center gap-2">
+            <input
+              type="month"
+              className="h-8 rounded-lg border border-slate-200 bg-background px-2 text-xs dark:border-border"
+              defaultValue={(() => {
+                const raw = String(m.payMonth || m.pay_month || "").trim();
+                if (/^\d{4}-\d{2}$/.test(raw)) return raw;
+                return "";
+              })()}
+              onBlur={(e) => {
+                const next = e.target.value;
+                if (next && next !== String(m.payMonth || m.pay_month || "")) {
+                  onEditPayMonth(next);
+                }
+              }}
+            />
+            <span className="text-[10px] text-muted-foreground">
+              Change paid-for-month (YYYY-MM)
+            </span>
+          </div>
+        ) : null}
       </SectionCard>
 
       <SectionCard
@@ -678,8 +710,8 @@ export function MemberExpandedDetails({
                     <th className="px-2 py-1 text-left font-semibold">Method</th>
                     <th className="px-2 py-1 text-left font-semibold">Recorded By</th>
                     <th className="px-2 py-1 text-left font-semibold">Source</th>
-                    {onEditPayment ? (
-                      <th className="px-2 py-1 text-left font-semibold">Actions</th>
+                    {canEdit || isOwner ? (
+                      <th className="px-2 py-1 text-right font-semibold">Actions</th>
                     ) : null}
                   </tr>
                 </thead>
@@ -700,15 +732,28 @@ export function MemberExpandedDetails({
                       <td className="whitespace-nowrap px-2 py-1 capitalize">
                         {dash(row.source)}
                       </td>
-                      {onEditPayment ? (
-                        <td className="whitespace-nowrap px-2 py-1">
-                          <button
-                            type="button"
-                            className="text-[10px] font-semibold text-emerald-700 underline underline-offset-2 dark:text-emerald-300"
-                            onClick={() => onEditPayment(row)}
-                          >
-                            Edit
-                          </button>
+                      {canEdit || isOwner ? (
+                        <td className="whitespace-nowrap px-2 py-1 text-right">
+                          <div className="inline-flex gap-1">
+                            {canEdit && onEditPayment && row.id ? (
+                              <button
+                                type="button"
+                                className="rounded px-1.5 py-0.5 text-[10px] font-semibold text-emerald-800 hover:bg-emerald-100 dark:text-emerald-200 dark:hover:bg-emerald-950/50"
+                                onClick={() => onEditPayment(row)}
+                              >
+                                Edit
+                              </button>
+                            ) : null}
+                            {isOwner && onDeletePayment && row.id ? (
+                              <button
+                                type="button"
+                                className="rounded px-1.5 py-0.5 text-[10px] font-semibold text-rose-700 hover:bg-rose-50 dark:text-rose-300 dark:hover:bg-rose-950/40"
+                                onClick={() => onDeletePayment(row)}
+                              >
+                                Delete
+                              </button>
+                            ) : null}
+                          </div>
                         </td>
                       ) : null}
                     </tr>

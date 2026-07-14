@@ -1,7 +1,15 @@
 tunnel: 3a9772ce-726f-4447-82db-2abe9a955099
 credentials-file: /Users/biswajit/.cloudflared/3a9772ce-726f-4447-82db-2abe9a955099.json
 
+# Production cutover notes:
+# - Legacy UI: app.gymactionplus.com → :5501
+# - V2 UI beta: add hostname www.pulsgyms.com (or similar) → :3055 after `scripts/start-v2-prod.sh`
+# - Keep Express API on :4000; V2 proxies /api to API_PROXY_TARGET
+
 ingress:
   - hostname: app.gymactionplus.com
     service: http://127.0.0.1:5501
+  # Uncomment for V2 public hostname once DNS + cert are ready:
+  # - hostname: www.pulsgyms.com
+  #   service: http://127.0.0.1:3055
   - service: http_status:404

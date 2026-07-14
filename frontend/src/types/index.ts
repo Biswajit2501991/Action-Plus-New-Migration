@@ -55,13 +55,14 @@ export type Member = {
 
 export type Visitor = {
   id: string;
-  fullName?: string;
   name?: string;
+  fullName?: string;
   mobile?: string;
   email?: string;
   dob?: string;
   gender?: string;
   visitDate?: string;
+  addedAt?: string;
   notes?: string;
   status?: string;
   callBackRequired?: boolean;
@@ -69,7 +70,7 @@ export type Visitor = {
   lastCalledAt?: string;
   lastCalledBy?: string;
   assignedGymCodeId?: string;
-  addedAt?: string;
+  updatedAt?: string;
   convertedAt?: string;
   convertedMemberId?: string;
   [key: string]: unknown;
@@ -93,6 +94,13 @@ export type StaffUser = {
   photoVersion?: number;
   hasPhoto?: boolean;
   passwordResetStatus?: string;
+  passwordResetRequestedAt?: string;
+  passwordResetApprovedAt?: string;
+  passwordResetRejectedAt?: string;
+  passwordResetRejectedBy?: string;
+  password_reset_requested_at?: string;
+  password_reset_approved_at?: string;
+  password_reset_rejected_at?: string;
   testProfile?: boolean;
   sandboxId?: string;
   syncBranchAssignments?: boolean;

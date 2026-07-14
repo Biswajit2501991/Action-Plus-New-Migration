@@ -33,9 +33,9 @@ import { BranchLogo } from "@/components/branding/branch-logo";
 import { StaffAvatar } from "@/components/staff-avatar";
 import { CommandPalette } from "@/features/search/command-palette";
 import { AddMemberHost } from "@/features/members/add-member-host";
+import { HistoryControls } from "@/components/layout/history-controls";
+import { PasswordResetHost } from "@/features/staff/password-reset-host";
 import { LateArrivalNoteHost } from "@/features/attendance/late-arrival-note-host";
-import { NotificationCenter } from "@/features/notifications/notification-center";
-import { UndoRedoControls } from "@/components/layout/undo-redo-controls";
 import { AppSectionTabs } from "@/components/layout/section-tabs";
 import { MobileShell } from "@/components/layout/mobile-shell";
 import { Skeleton } from "@/components/ui/misc";
@@ -261,6 +261,12 @@ function DesktopShell({ children }: { children: React.ReactNode }) {
               <kbd className="hidden rounded-md border border-border px-1.5 py-0.5 text-[10px] sm:inline">⌘K</kbd>
             </button>
 
+            <HistoryControls />
+
+            <div className="relative">
+              <PasswordResetHost />
+            </div>
+
             {(gymCodes?.length || 0) > 1 ? (
               <Select
                 className="hidden w-[180px] sm:flex"
@@ -274,9 +280,6 @@ function DesktopShell({ children }: { children: React.ReactNode }) {
                 ))}
               </Select>
             ) : null}
-
-            <UndoRedoControls />
-            <NotificationCenter />
 
             <Button
               variant="ghost"

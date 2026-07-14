@@ -17,12 +17,9 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Input, Label, Select } from "@/components/ui/input";
 import { useMembers, useSettings, useVisitors, useGymCodes } from "@/hooks/use-data";
 import { useMemberPhotoHydration } from "@/hooks/use-member-photo-hydration";
-import { membersApi, visitorsApi } from "@/services/api";
-import { captureHistoryFromCache } from "@/stores/history-store";
+import { membersApi } from "@/services/api";
 import { MemberPhotoPreviewModal } from "@/features/members/member-photo-modals";
 import { EditMemberModal } from "@/features/members/edit-member-modal";
-import { VisitorFormModal, type VisitorFormValues } from "@/features/members/visitor-form-modal";
-import { PaymentEntryModal } from "@/features/members/payment-entry-modal";
 import {
   MemberMetricModal,
   type MetricModalKey,
@@ -34,16 +31,20 @@ import {
   localTodayCalendarKey,
   localCalendarDateKey,
 } from "@/lib/domain/billing";
-import { formatCurrency, formatDate, downloadTextFile, toCsv, cn } from "@/lib/utils";
+import { formatCurrency, formatDate, downloadTextFile, toCsv, cn, formatMonthKey } from "@/lib/utils";
 import { hasAccess, isMasterOwnerUser } from "@/lib/domain/permissions";
 import { useAuthStore, useUiStore } from "@/stores";
-import type { Member, Payment, Visitor } from "@/types";
+import type { Member, Payment } from "@/types";
 import { isBillingToday, isNewMember } from "@/lib/domain/member-actions";
 import { MemberExpandedDetails } from "@/features/members/member-expanded-details";
 import { PaymentQrButton } from "@/features/members/payment-qr-viewer";
 import { MemberCardRow, MemberListHeader } from "@/features/members/member-card-row";
+import { PaymentEntryModal, type PaymentFormValues } from "@/features/members/payment-entry-modal";
+import { PaidForMonthOverrideDialog } from "@/features/members/paid-for-month-override-dialog";
+import { VisitorsPanel } from "@/features/visitors/visitors-panel";
 import { MessagePreviewModal } from "@/features/whatsapp/message-preview-modal";
 import { useWhatsappSend } from "@/features/whatsapp/use-whatsapp-send";
+import { pushHistoryCheckpoint } from "@/lib/history-stack";
 
 const PAGE_SIZE = 10;
 const STATUS_KEYS = ["Active", "Hold", "Deactivated", "Cancelled"] as const;
@@ -88,23 +89,6 @@ function ym(value?: string | null) {
 function paymentByDisplay(m: Member) {
   const key = paymentByDateKey(m);
   return key || m.billingDate || "";
-}
-
-function visitorDisplayName(v: Visitor) {
-  return String(v.fullName || v.name || "Visitor").trim();
-}
-
-function wasCalledToday(v: Visitor) {
-  const at = String(v.lastCalledAt || "").trim();
-  if (!at) return false;
-  return localCalendarDateKey(at) === localTodayCalendarKey();
-}
-
-function needsCallbackToday(v: Visitor) {
-  if (String(v.status || "") === "Converted") return false;
-  const join = String(v.tentativeJoiningDate || "").slice(0, 10);
-  if (join !== localTodayCalendarKey()) return false;
-  return !wasCalledToday(v);
 }
 
 export function MembersPage() {
@@ -159,9 +143,13 @@ export function MembersPage() {
   const [metricModal, setMetricModal] = useState<MetricModalKey | "">("");
   const [editing, setEditing] = useState<Member | null>(null);
   const [paymentFor, setPaymentFor] = useState<Member | null>(null);
-  const [editingPayment, setEditingPayment] = useState<Payment | null>(null);
   const [photoPreviewMember, setPhotoPreviewMember] = useState<Member | null>(null);
-  const [visitorEditing, setVisitorEditing] = useState<Visitor | null | "new">(null);
+  const [editingPayment, setEditingPayment] = useState<Payment | null>(null);
+  const [payMonthEdit, setPayMonthEdit] = useState<{
+    member: Member;
+    monthKey: string;
+    amount: number;
+  } | null>(null);
 
   useEffect(() => {
     // Applied filters persist for this browser so staff keep their saved filter set.
@@ -359,7 +347,10 @@ export function MembersPage() {
   };
 
   const deleteMutation = useMutation({
-    mutationFn: (id: string) => membersApi.remove(id),
+    mutationFn: (id: string) => {
+      pushHistoryCheckpoint(qc, "delete member");
+      return membersApi.remove(id);
+    },
     onSuccess: async () => {
       toast.success("Member deleted");
       await qc.invalidateQueries({ queryKey: ["members"] });
@@ -369,7 +360,7 @@ export function MembersPage() {
 
   const statusMutation = useMutation({
     mutationFn: async ({ ids, status, holdDuration }: { ids: string[]; status: string; holdDuration?: string }) => {
-      captureHistoryFromCache(qc, "Member status change");
+      pushHistoryCheckpoint(qc, "member status");
       await Promise.all(
         ids.map((id) => {
           const current = members.find((m) => m.memberId === id);
@@ -391,80 +382,74 @@ export function MembersPage() {
     onError: (e: Error) => toast.error(e.message),
   });
 
-  const visitorSave = useMutation({
-    mutationFn: async (values: VisitorFormValues) => {
-      const id = String(values.id || uid("V"));
-      const next: Visitor = {
-        id,
-        fullName: values.fullName.trim(),
-        name: values.fullName.trim(),
-        email: values.email.trim(),
-        dob: values.dob,
-        mobile: values.mobile.trim(),
-        gender: values.gender,
-        callBackRequired: values.callBackRequired,
-        tentativeJoiningDate: values.tentativeJoiningDate || "",
-        status: values.status || "New",
-        assignedGymCodeId: values.assignedGymCodeId || user?.activeBranchId || user?.gymCodeId || "",
-        addedAt: values.addedAt || new Date().toISOString(),
-        lastCalledAt: values.lastCalledAt,
-        lastCalledBy: values.lastCalledBy,
-        convertedAt: values.convertedAt,
-        convertedMemberId: values.convertedMemberId,
+  const paymentMutation = useMutation({
+    mutationFn: async (values: PaymentFormValues) => {
+      if (!paymentFor) return;
+      pushHistoryCheckpoint(qc, "payment change");
+      const payload = {
+        amount: Number(values.amount || 0),
+        method: values.method,
+        note: values.note,
+        paidAt: values.paidAt
+          ? new Date(`${values.paidAt}T12:00:00`).toISOString()
+          : new Date().toISOString(),
+        paidMonth: values.paidMonth,
+        recordedBy: user?.name || user?.id || "",
       };
-      const rest = visitors.filter((v) => v.id !== id);
-      return visitorsApi.bulk([next, ...rest]);
+      if (editingPayment?.id) {
+        return membersApi.updatePayment(paymentFor.memberId, String(editingPayment.id), payload);
+      }
+      return membersApi.addPayment(paymentFor.memberId, {
+        id: uid("pay"),
+        ...payload,
+      });
     },
     onSuccess: async () => {
-      toast.success("Visitor saved");
-      setVisitorEditing(null);
-      await qc.invalidateQueries({ queryKey: ["visitors"] });
+      toast.success(editingPayment ? "Payment updated" : "Payment recorded");
+      setPaymentFor(null);
+      setEditingPayment(null);
+      await qc.invalidateQueries({ queryKey: ["members"] });
+      await qc.invalidateQueries({ queryKey: ["finance"] });
     },
     onError: (e: Error) => toast.error(e.message),
   });
 
-  const markVisitorCalled = useMutation({
-    mutationFn: async (visitor: Visitor) => {
-      const updated: Visitor = {
-        ...visitor,
-        lastCalledAt: new Date().toISOString(),
-        lastCalledBy: user?.name || user?.id || "staff",
-      };
-      return visitorsApi.bulk([
-        updated,
-        ...visitors.filter((v) => v.id !== visitor.id),
-      ]);
+  const deletePaymentMutation = useMutation({
+    mutationFn: async ({ memberId, paymentId }: { memberId: string; paymentId: string }) => {
+      pushHistoryCheckpoint(qc, "delete payment");
+      return membersApi.deletePayment(memberId, paymentId);
     },
     onSuccess: async () => {
-      toast.success("Visitor marked as called.");
-      await qc.invalidateQueries({ queryKey: ["visitors"] });
+      toast.success("Payment deleted");
+      await qc.invalidateQueries({ queryKey: ["members"] });
+      await qc.invalidateQueries({ queryKey: ["finance"] });
     },
     onError: (e: Error) => toast.error(e.message),
   });
 
-  const convertVisitor = (visitor: Visitor) => {
-    try {
-      sessionStorage.setItem(
-        "apg.convertVisitor",
-        JSON.stringify({
-          id: visitor.id,
-          fullName: visitorDisplayName(visitor),
-          email: visitor.email || "",
-          mobile: visitor.mobile || "",
-          dob: visitor.dob || "",
-          gender: visitor.gender || "",
-        }),
-      );
-      sessionStorage.setItem(
-        "apg.convertVisitor.pending",
-        JSON.stringify({ id: visitor.id }),
-      );
-    } catch {
-      /* ignore */
-    }
-    setAddMemberOpen(true);
-    toast.message("Add Member opened — visitor details prefilled when available.");
-  };
+  const payMonthMutation = useMutation({
+    mutationFn: async (args: {
+      memberId: string;
+      monthKey: string;
+      amount: number;
+      confirmOverride: boolean;
+      overrideReason: string;
+    }) => {
+      pushHistoryCheckpoint(qc, "paid-for-month");
+      return membersApi.setPaidForMonth(args.memberId, args.monthKey, {
+        amount: args.amount,
+        confirmOverride: args.confirmOverride,
+        overrideReason: args.overrideReason || undefined,
+      });
+    },
+    onSuccess: async () => {
+      toast.success("Paid-for-month updated");
+      setPayMonthEdit(null);
+      await qc.invalidateQueries({ queryKey: ["members"] });
+      await qc.invalidateQueries({ queryKey: ["finance"] });
+    },
+    onError: (e: Error) => toast.error(e.message),
+  });
 
   const openCreate = () => {
     setEditing(null);
@@ -620,82 +605,7 @@ export function MembersPage() {
       </div>
 
       {tab === "visitors" ? (
-        <Card>
-          <CardContent className="space-y-3 p-5">
-            <div className="flex flex-wrap items-center justify-between gap-2">
-              <div>
-                <h3 className="text-sm font-semibold">Visitors</h3>
-                <p className="text-xs text-muted-foreground">
-                  Full visitor form with callbacks and convert-to-member.
-                </p>
-              </div>
-              <Button size="sm" onClick={() => setVisitorEditing("new")}>
-                Add Visitor
-              </Button>
-            </div>
-            {visitors.map((v) => {
-              const callbackDue = needsCallbackToday(v);
-              return (
-                <div
-                  key={v.id}
-                  className="flex flex-wrap items-center justify-between gap-2 rounded-xl border px-3 py-2 text-sm"
-                >
-                  <div className="min-w-0">
-                    <p className="font-medium">
-                      {visitorDisplayName(v)}{" "}
-                      <span className="text-xs font-normal text-muted-foreground">
-                        · {v.status || "New"}
-                      </span>
-                      {callbackDue ? (
-                        <span className="ml-2 rounded-md bg-amber-100 px-1.5 py-0.5 text-[10px] font-semibold text-amber-900 dark:bg-amber-950/50 dark:text-amber-200">
-                          Call today
-                        </span>
-                      ) : null}
-                    </p>
-                    <p className="text-xs text-muted-foreground">
-                      {v.mobile || "—"} · {v.email || "—"}
-                      {v.tentativeJoiningDate
-                        ? ` · Join ${formatDate(v.tentativeJoiningDate)}`
-                        : ""}
-                    </p>
-                  </div>
-                  <div className="flex flex-wrap gap-1.5">
-                    {callbackDue || v.callBackRequired ? (
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        disabled={wasCalledToday(v) || markVisitorCalled.isPending}
-                        onClick={() => markVisitorCalled.mutate(v)}
-                      >
-                        {wasCalledToday(v) ? "Called today" : "Mark as Called"}
-                      </Button>
-                    ) : null}
-                    {String(v.status || "") !== "Converted" ? (
-                      <Button size="sm" variant="outline" onClick={() => convertVisitor(v)}>
-                        Convert to Member
-                      </Button>
-                    ) : null}
-                    <Button size="sm" variant="outline" onClick={() => setVisitorEditing(v)}>
-                      Edit
-                    </Button>
-                    <Button
-                      size="sm"
-                      variant="ghost"
-                      onClick={async () => {
-                        await visitorsApi.remove(v.id);
-                        await qc.invalidateQueries({ queryKey: ["visitors"] });
-                        toast.success("Visitor removed");
-                      }}
-                    >
-                      Remove
-                    </Button>
-                  </div>
-                </div>
-              );
-            })}
-            {!visitors.length ? <EmptyState title="No visitors yet" /> : null}
-          </CardContent>
-        </Card>
+        <VisitorsPanel visitors={visitors} />
       ) : (
         <>
           <Card className="border-black/[0.06] bg-gradient-to-b from-white/90 to-slate-50/80 shadow-[0_1px_0_rgba(15,23,42,0.04),0_12px_32px_-20px_rgba(15,23,42,0.25)] backdrop-blur-xl dark:border-white/[0.07] dark:from-white/[0.05] dark:to-slate-950/80 dark:shadow-[0_0_0_1px_rgba(255,255,255,0.03),0_16px_40px_-24px_rgba(0,0,0,0.8)]">
@@ -1038,6 +948,33 @@ export function MembersPage() {
                                         setEditingPayment(payment);
                                         setPaymentFor(m);
                                       }}
+                                      onDeletePayment={(payment) => {
+                                        if (!payment.id) return;
+                                        if (
+                                          !isMasterOwnerUser(user) &&
+                                          String(user?.id || "").toLowerCase() !== "owner"
+                                        ) {
+                                          toast.error("Only owner can delete payments");
+                                          return;
+                                        }
+                                        if (
+                                          confirm(
+                                            `Delete payment of ${formatCurrency(Number(payment.amount || 0))}?`,
+                                          )
+                                        ) {
+                                          deletePaymentMutation.mutate({
+                                            memberId: m.memberId,
+                                            paymentId: String(payment.id),
+                                          });
+                                        }
+                                      }}
+                                      onEditPayMonth={(monthKey) => {
+                                        setPayMonthEdit({
+                                          member: m,
+                                          monthKey,
+                                          amount: Number(m.amount || 0),
+                                        });
+                                      }}
                                       onWhatsApp={(kind) => openWhatsApp(m, kind)}
                                       onWelcomeMail={() => openWelcomeMail(m)}
                                       onUploadDocument={(file) => void uploadMemberDocument(m, file)}
@@ -1289,39 +1226,51 @@ export function MembersPage() {
         />
       ) : null}
 
-      {paymentFor ? (
-        <PaymentEntryModal
-          member={paymentFor}
-          payment={editingPayment}
-          paymentMethods={settings?.paymentMethods}
-          canDelete={isMasterOwnerUser(user)}
-          onClose={() => {
-            setPaymentFor(null);
-            setEditingPayment(null);
-          }}
-          onSaved={async () => {
-            setPaymentFor(null);
-            setEditingPayment(null);
-            await qc.invalidateQueries({ queryKey: ["members"] });
-            await qc.invalidateQueries({ queryKey: ["finance"] });
-          }}
-        />
-      ) : null}
+      <PaymentEntryModal
+        open={Boolean(paymentFor)}
+        member={paymentFor}
+        payment={editingPayment}
+        methods={settings?.paymentMethods || ["Cash", "UPI", "Card", "Bank"]}
+        saving={paymentMutation.isPending}
+        onClose={() => {
+          setPaymentFor(null);
+          setEditingPayment(null);
+        }}
+        onSave={async (values) => {
+          await paymentMutation.mutateAsync(values);
+        }}
+      />
 
-      {visitorEditing !== null ? (
-        <VisitorFormModal
-          visitor={visitorEditing === "new" ? null : visitorEditing}
-          saving={visitorSave.isPending}
-          genders={settings?.genders}
-          gymCodes={gymCodes}
-          lockBranchId={user?.activeBranchId || user?.gymCodeId}
-          canPickBranch={isMasterOwnerUser(user) || (gymCodes?.length || 0) > 1}
-          onClose={() => setVisitorEditing(null)}
-          onSave={async (values) => {
-            await visitorSave.mutateAsync(values);
-          }}
-        />
-      ) : null}
+      <PaidForMonthOverrideDialog
+        open={Boolean(payMonthEdit)}
+        monthKey={payMonthEdit?.monthKey || formatMonthKey()}
+        currentAmount={
+          payMonthEdit
+            ? Number(
+                (Array.isArray(payMonthEdit.member.paymentHistory)
+                  ? payMonthEdit.member.paymentHistory
+                  : []
+                ).find(
+                  (p) =>
+                    String(p.paidMonth || p.paid_month || "") === payMonthEdit.monthKey,
+                )?.amount ?? payMonthEdit.member.amount,
+              )
+            : undefined
+        }
+        nextAmount={payMonthEdit?.amount || 0}
+        saving={payMonthMutation.isPending}
+        onClose={() => setPayMonthEdit(null)}
+        onConfirm={async (payload) => {
+          if (!payMonthEdit) return;
+          await payMonthMutation.mutateAsync({
+            memberId: payMonthEdit.member.memberId,
+            monthKey: payMonthEdit.monthKey,
+            amount: payload.amount,
+            confirmOverride: payload.confirmOverride,
+            overrideReason: payload.overrideReason,
+          });
+        }}
+      />
 
       <MessagePreviewModal
         preview={waPreview}
