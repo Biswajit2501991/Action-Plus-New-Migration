@@ -102,7 +102,7 @@ export function useAuth() {
 
   const forgotPassword = async (identifier: string) => {
     await requestPasswordReset(identifier);
-    toast.success("If the account exists, a reset request was submitted.");
+    toast.success("Reset request sent — the owner will be notified.");
   };
 
   const changeBranch = async (gymCodeId: string) => {
