@@ -87,12 +87,10 @@ export function buildGmailWelcomeComposeUrl(
 
 export function safeOpenExternal(url: string): boolean {
   try {
-    const w = window.open(url, "_blank", "noopener,noreferrer");
-    if (w) {
-      w.opener = null;
-      return true;
-    }
-    return false;
+    // Note: with "noopener", many browsers return null even when the tab opens.
+    // Treat a thrown error as failure; otherwise assume success.
+    window.open(url, "_blank", "noopener,noreferrer");
+    return true;
   } catch {
     return false;
   }
@@ -105,12 +103,6 @@ export function openGmailWelcome(
 ): { ok: true } | { ok: false; error: string } {
   const built = buildGmailWelcomeComposeUrl(member, template);
   if (!built.ok) return built;
-  const opened = safeOpenExternal(built.url);
-  if (!opened) {
-    return {
-      ok: false,
-      error: "Could not open Gmail. Allow pop-ups for this site and try again.",
-    };
-  }
+  safeOpenExternal(built.url);
   return { ok: true };
 }
