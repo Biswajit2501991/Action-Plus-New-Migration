@@ -26,6 +26,8 @@ import {
 } from "@/features/members/member-metric-modal";
 import { memberSearchHaystack } from "@/lib/domain/members";
 import {
+  daysBetweenCalendarDates,
+  isHoldOrDeactivated,
   isPaymentByPastDue,
   paymentByDateKey,
   localTodayCalendarKey,
@@ -89,6 +91,13 @@ function ym(value?: string | null) {
 function paymentByDisplay(m: Member) {
   const key = paymentByDateKey(m);
   return key || m.billingDate || "";
+}
+
+function paymentBySortKey(m: Member) {
+  if (isHoldOrDeactivated(m.status)) {
+    return String(daysBetweenCalendarDates(m.billingDate)).padStart(8, "0");
+  }
+  return paymentByDisplay(m);
 }
 
 export function MembersPage() {
@@ -269,9 +278,10 @@ export function MembersPage() {
           return (at - bt) * dir;
         }
         if (sortField === "paymentBy") {
-          const at = new Date(paymentByDisplay(a) || 0).getTime() || 0;
-          const bt = new Date(paymentByDisplay(b) || 0).getTime() || 0;
-          return (at - bt) * dir;
+          const at = paymentBySortKey(a);
+          const bt = paymentBySortKey(b);
+          if (at === bt) return 0;
+          return (at > bt ? 1 : -1) * dir;
         }
         const av = String(a[sortField] || "").toLowerCase();
         const bv = String(b[sortField] || "").toLowerCase();

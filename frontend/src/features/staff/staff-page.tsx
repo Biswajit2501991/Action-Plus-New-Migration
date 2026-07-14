@@ -1,19 +1,20 @@
 "use client";
 
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
-import { Plus } from "lucide-react";
+import { Camera, Plus } from "lucide-react";
 import { PageHeader, Badge, Skeleton, EmptyState } from "@/components/ui/misc";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Input, Label, Select } from "@/components/ui/input";
 import { StaffAvatar } from "@/components/staff-avatar";
+import { PhotoSourcePickerModal } from "@/features/members/member-photo-modals";
 import { useGymCodes, useUsers } from "@/hooks/use-data";
 import { useStaffPhotoHydration } from "@/hooks/use-staff-photo-hydration";
+import { compressMemberPhotoFile } from "@/lib/domain/member-photo-compress";
 import { usersApi } from "@/services/api";
 import { adminSetPassword } from "@/services/api/auth";
-import { cn } from "@/lib/utils";
 import {
   DEFAULT_ACCESS,
   isBranchAdminUser,
@@ -36,6 +37,8 @@ type StaffForm = {
   sections: string[];
   blocked: boolean;
   access: AccessMap;
+  /** New upload as data URL; empty = keep existing. */
+  photoDataUrl: string;
 };
 
 const EMPTY_FORM: StaffForm = {
@@ -48,6 +51,7 @@ const EMPTY_FORM: StaffForm = {
   sections: ["Dashboard", "Members"],
   blocked: false,
   access: normalizeAccess(DEFAULT_ACCESS),
+  photoDataUrl: "",
 };
 
 function gymLabel(code: { code?: string; name?: string; label?: string; id?: string }) {
@@ -70,6 +74,24 @@ export function StaffPage() {
   const [creating, setCreating] = useState(false);
   const [form, setForm] = useState<StaffForm>(EMPTY_FORM);
   const [formError, setFormError] = useState("");
+  const [photoPickerOpen, setPhotoPickerOpen] = useState(false);
+
+  const editingUser = useMemo(
+    () => (editingId ? users.find((u) => u.id === editingId) || null : null),
+    [editingId, users],
+  );
+
+  const previewUser = useMemo(() => {
+    if (form.photoDataUrl) {
+      return {
+        ...(editingUser || {}),
+        id: form.id || editingUser?.id || "preview",
+        name: form.name || editingUser?.name,
+        photo: form.photoDataUrl,
+      } as StaffUser;
+    }
+    return editingUser;
+  }, [editingUser, form.photoDataUrl, form.id, form.name]);
 
   const openCreate = (preset?: RoleTemplate) => {
     if (!canManage) return;
@@ -99,6 +121,7 @@ export function StaffPage() {
       sections: Array.isArray(u.sections) ? [...u.sections] : [],
       blocked: Boolean(u.blocked),
       access: normalizeAccess(u.access),
+      photoDataUrl: "",
     });
   };
 
@@ -107,6 +130,7 @@ export function StaffPage() {
     setEditingId(null);
     setFormError("");
     setForm(EMPTY_FORM);
+    setPhotoPickerOpen(false);
   };
 
   const save = useMutation({
@@ -149,6 +173,13 @@ export function StaffPage() {
       await usersApi.upsert(updatedUser);
       if (password && id !== "owner") {
         await adminSetPassword(id, password);
+      }
+      if (form.photoDataUrl.startsWith("data:")) {
+        try {
+          await usersApi.uploadPhoto(id, form.photoDataUrl);
+        } catch {
+          toast.message("Staff saved, but photo upload failed — try again from Edit.");
+        }
       }
       return updatedUser;
     },
@@ -341,6 +372,41 @@ export function StaffPage() {
                 </div>
               ) : null}
 
+              <div className="flex flex-wrap items-center gap-4 rounded-2xl border border-slate-200/80 bg-slate-50/80 p-3 dark:border-white/10 dark:bg-white/[0.03]">
+                <StaffAvatar user={previewUser} className="h-16 w-16 text-base" />
+                <div className="min-w-0 flex-1 space-y-1">
+                  <p className="text-sm font-semibold text-slate-900 dark:text-slate-50">
+                    Staff photo
+                  </p>
+                  <p className="text-xs text-slate-500">
+                    Upload or take a photo. Saved after you tap Save.
+                  </p>
+                  <div className="flex flex-wrap gap-2 pt-1">
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="outline"
+                      onClick={() => setPhotoPickerOpen(true)}
+                    >
+                      <Camera className="h-3.5 w-3.5" />
+                      {form.photoDataUrl || previewUser?.photoUrl || previewUser?.photo
+                        ? "Change photo"
+                        : "Upload photo"}
+                    </Button>
+                    {form.photoDataUrl ? (
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="ghost"
+                        onClick={() => setForm((f) => ({ ...f, photoDataUrl: "" }))}
+                      >
+                        Clear new photo
+                      </Button>
+                    ) : null}
+                  </div>
+                </div>
+              </div>
+
               <div className="grid gap-3 md:grid-cols-2">
                 <div>
                   <Label>Username</Label>
@@ -446,6 +512,21 @@ export function StaffPage() {
           </div>
         </div>
       ) : null}
+
+      <PhotoSourcePickerModal
+        open={photoPickerOpen}
+        title="Staff photo"
+        onClose={() => setPhotoPickerOpen(false)}
+        onPickFile={async (file) => {
+          try {
+            const compressed = await compressMemberPhotoFile(file);
+            setForm((f) => ({ ...f, photoDataUrl: compressed }));
+            toast.success("Photo ready — save to upload");
+          } catch (e) {
+            toast.error(e instanceof Error ? e.message : "Could not read photo");
+          }
+        }}
+      />
     </div>
   );
 }

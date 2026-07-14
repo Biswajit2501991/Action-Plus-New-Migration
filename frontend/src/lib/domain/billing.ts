@@ -65,3 +65,75 @@ export function overdueDaysForMember(
   const b = new Date(todayKey + "T00:00:00");
   return Math.max(1, Math.floor((b.getTime() - a.getTime()) / 86400000));
 }
+
+function calendarParts(key: string) {
+  const [y, m, d] = key.split("-").map(Number);
+  return { y, m, d };
+}
+
+/** Whole months between two calendar dates (UTC), floored by day-of-month. */
+export function monthsBetweenCalendarDates(
+  fromDate?: string | Date | null,
+  toDate: string | Date = new Date(),
+): number {
+  const fromKey = localCalendarDateKey(fromDate || "");
+  const toKey = localCalendarDateKey(toDate);
+  if (!fromKey || !toKey) return 0;
+  const from = calendarParts(fromKey);
+  const to = calendarParts(toKey);
+  let months = (to.y - from.y) * 12 + (to.m - from.m);
+  if (to.d < from.d) months -= 1;
+  return Math.max(0, months);
+}
+
+export function daysBetweenCalendarDates(
+  fromDate?: string | Date | null,
+  toDate: string | Date = new Date(),
+): number {
+  const fromKey = localCalendarDateKey(fromDate || "");
+  const toKey = localCalendarDateKey(toDate);
+  if (!fromKey || !toKey) return 0;
+  const a = new Date(fromKey + "T00:00:00");
+  const b = new Date(toKey + "T00:00:00");
+  return Math.max(0, Math.floor((b.getTime() - a.getTime()) / 86400000));
+}
+
+export function isHoldOrDeactivated(status?: string | null): boolean {
+  const s = String(status || "")
+    .trim()
+    .toLowerCase();
+  return s === "hold" || s === "deactivated";
+}
+
+/**
+ * Elapsed inactive time from billing date for Hold / Deactivated members.
+ * Uses days when under 1 month, months when under 1 year, otherwise years.
+ */
+export function inactiveDurationLabel(
+  member: { status?: string | null; billingDate?: string | null },
+  asOf: string | Date = new Date(),
+): string {
+  if (!isHoldOrDeactivated(member?.status)) return "";
+  const from = member?.billingDate;
+  if (!localCalendarDateKey(from || "")) return "";
+
+  const months = monthsBetweenCalendarDates(from, asOf);
+  if (months >= 12) {
+    const years = Math.floor(months / 12);
+    return `${years} Year${years === 1 ? "" : "s"}`;
+  }
+  if (months >= 1) {
+    return `${months} Month${months === 1 ? "" : "s"}`;
+  }
+  const days = daysBetweenCalendarDates(from, asOf);
+  return `${days} Day${days === 1 ? "" : "s"}`;
+}
+
+/** Payment By cell: date always; duration under it for Hold / Deactivated. */
+export function paymentByColumnValue(member: {
+  status?: string | null;
+  billingDate?: string | null;
+  paymentBy?: string | null;
+}): string {
+  return paymentByDateKey(member) || member.billingDate || "";
+}

@@ -1,6 +1,6 @@
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
-import type { AuthUser } from "@/types";
+import type { AuthUser, Visitor } from "@/types";
 import { sectionsWithRoleDefaults } from "@/lib/domain/permissions";
 
 type AuthState = {
@@ -27,6 +27,8 @@ type UiState = {
   lateNoteOpen: boolean;
   /** ISO timestamp set right after a successful login punch — triggers late-note auto prompt. */
   justLoggedInAt: string | null;
+  /** Visitor being converted — seeds Add Member wizard identity fields. */
+  convertVisitor: Visitor | null;
   favorites: string[];
   recentPages: string[];
   toggleSidebar: () => void;
@@ -35,6 +37,8 @@ type UiState = {
   setAddMemberOpen: (v: boolean) => void;
   setLateNoteOpen: (v: boolean) => void;
   setJustLoggedInAt: (v: string | null) => void;
+  setConvertVisitor: (v: Visitor | null) => void;
+  openConvertVisitor: (v: Visitor) => void;
   toggleFavorite: (href: string) => void;
   pushRecent: (href: string) => void;
 };
@@ -48,6 +52,7 @@ export const useUiStore = create<UiState>()(
       addMemberOpen: false,
       lateNoteOpen: false,
       justLoggedInAt: null,
+      convertVisitor: null,
       favorites: [],
       recentPages: [],
       toggleSidebar: () => set({ sidebarCollapsed: !get().sidebarCollapsed }),
@@ -56,6 +61,9 @@ export const useUiStore = create<UiState>()(
       setAddMemberOpen: (addMemberOpen) => set({ addMemberOpen }),
       setLateNoteOpen: (lateNoteOpen) => set({ lateNoteOpen }),
       setJustLoggedInAt: (justLoggedInAt) => set({ justLoggedInAt }),
+      setConvertVisitor: (convertVisitor) => set({ convertVisitor }),
+      openConvertVisitor: (visitor) =>
+        set({ convertVisitor: visitor, addMemberOpen: true }),
       toggleFavorite: (href) => {
         const favs = get().favorites;
         set({

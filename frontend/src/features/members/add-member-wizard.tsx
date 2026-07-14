@@ -230,6 +230,16 @@ type Props = {
   gymCodes: GymCode[];
   currentUser?: AuthUser | null;
   saving?: boolean;
+  /** Prefill from Convert Visitor (identity fields only). */
+  prefillVisitor?: {
+    id?: string;
+    fullName?: string;
+    name?: string;
+    email?: string;
+    dob?: string;
+    gender?: string;
+    mobile?: string;
+  } | null;
 };
 
 export function AddMemberWizard({
@@ -241,6 +251,7 @@ export function AddMemberWizard({
   gymCodes,
   currentUser,
   saving,
+  prefillVisitor,
 }: Props) {
   const staffName = String(currentUser?.name || currentUser?.id || "");
   const owner = isOwnerUser(currentUser);
@@ -300,6 +311,30 @@ export function AddMemberWizard({
     setForm((f) => ({ ...f, staff: staffName }));
   }, [open, staffName]);
 
+  // Convert Visitor: clear draft and seed identity (prod convertVisitorToMember).
+  useEffect(() => {
+    if (!open || !prefillVisitor) return;
+    const draftKeyLocal = draftKeyForUser(currentUser);
+    try {
+      localStorage.removeItem(draftKeyLocal);
+    } catch {
+      /* ignore */
+    }
+    const name = String(prefillVisitor.fullName || prefillVisitor.name || "").trim();
+    setStep(1);
+    setWarn("");
+    setForm((f) => ({
+      ...f,
+      name,
+      email: String(prefillVisitor.email || "").trim(),
+      dob: String(prefillVisitor.dob || "").slice(0, 10),
+      gender: String(prefillVisitor.gender || "").trim(),
+      mobile: String(prefillVisitor.mobile || "").trim(),
+      staff: staffName,
+      ackSignature: name,
+    }));
+  }, [open, prefillVisitor, currentUser, staffName]);
+
   useEffect(() => {
     if (!open) return;
     setForm((f) => {
@@ -314,6 +349,7 @@ export function AddMemberWizard({
 
   useEffect(() => {
     if (!open) return;
+    if (prefillVisitor) return; // convert flow skips restoring local draft
     try {
       const raw = localStorage.getItem(draftKey);
       if (!raw) return;
@@ -325,7 +361,7 @@ export function AddMemberWizard({
     } catch {
       /* ignore */
     }
-  }, [open, draftKey, staffName]);
+  }, [open, draftKey, staffName, prefillVisitor]);
 
   useEffect(() => {
     if (!open) return;

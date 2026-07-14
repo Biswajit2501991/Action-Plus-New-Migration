@@ -10,8 +10,12 @@ import {
   primaryMessageActionForMember,
   shortStatus,
 } from "@/lib/domain/member-actions";
-import { isPaymentByPastDue, overdueDaysForMember } from "@/lib/domain/billing";
-import { paymentByDateKey } from "@/lib/domain/billing";
+import {
+  isPaymentByPastDue,
+  overdueDaysForMember,
+  paymentByDateKey,
+  inactiveDurationLabel,
+} from "@/lib/domain/billing";
 import { cn } from "@/lib/utils";
 import type { Member } from "@/types";
 
@@ -76,6 +80,7 @@ export function MemberCardRow({
   const billingToday = isBillingToday(m) && !overdue;
   const msg = primaryMessageActionForMember(m, { isOwner });
   const statusSentText = msg.key !== "none" ? getSmsSentInfoText(m, msg.key) : "";
+  const inactiveDuration = inactiveDurationLabel(m);
   const paymentBy = paymentByDateKey(m) || m.billingDate || "";
 
   return (
@@ -150,6 +155,18 @@ export function MemberCardRow({
         </span>
         <span className="whitespace-nowrap text-slate-700 dark:text-foreground">
           <span className="block">{fmtDate(paymentBy)}</span>
+          {inactiveDuration ? (
+            <span
+              className={cn(
+                "block text-[9px] font-semibold",
+                String(m.status).toLowerCase() === "hold" && "text-amber-800 dark:text-amber-300",
+                String(m.status).toLowerCase() === "deactivated" &&
+                  "text-rose-800 dark:text-rose-300",
+              )}
+            >
+              {inactiveDuration}
+            </span>
+          ) : null}
           {overdue ? (
             <span className="block text-[9px] font-semibold text-rose-700">
               Overdue by {overdueDaysForMember(m)} day{overdueDaysForMember(m) === 1 ? "" : "s"}

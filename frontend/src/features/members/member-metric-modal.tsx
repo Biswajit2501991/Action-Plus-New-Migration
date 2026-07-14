@@ -5,7 +5,13 @@ import { Search } from "lucide-react";
 import { Badge } from "@/components/ui/misc";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { isPaymentByPastDue, paymentByDateKey } from "@/lib/domain/billing";
+import {
+  daysBetweenCalendarDates,
+  inactiveDurationLabel,
+  isHoldOrDeactivated,
+  isPaymentByPastDue,
+  paymentByDateKey,
+} from "@/lib/domain/billing";
 import { formatDate, cn } from "@/lib/utils";
 import type { Member } from "@/types";
 
@@ -76,7 +82,31 @@ const META: Record<
   },
 };
 
-function paymentByDisplay(m: Member) {
+function formatPaymentByCell(m: Member) {
+  const dateKey = paymentByDateKey(m) || m.billingDate || "";
+  const dateLabel = formatDate(dateKey) || "—";
+  const duration = inactiveDurationLabel(m);
+  if (!duration) return dateLabel;
+  return (
+    <span className="block">
+      <span className="block">{dateLabel}</span>
+      <span
+        className={cn(
+          "block text-[11px] font-semibold",
+          m.status === "Hold" && "text-amber-700 dark:text-amber-300",
+          m.status === "Deactivated" && "text-rose-700 dark:text-rose-300",
+        )}
+      >
+        {duration}
+      </span>
+    </span>
+  );
+}
+
+function paymentBySortKey(m: Member) {
+  if (isHoldOrDeactivated(m.status)) {
+    return String(daysBetweenCalendarDates(m.billingDate)).padStart(8, "0");
+  }
   return paymentByDateKey(m) || m.billingDate || "";
 }
 
@@ -118,7 +148,7 @@ function matchesSearch(m: Member, q: string) {
 }
 
 function sortValue(m: Member, field: SortField) {
-  if (field === "paymentBy") return paymentByDisplay(m) || "";
+  if (field === "paymentBy") return paymentBySortKey(m);
   if (field === "billingDate") return m.billingDate || "";
   if (field === "memberId") return m.memberId || "";
   if (field === "name") return m.name || "";
@@ -340,7 +370,7 @@ export function MemberMetricModal({
                     <td className="px-4 py-3">{m.mobile || "—"}</td>
                     <td className="px-4 py-3">{m.plan || "—"}</td>
                     <td className="px-4 py-3">{formatDate(m.billingDate)}</td>
-                    <td className="px-4 py-3">{formatDate(paymentByDisplay(m))}</td>
+                    <td className="px-4 py-3">{formatPaymentByCell(m)}</td>
                     <td className="px-4 py-3">
                       <Badge variant={statusBadgeVariant(String(m.status))}>
                         {m.status || "Active"}

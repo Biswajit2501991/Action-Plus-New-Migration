@@ -4,7 +4,7 @@ import { useMemo, useState, type ReactNode } from "react";
 import { MessageCircle, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Select } from "@/components/ui/input";
-import { paymentByDateKey, localCalendarDateKey } from "@/lib/domain/billing";
+import { paymentByDateKey, localCalendarDateKey, inactiveDurationLabel, isHoldOrDeactivated, monthsBetweenCalendarDates } from "@/lib/domain/billing";
 import { nextPaymentDateFromBillingDate } from "@/lib/domain/member-dates";
 import { getSmsSentInfoText, primaryMessageActionForMember } from "@/lib/domain/member-actions";
 import { cn, formatCurrency, formatDate } from "@/lib/utils";
@@ -43,17 +43,6 @@ const COMPACT_HIDDEN = new Set([
 function dash(value: unknown) {
   if (value === undefined || value === null || value === "") return "—";
   return String(value);
-}
-
-function monthsBetween(fromDate?: string | null, toDate: Date = new Date()) {
-  const fromKey = localCalendarDateKey(fromDate || "");
-  if (!fromKey) return 0;
-  const [fy, fm, fd] = fromKey.split("-").map(Number);
-  const from = new Date(Date.UTC(fy, fm - 1, fd));
-  const to = new Date(Date.UTC(toDate.getFullYear(), toDate.getMonth(), toDate.getDate()));
-  let months = (to.getUTCFullYear() - from.getUTCFullYear()) * 12 + (to.getUTCMonth() - from.getUTCMonth());
-  if (to.getUTCDate() < from.getUTCDate()) months -= 1;
-  return Math.max(0, months);
 }
 
 function holdPolicyNote(holdMonths: number) {
@@ -369,10 +358,14 @@ export function MemberExpandedDetails({
 
   const isHold = String(m.status || "").trim().toLowerCase() === "hold";
   const isActive = String(m.status || "").trim().toLowerCase() === "active";
-  const holdMonths = isHold ? monthsBetween(m.billingDate) : 0;
+  const inactiveLabel = inactiveDurationLabel(m);
+  const holdMonths = isHoldOrDeactivated(m.status)
+    ? monthsBetweenCalendarDates(m.billingDate)
+    : 0;
   const holdNote = holdPolicyNote(holdMonths);
   const payments = useMemo(() => paymentRows(m), [m]);
-  const paymentBy = paymentByDateKey(m) || m.billingDate || "";
+  const paymentByDate = paymentByDateKey(m) || m.billingDate || "";
+  const paymentByDisplay = formatDate(paymentByDate);
   const nextPay =
     m.nextPaymentDate || nextPaymentDateFromBillingDate(m.billingDate) || "";
 
@@ -420,7 +413,14 @@ export function MemberExpandedDetails({
     { key: "joiningDate", label: "Joining Date", value: formatDate(m.joiningDate), required: true },
     { key: "billingDate", label: "Billing Date", value: formatDate(m.billingDate), required: true },
     { key: "nextPaymentDate", label: "Next Payment Date", value: formatDate(nextPay), required: true },
-    { key: "paymentBy", label: "Payment By", value: formatDate(paymentBy), required: true },
+    {
+      key: "paymentBy",
+      label: "Payment By",
+      value: paymentByDisplay || "—",
+      required: true,
+      hint: inactiveLabel || undefined,
+      tone: inactiveLabel ? ("hold" as const) : undefined,
+    },
     { key: "status", label: "Status", value: dash(m.status), required: true },
     ...(isActive
       ? [{ key: "injuriesNotes", label: "Injuries / Notes", value: injuriesNotesValue(m) }]
@@ -430,8 +430,8 @@ export function MemberExpandedDetails({
       ? [
           {
             key: "totalHoldMonths",
-            label: "Total Hold Months",
-            value: `${holdMonths} Month${holdMonths === 1 ? "" : "s"}`,
+            label: "Total Hold Duration",
+            value: inactiveLabel || `${holdMonths} Month${holdMonths === 1 ? "" : "s"}`,
             tone: "hold" as const,
             hint: "(calculated from Billing Date)",
           },
@@ -470,7 +470,12 @@ export function MemberExpandedDetails({
       value: m.amount !== undefined && m.amount !== null ? formatCurrency(Number(m.amount || 0)) : "—",
     },
     { label: "Billing Date", value: formatDate(m.billingDate) },
-    { label: "Payment By", value: formatDate(paymentBy) },
+    {
+      label: "Payment By",
+      value: inactiveLabel
+        ? `${paymentByDisplay || "—"}\n${inactiveLabel}`
+        : paymentByDisplay || "—",
+    },
     { label: "Status", value: dash(m.status) },
     {
       label: "Last Payment",
@@ -608,7 +613,7 @@ export function MemberExpandedDetails({
           {summaryItems.map((item) => (
             <div key={item.label} className="rounded-lg border border-border/70 bg-background px-2.5 py-1.5">
               <div className="text-[9px] uppercase tracking-wide text-muted-foreground">{item.label}</div>
-              <div className="mt-0.5 text-[11px] font-semibold">{item.value}</div>
+              <div className="mt-0.5 whitespace-pre-line text-[11px] font-semibold">{item.value}</div>
             </div>
           ))}
         </div>

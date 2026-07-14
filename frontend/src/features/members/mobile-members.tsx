@@ -11,7 +11,7 @@ import { Input } from "@/components/ui/input";
 import { useGymCodes, useMembers, useSettings } from "@/hooks/use-data";
 import { EditMemberModal } from "@/features/members/edit-member-modal";
 import { memberSearchHaystack } from "@/lib/domain/members";
-import { isPaymentByPastDue, overdueDaysForMember, paymentByDateKey } from "@/lib/domain/billing";
+import { isPaymentByPastDue, overdueDaysForMember, paymentByDateKey, inactiveDurationLabel } from "@/lib/domain/billing";
 import { formatDate, cn } from "@/lib/utils";
 import { hasAccess } from "@/lib/domain/permissions";
 import { useAuthStore, useUiStore } from "@/stores";
@@ -123,6 +123,7 @@ export function MobileMembers() {
         ) : (
           filtered.map((m) => {
             const overdue = isPaymentByPastDue(m);
+            const inactive = inactiveDurationLabel(m);
             const payBy = paymentByDateKey(m);
             const rowKey = String(m.memberId || m.id || "");
             const isExpanded = canExpand && expandedId === rowKey;
@@ -188,6 +189,17 @@ export function MobileMembers() {
                         <span className="font-semibold text-rose-600 dark:text-rose-400">
                           {" "}
                           · {overdueDaysForMember(m)}d overdue
+                        </span>
+                      ) : null}
+                      {inactive ? (
+                        <span
+                          className={cn(
+                            "block font-semibold",
+                            m.status === "Hold" && "text-amber-700 dark:text-amber-300",
+                            m.status === "Deactivated" && "text-rose-700 dark:text-rose-300",
+                          )}
+                        >
+                          {inactive}
                         </span>
                       ) : null}
                     </p>

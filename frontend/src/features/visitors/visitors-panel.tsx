@@ -12,13 +12,23 @@ import {
   type VisitorFormValues,
 } from "@/features/visitors/visitor-form-modal";
 import { hasAccess } from "@/lib/domain/permissions";
+import { isRecordNewWithinHours } from "@/lib/domain/new-record";
 import { cn, formatDate, uid } from "@/lib/utils";
 import { visitorsApi } from "@/services/api";
-import { useAuthStore } from "@/stores";
+import { useAuthStore, useUiStore } from "@/stores";
 import type { Visitor } from "@/types";
 
 function displayName(v: Visitor) {
   return String(v.fullName || v.name || "Visitor").trim();
+}
+
+function NewVisitorBadge({ timestamp }: { timestamp?: string | null }) {
+  if (!isRecordNewWithinHours(timestamp, 48)) return null;
+  return (
+    <span className="inline-flex shrink-0 items-center rounded-md bg-[#EF4444] px-1.5 py-0.5 text-[10px] font-semibold leading-none text-white">
+      New
+    </span>
+  );
 }
 
 type Props = {
@@ -27,11 +37,13 @@ type Props = {
 
 export function VisitorsPanel({ visitors }: Props) {
   const user = useAuthStore((s) => s.user);
+  const openConvertVisitor = useUiStore((s) => s.openConvertVisitor);
   const qc = useQueryClient();
   const canWrite =
     hasAccess(user, "members", "addMembers") || hasAccess(user, "members", "editMembers");
   const canDelete =
     hasAccess(user, "members", "deleteMembers") || hasAccess(user, "members", "editMembers");
+  const canConvert = hasAccess(user, "members", "addMembers");
 
   const [formOpen, setFormOpen] = useState(false);
   const [editing, setEditing] = useState<Visitor | null>(null);
@@ -144,12 +156,18 @@ export function VisitorsPanel({ visitors }: Props) {
             <div className="space-y-2">
               {sorted.map((v) => {
                 const expanded = expandedId === v.id;
+                const converted = String(v.status || "") === "Converted";
+                const isNew = isRecordNewWithinHours(String(v.addedAt || v.visitDate || ""), 48);
                 return (
                   <div
                     key={v.id}
                     className={cn(
-                      "rounded-2xl border border-slate-200/80 bg-white transition dark:border-white/10 dark:bg-white/[0.02]",
+                      "rounded-2xl border transition",
+                      isNew
+                        ? "border-rose-300/90 bg-rose-50/70 dark:border-rose-500/30 dark:bg-rose-950/25"
+                        : "border-slate-200/80 bg-white dark:border-white/10 dark:bg-white/[0.02]",
                       expanded && "ring-1 ring-slate-300 dark:ring-white/15",
+                      converted && "opacity-80",
                     )}
                   >
                     <button
@@ -157,7 +175,14 @@ export function VisitorsPanel({ visitors }: Props) {
                       className="flex w-full items-center gap-3 px-4 py-3 text-left"
                       onClick={() => setExpandedId(expanded ? "" : v.id)}
                     >
-                      <div className="flex h-10 w-10 items-center justify-center rounded-full bg-slate-100 text-slate-600 dark:bg-white/10 dark:text-slate-300">
+                      <div
+                        className={cn(
+                          "flex h-10 w-10 items-center justify-center rounded-full",
+                          isNew
+                            ? "bg-rose-100 text-rose-700 dark:bg-rose-900/50 dark:text-rose-200"
+                            : "bg-slate-100 text-slate-600 dark:bg-white/10 dark:text-slate-300",
+                        )}
+                      >
                         <UserRound className="h-4 w-4" />
                       </div>
                       <div className="min-w-0 flex-1">
@@ -165,10 +190,17 @@ export function VisitorsPanel({ visitors }: Props) {
                           <p className="truncate font-semibold text-slate-900 dark:text-slate-50">
                             {displayName(v)}
                           </p>
-                          <Badge variant={v.callBackRequired ? "warning" : "muted"}>
-                            {v.status || "New"}
-                          </Badge>
-                          {v.callBackRequired ? (
+                          <NewVisitorBadge timestamp={String(v.addedAt || v.visitDate || "")} />
+                          {(() => {
+                            const status = String(v.status || "New").trim() || "New";
+                            if (status.toLowerCase() === "new") return null;
+                            return (
+                              <Badge variant={converted ? "success" : v.callBackRequired ? "warning" : "muted"}>
+                                {status}
+                              </Badge>
+                            );
+                          })()}
+                          {v.callBackRequired && !converted ? (
                             <Badge variant="warning">Callback</Badge>
                           ) : null}
                         </div>
@@ -199,9 +231,15 @@ export function VisitorsPanel({ visitors }: Props) {
                               ? `${formatDate(String(v.lastCalledAt))} by ${v.lastCalledBy || "—"}`
                               : "Not yet"}
                           </p>
+                          {converted ? (
+                            <p className="sm:col-span-2">
+                              <span className="text-slate-400">Converted member · </span>
+                              {String(v.convertedMemberId || "—")}
+                            </p>
+                          ) : null}
                         </div>
                         <div className="flex flex-wrap gap-2">
-                          {canWrite ? (
+                          {canWrite && !converted ? (
                             <Button
                               size="sm"
                               variant="outline"
@@ -213,7 +251,7 @@ export function VisitorsPanel({ visitors }: Props) {
                               Edit
                             </Button>
                           ) : null}
-                          {canWrite ? (
+                          {canWrite && !converted ? (
                             <Button
                               size="sm"
                               variant="outline"
@@ -224,7 +262,24 @@ export function VisitorsPanel({ visitors }: Props) {
                               Mark called
                             </Button>
                           ) : null}
-                          {canDelete ? (
+                          {canConvert ? (
+                            <Button
+                              size="sm"
+                              disabled={converted}
+                              className={cn(
+                                converted
+                                  ? "cursor-not-allowed border-slate-300 bg-slate-100 text-slate-500"
+                                  : "border border-emerald-300 bg-emerald-50 text-emerald-800 hover:bg-emerald-100 dark:border-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-200",
+                              )}
+                              onClick={() => {
+                                if (converted) return;
+                                openConvertVisitor(v);
+                              }}
+                            >
+                              Convert to Member
+                            </Button>
+                          ) : null}
+                          {canDelete && !converted ? (
                             <Button
                               size="sm"
                               variant="ghost"
