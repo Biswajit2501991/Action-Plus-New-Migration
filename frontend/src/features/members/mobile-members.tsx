@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { useSearchParams } from "next/navigation";
-import { ChevronDown, Phone, Search } from "lucide-react";
+import { ChevronDown, Phone, Search, X } from "lucide-react";
 import { MobileChip, MobileHero, MobilePanel } from "@/components/layout/mobile-ui";
 import { MemberAvatar } from "@/components/member-avatar";
 import { Skeleton } from "@/components/ui/misc";
@@ -93,8 +93,21 @@ export function MobileMembers() {
           value={q}
           onChange={(e) => setQ(e.target.value)}
           placeholder={canExpand ? "Search name, ID, phone…" : "Search name or ID…"}
-          className="h-12 rounded-2xl border-black/5 bg-white/80 pl-10 shadow-sm dark:border-white/8 dark:bg-white/[0.04]"
+          className={cn(
+            "h-12 rounded-2xl border-black/5 bg-white/80 pl-10 shadow-sm dark:border-white/8 dark:bg-white/[0.04]",
+            q.trim() ? "pr-11" : "pr-4",
+          )}
         />
+        {q.trim() ? (
+          <button
+            type="button"
+            className="absolute right-3 top-1/2 -translate-y-1/2 rounded-md p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-700 dark:hover:bg-white/10 dark:hover:text-slate-200"
+            onClick={() => setQ("")}
+            aria-label="Clear search"
+          >
+            <X className="h-4 w-4" />
+          </button>
+        ) : null}
       </div>
 
       <div className="flex gap-2 overflow-x-auto pb-1 [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">

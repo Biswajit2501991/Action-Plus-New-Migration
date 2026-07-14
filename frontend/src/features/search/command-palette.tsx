@@ -4,6 +4,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useQueryClient } from "@tanstack/react-query";
 import { Command } from "cmdk";
+import { X } from "lucide-react";
 import { useAuthStore, useUiStore } from "@/stores";
 import { useGymCodes, useMembers, useSettings } from "@/hooks/use-data";
 import { NAV_ITEMS } from "@/lib/nav";
@@ -77,14 +78,29 @@ export function CommandPalette() {
             className="relative z-10 w-full max-w-xl overflow-hidden rounded-2xl border border-border bg-background shadow-2xl"
             shouldFilter={false}
           >
-            <Command.Input
-              ref={inputRef}
-              autoFocus
-              value={q}
-              onValueChange={setQ}
-              placeholder="Search members, pages, invoices…"
-              className="h-12 w-full border-b border-border bg-transparent px-4 text-sm outline-none"
-            />
+            <div className="relative border-b border-border">
+              <Command.Input
+                ref={inputRef}
+                autoFocus
+                value={q}
+                onValueChange={setQ}
+                placeholder="Search members, pages, invoices…"
+                className="h-12 w-full bg-transparent py-0 pl-4 pr-11 text-sm outline-none"
+              />
+              {q.trim() ? (
+                <button
+                  type="button"
+                  className="absolute right-3 top-1/2 -translate-y-1/2 rounded-md p-1 text-muted-foreground hover:bg-muted hover:text-foreground"
+                  onClick={() => {
+                    setQ("");
+                    window.requestAnimationFrame(() => inputRef.current?.focus());
+                  }}
+                  aria-label="Clear search"
+                >
+                  <X className="h-4 w-4" />
+                </button>
+              ) : null}
+            </div>
             <Command.List className="max-h-[420px] overflow-y-auto p-2">
               <Command.Empty className="px-3 py-6 text-center text-sm text-muted-foreground">
                 No results found.

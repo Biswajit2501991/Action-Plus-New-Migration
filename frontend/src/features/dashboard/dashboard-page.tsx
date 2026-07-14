@@ -12,7 +12,7 @@ import {
   XAxis,
   YAxis,
 } from "recharts";
-import { Plus, Search, SlidersHorizontal } from "lucide-react";
+import { Plus, Search, SlidersHorizontal, X } from "lucide-react";
 import { AccentMetricCard, statusAccentTone } from "@/components/ui/accent-metric-card";
 import { Badge, PageHeader, Skeleton } from "@/components/ui/misc";
 import { Button } from "@/components/ui/button";
@@ -346,21 +346,33 @@ export function DashboardPage() {
       {canCore ? (
         <div className="space-y-3">
           <div className="flex flex-col gap-2 md:flex-row md:items-center">
-            <Input
-              value={q}
-              onChange={(e) => {
-                setQ(e.target.value);
-                setSearchActive(Boolean(e.target.value.trim()));
-              }}
-              placeholder="Search members (name, ID, mobile, email, staff)…"
-              className="flex-1"
-              onKeyDown={(e) => {
-                if (e.key === "Enter") {
-                  e.preventDefault();
-                  runDashboardSearch();
-                }
-              }}
-            />
+            <div className="relative flex-1">
+              <Input
+                value={q}
+                onChange={(e) => {
+                  setQ(e.target.value);
+                  setSearchActive(Boolean(e.target.value.trim()));
+                }}
+                placeholder="Search members (name, ID, mobile, email, staff)…"
+                className={q.trim() ? "pr-10" : undefined}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") {
+                    e.preventDefault();
+                    runDashboardSearch();
+                  }
+                }}
+              />
+              {q.trim() ? (
+                <button
+                  type="button"
+                  className="absolute right-2 top-1/2 -translate-y-1/2 rounded-md p-1 text-muted-foreground hover:bg-muted hover:text-foreground"
+                  onClick={clearDashboardSearch}
+                  aria-label="Clear search"
+                >
+                  <X className="h-4 w-4" />
+                </button>
+              ) : null}
+            </div>
             <Select value={field} onChange={(e) => setField(e.target.value)} className="md:w-40">
               <option value="all">All</option>
               <option value="name">Name</option>
@@ -375,11 +387,6 @@ export function DashboardPage() {
               <Search className="h-4 w-4" />
               Search
             </Button>
-            {q.trim() || searchActive ? (
-              <Button variant="ghost" onClick={clearDashboardSearch}>
-                Clear
-              </Button>
-            ) : null}
           </div>
 
           {searchActive && q.trim() ? (

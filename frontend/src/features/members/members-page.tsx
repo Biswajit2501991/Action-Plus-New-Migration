@@ -9,6 +9,7 @@ import {
   MoreHorizontal,
   Plus,
   Search,
+  X,
 } from "lucide-react";
 import { AccentMetricCard } from "@/components/ui/accent-metric-card";
 import { EmptyState, PageHeader, Skeleton } from "@/components/ui/misc";
@@ -885,16 +886,31 @@ export function MembersPage() {
                               if (e.key === "Enter") setAppliedQuickSearch(quickSearchInput.trim());
                             }}
                             placeholder="Search members..."
-                            className="pr-10"
+                            className={quickSearchInput.trim() ? "pr-16" : "pr-10"}
                           />
-                          <button
-                            type="button"
-                            className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground"
-                            onClick={() => setAppliedQuickSearch(quickSearchInput.trim())}
-                            aria-label="Search"
-                          >
-                            <Search className="h-4 w-4" />
-                          </button>
+                          <div className="absolute right-2 top-1/2 flex -translate-y-1/2 items-center gap-0.5">
+                            {quickSearchInput.trim() ? (
+                              <button
+                                type="button"
+                                className="rounded-md p-1 text-muted-foreground hover:bg-muted hover:text-foreground"
+                                onClick={() => {
+                                  setQuickSearchInput("");
+                                  setAppliedQuickSearch("");
+                                }}
+                                aria-label="Clear search"
+                              >
+                                <X className="h-4 w-4" />
+                              </button>
+                            ) : null}
+                            <button
+                              type="button"
+                              className="rounded-md p-1 text-muted-foreground hover:bg-muted hover:text-foreground"
+                              onClick={() => setAppliedQuickSearch(quickSearchInput.trim())}
+                              aria-label="Search"
+                            >
+                              <Search className="h-4 w-4" />
+                            </button>
+                          </div>
                         </div>
                         <Button
                           type="button"
