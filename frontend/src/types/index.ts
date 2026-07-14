@@ -48,6 +48,10 @@ export type Member = {
   emergencyContact?: string;
   medicalConditions?: string;
   medicalAnswers?: Record<string, unknown>;
+  familyGroupId?: string;
+  family_group_id?: string;
+  familyPrimaryMemberId?: string;
+  family_primary_member_id?: string;
   updatedAt?: string;
   createdAt?: string;
   [key: string]: unknown;

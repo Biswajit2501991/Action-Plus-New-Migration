@@ -5,6 +5,7 @@ import { MessageCircle, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Select } from "@/components/ui/input";
 import { paymentByDateKey, localCalendarDateKey, inactiveDurationLabel, isHoldOrDeactivated, monthsBetweenCalendarDates } from "@/lib/domain/billing";
+import { familyMembersInGroup } from "@/lib/domain/family-link";
 import { nextPaymentDateFromBillingDate } from "@/lib/domain/member-dates";
 import { getSmsSentInfoText, primaryMessageActionForMember } from "@/lib/domain/member-actions";
 import { cn, formatCurrency, formatDate } from "@/lib/utils";
@@ -303,8 +304,90 @@ function CommunicationDocumentsBlock({
   );
 }
 
+function FamilyUnitStrip({
+  m,
+  allMembers,
+  canEdit,
+  onNavigateMember,
+  onUnlinkFamilyGroup,
+}: {
+  m: Member;
+  allMembers: Member[];
+  canEdit: boolean;
+  onNavigateMember?: (member: Member) => void;
+  onUnlinkFamilyGroup?: (groupId: string) => void;
+}) {
+  const gid = String(m.familyGroupId || m.family_group_id || "").trim();
+  if (!gid) return null;
+  const primaryId = String(m.familyPrimaryMemberId || m.family_primary_member_id || "").trim();
+  const primary = allMembers.find((x) => x.memberId === primaryId);
+  const others = familyMembersInGroup(allMembers, gid).filter((x) => x.memberId !== m.memberId);
+  const phoneDisplay = m.mobile || primary?.mobile || "—";
+
+  return (
+    <div className="rounded-xl border border-indigo-200 bg-indigo-50/60 p-3 text-sm text-slate-800 dark:border-indigo-900 dark:bg-indigo-950/30 dark:text-slate-100">
+      <div className="flex flex-wrap items-start justify-between gap-2">
+        <div className="min-w-0 flex-1">
+          <div className="text-xs font-semibold uppercase tracking-wide text-indigo-800 dark:text-indigo-300">
+            Family unit
+          </div>
+          <div className="mt-1 text-[13px]">
+            {primaryId === m.memberId ? (
+              <span>
+                <span className="font-semibold text-indigo-900 dark:text-indigo-200">Primary</span>{" "}
+                contact for this number ({phoneDisplay}).
+              </span>
+            ) : (
+              <span>
+                Linked with:{" "}
+                <button
+                  type="button"
+                  className="font-semibold text-indigo-800 underline hover:text-indigo-950 dark:text-indigo-300"
+                  onClick={() => primary && onNavigateMember?.(primary)}
+                >
+                  {primary?.name || primaryId || "—"}
+                </button>
+                {" "}
+                — {phoneDisplay}
+              </span>
+            )}
+          </div>
+          {others.length > 0 ? (
+            <div className="mt-2 text-xs text-slate-600 dark:text-slate-300">
+              <div className="font-semibold text-slate-700 dark:text-slate-200">Related members</div>
+              <ul className="mt-1 flex flex-wrap gap-2">
+                {others.map((o) => (
+                  <li key={o.memberId}>
+                    <button
+                      type="button"
+                      onClick={() => onNavigateMember?.(o)}
+                      className="rounded-lg border border-indigo-300 bg-white px-2 py-0.5 font-semibold text-indigo-800 hover:bg-indigo-100 dark:border-indigo-800 dark:bg-indigo-950/50 dark:text-indigo-200"
+                    >
+                      {o.name || o.memberId}
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          ) : null}
+        </div>
+        {canEdit && onUnlinkFamilyGroup ? (
+          <button
+            type="button"
+            className="rounded-lg border border-rose-200 bg-white px-2.5 py-1 text-[11px] font-semibold text-rose-700 hover:bg-rose-50 dark:border-rose-900 dark:bg-rose-950/40 dark:text-rose-300"
+            onClick={() => onUnlinkFamilyGroup(gid)}
+          >
+            Unlink family
+          </button>
+        ) : null}
+      </div>
+    </div>
+  );
+}
+
 export function MemberExpandedDetails({
   m,
+  allMembers = [],
   isOwner,
   canEdit,
   canDelete,
@@ -319,8 +402,11 @@ export function MemberExpandedDetails({
   onUploadDocument,
   onDelete,
   onStatusChange,
+  onNavigateMember,
+  onUnlinkFamilyGroup,
 }: {
   m: Member;
+  allMembers?: Member[];
   isOwner: boolean;
   canEdit: boolean;
   canDelete: boolean;
@@ -335,6 +421,8 @@ export function MemberExpandedDetails({
   onUploadDocument: (file: File) => void;
   onDelete: () => void;
   onStatusChange: (status: string, holdDuration?: string) => void;
+  onNavigateMember?: (member: Member) => void;
+  onUnlinkFamilyGroup?: (groupId: string) => void;
 }) {
   const [viewMode, setViewMode] = useState<DetailsViewMode>(() => {
     try {
@@ -576,6 +664,14 @@ export function MemberExpandedDetails({
           </Button>
         ) : null}
       </div>
+
+      <FamilyUnitStrip
+        m={m}
+        allMembers={allMembers}
+        canEdit={canEdit}
+        onNavigateMember={onNavigateMember}
+        onUnlinkFamilyGroup={onUnlinkFamilyGroup}
+      />
 
       <div className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-border/70 bg-background p-2">
         <div className="text-[11px] font-semibold text-muted-foreground">Member Details View</div>

@@ -25,6 +25,15 @@ import {
   paymentByFromBillingDate,
 } from "@/lib/domain/member-dates";
 import { isMasterOwnerUser } from "@/lib/domain/permissions";
+import {
+  findUnlinkedDuplicateMobile,
+  membersSharingNormalizedPhone,
+  resolveFamilyGroupId,
+} from "@/lib/domain/family-link";
+import {
+  FamilyLinkPromptModal,
+  type FamilyLinkPromptState,
+} from "@/features/members/family-link-prompt-modal";
 import { cn } from "@/lib/utils";
 import { membersApi } from "@/services/api";
 import type { AppSettings, AuthUser, GymCode, Member } from "@/types";
@@ -205,6 +214,7 @@ function ReqLabel({ children }: { children: React.ReactNode }) {
 
 type Props = {
   member: Member;
+  members?: Member[];
   onClose: () => void;
   onSaved: () => void | Promise<void>;
   settings?: AppSettings | null;
@@ -218,6 +228,7 @@ type Props = {
 
 export function EditMemberModal({
   member,
+  members = [],
   onClose,
   onSaved,
   settings,
@@ -237,6 +248,7 @@ export function EditMemberModal({
   const [saving, setSaving] = useState(false);
   const [injuryDraft, setInjuryDraft] = useState("");
   const [injuryBusy, setInjuryBusy] = useState(false);
+  const [familyPrompt, setFamilyPrompt] = useState<FamilyLinkPromptState | null>(null);
 
   useEffect(() => {
     setEdit(buildEditDraft(member));
@@ -466,35 +478,84 @@ export function EditMemberModal({
     }
   };
 
-  const save = async () => {
-    if (isInvalid || !dirty || saving) return;
+  const buildSavePayload = (
+    family?: { groupId: string; primaryMemberId: string },
+  ): Partial<Member> => {
+    const billing = isoDate(edit.billingDate);
+    const payload: Partial<Member> = {
+      formNo: edit.formNo,
+      memberId: edit.memberId,
+      name: String(edit.name || "").trim(),
+      mobile: String(edit.mobile || "").trim(),
+      email: String(edit.email || "").trim(),
+      plan: edit.plan,
+      status: edit.status,
+      holdDuration: edit.status === "Hold" ? edit.holdDuration || "" : "",
+      billingDate: billing,
+      amount: Number(edit.amount || 0),
+      paymentMethod: edit.paymentMethod,
+      nextPaymentDate: nextPaymentDateFromBillingDate(billing),
+      paymentBy: paymentByFromBillingDate(billing),
+      assignedGymCodeId: isOwner
+        ? String(edit.assignedGymCodeId || "").trim() || undefined
+        : member.assignedGymCodeId || member.assigned_gym_code_id,
+      medicalAnswers: edit.medicalAnswers,
+      updatedAt: new Date().toISOString(),
+      ...(family
+        ? {
+            familyGroupId: family.groupId,
+            familyPrimaryMemberId: family.primaryMemberId,
+          }
+        : {}),
+    };
+    delete (payload as { photo?: string }).photo;
+    return payload;
+  };
+
+  const persistSave = async (
+    family?: { groupId: string; primaryMemberId: string },
+    opts?: { skipDuplicateMobile?: boolean },
+  ) => {
+    const id = String(member.memberId || "").trim();
+    const payload = buildSavePayload(family);
+    const mobileChanged =
+      String(payload.mobile || "").trim() !== String(member.mobile || "").trim();
+
+    if (mobileChanged && !opts?.skipDuplicateMobile && !family) {
+      const draftMember = {
+        ...member,
+        ...payload,
+        memberId: id,
+      } as Member;
+      const dup = findUnlinkedDuplicateMobile(members, draftMember);
+      if (dup) {
+        const matches = membersSharingNormalizedPhone(members, draftMember.mobile, id);
+        setFamilyPrompt({
+          mode: "edit",
+          draft: draftMember,
+          matches,
+          selectedPrimaryId: matches[0]?.memberId || id,
+        });
+        return;
+      }
+    }
+
     setSaving(true);
     try {
-      const id = String(member.memberId || "").trim();
-      const billing = isoDate(edit.billingDate);
-      const payload: Partial<Member> = {
-        formNo: edit.formNo,
-        memberId: edit.memberId,
-        name: String(edit.name || "").trim(),
-        mobile: String(edit.mobile || "").trim(),
-        email: String(edit.email || "").trim(),
-        plan: edit.plan,
-        status: edit.status,
-        holdDuration: edit.status === "Hold" ? edit.holdDuration || "" : "",
-        billingDate: billing,
-        amount: Number(edit.amount || 0),
-        paymentMethod: edit.paymentMethod,
-        nextPaymentDate: nextPaymentDateFromBillingDate(billing),
-        paymentBy: paymentByFromBillingDate(billing),
-        assignedGymCodeId: isOwner
-          ? String(edit.assignedGymCodeId || "").trim() || undefined
-          : member.assignedGymCodeId || member.assigned_gym_code_id,
-        medicalAnswers: edit.medicalAnswers,
-        updatedAt: new Date().toISOString(),
-      };
-      delete (payload as { photo?: string }).photo;
       await membersApi.patch(id, payload);
-      toast.success("Member updated");
+      if (family) {
+        const peers = membersSharingNormalizedPhone(members, payload.mobile, id);
+        await Promise.all(
+          peers.map((peer) =>
+            membersApi.patch(peer.memberId, {
+              familyGroupId: family.groupId,
+              familyPrimaryMemberId: family.primaryMemberId,
+            }),
+          ),
+        );
+      }
+      toast.success(family ? "Family linked and member updated" : "Member updated");
+      setFamilyPrompt(null);
       await onSaved();
       onClose();
     } catch (err) {
@@ -502,6 +563,26 @@ export function EditMemberModal({
     } finally {
       setSaving(false);
     }
+  };
+
+  const confirmFamilyLink = async () => {
+    if (!familyPrompt) return;
+    const { draft, matches, selectedPrimaryId } = familyPrompt;
+    const primaryId = String(selectedPrimaryId || "").trim();
+    const allIds = [...new Set([draft.memberId, ...matches.map((m) => m.memberId)])];
+    if (!primaryId || !allIds.includes(primaryId)) {
+      toast.error("Choose a primary member for this family unit.");
+      return;
+    }
+    const primaryRow =
+      primaryId === draft.memberId ? draft : matches.find((x) => x.memberId === primaryId);
+    const groupId = resolveFamilyGroupId(primaryRow, matches);
+    await persistSave({ groupId, primaryMemberId: primaryId }, { skipDuplicateMobile: true });
+  };
+
+  const save = async () => {
+    if (isInvalid || !dirty || saving) return;
+    await persistSave();
   };
 
   const injuryLog = parseInjuryNotesLog(edit.medicalAnswers);
@@ -985,6 +1066,17 @@ export function EditMemberModal({
         onPickFile={(file) => void uploadPhoto(file)}
         title="Member photo"
       />
+      {familyPrompt ? (
+        <FamilyLinkPromptModal
+          prompt={familyPrompt}
+          confirming={saving}
+          onCancel={() => setFamilyPrompt(null)}
+          onChangePrimary={(id) =>
+            setFamilyPrompt((prev) => (prev ? { ...prev, selectedPrimaryId: id } : null))
+          }
+          onConfirm={() => void confirmFamilyLink()}
+        />
+      ) : null}
     </div>
   );
 }

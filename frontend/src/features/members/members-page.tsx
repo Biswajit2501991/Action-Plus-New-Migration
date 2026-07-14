@@ -961,6 +961,7 @@ export function MembersPage() {
                                   <div className="rounded-xl border border-border/70 bg-slate-50/80 px-3 py-3 dark:bg-slate-900/40">
                                     <MemberExpandedDetails
                                       m={m}
+                                      allMembers={members}
                                       isOwner={isOwner}
                                       canEdit={hasAccess(user, "members", "editMembers")}
                                       canDelete={
@@ -1019,6 +1020,40 @@ export function MembersPage() {
                                           status,
                                           holdDuration,
                                         });
+                                      }}
+                                      onNavigateMember={(other) => {
+                                        setExpandedId(other.memberId);
+                                        setAppliedQuickSearch(other.memberId);
+                                        setQuickSearchInput(other.memberId);
+                                      }}
+                                      onUnlinkFamilyGroup={(groupId) => {
+                                        if (
+                                          !confirm(
+                                            "Remove family link for everyone in this group?",
+                                          )
+                                        ) {
+                                          return;
+                                        }
+                                        const peers = members.filter(
+                                          (row) =>
+                                            String(row.familyGroupId || row.family_group_id || "").trim() ===
+                                            groupId,
+                                        );
+                                        void Promise.all(
+                                          peers.map((peer) =>
+                                            membersApi.patch(peer.memberId, {
+                                              familyGroupId: "",
+                                              familyPrimaryMemberId: "",
+                                            }),
+                                          ),
+                                        )
+                                          .then(async () => {
+                                            toast.success("Family link removed");
+                                            await qc.invalidateQueries({ queryKey: ["members"] });
+                                          })
+                                          .catch((e: Error) =>
+                                            toast.error(e.message || "Could not unlink family"),
+                                          );
                                       }}
                                     />
                                   </div>
@@ -1241,6 +1276,7 @@ export function MembersPage() {
         <EditMemberModal
           key={editing.memberId}
           member={editing}
+          members={members}
           onClose={() => setEditing(null)}
           onSaved={async () => {
             setEditing(null);

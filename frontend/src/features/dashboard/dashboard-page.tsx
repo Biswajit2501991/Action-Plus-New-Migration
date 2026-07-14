@@ -743,6 +743,7 @@ export function DashboardPage() {
         <EditMemberModal
           key={editing.memberId}
           member={editing}
+          members={members}
           onClose={() => setEditing(null)}
           onSaved={async () => {
             setEditing(null);

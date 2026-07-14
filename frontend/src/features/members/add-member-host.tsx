@@ -6,8 +6,27 @@ import { AddMemberWizard } from "@/features/members/add-member-wizard";
 import { useGymCodes, useMembers, useSettings, useVisitors } from "@/hooks/use-data";
 import { membersApi, visitorsApi } from "@/services/api";
 import { ApiError } from "@/services/api/client";
+import { membersSharingNormalizedPhone } from "@/lib/domain/family-link";
 import { useAuthStore, useUiStore } from "@/stores";
 import type { Member, Visitor } from "@/types";
+
+async function syncFamilyPeers(
+  allMembers: Member[],
+  phone: string | undefined,
+  groupId: string,
+  primaryMemberId: string,
+  excludeMemberId: string,
+) {
+  const peers = membersSharingNormalizedPhone(allMembers, phone, excludeMemberId);
+  await Promise.all(
+    peers.map((peer) =>
+      membersApi.patch(peer.memberId, {
+        familyGroupId: groupId,
+        familyPrimaryMemberId: primaryMemberId,
+      }),
+    ),
+  );
+}
 
 export function AddMemberHost() {
   const user = useAuthStore((s) => s.user);
@@ -62,6 +81,15 @@ export function AddMemberHost() {
         ...(slimAttachments.length ? { attachments: slimAttachments } : {}),
       };
       await membersApi.bulk([payload]);
+      if (familyGroupId && familyPrimaryMemberId) {
+        await syncFamilyPeers(
+          members,
+          payload.mobile,
+          familyGroupId,
+          familyPrimaryMemberId,
+          payload.memberId,
+        );
+      }
       if (photo) {
         try {
           await membersApi.uploadPhoto(payload.memberId, photo);

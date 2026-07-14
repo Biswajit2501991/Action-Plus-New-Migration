@@ -3,12 +3,15 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Input, Label, Select, Textarea } from "@/components/ui/input";
+import { ageFromDob, isValidEmail, isValidPhone } from "@/lib/domain/members";
 import {
-  ageFromDob,
-  isValidEmail,
-  isValidPhone,
-  normalizePhone,
-} from "@/lib/domain/members";
+  membersSharingNormalizedPhone,
+  resolveFamilyGroupId,
+} from "@/lib/domain/family-link";
+import {
+  FamilyLinkPromptModal,
+  type FamilyLinkPromptState,
+} from "@/features/members/family-link-prompt-modal";
 import {
   addMonthsToDateKey,
   billingDateFromJoining,
@@ -271,7 +274,7 @@ export function AddMemberWizard({
   const [step, setStep] = useState(1);
   const [resumeStepAfterFix, setResumeStepAfterFix] = useState<number | null>(null);
   const [warn, setWarn] = useState("");
-  const [familyPrompt, setFamilyPrompt] = useState<{ draft: Member; matches: Member[] } | null>(null);
+  const [familyPrompt, setFamilyPrompt] = useState<FamilyLinkPromptState | null>(null);
   const [injuryNote, setInjuryNote] = useState("");
   const [form, setForm] = useState<AddMemberFormState>(() => ({
     formNo: "",
@@ -625,13 +628,32 @@ export function AddMemberWizard({
   const save = async () => {
     const draft = buildMemberPayload();
     if (!draft) return;
-    const phone = normalizePhone(draft.mobile);
-    const matches = members.filter((m) => normalizePhone(m.mobile) === phone && phone);
+    const matches = membersSharingNormalizedPhone(members, draft.mobile, draft.memberId);
     if (matches.length) {
-      setFamilyPrompt({ draft, matches });
+      setFamilyPrompt({
+        mode: "add",
+        draft,
+        matches,
+        selectedPrimaryId: matches[0]?.memberId || draft.memberId,
+      });
       return;
     }
     await persistSave(draft);
+  };
+
+  const confirmFamilyLink = async () => {
+    if (!familyPrompt) return;
+    const { draft, matches, selectedPrimaryId } = familyPrompt;
+    const primaryId = String(selectedPrimaryId || "").trim();
+    const allIds = [...new Set([draft.memberId, ...matches.map((m) => m.memberId)])];
+    if (!primaryId || !allIds.includes(primaryId)) {
+      setWarn("Choose a primary member for this family unit.");
+      return;
+    }
+    const primaryRow =
+      primaryId === draft.memberId ? draft : matches.find((x) => x.memberId === primaryId);
+    const groupId = resolveFamilyGroupId(primaryRow, matches);
+    await persistSave(draft, { groupId, primaryMemberId: primaryId });
   };
 
   if (!open) return null;
@@ -1370,48 +1392,15 @@ export function AddMemberWizard({
       </div>
 
       {familyPrompt ? (
-        <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/50 p-4">
-          <div className="w-full max-w-md rounded-2xl border bg-background p-5 shadow-2xl">
-            <h4 className="text-base font-semibold">Shared mobile number</h4>
-            <p className="mt-2 text-sm text-muted-foreground">
-              This mobile is already used by {familyPrompt.matches.length} member
-              {familyPrompt.matches.length === 1 ? "" : "s"}. Link as a family member, or change the mobile.
-            </p>
-            <ul className="mt-3 max-h-40 space-y-1 overflow-auto text-sm">
-              {familyPrompt.matches.map((m) => (
-                <li key={m.memberId} className="rounded-lg border px-3 py-2">
-                  {m.name || m.memberId} · {m.memberId}
-                </li>
-              ))}
-            </ul>
-            <div className="mt-4 flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
-              <Button
-                variant="outline"
-                onClick={() => {
-                  setFamilyPrompt(null);
-                  goToStepAndFocus(1, "add-member-mobile", "Please use a different mobile number.", 5);
-                }}
-              >
-                Change mobile
-              </Button>
-              <Button
-                disabled={saving}
-                onClick={() => {
-                  const primary = familyPrompt.matches[0];
-                  const groupId =
-                    String(primary.familyGroupId || primary.family_group_id || "").trim() ||
-                    `fam-${Date.now()}`;
-                  void persistSave(familyPrompt.draft, {
-                    groupId,
-                    primaryMemberId: primary.memberId,
-                  });
-                }}
-              >
-                Link as family
-              </Button>
-            </div>
-          </div>
-        </div>
+        <FamilyLinkPromptModal
+          prompt={familyPrompt}
+          confirming={saving}
+          onCancel={() => setFamilyPrompt(null)}
+          onChangePrimary={(id) =>
+            setFamilyPrompt((prev) => (prev ? { ...prev, selectedPrimaryId: id } : null))
+          }
+          onConfirm={() => void confirmFamilyLink()}
+        />
       ) : null}
     </div>
   );
