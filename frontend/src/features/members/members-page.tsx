@@ -38,6 +38,7 @@ import { hasAccess, isMasterOwnerUser } from "@/lib/domain/permissions";
 import { useAuthStore, useUiStore } from "@/stores";
 import type { Member, Payment } from "@/types";
 import { isBillingToday, isNewMember } from "@/lib/domain/member-actions";
+import { openGmailWelcome } from "@/lib/domain/gmail-welcome";
 import { MemberExpandedDetails } from "@/features/members/member-expanded-details";
 import { PaymentQrButton } from "@/features/members/payment-qr-viewer";
 import { MemberCardRow, MemberListHeader } from "@/features/members/member-card-row";
@@ -508,15 +509,28 @@ export function MembersPage() {
   };
 
   const openWelcomeMail = (m: Member) => {
-    if (!m.email) {
-      toast.error("No email on this member");
+    const result = openGmailWelcome(m, settings?.gmailWelcomeTemplate);
+    if (!result.ok) {
+      toast.error(result.error);
       return;
     }
-    const subject = encodeURIComponent(`Welcome to Action Plus Gym — ${m.name || m.memberId}`);
-    const body = encodeURIComponent(
-      `Hi ${m.name || ""},\n\nWelcome to Action Plus Gym! We're glad to have you as a member.\n\nMember ID: ${m.memberId}\nPlan: ${m.plan || "—"}\n\nRegards,\nAction Plus Gym`,
-    );
-    window.open(`mailto:${m.email}?subject=${subject}&body=${body}`, "_blank");
+    toast.success("Gmail welcome compose opened");
+    const history = Array.isArray(m.messageHistory) ? m.messageHistory : [];
+    void membersApi
+      .patch(m.memberId, {
+        messageHistory: [
+          {
+            id: `gmail-${Date.now()}`,
+            channel: "gmail",
+            templateKey: "welcome",
+            status: "opened",
+            ts: new Date().toISOString(),
+          },
+          ...history,
+        ].slice(0, 50),
+      })
+      .then(() => qc.invalidateQueries({ queryKey: ["members"] }))
+      .catch(() => {});
   };
 
   const uploadMemberDocument = async (m: Member, file: File) => {
