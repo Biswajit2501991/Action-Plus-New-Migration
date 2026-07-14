@@ -145,8 +145,10 @@ export function DashboardPage() {
   const [q, setQ] = useState("");
   const [field, setField] = useState("all");
   const [expandedOverdueId, setExpandedOverdueId] = useState("");
+  const [searchActive, setSearchActive] = useState(false);
 
   const canCore = hasAccess(user, "dashboard", "viewDashboardCore");
+  const canEditMember = hasAccess(user, "members", "editMembers");
   const canRevenue = hasAccess(user, "dashboard", "viewRevenueMonthly");
   const canTrend = hasAccess(user, "dashboard", "viewRevenueTrend");
   const canPlans = hasAccess(user, "dashboard", "viewMembershipTrends");
@@ -271,6 +273,29 @@ export function DashboardPage() {
     router.push(`/members?${params.toString()}`);
   };
 
+  const dashboardSearchHits = useMemo(() => {
+    if (!q.trim()) return [];
+    return members.filter((m) => matchesField(m, q, field)).slice(0, 25);
+  }, [members, q, field]);
+
+  const runDashboardSearch = () => {
+    setSearchActive(Boolean(q.trim()));
+  };
+
+  const clearDashboardSearch = () => {
+    setQ("");
+    setField("all");
+    setSearchActive(false);
+  };
+
+  const openDashboardMember = (m: Member) => {
+    if (canEditMember) {
+      setEditing(m);
+      return;
+    }
+    // Stay on dashboard — no redirect to Members search.
+  };
+
   if (loadingMembers || loadingFinance) {
     return (
       <div className="space-y-4">
@@ -307,7 +332,7 @@ export function DashboardPage() {
               ) : null}
               <Button
                 size="sm"
-                className="bg-sky-600 text-white hover:bg-sky-700"
+                className="bg-slate-900 text-white hover:bg-slate-800 dark:bg-teal-400 dark:text-slate-950 dark:hover:bg-teal-300"
                 onClick={() => setAddMemberOpen(true)}
               >
                 <Plus className="h-4 w-4" />
@@ -319,30 +344,82 @@ export function DashboardPage() {
       />
 
       {canCore ? (
-        <div className="flex flex-col gap-2 md:flex-row md:items-center">
-          <Input
-            value={q}
-            onChange={(e) => setQ(e.target.value)}
-            placeholder="Search members (name, ID, mobile, email, staff)…"
-            className="flex-1"
-            onKeyDown={(e) => {
-              if (e.key === "Enter") goMembers(undefined, q, field);
-            }}
-          />
-          <Select value={field} onChange={(e) => setField(e.target.value)} className="md:w-40">
-            <option value="all">All</option>
-            <option value="name">Name</option>
-            <option value="mobile">Mobile</option>
-            <option value="memberId">Member ID</option>
-            <option value="email">Email</option>
-            <option value="staff">Staff</option>
-            <option value="plan">Plan</option>
-            <option value="status">Status</option>
-          </Select>
-          <Button variant="outline" onClick={() => goMembers(undefined, q, field)}>
-            <Search className="h-4 w-4" />
-            Search
-          </Button>
+        <div className="space-y-3">
+          <div className="flex flex-col gap-2 md:flex-row md:items-center">
+            <Input
+              value={q}
+              onChange={(e) => {
+                setQ(e.target.value);
+                setSearchActive(Boolean(e.target.value.trim()));
+              }}
+              placeholder="Search members (name, ID, mobile, email, staff)…"
+              className="flex-1"
+              onKeyDown={(e) => {
+                if (e.key === "Enter") {
+                  e.preventDefault();
+                  runDashboardSearch();
+                }
+              }}
+            />
+            <Select value={field} onChange={(e) => setField(e.target.value)} className="md:w-40">
+              <option value="all">All</option>
+              <option value="name">Name</option>
+              <option value="mobile">Mobile</option>
+              <option value="memberId">Member ID</option>
+              <option value="email">Email</option>
+              <option value="staff">Staff</option>
+              <option value="plan">Plan</option>
+              <option value="status">Status</option>
+            </Select>
+            <Button variant="outline" onClick={runDashboardSearch}>
+              <Search className="h-4 w-4" />
+              Search
+            </Button>
+            {q.trim() || searchActive ? (
+              <Button variant="ghost" onClick={clearDashboardSearch}>
+                Clear
+              </Button>
+            ) : null}
+          </div>
+
+          {searchActive && q.trim() ? (
+            <Card>
+              <CardHeader className="flex flex-row items-center justify-between gap-3 space-y-0">
+                <CardTitle>
+                  Search results
+                  <span className="ml-2 text-sm font-normal text-muted-foreground">
+                    {dashboardSearchHits.length}
+                    {dashboardSearchHits.length >= 25 ? "+" : ""} match
+                    {dashboardSearchHits.length === 1 ? "" : "es"}
+                  </span>
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-2">
+                {dashboardSearchHits.length === 0 ? (
+                  <p className="text-sm text-muted-foreground">No members match this search.</p>
+                ) : (
+                  dashboardSearchHits.map((m) => (
+                    <button
+                      key={m.memberId}
+                      type="button"
+                      className="flex w-full items-center justify-between rounded-xl border border-border/70 px-3 py-2 text-left text-sm hover:bg-accent/50"
+                      onClick={() => openDashboardMember(m)}
+                    >
+                      <span>
+                        {m.name || m.memberId}{" "}
+                        <span className="text-xs text-muted-foreground">
+                          · {m.memberId || "—"} · {m.mobile || "—"}
+                        </span>
+                      </span>
+                      <Badge variant={m.status === "Active" ? "success" : "muted"}>
+                        {m.status || "Active"}
+                      </Badge>
+                    </button>
+                  ))
+                )}
+              </CardContent>
+            </Card>
+          ) : null}
         </div>
       ) : null}
 
@@ -641,36 +718,6 @@ export function DashboardPage() {
         </Card>
       ) : null}
 
-      {/* Live search preview when typing (prod searches on button; we also preview) */}
-      {canCore && q.trim() ? (
-        <Card>
-          <CardHeader>
-            <CardTitle>Search preview</CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-2">
-            {members
-              .filter((m) => matchesField(m, q, field))
-              .slice(0, 8)
-              .map((m) => (
-                <button
-                  key={m.memberId}
-                  type="button"
-                  className="flex w-full items-center justify-between rounded-xl border border-border/70 px-3 py-2 text-left text-sm hover:bg-accent/50"
-                  onClick={() => goMembers(undefined, m.memberId, "memberId")}
-                >
-                  <span>
-                    {m.name || m.memberId}{" "}
-                    <span className="text-xs text-muted-foreground">· {m.mobile || "—"}</span>
-                  </span>
-                  <Badge variant={m.status === "Active" ? "success" : "muted"}>
-                    {m.status || "Active"}
-                  </Badge>
-                </button>
-              ))}
-          </CardContent>
-        </Card>
-      ) : null}
-
       <MessagePreviewModal
         preview={waPreview}
         sending={waSending}
@@ -684,7 +731,7 @@ export function DashboardPage() {
         onClose={() => setMetricModal("")}
         onSelectMember={(m) => {
           setMetricModal("");
-          if (hasAccess(user, "members", "editMembers")) {
+          if (canEditMember) {
             setEditing(m);
           } else {
             goMembers(undefined, m.memberId, "memberId");
