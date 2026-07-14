@@ -451,6 +451,12 @@ export function MembersPage() {
     onError: (e: Error) => toast.error(e.message),
   });
 
+  useEffect(() => {
+    if (params.get("tab") === "visitors" && hasAccess(user, "members", "viewVisitors")) {
+      setTab("visitors");
+    }
+  }, [params, user]);
+
   const openCreate = () => {
     setEditing(null);
     setAddMemberOpen(true);

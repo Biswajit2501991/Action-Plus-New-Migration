@@ -10,7 +10,8 @@ Use this before cutting over production. Mark each row after real account testin
 ## Owner account
 - [ ] Login / logout punches attendance
 - [ ] Late note auto-popup (flag on) with X close
-- [ ] Password-reset bell: approve (set password) + reject
+- [ ] Header **Alerts** bell: leave Approve/Reject, password reset Approve/Reject, visitor Mark as called
+- [ ] Leave Tracker page approve/reject still works
 - [ ] Staff: create / edit / block / delete
 - [ ] Role templates: add / edit / delete / create staff from template
 - [ ] Members: add / edit / hold / deactivate / delete
