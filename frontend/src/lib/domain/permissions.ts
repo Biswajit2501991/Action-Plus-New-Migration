@@ -630,7 +630,17 @@ export function hasAccess(
   key: string,
 ): boolean {
   if (!user) return false;
-  if (user.id === "owner") return true;
+  if (
+    user.id === "owner" ||
+    String(user.staffRole || user.role || "")
+      .trim()
+      .toLowerCase() === "master_owner" ||
+    String(user.staffRole || user.role || "")
+      .trim()
+      .toLowerCase() === "owner"
+  ) {
+    return true;
+  }
   const access = normalizeAccess(user.access);
   return (access[group] as Record<string, boolean> | undefined)?.[key] !== false;
 }

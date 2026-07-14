@@ -4,7 +4,15 @@ import { useEffect, useMemo, useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useTheme } from "next-themes";
 import { toast } from "sonner";
-import { ChevronDown, ChevronUp, Moon, Settings2, Sun } from "lucide-react";
+import {
+  ChevronDown,
+  ChevronUp,
+  ImagePlus,
+  Moon,
+  Settings2,
+  Sun,
+  Trash2,
+} from "lucide-react";
 import { PageHeader, Skeleton } from "@/components/ui/misc";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -25,6 +33,76 @@ function readFileAsDataUrl(file: File) {
     reader.onerror = () => reject(new Error("Could not read image"));
     reader.readAsDataURL(file);
   });
+}
+
+function SettingsToggle({
+  checked,
+  onChange,
+  disabled,
+  label,
+  description,
+}: {
+  checked: boolean;
+  onChange: (next: boolean) => void;
+  disabled?: boolean;
+  label: string;
+  description?: string;
+}) {
+  return (
+    <div className="flex items-start justify-between gap-4 rounded-xl border border-black/[0.06] bg-white/80 px-3.5 py-3 dark:border-white/10 dark:bg-white/[0.03]">
+      <div className="min-w-0">
+        <p className="text-sm font-medium text-foreground">{label}</p>
+        {description ? (
+          <p className="mt-0.5 text-[11px] leading-relaxed text-muted-foreground">{description}</p>
+        ) : null}
+      </div>
+      <button
+        type="button"
+        role="switch"
+        aria-checked={checked}
+        aria-label={label}
+        disabled={disabled}
+        onClick={() => onChange(!checked)}
+        className={cn(
+          "relative h-7 w-12 shrink-0 rounded-full transition-colors",
+          checked ? "bg-slate-900 dark:bg-teal-600" : "bg-slate-300 dark:bg-slate-600",
+          disabled && "opacity-50",
+        )}
+      >
+        <span
+          className={cn(
+            "absolute top-0.5 left-0.5 h-6 w-6 rounded-full bg-white shadow-sm transition-transform",
+            checked && "translate-x-5",
+          )}
+        />
+      </button>
+    </div>
+  );
+}
+
+type FeatureFlagState = {
+  attendanceNotesEnabled: boolean;
+  customTemplatesEnabled: boolean;
+  fineSmsEnabled: boolean;
+  fineSmsGraceDays: number;
+  paymentQrInReminderEnabled: boolean;
+  financeUseEstimatedExpense: boolean;
+};
+
+function buildFeatureFlagPatch(
+  current: FeatureFlagState,
+  override: Partial<FeatureFlagState>,
+): FeatureFlagState {
+  return {
+    attendanceNotesEnabled: override.attendanceNotesEnabled ?? current.attendanceNotesEnabled,
+    customTemplatesEnabled: override.customTemplatesEnabled ?? current.customTemplatesEnabled,
+    fineSmsEnabled: override.fineSmsEnabled ?? current.fineSmsEnabled,
+    fineSmsGraceDays: override.fineSmsGraceDays ?? current.fineSmsGraceDays,
+    paymentQrInReminderEnabled:
+      override.paymentQrInReminderEnabled ?? current.paymentQrInReminderEnabled,
+    financeUseEstimatedExpense:
+      override.financeUseEstimatedExpense ?? current.financeUseEstimatedExpense,
+  };
 }
 
 type LookupKey =
@@ -224,12 +302,13 @@ export function SettingsPage() {
   const [gymForm, setGymForm] = useState({ code: "", name: "" });
   const [shiftDrafts, setShiftDrafts] = useState<Record<string, string>>({});
   const [brandingDrafts, setBrandingDrafts] = useState<Record<string, string>>({});
+  const [expandedGymId, setExpandedGymId] = useState<string | null>(null);
 
   const canFine = hasAccess(user, "settings", "manageFineRule");
   const followSystemTheme = themeReady && theme === "system";
   const activeAppearance = themeReady && resolvedTheme === "dark" ? "Night" : "Day";
 
-  const flags = useMemo(
+  const flags = useMemo<FeatureFlagState>(
     () => ({
       attendanceNotesEnabled: settings?.attendanceNotesEnabled === true,
       customTemplatesEnabled: settings?.customTemplatesEnabled === true,
@@ -262,13 +341,43 @@ export function SettingsPage() {
   });
 
   const saveFlags = useMutation({
-    mutationFn: (patch: Partial<AppSettings>) => settingsApi.bulk(patch),
+    mutationFn: (patch: FeatureFlagState) => settingsApi.bulk(patch),
+    onMutate: async (patch) => {
+      await qc.cancelQueries({ queryKey: ["settings"] });
+      const previous = qc.getQueriesData<AppSettings>({ queryKey: ["settings"] });
+      qc.setQueriesData<AppSettings>({ queryKey: ["settings"] }, (old) =>
+        old ? { ...old, ...patch } : old,
+      );
+      return { previous };
+    },
+    onError: (e: Error, _patch, ctx) => {
+      ctx?.previous?.forEach(([key, data]) => {
+        qc.setQueryData(key, data);
+      });
+      toast.error(e.message);
+    },
     onSuccess: async () => {
       toast.success("Settings saved");
       await qc.invalidateQueries({ queryKey: ["settings"] });
     },
-    onError: (e: Error) => toast.error(e.message),
   });
+
+  const setFeatureFlags = (override: Partial<FeatureFlagState>) => {
+    const cached =
+      qc.getQueryData<AppSettings>(["settings", "default"]) ||
+      qc.getQueriesData<AppSettings>({ queryKey: ["settings"] }).find(([, v]) => v)?.[1];
+    const current: FeatureFlagState = cached
+      ? {
+          attendanceNotesEnabled: cached.attendanceNotesEnabled === true,
+          customTemplatesEnabled: cached.customTemplatesEnabled === true,
+          fineSmsEnabled: cached.fineSmsEnabled !== false,
+          fineSmsGraceDays: Number(cached.fineSmsGraceDays ?? 0) || 0,
+          paymentQrInReminderEnabled: cached.paymentQrInReminderEnabled === true,
+          financeUseEstimatedExpense: cached.financeUseEstimatedExpense !== false,
+        }
+      : flags;
+    saveFlags.mutate(buildFeatureFlagPatch(current, override));
+  };
 
   const createGym = useMutation({
     mutationFn: () =>
@@ -457,293 +566,334 @@ export function SettingsPage() {
         {openCat.branch ? (
           <CardContent className="space-y-4 p-4">
             {isOwner ? (
-              <div className="space-y-3 rounded-2xl border border-sky-100 bg-sky-50/40 p-4 dark:border-sky-900 dark:bg-sky-950/20">
-                <div>
-                  <h3 className="text-sm font-semibold">Gym Codes (Branches)</h3>
-                  <p className="text-xs text-muted-foreground">
-                    Create branches, set display name / logo, and shift start for late-note detection.
-                  </p>
+              <div className="space-y-4 rounded-2xl border border-slate-200/80 bg-gradient-to-b from-slate-50/80 to-white p-4 shadow-sm dark:border-border dark:from-white/[0.04] dark:to-card">
+                <div className="flex flex-wrap items-end justify-between gap-3">
+                  <div>
+                    <h3 className="text-sm font-semibold tracking-tight">Gym Codes (Branches)</h3>
+                    <p className="mt-0.5 text-xs text-muted-foreground">
+                      One line per branch — expand to edit display name and logo.
+                    </p>
+                  </div>
                 </div>
-                <div className="grid gap-2 md:grid-cols-3">
+
+                <div className="grid gap-2 md:grid-cols-[1fr_1fr_auto]">
                   <Input
                     placeholder="Code (e.g. ADRA)"
                     value={gymForm.code}
                     onChange={(e) => setGymForm((f) => ({ ...f, code: e.target.value }))}
+                    className="h-10 rounded-xl"
                   />
                   <Input
                     placeholder="Branch name"
                     value={gymForm.name}
                     onChange={(e) => setGymForm((f) => ({ ...f, name: e.target.value }))}
+                    className="h-10 rounded-xl"
                   />
                   <Button
                     onClick={() => createGym.mutate()}
                     disabled={createGym.isPending || !gymForm.code.trim()}
+                    className="h-10 rounded-xl"
                   >
                     Add branch
                   </Button>
                 </div>
+
                 {gymLoading ? (
-                  <Skeleton className="h-20" />
+                  <Skeleton className="h-24" />
                 ) : (
-                  <div className="overflow-x-auto rounded-xl border border-slate-200 bg-white dark:border-border dark:bg-card">
-                    <table className="min-w-full text-sm">
-                      <thead>
-                        <tr className="bg-slate-50 text-left text-xs dark:bg-muted">
-                          <th className="px-3 py-2 font-semibold">Code</th>
-                          <th className="px-3 py-2 font-semibold">Name</th>
-                          <th className="px-3 py-2 font-semibold">Display / Logo</th>
-                          <th className="px-3 py-2 font-semibold">Shift start</th>
-                          <th className="px-3 py-2 font-semibold">Actions</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {(gymCodes as GymCode[]).map((g) => {
-                          const shift =
-                            shiftDrafts[g.id] ??
-                            String(g.shiftStartTime || g.shift_start_time || "");
-                          const isHq = String(g.code || "").toUpperCase() === "HQ";
-                          const brand = resolveClientBranchBranding(g);
-                          const displayDraft =
-                            brandingDrafts[g.id] ??
-                            String(g.displayName || brand.displayName || "");
-                          return (
-                            <tr
-                              key={g.id}
-                              className="border-t border-slate-100 dark:border-border"
+                  <div className="space-y-2">
+                    {(gymCodes as GymCode[]).map((g) => {
+                      const shift =
+                        shiftDrafts[g.id] ?? String(g.shiftStartTime || g.shift_start_time || "");
+                      const isHq = String(g.code || "").toUpperCase() === "HQ";
+                      const brand = resolveClientBranchBranding(g);
+                      const displayDraft =
+                        brandingDrafts[g.id] ?? String(g.displayName || brand.displayName || "");
+                      const isExpanded = expandedGymId === g.id;
+                      return (
+                        <div
+                          key={g.id}
+                          className={cn(
+                            "overflow-hidden rounded-2xl border border-black/[0.06] bg-white/90 shadow-sm transition dark:border-white/10 dark:bg-white/[0.03]",
+                            isExpanded && "ring-1 ring-slate-300/70 dark:ring-teal-500/30",
+                          )}
+                        >
+                          <div className="flex items-center gap-3 px-3.5 py-2.5">
+                            <div className="h-9 w-9 shrink-0 overflow-hidden rounded-full ring-1 ring-border">
+                              <BranchLogo
+                                src={brand.logoUrl}
+                                alt={brand.displayName}
+                                className="h-full w-full"
+                              />
+                            </div>
+                            <div className="min-w-0 flex-1">
+                              <div className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5">
+                                <span className="font-semibold tracking-wide text-foreground">
+                                  {g.code || "—"}
+                                </span>
+                                <span className="truncate text-sm text-muted-foreground">
+                                  {g.name || g.label || "—"}
+                                </span>
+                              </div>
+                            </div>
+                            <div className="hidden items-center gap-1.5 sm:flex">
+                              <Input
+                                type="time"
+                                className="h-8 w-[118px] rounded-lg"
+                                value={shift}
+                                onChange={(e) =>
+                                  setShiftDrafts((d) => ({
+                                    ...d,
+                                    [g.id]: e.target.value,
+                                  }))
+                                }
+                                aria-label={`Shift start for ${g.code}`}
+                              />
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                className="h-8 rounded-lg"
+                                onClick={() =>
+                                  updateShift.mutate({
+                                    id: g.id,
+                                    shiftStartTime: shift,
+                                  })
+                                }
+                              >
+                                Save
+                              </Button>
+                            </div>
+                            <button
+                              type="button"
+                              onClick={() =>
+                                setExpandedGymId((prev) => (prev === g.id ? null : g.id))
+                              }
+                              className="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-border/80 text-muted-foreground transition hover:bg-accent hover:text-foreground"
+                              aria-expanded={isExpanded}
+                              aria-label={
+                                isExpanded
+                                  ? `Collapse branding for ${g.code}`
+                                  : `Expand branding for ${g.code}`
+                              }
                             >
-                              <td className="px-3 py-2 font-medium">{g.code || "—"}</td>
-                              <td className="px-3 py-2">{g.name || g.label || "—"}</td>
-                              <td className="px-3 py-2">
-                                <div className="flex min-w-[220px] flex-col gap-2">
-                                  <div className="flex items-center gap-2">
-                                    <div className="h-9 w-9 overflow-hidden rounded-full ring-1 ring-border">
-                                      <BranchLogo
-                                        src={brand.logoUrl}
-                                        alt={brand.displayName}
-                                        className="h-full w-full"
-                                      />
-                                    </div>
-                                    <Input
-                                      className="h-8"
-                                      value={displayDraft}
-                                      onChange={(e) =>
-                                        setBrandingDrafts((d) => ({
-                                          ...d,
-                                          [g.id]: e.target.value,
-                                        }))
-                                      }
-                                      placeholder={brand.displayName}
+                              {isExpanded ? (
+                                <ChevronUp className="h-4 w-4" />
+                              ) : (
+                                <ChevronDown className="h-4 w-4" />
+                              )}
+                            </button>
+                            {!isHq ? (
+                              <Button
+                                size="icon"
+                                variant="ghost"
+                                className="h-8 w-8 text-rose-700 hover:bg-rose-50 hover:text-rose-800 dark:hover:bg-rose-950/40"
+                                onClick={() => {
+                                  if (confirm(`Delete branch ${g.code}?`)) {
+                                    deleteGym.mutate(g.id);
+                                  }
+                                }}
+                                aria-label={`Delete ${g.code}`}
+                              >
+                                <Trash2 className="h-4 w-4" />
+                              </Button>
+                            ) : (
+                              <span className="hidden text-[10px] font-medium uppercase tracking-wide text-muted-foreground sm:inline">
+                                HQ
+                              </span>
+                            )}
+                          </div>
+
+                          <div className="flex items-center gap-1.5 border-t border-black/[0.04] px-3.5 py-2 sm:hidden dark:border-white/8">
+                            <span className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+                              Shift
+                            </span>
+                            <Input
+                              type="time"
+                              className="h-8 flex-1 rounded-lg"
+                              value={shift}
+                              onChange={(e) =>
+                                setShiftDrafts((d) => ({
+                                  ...d,
+                                  [g.id]: e.target.value,
+                                }))
+                              }
+                            />
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              className="h-8 rounded-lg"
+                              onClick={() =>
+                                updateShift.mutate({
+                                  id: g.id,
+                                  shiftStartTime: shift,
+                                })
+                              }
+                            >
+                              Save
+                            </Button>
+                          </div>
+
+                          {isExpanded ? (
+                            <div className="space-y-3 border-t border-black/[0.06] bg-slate-50/60 px-3.5 py-3.5 dark:border-white/10 dark:bg-white/[0.02]">
+                              <p className="text-[11px] font-medium uppercase tracking-[0.08em] text-muted-foreground">
+                                Display name & logo
+                              </p>
+                              <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+                                <Input
+                                  className="h-10 rounded-xl"
+                                  value={displayDraft}
+                                  onChange={(e) =>
+                                    setBrandingDrafts((d) => ({
+                                      ...d,
+                                      [g.id]: e.target.value,
+                                    }))
+                                  }
+                                  placeholder={brand.displayName}
+                                />
+                                <div className="flex flex-wrap gap-1.5">
+                                  <Button
+                                    size="sm"
+                                    className="h-9 rounded-xl"
+                                    disabled={saveBranding.isPending}
+                                    onClick={() =>
+                                      saveBranding.mutate({
+                                        id: g.id,
+                                        displayName: displayDraft,
+                                      })
+                                    }
+                                  >
+                                    Save name
+                                  </Button>
+                                  <label className="inline-flex cursor-pointer">
+                                    <span className="sr-only">Upload logo</span>
+                                    <input
+                                      type="file"
+                                      accept="image/png,image/jpeg,image/webp,image/gif"
+                                      className="hidden"
+                                      onChange={(e) => {
+                                        const file = e.target.files?.[0];
+                                        e.target.value = "";
+                                        if (!file) return;
+                                        void (async () => {
+                                          try {
+                                            const dataUrl = await readFileAsDataUrl(file);
+                                            saveBranding.mutate({
+                                              id: g.id,
+                                              displayName: displayDraft,
+                                              logoDataUrl: dataUrl,
+                                            });
+                                          } catch (err) {
+                                            toast.error(
+                                              err instanceof Error
+                                                ? err.message
+                                                : "Logo upload failed",
+                                            );
+                                          }
+                                        })();
+                                      }}
                                     />
-                                  </div>
-                                  <div className="flex flex-wrap items-center gap-1.5">
+                                    <span className="inline-flex h-9 items-center gap-1.5 rounded-xl border border-border bg-white px-3 text-xs font-semibold hover:bg-accent dark:bg-background">
+                                      <ImagePlus className="h-3.5 w-3.5" />
+                                      Upload logo
+                                    </span>
+                                  </label>
+                                  {!brand.usesDefaultLogo ? (
                                     <Button
                                       size="sm"
-                                      variant="outline"
+                                      variant="ghost"
+                                      className="h-9 rounded-xl text-rose-700"
                                       disabled={saveBranding.isPending}
                                       onClick={() =>
                                         saveBranding.mutate({
                                           id: g.id,
                                           displayName: displayDraft,
+                                          clearLogo: true,
                                         })
                                       }
                                     >
-                                      Save name
+                                      Clear logo
                                     </Button>
-                                    <label className="inline-flex cursor-pointer">
-                                      <span className="sr-only">Upload logo</span>
-                                      <input
-                                        type="file"
-                                        accept="image/png,image/jpeg,image/webp,image/gif"
-                                        className="hidden"
-                                        onChange={(e) => {
-                                          const file = e.target.files?.[0];
-                                          e.target.value = "";
-                                          if (!file) return;
-                                          void (async () => {
-                                            try {
-                                              const dataUrl = await readFileAsDataUrl(file);
-                                              saveBranding.mutate({
-                                                id: g.id,
-                                                displayName: displayDraft,
-                                                logoDataUrl: dataUrl,
-                                              });
-                                            } catch (err) {
-                                              toast.error(
-                                                err instanceof Error
-                                                  ? err.message
-                                                  : "Logo upload failed",
-                                              );
-                                            }
-                                          })();
-                                        }}
-                                      />
-                                      <span className="inline-flex h-8 items-center rounded-lg border border-border px-2.5 text-xs font-medium hover:bg-accent">
-                                        Upload logo
-                                      </span>
-                                    </label>
-                                    {!brand.usesDefaultLogo ? (
-                                      <Button
-                                        size="sm"
-                                        variant="ghost"
-                                        className="text-rose-700"
-                                        disabled={saveBranding.isPending}
-                                        onClick={() =>
-                                          saveBranding.mutate({
-                                            id: g.id,
-                                            displayName: displayDraft,
-                                            clearLogo: true,
-                                          })
-                                        }
-                                      >
-                                        Clear logo
-                                      </Button>
-                                    ) : null}
-                                  </div>
+                                  ) : null}
                                 </div>
-                              </td>
-                              <td className="px-3 py-2">
-                                <div className="flex items-center gap-1.5">
-                                  <Input
-                                    type="time"
-                                    className="h-8 w-[120px]"
-                                    value={shift}
-                                    onChange={(e) =>
-                                      setShiftDrafts((d) => ({
-                                        ...d,
-                                        [g.id]: e.target.value,
-                                      }))
-                                    }
-                                  />
-                                  <Button
-                                    size="sm"
-                                    variant="outline"
-                                    onClick={() =>
-                                      updateShift.mutate({
-                                        id: g.id,
-                                        shiftStartTime: shift,
-                                      })
-                                    }
-                                  >
-                                    Save
-                                  </Button>
-                                </div>
-                              </td>
-                              <td className="px-3 py-2">
-                                {!isHq ? (
-                                  <Button
-                                    size="sm"
-                                    variant="ghost"
-                                    className="text-rose-700"
-                                    onClick={() => {
-                                      if (confirm(`Delete branch ${g.code}?`)) {
-                                        deleteGym.mutate(g.id);
-                                      }
-                                    }}
-                                  >
-                                    Delete
-                                  </Button>
-                                ) : (
-                                  <span className="text-xs text-muted-foreground">HQ protected</span>
-                                )}
-                              </td>
-                            </tr>
-                          );
-                        })}
-                        {!gymCodes.length ? (
-                          <tr>
-                            <td
-                              colSpan={5}
-                              className="px-3 py-6 text-center text-sm text-muted-foreground"
-                            >
-                              No gym codes yet.
-                            </td>
-                          </tr>
-                        ) : null}
-                      </tbody>
-                    </table>
+                              </div>
+                            </div>
+                          ) : null}
+                        </div>
+                      );
+                    })}
+                    {!gymCodes.length ? (
+                      <p className="rounded-2xl border border-dashed border-border px-4 py-8 text-center text-sm text-muted-foreground">
+                        No gym codes yet.
+                      </p>
+                    ) : null}
                   </div>
                 )}
               </div>
             ) : null}
 
             {canFine ? (
-              <div className="space-y-3 rounded-2xl border border-rose-100 bg-rose-50/30 p-4 dark:border-rose-900 dark:bg-rose-950/20">
+              <div className="space-y-3 rounded-2xl border border-rose-200/70 bg-gradient-to-b from-rose-50/50 to-white p-4 dark:border-rose-900/50 dark:from-rose-950/20 dark:to-card">
                 <div>
                   <h3 className="text-sm font-semibold">Fine SMS Rule</h3>
                   <p className="text-xs text-muted-foreground">
                     Controls Fine SMS eligibility and payment QR reminder append.
                   </p>
                 </div>
-                <label className="flex items-center gap-2 text-sm">
-                  <input
-                    type="checkbox"
-                    checked={flags.fineSmsEnabled}
-                    onChange={(e) =>
-                      saveFlags.mutate({ fineSmsEnabled: e.target.checked })
-                    }
-                  />
-                  Enable Fine SMS rules
-                </label>
-                <div className="flex flex-wrap items-center gap-2">
+                <SettingsToggle
+                  checked={flags.fineSmsEnabled}
+                  label="Enable Fine SMS rules"
+                  description="Apply Fine SMS eligibility based on grace days and roles."
+                  onChange={(next) => setFeatureFlags({ fineSmsEnabled: next })}
+                />
+                <div className="flex flex-wrap items-center gap-2 rounded-xl border border-black/[0.06] bg-white/80 px-3.5 py-3 dark:border-white/10 dark:bg-white/[0.03]">
                   <Label className="text-xs">Grace days</Label>
                   <Input
                     type="number"
-                    className="h-8 w-24"
+                    className="h-8 w-24 rounded-lg"
                     defaultValue={flags.fineSmsGraceDays}
                     onBlur={(e) => {
                       const n = Math.max(0, Number(e.target.value) || 0);
                       if (n !== flags.fineSmsGraceDays) {
-                        saveFlags.mutate({ fineSmsGraceDays: n });
+                        setFeatureFlags({ fineSmsGraceDays: n });
                       }
                     }}
                   />
                 </div>
-                <label className="flex items-center gap-2 text-sm">
-                  <input
-                    type="checkbox"
-                    checked={flags.paymentQrInReminderEnabled}
-                    onChange={(e) =>
-                      saveFlags.mutate({ paymentQrInReminderEnabled: e.target.checked })
-                    }
-                  />
-                  Append Payment QR link on billing reminder messages
-                </label>
+                <SettingsToggle
+                  checked={flags.paymentQrInReminderEnabled}
+                  label="Payment QR on billing reminders"
+                  description="Append Payment QR link on billing reminder messages."
+                  onChange={(next) => setFeatureFlags({ paymentQrInReminderEnabled: next })}
+                />
               </div>
             ) : null}
 
             {isOwner ? (
-              <div className="space-y-2 rounded-2xl border border-violet-100 bg-violet-50/30 p-4 dark:border-violet-900 dark:bg-violet-950/20">
-                <h3 className="text-sm font-semibold">Feature flags</h3>
-                <label className="flex items-center gap-2 text-sm">
-                  <input
-                    type="checkbox"
-                    checked={flags.attendanceNotesEnabled}
-                    onChange={(e) =>
-                      saveFlags.mutate({ attendanceNotesEnabled: e.target.checked })
-                    }
-                  />
-                  Enable Attendance late notes
-                </label>
-                <label className="flex items-center gap-2 text-sm">
-                  <input
-                    type="checkbox"
-                    checked={flags.customTemplatesEnabled}
-                    onChange={(e) =>
-                      saveFlags.mutate({ customTemplatesEnabled: e.target.checked })
-                    }
-                  />
-                  Enable Custom WhatsApp templates
-                </label>
-                <label className="flex items-center gap-2 text-sm">
-                  <input
-                    type="checkbox"
-                    checked={flags.financeUseEstimatedExpense}
-                    onChange={(e) =>
-                      saveFlags.mutate({ financeUseEstimatedExpense: e.target.checked })
-                    }
-                  />
-                  Finance: use 26% expense estimate when no expense rows
-                </label>
+              <div className="space-y-3 rounded-2xl border border-violet-200/70 bg-gradient-to-b from-violet-50/40 to-white p-4 dark:border-violet-900/40 dark:from-violet-950/20 dark:to-card">
+                <div>
+                  <h3 className="text-sm font-semibold">Feature flags</h3>
+                  <p className="text-xs text-muted-foreground">
+                    Turn on as many as you need — each save keeps all other flags.
+                  </p>
+                </div>
+                <SettingsToggle
+                  checked={flags.attendanceNotesEnabled}
+                  label="Attendance late notes"
+                  description="Allow staff to submit late-arrival notes on Attendance."
+                  onChange={(next) => setFeatureFlags({ attendanceNotesEnabled: next })}
+                />
+                <SettingsToggle
+                  checked={flags.customTemplatesEnabled}
+                  label="Custom WhatsApp templates"
+                  description="Enable branch custom templates on WhatsApp SMS."
+                  onChange={(next) => setFeatureFlags({ customTemplatesEnabled: next })}
+                />
+                <SettingsToggle
+                  checked={flags.financeUseEstimatedExpense}
+                  label="Finance 26% expense estimate"
+                  description="Use estimated expense when no expense rows exist."
+                  onChange={(next) => setFeatureFlags({ financeUseEstimatedExpense: next })}
+                />
               </div>
             ) : null}
           </CardContent>

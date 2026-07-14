@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { ChevronDown, ChevronUp, MessageCircle, Search } from "lucide-react";
+import { MessageCircle, Search } from "lucide-react";
 import { PageHeader, Skeleton } from "@/components/ui/misc";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -26,6 +26,7 @@ import {
 } from "@/lib/domain/whatsapp-templates";
 import { cn, formatDate } from "@/lib/utils";
 import { MessagePreviewModal } from "@/features/whatsapp/message-preview-modal";
+import { WhatsappTemplatesPanel } from "@/features/whatsapp/whatsapp-templates-panel";
 import { useWhatsappSend } from "@/features/whatsapp/use-whatsapp-send";
 
 const PAGE_SIZE = 10;
@@ -40,7 +41,6 @@ export function WhatsappPage() {
   const [activeType, setActiveType] = useState<WhatsAppTemplateKey | "templates">("reminder");
   const [search, setSearch] = useState("");
   const [page, setPage] = useState(1);
-  const [expandedTemplates, setExpandedTemplates] = useState<Record<string, boolean>>({});
   const [activityPage, setActivityPage] = useState(1);
 
   const byType = useMemo(
@@ -137,64 +137,15 @@ export function WhatsappPage() {
       </div>
 
       {activeType === "templates" ? (
-        <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
-          {WHATSAPP_TYPE_META.filter((t) => t.key !== "templates").map((card) => {
-            const key = card.key as WhatsAppTemplateKey;
-            const body = templates[key] || "";
-            const open = Boolean(expandedTemplates[key]);
-            return (
-              <Card
-                key={key}
-                className={cn(
-                  "overflow-hidden border shadow-sm transition hover:-translate-y-0.5 hover:shadow-lg",
-                  card.tone,
-                  card.glow,
-                )}
-              >
-                <div className={cn("h-1 w-full", card.accent)} />
-                <CardContent className="space-y-3 p-4">
-                  <div className="flex items-start justify-between gap-2">
-                    <div className="min-w-0">
-                      <p className="text-sm font-semibold tracking-tight">{card.title}</p>
-                      <p className="mt-0.5 text-[10px] font-medium uppercase tracking-[0.14em] text-current/55">
-                        SMS / WhatsApp
-                      </p>
-                    </div>
-                    <span className="shrink-0 rounded-md border border-black/5 bg-black/[0.04] px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-current/70 dark:border-white/10 dark:bg-white/5 dark:text-white/70">
-                      {key}
-                    </span>
-                  </div>
-                  <div
-                    className={cn(
-                      "whitespace-pre-wrap rounded-xl border border-black/5 bg-white/85 p-3 text-xs leading-relaxed text-slate-700 shadow-inner dark:border-white/10 dark:bg-slate-950/70 dark:text-slate-200",
-                      open ? "max-h-80 overflow-auto" : "line-clamp-4",
-                    )}
-                  >
-                    {body || "—"}
-                  </div>
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    className="w-full border-black/10 bg-white/70 hover:bg-white dark:border-white/10 dark:bg-white/5 dark:text-slate-100 dark:hover:bg-white/10"
-                    onClick={() =>
-                      setExpandedTemplates((prev) => ({ ...prev, [key]: !prev[key] }))
-                    }
-                  >
-                    {open ? (
-                      <>
-                        <ChevronUp className="h-3.5 w-3.5" /> Collapse
-                      </>
-                    ) : (
-                      <>
-                        <ChevronDown className="h-3.5 w-3.5" /> Expand SMS
-                      </>
-                    )}
-                  </Button>
-                </CardContent>
-              </Card>
-            );
-          })}
-        </div>
+        <WhatsappTemplatesPanel
+          systemTemplates={templates}
+          onOpenMessagingCenter={() => setActiveType("reminder")}
+          onPreviewSystem={(key) => {
+            const sample =
+              members.find((m) => (m.status || "Active") === "Active") || members[0];
+            if (sample) openPreview(sample, key);
+          }}
+        />
       ) : (
         <Card className="overflow-hidden border-slate-200/80 bg-white/80 shadow-sm backdrop-blur dark:border-white/5 dark:bg-slate-950/60 dark:shadow-[0_20px_50px_-28px_rgba(0,0,0,0.8)]">
           <CardContent className="space-y-4 p-4">

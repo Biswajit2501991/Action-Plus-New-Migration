@@ -143,10 +143,9 @@ export function useWhatsapp() {
   return useQuery({
     queryKey: ["whatsapp", branchId || "default"],
     queryFn: async () => {
-      const [templatesRes, events, custom] = await Promise.all([
+      const [templatesRes, events] = await Promise.all([
         whatsappApi.templates(branchId || undefined).catch(() => ({ templates: {} })),
         whatsappApi.smsEvents().catch(() => []),
-        whatsappApi.customTemplates().catch(() => []),
       ]);
       const templates =
         templatesRes && typeof templatesRes === "object" && "templates" in templatesRes
@@ -159,7 +158,6 @@ export function useWhatsapp() {
             ? String((templatesRes as { gymCodeId?: string }).gymCodeId || branchId || "")
             : branchId,
         events,
-        custom,
       };
     },
     enabled: authed,

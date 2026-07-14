@@ -408,12 +408,35 @@ export const whatsappApi = {
       method: "PATCH",
       body: JSON.stringify(body),
     }),
-  customTemplates: () => apiFetch<unknown[]>("/custom-templates"),
+  customTemplates: (gymCodeId?: string) => {
+    const qs = gymCodeId ? `?gymCodeId=${encodeURIComponent(gymCodeId)}` : "";
+    return apiFetch<{
+      ok?: boolean;
+      gymCodeId?: string;
+      featureEnabled?: boolean;
+      templates?: unknown[];
+    }>(`/custom-templates${qs}`);
+  },
   createCustom: (body: Record<string, unknown>) =>
-    apiFetch<unknown>("/custom-templates", {
+    apiFetch<{ ok?: boolean; template?: unknown; gymCodeId?: string }>("/custom-templates", {
       method: "POST",
       body: JSON.stringify(body),
     }),
+  updateCustom: (id: string, body: Record<string, unknown>) =>
+    apiFetch<{ ok?: boolean; template?: unknown }>(`/custom-templates/${encodeURIComponent(id)}`, {
+      method: "PATCH",
+      body: JSON.stringify(body),
+    }),
+  archiveCustom: (id: string, body: Record<string, unknown>) =>
+    apiFetch<{ ok?: boolean }>(`/custom-templates/${encodeURIComponent(id)}/archive`, {
+      method: "POST",
+      body: JSON.stringify(body),
+    }),
+  deleteCustom: (id: string, gymCodeId: string) =>
+    apiFetch<{ ok?: boolean }>(
+      `/custom-templates/${encodeURIComponent(id)}?gymCodeId=${encodeURIComponent(gymCodeId)}`,
+      { method: "DELETE" },
+    ),
   smsEvents: () => apiFetch<unknown[]>("/sms-events"),
   saveSmsEvents: (events: unknown[]) =>
     apiFetch<{ ok?: boolean }>("/sms-events/bulk", {

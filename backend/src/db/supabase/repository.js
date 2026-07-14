@@ -2048,6 +2048,24 @@ async function writeSettings(settings, scope) {
     await syncRoleTemplatesToDb(sb, gid, s.roleTemplates);
   }
 
+  // Re-read live config row so concurrent sparse writes don't drop sibling flags.
+  const { data: liveConfigRow, error: liveConfigErr } = await sb
+    .from(T.settings_app_config)
+    .select('*')
+    .eq('gym_id', gid)
+    .maybeSingle();
+  if (liveConfigErr) throw liveConfigErr;
+  if (liveConfigRow) {
+    const liveSettings = {};
+    applySettingsConfigJson(liveSettings, liveConfigRow);
+    s = mergeSettingsBulkPatch(liveSettings, incoming);
+    s = preserveNonEmptyLookups(s, existing);
+    s = mergeSettingsPreservingRoleTemplates(
+      hasRoleTemplates ? s : { ...s, roleTemplates: undefined },
+      existing,
+    );
+  }
+
   const appConfig = buildSettingsAppConfigWrite(s);
   await sb.from(T.settings_app_config).delete().eq('gym_id', gid);
   await sb.from(T.settings_app_config).insert({

@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { toast } from "sonner";
@@ -32,7 +32,7 @@ function visibleSectionTabs(user: AuthUser | null | undefined) {
 export function AppSectionTabs() {
   const pathname = usePathname();
   const user = useAuthStore((s) => s.user);
-  const { data: settings } = useSettings();
+  const { data: settings, refetch: refetchSettings } = useSettings();
   const [lateOpen, setLateOpen] = useState(false);
   const [category, setCategory] = useState<string>("traffic");
   const [note, setNote] = useState("");
@@ -40,11 +40,13 @@ export function AppSectionTabs() {
 
   const tabs = useMemo(() => visibleSectionTabs(user), [user]);
 
+  useEffect(() => {
+    void refetchSettings();
+  }, [refetchSettings]);
+
   const notesEnabled = isAttendanceNotesEnabled(settings as Record<string, unknown>);
   const canLateNote =
-    Boolean(user) &&
-    notesEnabled &&
-    hasAccess(user, "attendance", "submitOwnLateNote");
+    Boolean(user) && notesEnabled && hasAccess(user, "attendance", "submitOwnLateNote");
 
   const submitLateNote = async () => {
     try {
@@ -100,12 +102,6 @@ export function AppSectionTabs() {
                   strokeWidth={active ? 2.25 : 1.75}
                 />
                 <span>{tab.label}</span>
-                {active ? (
-                  <span
-                    className="pointer-events-none absolute inset-x-3 -bottom-px hidden h-px bg-gradient-to-r from-transparent via-white/40 to-transparent dark:via-slate-950/30 sm:block"
-                    aria-hidden
-                  />
-                ) : null}
               </Link>
             );
           })}

@@ -260,7 +260,7 @@ export const WHATSAPP_TYPE_META: {
   },
   {
     key: "templates",
-    label: "Templates",
+    label: "WhatsApp Template",
     title: "WhatsApp Templates",
     tone: "border-violet-200/90 bg-gradient-to-br from-violet-50 to-white text-violet-950 dark:border-violet-500/20 dark:from-violet-950/35 dark:to-slate-950 dark:text-violet-50",
     accent: "bg-violet-500",
