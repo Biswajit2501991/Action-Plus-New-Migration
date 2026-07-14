@@ -24,12 +24,17 @@ type UiState = {
   mobileNavOpen: boolean;
   commandOpen: boolean;
   addMemberOpen: boolean;
+  lateNoteOpen: boolean;
+  /** ISO timestamp set right after a successful login punch — triggers late-note auto prompt. */
+  justLoggedInAt: string | null;
   favorites: string[];
   recentPages: string[];
   toggleSidebar: () => void;
   setMobileNavOpen: (v: boolean) => void;
   setCommandOpen: (v: boolean) => void;
   setAddMemberOpen: (v: boolean) => void;
+  setLateNoteOpen: (v: boolean) => void;
+  setJustLoggedInAt: (v: string | null) => void;
   toggleFavorite: (href: string) => void;
   pushRecent: (href: string) => void;
 };
@@ -41,12 +46,16 @@ export const useUiStore = create<UiState>()(
       mobileNavOpen: false,
       commandOpen: false,
       addMemberOpen: false,
+      lateNoteOpen: false,
+      justLoggedInAt: null,
       favorites: [],
       recentPages: [],
       toggleSidebar: () => set({ sidebarCollapsed: !get().sidebarCollapsed }),
       setMobileNavOpen: (mobileNavOpen) => set({ mobileNavOpen }),
       setCommandOpen: (commandOpen) => set({ commandOpen }),
       setAddMemberOpen: (addMemberOpen) => set({ addMemberOpen }),
+      setLateNoteOpen: (lateNoteOpen) => set({ lateNoteOpen }),
+      setJustLoggedInAt: (justLoggedInAt) => set({ justLoggedInAt }),
       toggleFavorite: (href) => {
         const favs = get().favorites;
         set({

@@ -28,6 +28,7 @@ import { Button } from "@/components/ui/button";
 import { Select } from "@/components/ui/input";
 import { CommandPalette } from "@/features/search/command-palette";
 import { AddMemberHost } from "@/features/members/add-member-host";
+import { LateArrivalNoteHost } from "@/features/attendance/late-arrival-note-host";
 import { MobileAccessGuard } from "@/components/layout/mobile-access-guard";
 
 const MOBILE_TABS = [
@@ -175,6 +176,7 @@ export function MobileShell({ children }: { children: React.ReactNode }) {
 
       <CommandPalette />
       <AddMemberHost />
+      <LateArrivalNoteHost />
     </div>
   );
 }

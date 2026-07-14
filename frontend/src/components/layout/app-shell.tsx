@@ -33,6 +33,7 @@ import { BranchLogo } from "@/components/branding/branch-logo";
 import { StaffAvatar } from "@/components/staff-avatar";
 import { CommandPalette } from "@/features/search/command-palette";
 import { AddMemberHost } from "@/features/members/add-member-host";
+import { LateArrivalNoteHost } from "@/features/attendance/late-arrival-note-host";
 import { AppSectionTabs } from "@/components/layout/section-tabs";
 import { MobileShell } from "@/components/layout/mobile-shell";
 import { Skeleton } from "@/components/ui/misc";
@@ -308,6 +309,7 @@ function DesktopShell({ children }: { children: React.ReactNode }) {
 
       <CommandPalette />
       <AddMemberHost />
+      <LateArrivalNoteHost />
 
       {user &&
       canAccessSection(user, "Members") &&

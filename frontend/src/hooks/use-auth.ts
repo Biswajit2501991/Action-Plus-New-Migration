@@ -17,7 +17,7 @@ import {
   clearAppQueryCache,
   invalidateBranchScopedQueries,
 } from "@/lib/query-cache";
-import { useAuthStore, useBranchStore } from "@/stores";
+import { useAuthStore, useBranchStore, useUiStore } from "@/stores";
 import { ApiError } from "@/services/api/client";
 import type { AuthUser } from "@/types";
 
@@ -30,7 +30,7 @@ function unwrapUser(payload: { user: AuthUser } | AuthUser): AuthUser {
 
 async function punchSafe(type: "login" | "logout", actorName?: string) {
   try {
-    await attendanceApi.punch({
+    return await attendanceApi.punch({
       type,
       at: new Date().toISOString(),
       timeZone: "IST",
@@ -38,6 +38,7 @@ async function punchSafe(type: "login" | "logout", actorName?: string) {
     });
   } catch {
     /* punch is best-effort — never block auth */
+    return null;
   }
 }
 
@@ -46,6 +47,8 @@ export function useAuth() {
   const qc = useQueryClient();
   const { user, hydrated, setUser, setHydrated, clear } = useAuthStore();
   const setActiveBranchId = useBranchStore((s) => s.setActiveBranchId);
+  const setJustLoggedInAt = useUiStore((s) => s.setJustLoggedInAt);
+  const setLateNoteOpen = useUiStore((s) => s.setLateNoteOpen);
 
   const hydrate = useCallback(async () => {
     const session = readAuthSession();
@@ -77,7 +80,11 @@ export function useAuth() {
     const data = await loginApi(identifier, password);
     setUser(data.user);
     setActiveBranchId(data.user.activeBranchId || data.user.gymCodeId || null);
-    await punchSafe("login", data.user.name || data.user.id);
+    const punchRecord = await punchSafe("login", data.user.name || data.user.id);
+    const loginAt =
+      String(punchRecord?.firstLoginAt || "").trim() || new Date().toISOString();
+    setJustLoggedInAt(loginAt);
+    setLateNoteOpen(false);
     toast.success(`Welcome back, ${data.user.name || data.user.id}`);
     return data.user;
   };
@@ -87,6 +94,8 @@ export function useAuth() {
     await punchSafe("logout", actor);
     await logoutApi();
     clearAppQueryCache(qc);
+    setJustLoggedInAt(null);
+    setLateNoteOpen(false);
     clear();
     router.replace("/login");
   };
