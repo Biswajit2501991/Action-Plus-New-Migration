@@ -491,12 +491,15 @@ export function MembersPage() {
     }) => {
       pushHistoryCheckpoint(qc, "member status");
       const ts = new Date().toISOString();
-      await Promise.all(
+      return Promise.all(
         ids.map(async (id) => {
           const current = members.find((m) => m.memberId === id);
           if (!current) return null;
+
+          // Surgical patch only — never spread the list row (it includes photo: ""
+          // and other list fields). Backend rejects PATCH when `photo` is present
+          // with storage enabled, which looked like "saved then rolled back".
           const patch: Partial<Member> = {
-            ...current,
             status,
             ...(status === "Hold"
               ? { holdDuration: holdDuration || settings?.holdDurations?.[0] || "1 Month" }
@@ -512,22 +515,41 @@ export function MembersPage() {
             patch.paymentBy = paymentByFromBillingDate(billingDateOverride);
             (patch as { billingDateUpdatedAt?: string }).billingDateUpdatedAt = ts;
           }
+
           qc.setQueriesData<Member[]>({ queryKey: ["members"] }, (old) =>
             Array.isArray(old)
               ? old.map((row) => (row.memberId === id ? { ...row, ...patch } : row))
               : old,
           );
-          return patchMemberWithOfflineFallback(id, patch);
+
+          const result = await patchMemberWithOfflineFallback(id, patch);
+          if (result.member?.memberId) {
+            qc.setQueriesData<Member[]>({ queryKey: ["members"] }, (old) =>
+              Array.isArray(old)
+                ? old.map((row) =>
+                    row.memberId === id ? { ...row, ...result.member } : row,
+                  )
+                : old,
+            );
+          }
+          return result;
         }),
       );
     },
-    onSuccess: async (results) => {
-      const queued = Array.isArray(results) && results.some((r) => r && (r as { queued?: boolean }).queued);
+    onSuccess: (results) => {
+      const list = Array.isArray(results) ? results.filter(Boolean) : [];
+      const queued = list.some((r) => r && (r as { queued?: boolean }).queued);
       toast.success(queued ? "Status queued — will sync when online" : "Status updated");
       setSelectedIds([]);
-      await qc.invalidateQueries({ queryKey: ["members"] });
+      // Keep optimistic/server-merged cache when queued; refetch only after real save.
+      if (!queued) {
+        void qc.invalidateQueries({ queryKey: ["members"] });
+      }
     },
-    onError: (e: Error) => toast.error(e.message),
+    onError: (e: Error) => {
+      toast.error(e.message || "Status update failed");
+      void qc.invalidateQueries({ queryKey: ["members"] });
+    },
   });
 
   const requestStatusChange = useCallback(

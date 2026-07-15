@@ -11,23 +11,29 @@ export async function patchMemberWithOfflineFallback(
   memberId: string,
   patch: Partial<Member>,
 ): Promise<{ queued: boolean; member?: Member }> {
+  // Never send photo via PATCH — storage uploads use a dedicated endpoint, and
+  // empty photo fields from list rows would previously 400 the whole status save.
+  const safePatch: Partial<Member> = { ...patch };
+  delete (safePatch as { photo?: string }).photo;
+  delete (safePatch as { paymentHistory?: unknown }).paymentHistory;
+
   if (isBrowserOffline()) {
     enqueueOfflineMutation({
       kind: "member.patch",
       memberId,
-      payload: patch,
+      payload: safePatch,
     });
     return { queued: true };
   }
   try {
-    const res = await membersApi.patch(memberId, patch);
+    const res = await membersApi.patch(memberId, safePatch);
     return { queued: false, member: res.member };
   } catch (err) {
     if (isLikelyNetworkError(err)) {
       enqueueOfflineMutation({
         kind: "member.patch",
         memberId,
-        payload: patch,
+        payload: safePatch,
       });
       return { queued: true };
     }

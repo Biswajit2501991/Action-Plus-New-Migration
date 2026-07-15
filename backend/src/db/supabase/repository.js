@@ -795,10 +795,16 @@ async function updateMemberFields(memberCode, patch, branchScope = null) {
 
   const { memberPhotoStorageEnabled } = await import('../../services/memberPhoto/storageConstants.js');
   if (memberPhotoStorageEnabled() && Object.prototype.hasOwnProperty.call(patch, 'photo')) {
-    const err = new Error('member-photo-use-upload-endpoint');
-    err.status = 400;
-    err.detail = { hint: 'POST /api/members/:memberId/photo' };
-    throw err;
+    const photoVal = patch.photo;
+    // Empty/absent photo on list-row patches must not block status/billing edits.
+    if (photoVal == null || String(photoVal).trim() === '') {
+      delete patch.photo;
+    } else {
+      const err = new Error('member-photo-use-upload-endpoint');
+      err.status = 400;
+      err.detail = { hint: 'POST /api/members/:memberId/photo' };
+      throw err;
+    }
   }
 
   // We tolerate (data-anomaly) duplicate member_codes by picking the most recently
