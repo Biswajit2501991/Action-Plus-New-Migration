@@ -115,14 +115,14 @@ function DesktopShell({ children }: { children: React.ReactNode }) {
     );
 
   return (
-    <div className="min-h-screen bg-background text-foreground">
+    <div className="desktop-shell min-h-screen bg-background text-foreground">
       <div className="pointer-events-none fixed inset-0 -z-10 bg-[radial-gradient(ellipse_at_top,_rgba(15,118,110,0.12),_transparent_55%),radial-gradient(ellipse_at_bottom_right,_rgba(15,23,42,0.06),_transparent_45%)] dark:bg-[radial-gradient(ellipse_at_top,_rgba(45,212,191,0.08),_transparent_50%),radial-gradient(ellipse_at_bottom_right,_rgba(2,6,23,0.6),_transparent_40%)]" />
 
       <div className="flex min-h-screen">
         <aside
           className={cn(
-            "sticky top-0 hidden h-screen flex-col border-r border-border/70 bg-card/60 backdrop-blur-xl transition-all lg:flex",
-            sidebarCollapsed ? "w-[72px]" : "w-[248px]",
+            "desktop-shell-nav sticky top-0 hidden h-screen flex-col border-r border-border/70 bg-card/60 backdrop-blur-xl transition-all md:flex",
+            sidebarCollapsed ? "w-[4.5rem]" : "w-[15.5rem]",
           )}
         >
           <div className="flex items-center gap-2 border-b border-border/70 px-3 py-4">
@@ -203,9 +203,9 @@ function DesktopShell({ children }: { children: React.ReactNode }) {
         </aside>
 
         {mobileNavOpen ? (
-          <div className="fixed inset-0 z-40 bg-black/40 lg:hidden" onClick={() => setMobileNavOpen(false)}>
+          <div className="fixed inset-0 z-40 bg-black/40 md:hidden" onClick={() => setMobileNavOpen(false)}>
             <aside
-              className="absolute left-0 top-0 h-full w-[280px] overflow-y-auto border-r border-border bg-background p-4"
+              className="absolute left-0 top-0 h-full w-[17.5rem] overflow-y-auto border-r border-border bg-background p-4"
               onClick={(e) => e.stopPropagation()}
             >
               <div className="mb-4 flex items-center gap-2.5">
@@ -244,7 +244,7 @@ function DesktopShell({ children }: { children: React.ReactNode }) {
             <Button
               variant="ghost"
               size="icon"
-              className="rounded-xl text-slate-700 hover:bg-slate-900 hover:text-white lg:hidden dark:text-slate-200 dark:hover:bg-teal-400 dark:hover:text-slate-950"
+              className="rounded-xl text-slate-700 hover:bg-slate-900 hover:text-white md:hidden dark:text-slate-200 dark:hover:bg-teal-400 dark:hover:text-slate-950"
               onClick={() => setMobileNavOpen(true)}
               aria-label="Open menu"
             >

@@ -248,7 +248,7 @@ export function MemberMetricModal({
     if (totalPages <= 1) return [] as number[];
     const maxButtons = 5;
     let start = Math.max(1, safePage - Math.floor(maxButtons / 2));
-    let end = Math.min(totalPages, start + maxButtons - 1);
+    const end = Math.min(totalPages, start + maxButtons - 1);
     start = Math.max(1, end - maxButtons + 1);
     const nums: number[] = [];
     for (let i = start; i <= end; i++) nums.push(i);

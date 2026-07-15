@@ -2,8 +2,13 @@
 
 import { useEffect, useState } from "react";
 
-/** True below Tailwind `lg` (1024px). `null` until mounted (avoids SSR mismatch). */
-export function useIsMobile(breakpointPx = 1024): boolean | null {
+/**
+ * Phones only. Tablets (md+) use the desktop shell with a denser type scale.
+ * Matches Tailwind `md` (768px). `null` until mounted (avoids SSR mismatch).
+ */
+export const MOBILE_BREAKPOINT_PX = 768;
+
+export function useIsMobile(breakpointPx = MOBILE_BREAKPOINT_PX): boolean | null {
   const [isMobile, setIsMobile] = useState<boolean | null>(null);
 
   useEffect(() => {

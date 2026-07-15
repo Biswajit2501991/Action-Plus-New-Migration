@@ -8,7 +8,7 @@ export PATH="/opt/homebrew/bin:$PATH"
 export API_PROXY_TARGET="${API_PROXY_TARGET:-http://127.0.0.1:4000}"
 export PORT="${PORT:-3055}"
 export NEXT_PUBLIC_API_BASE_URL="${NEXT_PUBLIC_API_BASE_URL:-/api}"
-export NEXT_PUBLIC_APP_URL="${NEXT_PUBLIC_APP_URL:-https://www.pulsgyms.com}"
+export NEXT_PUBLIC_APP_URL="${NEXT_PUBLIC_APP_URL:-https://app.gymactionplus.com}"
 export NODE_ENV=production
 
 if [[ ! -d frontend/node_modules ]]; then

@@ -23,7 +23,7 @@ export function ReportsPage() {
   return (
     <div>
       <PageHeader title="Reports" description="Derived reports from live member and payment data." actions={
-        <Button variant="outline" onClick={() => downloadTextFile("members-report.csv", toCsv(members as any))}>Export members</Button>
+        <Button variant="outline" onClick={() => downloadTextFile("members-report.csv", toCsv(members as unknown as Record<string, unknown>[]))}>Export members</Button>
       } />
       <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
         {[
