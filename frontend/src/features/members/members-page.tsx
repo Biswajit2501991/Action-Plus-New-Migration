@@ -74,6 +74,7 @@ import {
   type ReactivationFeePrompt,
 } from "@/features/members/reactivation-fee-modal";
 import { CsvImportModal } from "@/features/members/csv-import-modal";
+import { ClassicalConfirmDialog } from "@/components/ui/classical-confirm-dialog";
 import {
   mergeCsvImportIntoMembers,
   prepareCsvImportRows,
@@ -218,6 +219,7 @@ export function MembersPage() {
   }>({ open: false, fileName: "", rows: [], summary: { added: 0, updated: 0, skipped: 0 } });
   const [quickFieldEdit, setQuickFieldEdit] = useState<QuickFieldEditState | null>(null);
   const [quickFieldSaving, setQuickFieldSaving] = useState(false);
+  const [deleteConfirmMember, setDeleteConfirmMember] = useState<Member | null>(null);
 
   const { pendingCount: offlinePendingCount } = useOfflineQueueFlush(Boolean(user));
 
@@ -1426,9 +1428,7 @@ export function MembersPage() {
                                       onWelcomeMail={() => openWelcomeMail(m)}
                                       onUploadDocument={(file) => void uploadMemberDocument(m, file)}
                                       onDelete={() => {
-                                        if (confirm(`Delete ${m.name || m.memberId}?`)) {
-                                          deleteMutation.mutate(m.memberId);
-                                        }
+                                        setDeleteConfirmMember(m);
                                       }}
                                       onStatusChange={(status, holdDuration) => {
                                         requestStatusChange([m.memberId], status, holdDuration);
@@ -1706,6 +1706,50 @@ export function MembersPage() {
           paymentOptions={settings?.paymentMethods}
         />
       ) : null}
+
+      <ClassicalConfirmDialog
+        open={Boolean(deleteConfirmMember)}
+        title="Delete member"
+        description="This permanently removes the member from the active list."
+        confirmLabel="OK"
+        cancelLabel="Cancel"
+        destructive
+        confirming={deleteMutation.isPending}
+        testId="member-delete-confirm"
+        onCancel={() => {
+          if (!deleteMutation.isPending) setDeleteConfirmMember(null);
+        }}
+        onConfirm={() => {
+          const id = String(deleteConfirmMember?.memberId || "").trim();
+          if (!id) {
+            setDeleteConfirmMember(null);
+            return;
+          }
+          deleteMutation.mutate(id, {
+            onSettled: () => setDeleteConfirmMember(null),
+          });
+        }}
+      >
+        <div className="space-y-3 text-sm">
+          <div className="rounded-xl border border-slate-200 bg-slate-50 px-3.5 py-3 dark:border-white/10 dark:bg-white/[0.03]">
+            <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-slate-400">
+              Member
+            </p>
+            <p className="mt-1 text-base font-semibold tracking-tight text-slate-900 dark:text-slate-50">
+              {deleteConfirmMember?.name || deleteConfirmMember?.memberId || "—"}
+            </p>
+            <p className="mt-0.5 text-xs text-slate-500 dark:text-slate-400">
+              {deleteConfirmMember?.memberId || "—"}
+              {deleteConfirmMember?.mobile ? ` · ${deleteConfirmMember.mobile}` : ""}
+            </p>
+          </div>
+          <p className="leading-relaxed text-slate-600 dark:text-slate-300">
+            Choose <span className="font-semibold text-slate-800 dark:text-slate-100">OK</span> to
+            delete, or <span className="font-semibold text-slate-800 dark:text-slate-100">Cancel</span>{" "}
+            to keep this member.
+          </p>
+        </div>
+      </ClassicalConfirmDialog>
 
       <PaymentEntryModal
         open={Boolean(paymentFor)}
