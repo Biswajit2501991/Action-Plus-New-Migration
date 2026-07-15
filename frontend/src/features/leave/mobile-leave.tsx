@@ -29,13 +29,15 @@ import type { LeaveRequest } from "@/types";
 export function MobileLeave() {
   const user = useAuthStore((s) => s.user);
   const qc = useQueryClient();
-  const { data: settings, isLoading } = useSettings();
-  const { data: users = [] } = useUsers();
   const mobile = useMobileFeatureAccess();
 
   const canCreate =
     hasAccess(user, "leave", "viewCreateLeaveRequest") && mobile.leaveCreate;
   const canViewRequests = hasAccess(user, "leave", "viewLeaveRequests");
+  const { data: settings, isLoading } = useSettings(undefined, {
+    refetchInterval: canViewRequests ? 12_000 : false,
+  });
+  const { data: users = [] } = useUsers();
   const isOwnerOrManager =
     String(user?.id || "").toLowerCase() === "owner" ||
     String(user?.id || "").toLowerCase() === "manager" ||

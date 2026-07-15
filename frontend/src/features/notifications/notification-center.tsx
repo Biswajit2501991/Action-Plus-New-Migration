@@ -9,6 +9,7 @@ import { Button } from "@/components/ui/button";
 import { Input, Label } from "@/components/ui/input";
 import { ClassicalModal } from "@/components/ui/classical-modal";
 import { useAttendance, useSettings, useUsers, useVisitors } from "@/hooks/use-data";
+import { useRealtimeConnected } from "@/hooks/use-realtime";
 import { localCalendarDateKey, localTodayCalendarKey } from "@/lib/domain/billing";
 import {
   normalizeLeaveRequest,
@@ -52,7 +53,18 @@ export function NotificationCenter() {
   const router = useRouter();
   const user = useAuthStore((s) => s.user);
   const qc = useQueryClient();
-  const { data: settings } = useSettings();
+  const canLeave = canDecideLeave(user);
+  const canResets = canViewPasswordResetNotifications(user);
+  const canVisitors = hasAccess(user, "members", "viewVisitors");
+  const realtimeConnected = useRealtimeConnected();
+
+  // Dedicated leave scope + poll so owner bell updates without a hard refresh
+  // even when the Next.js SSE proxy drops realtime frames.
+  const leavePollMs = canLeave ? (realtimeConnected ? 20_000 : 6_000) : false;
+  const { data: leaveSettings } = useSettings("leave", {
+    enabled: canLeave,
+    refetchInterval: leavePollMs,
+  });
   const { data: users = [] } = useUsers();
   const { data: visitors = [] } = useVisitors();
   const { data: attendanceRecords = [] } = useAttendance();
@@ -65,13 +77,9 @@ export function NotificationCenter() {
   const [newPassword, setNewPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
 
-  const canLeave = canDecideLeave(user);
-  const canResets = canViewPasswordResetNotifications(user);
-  const canVisitors = hasAccess(user, "members", "viewVisitors");
-
   const leavePending = useMemo(() => {
     if (!canLeave) return [] as LeaveRequest[];
-    const reqs = ((settings?.leaveRequests || []) as LeaveRequest[]).map((r) =>
+    const reqs = ((leaveSettings?.leaveRequests || []) as LeaveRequest[]).map((r) =>
       normalizeLeaveRequest(r),
     );
     return reqs
@@ -82,7 +90,7 @@ export function NotificationCenter() {
         ),
       )
       .slice(0, 20);
-  }, [canLeave, settings?.leaveRequests]);
+  }, [canLeave, leaveSettings?.leaveRequests]);
 
   const passwordPending = useMemo(
     () => (canResets ? pendingPasswordResets(users).slice(0, 20) : []),
@@ -108,6 +116,9 @@ export function NotificationCenter() {
 
   useEffect(() => {
     if (!open) return;
+    if (canLeave) {
+      void qc.invalidateQueries({ queryKey: ["settings", "leave"] });
+    }
     const onDoc = (e: MouseEvent) => {
       if (!rootRef.current?.contains(e.target as Node)) setOpen(false);
     };
@@ -120,7 +131,7 @@ export function NotificationCenter() {
       document.removeEventListener("mousedown", onDoc);
       document.removeEventListener("keydown", onKey);
     };
-  }, [open]);
+  }, [open, canLeave, qc]);
 
   const leaveDecide = useMutation({
     mutationFn: async ({

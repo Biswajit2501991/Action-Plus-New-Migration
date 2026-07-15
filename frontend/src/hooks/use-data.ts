@@ -54,13 +54,21 @@ export function useUsers() {
   });
 }
 
-export function useSettings(scope?: "core" | "leave" | "pt" | "full") {
+export function useSettings(
+  scope?: "core" | "leave" | "pt" | "full",
+  options?: { refetchInterval?: number | false; enabled?: boolean },
+) {
   const authed = Boolean(useAuthStore((s) => s.user));
+  const leaveScoped = scope === "leave";
   return useQuery({
     queryKey: ["settings", scope || "default"],
     queryFn: () => settingsApi.get(scope),
-    enabled: authed,
-    staleTime: STALE.settings,
+    enabled: authed && options?.enabled !== false,
+    // Leave notifications need fresher data than general settings.
+    staleTime: leaveScoped ? 15_000 : STALE.settings,
+    refetchOnMount: true,
+    refetchInterval: options?.refetchInterval,
+    placeholderData: (prev) => prev,
   });
 }
 

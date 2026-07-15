@@ -33,14 +33,15 @@ import type { LeaveRequest } from "@/types";
 export function LeavePage() {
   const user = useAuthStore((s) => s.user);
   const qc = useQueryClient();
-  const { data: settings, isLoading } = useSettings();
-  const { data: users = [] } = useUsers();
-  const { data: attendanceRecords = [] } = useAttendance();
-
   const canCreate = hasAccess(user, "leave", "viewCreateLeaveRequest");
   const canViewRequests = hasAccess(user, "leave", "viewLeaveRequests");
   const canViewBalance = hasAccess(user, "leave", "viewAnnualLeaveBalance");
   const canViewHistory = hasAccess(user, "leave", "viewLeaveHistory");
+  const { data: settings, isLoading } = useSettings(undefined, {
+    refetchInterval: canViewRequests ? 12_000 : false,
+  });
+  const { data: users = [] } = useUsers();
+  const { data: attendanceRecords = [] } = useAttendance();
 
   const isOwnerOrManager =
     String(user?.id || "").toLowerCase() === "owner" ||
