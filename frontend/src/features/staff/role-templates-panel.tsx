@@ -12,6 +12,7 @@ import { SECTION_ORDER } from "@/lib/nav";
 import {
   DEFAULT_ROLE_TEMPLATES,
   isMasterOwnerUser,
+  roleTemplateColorClasses,
   type RoleTemplate,
 } from "@/lib/domain/permissions";
 import { cn, uid } from "@/lib/utils";
@@ -28,7 +29,7 @@ const EMPTY: RoleTemplate = {
   title: "",
   subtitle: "",
   sections: [],
-  color: "border-slate-200 bg-slate-50",
+  color: "border-slate-200 bg-slate-50 dark:border-white/10 dark:bg-white/[0.04]",
 };
 
 export function RoleTemplatesPanel({ onUseTemplate }: Props) {
@@ -122,17 +123,22 @@ export function RoleTemplatesPanel({ onUseTemplate }: Props) {
         {templates.map((role) => (
           <Card
             key={role.id}
-            className={cn("overflow-hidden border shadow-sm", role.color || "border-slate-200")}
+            className={cn(
+              "overflow-hidden border shadow-sm text-slate-900 dark:text-slate-100",
+              roleTemplateColorClasses(role.color),
+            )}
           >
             <CardContent className="space-y-2 p-4">
               <div className="flex items-start justify-between gap-2">
                 <div>
-                  <p className="text-sm font-semibold">{role.title}</p>
-                  <p className="text-[11px] text-muted-foreground">
+                  <p className="text-sm font-semibold text-slate-900 dark:text-slate-50">
+                    {role.title}
+                  </p>
+                  <p className="text-[11px] text-slate-600 dark:text-slate-300">
                     {role.subtitle || "Role template"}
                   </p>
                 </div>
-                <Shield className="h-4 w-4 text-slate-400" />
+                <Shield className="h-4 w-4 text-slate-500 dark:text-slate-400" />
               </div>
               <p className="line-clamp-2 text-[11px] text-slate-600 dark:text-slate-300">
                 {(role.sections || []).join(" · ") || "No sections"}
@@ -141,7 +147,7 @@ export function RoleTemplatesPanel({ onUseTemplate }: Props) {
                 <Button
                   size="sm"
                   variant="outline"
-                  className="flex-1"
+                  className="flex-1 border-slate-300 bg-white/80 text-slate-800 hover:bg-white dark:border-white/20 dark:bg-white/[0.06] dark:text-slate-100 dark:hover:bg-white/[0.1]"
                   onClick={() => onUseTemplate(role)}
                 >
                   Create staff
@@ -151,6 +157,7 @@ export function RoleTemplatesPanel({ onUseTemplate }: Props) {
                     <Button
                       size="sm"
                       variant="ghost"
+                      className="text-slate-700 hover:bg-black/5 dark:text-slate-200 dark:hover:bg-white/10"
                       onClick={() => {
                         setDraft({
                           id: role.id,
@@ -164,7 +171,12 @@ export function RoleTemplatesPanel({ onUseTemplate }: Props) {
                     >
                       <Pencil className="h-3.5 w-3.5" />
                     </Button>
-                    <Button size="sm" variant="ghost" onClick={() => remove(role)}>
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      className="hover:bg-rose-500/10"
+                      onClick={() => remove(role)}
+                    >
                       <Trash2 className="h-3.5 w-3.5 text-rose-500" />
                     </Button>
                   </>

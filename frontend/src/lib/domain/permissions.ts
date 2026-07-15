@@ -776,14 +776,15 @@ export const DEFAULT_ROLE_TEMPLATES: RoleTemplate[] = [
       "Leave Tracker",
       "Settings",
     ],
-    color: "border-amber-200 bg-amber-50",
+    color:
+      "border-amber-200 bg-amber-50 dark:border-amber-500/35 dark:bg-amber-950/45",
   },
   {
     id: "trainer",
     title: "Trainer",
     subtitle: "Members & PT focus",
     sections: ["Dashboard", "Members", "PT Clients", "Attendance"],
-    color: "border-sky-200 bg-sky-50",
+    color: "border-sky-200 bg-sky-50 dark:border-sky-500/35 dark:bg-sky-950/45",
   },
   {
     id: "manager",
@@ -801,6 +802,35 @@ export const DEFAULT_ROLE_TEMPLATES: RoleTemplate[] = [
       "Settings",
       "Logs",
     ],
-    color: "border-emerald-200 bg-emerald-50",
+    color:
+      "border-emerald-200 bg-emerald-50 dark:border-emerald-500/35 dark:bg-emerald-950/45",
   },
 ];
+
+/** Ensure stored light-only preset colors remain readable in dark mode. */
+const ROLE_TEMPLATE_COLOR_FALLBACK =
+  "border-slate-200 bg-slate-50 dark:border-white/10 dark:bg-white/[0.04]";
+
+const ROLE_TEMPLATE_COLOR_BY_TONE: Record<string, string> = {
+  amber: "border-amber-200 bg-amber-50 dark:border-amber-500/35 dark:bg-amber-950/45",
+  sky: "border-sky-200 bg-sky-50 dark:border-sky-500/35 dark:bg-sky-950/45",
+  blue: "border-sky-200 bg-sky-50 dark:border-sky-500/35 dark:bg-sky-950/45",
+  emerald: "border-emerald-200 bg-emerald-50 dark:border-emerald-500/35 dark:bg-emerald-950/45",
+  green: "border-emerald-200 bg-emerald-50 dark:border-emerald-500/35 dark:bg-emerald-950/45",
+  rose: "border-rose-200 bg-rose-50 dark:border-rose-500/35 dark:bg-rose-950/45",
+  red: "border-rose-200 bg-rose-50 dark:border-rose-500/35 dark:bg-rose-950/45",
+  violet: "border-violet-200 bg-violet-50 dark:border-violet-500/35 dark:bg-violet-950/45",
+  purple: "border-violet-200 bg-violet-50 dark:border-violet-500/35 dark:bg-violet-950/45",
+  slate: ROLE_TEMPLATE_COLOR_FALLBACK,
+};
+
+export function roleTemplateColorClasses(color?: string | null): string {
+  const raw = String(color || "").trim();
+  if (!raw) return ROLE_TEMPLATE_COLOR_FALLBACK;
+  if (/\bdark:/.test(raw)) return raw;
+
+  for (const [tone, classes] of Object.entries(ROLE_TEMPLATE_COLOR_BY_TONE)) {
+    if (raw.includes(tone)) return classes;
+  }
+  return ROLE_TEMPLATE_COLOR_FALLBACK;
+}
