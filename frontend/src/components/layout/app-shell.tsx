@@ -19,6 +19,10 @@ import { cn } from "@/lib/utils";
 import { NAV_ITEMS, NAV_GROUP_ORDER } from "@/lib/nav";
 import { canAccessSection, hasAccess } from "@/lib/domain/permissions";
 import { brandingForActiveBranch } from "@/lib/domain/branch-branding";
+import {
+  shouldShowBranchSwitcher,
+  switchableBranchesForUser,
+} from "@/lib/domain/branch-access";
 import { staffRoleDisplayLabel } from "@/lib/domain/staff-role-label";
 import { useAuth } from "@/hooks/use-auth";
 import { useRealtimeSync } from "@/hooks/use-realtime";
@@ -67,6 +71,12 @@ function DesktopShell({ children }: { children: React.ReactNode }) {
       ),
     [gymCodes, user?.activeBranchId, user?.gymCodeId],
   );
+
+  const switchableBranches = useMemo(
+    () => switchableBranchesForUser(user, gymCodes || []),
+    [user, gymCodes],
+  );
+  const showBranchSwitcher = shouldShowBranchSwitcher(user, gymCodes || []);
 
   useEffect(() => {
     if (pathname) pushRecent(pathname);
@@ -265,13 +275,13 @@ function DesktopShell({ children }: { children: React.ReactNode }) {
 
             <NotificationCenter />
 
-            {(gymCodes?.length || 0) > 1 ? (
+            {showBranchSwitcher ? (
               <Select
                 className="hidden w-[180px] sm:flex"
                 value={user?.activeBranchId || user?.gymCodeId || ""}
                 onChange={(e) => void changeBranch(e.target.value)}
               >
-                {(gymCodes || []).map((g) => (
+                {switchableBranches.map((g) => (
                   <option key={g.id} value={g.id}>
                     {g.name || g.label || g.code || g.id}
                   </option>

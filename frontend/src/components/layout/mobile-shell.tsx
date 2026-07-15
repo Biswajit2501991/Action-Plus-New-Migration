@@ -19,6 +19,10 @@ import { useTheme } from "next-themes";
 import { cn } from "@/lib/utils";
 import { hasAccess } from "@/lib/domain/permissions";
 import { brandingForActiveBranch } from "@/lib/domain/branch-branding";
+import {
+  shouldShowBranchSwitcher,
+  switchableBranchesForUser,
+} from "@/lib/domain/branch-access";
 import { staffRoleDisplayLabel } from "@/lib/domain/staff-role-label";
 import { useAuth } from "@/hooks/use-auth";
 import { useGymCodes } from "@/hooks/use-data";
@@ -56,6 +60,12 @@ export function MobileShell({ children }: { children: React.ReactNode }) {
       ),
     [gymCodes, user?.activeBranchId, user?.gymCodeId],
   );
+
+  const switchableBranches = useMemo(
+    () => switchableBranchesForUser(user, gymCodes || []),
+    [user, gymCodes],
+  );
+  const showBranchSwitcher = shouldShowBranchSwitcher(user, gymCodes || []);
 
   const tabs = MOBILE_TABS.filter((t) => hasAccess(user, "mobile", t.mobileKey));
   const showMore = hasAccess(user, "mobile", "viewMore");
@@ -122,13 +132,13 @@ export function MobileShell({ children }: { children: React.ReactNode }) {
           </button>
           <HistoryControls />
           <NotificationCenter />
-          {(gymCodes?.length || 0) > 1 ? (
+          {showBranchSwitcher ? (
             <Select
               className="h-11 w-[7.5rem] rounded-2xl border-black/5 bg-white/80 text-xs dark:border-white/8 dark:bg-white/[0.04]"
               value={user?.activeBranchId || user?.gymCodeId || ""}
               onChange={(e) => void changeBranch(e.target.value)}
             >
-              {(gymCodes || []).map((g) => (
+              {switchableBranches.map((g) => (
                 <option key={g.id} value={g.id}>
                   {g.name || g.label || g.code || g.id}
                 </option>

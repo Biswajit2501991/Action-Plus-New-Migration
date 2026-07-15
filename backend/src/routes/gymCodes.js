@@ -6,13 +6,20 @@ import {
   updateBranchBranding,
   uploadBranchBrandingLogo,
 } from '../tenant/branding/BranchScopedBrandingService.js';
+import { resolveAllowedBranchIds } from '../auth/tenant/scopedAuth.js';
 
 const router = Router();
 
-router.get('/', async (_req, res) => {
+router.get('/', async (req, res) => {
   try {
     const codes = await listGymCodes();
-    res.json(codes);
+    const allowed = resolveAllowedBranchIds(req.auth);
+    // Master / global readers keep the full catalog (settings, staff assign).
+    if (allowed === null) {
+      return res.json(codes);
+    }
+    const allow = new Set(allowed.map((id) => String(id)));
+    return res.json((codes || []).filter((row) => allow.has(String(row?.id || ''))));
   } catch (err) {
     res.status(500).json({ error: 'gym-codes-read-failed', message: err.message });
   }
