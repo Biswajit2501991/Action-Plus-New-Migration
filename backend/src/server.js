@@ -521,13 +521,15 @@ app.use('/api/public/payment-qr', publicPaymentQrRouter);
 app.use('/api/public/visitors', publicVisitorsRouter);
 app.use('/api/public/member-status', publicMemberStatusRouter);
 app.use('/api/public/attendance/presence', publicAttendancePresenceRouter);
-app.use('/api/attendance/presence', attendancePresenceRouter);
 
 app.use('/api/auth', authRouter);
 
 app.use('/api', requireApiAuth);
 app.use('/api', syncStaffBranchScope);
 app.use('/api', bindGymContext);
+
+// Authenticated presence QR (rotate/settings) must sit after requireApiAuth so req.auth is set.
+app.use('/api/attendance/presence', attendancePresenceRouter);
 
 // Phase 2 gym-codes feature: list is authenticated-only, write is owner-only (inside the router).
 app.use('/api/gym-codes', gymCodesRouter);
