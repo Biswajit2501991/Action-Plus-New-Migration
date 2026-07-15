@@ -132,6 +132,62 @@ export function buildWhatsAppSendUrl(mobile: string | null | undefined, message:
   return `https://api.whatsapp.com/send?phone=${phone}&text=${encodeURIComponent(message || "")}`;
 }
 
+/** Prod: open chat for call (whatsapp://call is unreliable on desktop). */
+export function buildWhatsAppCallUrl(mobile?: string | null) {
+  const phone = formatWhatsAppPhone(mobile);
+  if (!phone) return "";
+  return `https://api.whatsapp.com/send?phone=${phone}`;
+}
+
+export function buildWhatsAppCallMemberPatch(
+  member: Member,
+  opts: { calledAt?: string; calledBy?: string } = {},
+) {
+  const calledAt = opts.calledAt || new Date().toISOString();
+  const calledBy = opts.calledBy || "Staff";
+  const history = Array.isArray(member.messageHistory) ? member.messageHistory : [];
+  return {
+    lastWhatsAppCall: { calledAt, calledBy },
+    messageHistory: [
+      {
+        id:
+          typeof crypto !== "undefined" && typeof crypto.randomUUID === "function"
+            ? crypto.randomUUID()
+            : `call-${Date.now()}`,
+        channel: "whatsapp_call",
+        templateKey: "call",
+        status: "opened",
+        ts: calledAt,
+        calledAt,
+        calledBy,
+      },
+      ...history,
+    ].slice(0, MESSAGE_HISTORY_LIMIT),
+  };
+}
+
+export function buildWhatsAppCallSmsEvent(
+  member: Member,
+  opts: { callUrl: string; calledAt?: string; calledBy?: string },
+) {
+  const calledAt = opts.calledAt || new Date().toISOString();
+  const calledBy = opts.calledBy || "Staff";
+  return {
+    id:
+      typeof crypto !== "undefined" && typeof crypto.randomUUID === "function"
+        ? crypto.randomUUID()
+        : `sms-${Date.now()}`,
+    memberId: member.memberId,
+    memberName: member.name || "",
+    fromStatus: member.status || "",
+    toStatus: member.status || "",
+    templateKey: "whatsapp_call",
+    message: `WhatsApp call/chat opened by ${calledBy}`,
+    waUrl: opts.callUrl,
+    ts: calledAt,
+  };
+}
+
 export function composeWhatsAppMessage(
   member: Member,
   templateKey: string,
@@ -244,12 +300,24 @@ export function smsTypeLabel(key: string) {
 /** Members eligible for each Messaging Center tab (prod parity). */
 export function membersByWhatsAppType(
   members: Member[],
-  opts: { isOwner?: boolean } = {},
+  opts: {
+    isOwner?: boolean;
+    settings?: {
+      fineSmsEnabled?: boolean;
+      fineSmsGraceDays?: number;
+      fineSmsImmediateRoles?: string[];
+    } | null;
+    actorRole?: string | null;
+  } = {},
 ): Record<WhatsAppTemplateKey, Member[]> {
   const todayKey = localTodayCalendarKey();
   const active = members.filter((m) => m.status === "Active");
-  const primaryKey = (m: Member) =>
-    primaryMessageActionForMember(m, { isOwner: opts.isOwner }).key;
+  const actionOpts = {
+    isOwner: opts.isOwner,
+    settings: opts.settings,
+    actorRole: opts.actorRole,
+  };
+  const primaryKey = (m: Member) => primaryMessageActionForMember(m, actionOpts).key;
 
   const sameMonthBilling = (m: Member) => {
     const billing = localCalendarDateKey(m.billingDate);

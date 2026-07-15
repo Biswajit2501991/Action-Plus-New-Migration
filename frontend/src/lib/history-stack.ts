@@ -3,83 +3,164 @@
 import { create } from "zustand";
 import type { QueryClient } from "@tanstack/react-query";
 
+/** Production parity: max 5 undo steps. */
 const HISTORY_LIMIT = 5;
 
-type Snapshot = {
+export type AppSnapshot = {
   label: string;
   at: string;
+  sig: string;
   members?: unknown;
   users?: unknown;
+  visitors?: unknown;
   settingsDefault?: unknown;
-  finance?: unknown;
+  financeAll?: unknown;
 };
 
 type HistoryState = {
-  past: Snapshot[];
-  future: Snapshot[];
+  past: AppSnapshot[];
+  current: AppSnapshot | null;
+  future: AppSnapshot[];
   canUndo: boolean;
   canRedo: boolean;
-  push: (snap: Snapshot) => void;
-  undo: () => Snapshot | null;
-  redo: () => Snapshot | null;
+  /** Skip auto-capture while applying undo/redo (Production skipHistoryCaptureRef). */
+  skipCapture: boolean;
+  setSkipCapture: (v: boolean) => void;
+  /**
+   * Record a new app state as current. If it differs from the previous current,
+   * push previous current onto past and clear future — Production useEffect behaviour.
+   */
+  record: (snap: AppSnapshot) => void;
+  undo: () => AppSnapshot | null;
+  redo: () => AppSnapshot | null;
   clear: () => void;
 };
 
-function caps(past: Snapshot[], future: Snapshot[]) {
+function caps(
+  past: AppSnapshot[],
+  current: AppSnapshot | null,
+  future: AppSnapshot[],
+  skipCapture = false,
+) {
   return {
     past,
+    current,
     future,
     canUndo: past.length > 0,
     canRedo: future.length > 0,
+    skipCapture,
   };
 }
 
 export const useHistoryStore = create<HistoryState>((set, get) => ({
   past: [],
+  current: null,
   future: [],
   canUndo: false,
   canRedo: false,
-  push: (snap) => {
-    const past = [...get().past, snap].slice(-HISTORY_LIMIT);
-    set(caps(past, []));
+  skipCapture: false,
+  setSkipCapture: (v) => set({ skipCapture: v }),
+  record: (snap) => {
+    const { skipCapture, current } = get();
+    if (skipCapture) return;
+    if (!current) {
+      set(caps([], snap, [], false));
+      return;
+    }
+    if (current.sig === snap.sig) return;
+    // Avoid undo-to-empty during cold hydrate (members/users still loading).
+    const currentReady = Array.isArray(current.members);
+    const nextReady = Array.isArray(snap.members);
+    if (!currentReady) {
+      set(caps([], snap, [], false));
+      return;
+    }
+    if (!nextReady) return;
+    const nextPast = [...get().past, current].slice(-HISTORY_LIMIT);
+    set(caps(nextPast, snap, [], false));
   },
   undo: () => {
-    const { past, future } = get();
-    if (!past.length) return null;
-    const current = past[past.length - 1];
+    const { past, current, future } = get();
+    if (!past.length || !current) return null;
+    const target = past[past.length - 1];
     const nextPast = past.slice(0, -1);
-    set(caps(nextPast, [current, ...future].slice(0, HISTORY_LIMIT)));
-    return current;
+    const nextFuture = [current, ...future].slice(0, HISTORY_LIMIT);
+    set(caps(nextPast, target, nextFuture, get().skipCapture));
+    return target;
   },
   redo: () => {
-    const { past, future } = get();
-    if (!future.length) return null;
-    const current = future[0];
-    set(caps([...past, current].slice(-HISTORY_LIMIT), future.slice(1)));
-    return current;
+    const { past, current, future } = get();
+    if (!future.length || !current) return null;
+    const target = future[0];
+    const nextFuture = future.slice(1);
+    const nextPast = [...past, current].slice(-HISTORY_LIMIT);
+    set(caps(nextPast, target, nextFuture, get().skipCapture));
+    return target;
   },
-  clear: () => set(caps([], [])),
+  clear: () => set(caps([], null, [], false)),
 }));
 
-export function captureAppSnapshot(qc: QueryClient, label: string): Snapshot {
-  return {
-    label,
-    at: new Date().toISOString(),
-    members: qc.getQueryData(["members"]),
-    users: qc.getQueryData(["users"]),
-    settingsDefault: qc.getQueryData(["settings", "default"]),
-    finance: undefined,
-  };
-}
-
-export function restoreAppSnapshot(qc: QueryClient, snap: Snapshot) {
-  if (snap.members !== undefined) qc.setQueryData(["members"], snap.members);
-  if (snap.users !== undefined) qc.setQueryData(["users"], snap.users);
-  if (snap.settingsDefault !== undefined) {
-    qc.setQueryData(["settings", "default"], snap.settingsDefault);
+function stableSig(parts: Record<string, unknown>) {
+  try {
+    return JSON.stringify(parts);
+  } catch {
+    return String(Date.now());
   }
 }
 
+/** Capture tracked collections — same domains Production snapshots. */
+export function captureAppSnapshot(qc: QueryClient, label = "state"): AppSnapshot {
+  const members = qc.getQueryData(["members"]);
+  const users = qc.getQueryData(["users"]);
+  const visitors = qc.getQueryData(["visitors"]);
+  const settingsDefault = qc.getQueryData(["settings", "default"]);
+  const financeAll = qc.getQueryData(["finance", "all"]);
+  const payload = { members, users, visitors, settingsDefault, financeAll };
+  return {
+    label,
+    at: new Date().toISOString(),
+    sig: stableSig(payload),
+    ...payload,
+  };
+}
+
+export function restoreAppSnapshot(qc: QueryClient, snap: AppSnapshot) {
+  const store = useHistoryStore.getState();
+  store.setSkipCapture(true);
+  if (snap.members !== undefined) qc.setQueryData(["members"], snap.members);
+  if (snap.users !== undefined) qc.setQueryData(["users"], snap.users);
+  if (snap.visitors !== undefined) qc.setQueryData(["visitors"], snap.visitors);
+  if (snap.settingsDefault !== undefined) {
+    qc.setQueryData(["settings", "default"], snap.settingsDefault);
+  }
+  if (snap.financeAll !== undefined) {
+    qc.setQueryData(["finance", "all"], snap.financeAll);
+  }
+  // Allow React to flush before re-enabling capture (Production setTimeout 0).
+  queueMicrotask(() => {
+    useHistoryStore.getState().setSkipCapture(false);
+  });
+}
+
+/**
+ * Explicit checkpoint before a mutation — Production auto-captures after state
+ * settles; this seeds the same stack when callers want a labelled step.
+ * Safe no-op if auto-capture already recorded an identical signature.
+ */
 export function pushHistoryCheckpoint(qc: QueryClient, label: string) {
-  useHistoryStore.getState().push(captureAppSnapshot(qc, label));
+  useHistoryStore.getState().record(captureAppSnapshot(qc, label));
+}
+
+export function applyUndo(qc: QueryClient): AppSnapshot | null {
+  const target = useHistoryStore.getState().undo();
+  if (!target) return null;
+  restoreAppSnapshot(qc, target);
+  return target;
+}
+
+export function applyRedo(qc: QueryClient): AppSnapshot | null {
+  const target = useHistoryStore.getState().redo();
+  if (!target) return null;
+  restoreAppSnapshot(qc, target);
+  return target;
 }

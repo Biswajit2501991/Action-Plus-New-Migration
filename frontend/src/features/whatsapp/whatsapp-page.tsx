@@ -6,7 +6,7 @@ import { PageHeader, Skeleton } from "@/components/ui/misc";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
-import { useMembers, useWhatsapp } from "@/hooks/use-data";
+import { useMembers, useSettings, useWhatsapp } from "@/hooks/use-data";
 import { useAuthStore } from "@/stores";
 import {
   getSmsSentInfoText,
@@ -34,7 +34,9 @@ const PAGE_SIZE = 10;
 export function WhatsappPage() {
   const user = useAuthStore((s) => s.user);
   const isOwner = user?.id === "owner" || String(user?.staffRole || user?.role || "").toLowerCase() === "owner";
+  const actorRole = String(user?.staffRole || user?.role || user?.id || "").trim();
   const { data: members = [], isLoading: membersLoading } = useMembers();
+  const { data: settings } = useSettings();
   const { data: whatsappData, isLoading: waLoading } = useWhatsapp();
   const { templates, preview, sending, openPreview, closePreview, confirmSend } = useWhatsappSend();
 
@@ -43,9 +45,14 @@ export function WhatsappPage() {
   const [page, setPage] = useState(1);
   const [activityPage, setActivityPage] = useState(1);
 
+  const messageOpts = useMemo(
+    () => ({ isOwner, settings: settings || null, actorRole }),
+    [isOwner, settings, actorRole],
+  );
+
   const byType = useMemo(
-    () => membersByWhatsAppType(members, { isOwner }),
-    [members, isOwner],
+    () => membersByWhatsAppType(members, messageOpts),
+    [members, messageOpts],
   );
 
   const counts = useMemo(() => {
@@ -188,7 +195,7 @@ export function WhatsappPage() {
                 </thead>
                 <tbody>
                   {pageRows.map((m) => {
-                    const suggested = primaryMessageActionForMember(m, { isOwner });
+                    const suggested = primaryMessageActionForMember(m, messageOpts);
                     const paymentBy = paymentByDateKey(m) || m.billingDate || "";
                     const nextPay =
                       m.nextPaymentDate || nextPaymentDateFromBillingDate(m.billingDate);
@@ -275,7 +282,7 @@ export function WhatsappPage() {
 
               <div className="divide-y divide-slate-100 md:hidden dark:divide-border">
                 {pageRows.map((m) => {
-                  const suggested = primaryMessageActionForMember(m, { isOwner });
+                  const suggested = primaryMessageActionForMember(m, messageOpts);
                   return (
                     <div key={`m-${activeType}-${m.memberId}`} className="space-y-2 p-3">
                       <div className="flex items-start justify-between gap-2">

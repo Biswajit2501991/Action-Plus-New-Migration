@@ -5,6 +5,7 @@ import { PersistQueryClientProvider } from "@tanstack/react-query-persist-client
 import { ThemeProvider } from "next-themes";
 import { useState } from "react";
 import { ClassicToaster } from "@/components/ui/classic-toaster";
+import { HistoryAutoCapture } from "@/components/layout/history-auto-capture";
 import {
   PERSIST_MAX_AGE,
   appQueryPersistBuster,
@@ -29,11 +30,13 @@ export function AppProviders({ children }: { children: React.ReactNode }) {
         },
       }}
     >
+      <HistoryAutoCapture />
       {children}
       <ClassicToaster />
     </PersistQueryClientProvider>
   ) : (
     <QueryClientProvider client={client}>
+      <HistoryAutoCapture />
       {children}
       <ClassicToaster />
     </QueryClientProvider>

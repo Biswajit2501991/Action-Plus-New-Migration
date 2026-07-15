@@ -26,7 +26,11 @@ export function formatMemberBirthday(value?: string | null) {
 }
 
 export function normalizePhone(value?: string | null) {
-  return String(value || "").replace(/\D/g, "");
+  const raw = String(value || "").trim();
+  if (/^\+91\d{10}$/.test(raw)) return raw.slice(3);
+  const digits = raw.replace(/\D/g, "");
+  if (digits.length === 12 && digits.startsWith("91")) return digits.slice(2);
+  return digits;
 }
 
 /** Production rule: exactly 10 digits, or +91 followed by 10 digits. */
@@ -120,18 +124,21 @@ export function expiringSoon(members: Member[], withinDays = 14) {
   });
 }
 
-export function birthdaysThisMonth(members: Member[]) {
-  const month = String(new Date().getMonth() + 1).padStart(2, "0");
-  return members.filter((m) => {
-    const key = localCalendarDateKey(m.dob);
-    if (!key) return false;
-    return key.slice(5, 7) === month;
-  });
+export function birthdaysThisMonth(members: Member[], now = new Date()) {
+  return members.filter((m) => isMemberBirthdayThisMonth(m.dob, now));
+}
+
+/** True when DOB month matches the current calendar month (ignores placeholder DOB). */
+export function isMemberBirthdayThisMonth(value?: string | null, now = new Date()) {
+  const dobKey = normalizeMemberDobInput(value);
+  const todayKey = localCalendarDateKey(now);
+  if (!dobKey || !todayKey) return false;
+  return dobKey.slice(5, 7) === todayKey.slice(5, 7);
 }
 
 /** True when today's calendar month/day matches the member's date of birth. */
 export function isMemberBirthdayToday(value?: string | null, now = new Date()) {
-  const dobKey = localCalendarDateKey(value);
+  const dobKey = normalizeMemberDobInput(value);
   const todayKey = localCalendarDateKey(now);
   if (!dobKey || !todayKey) return false;
   return dobKey.slice(5) === todayKey.slice(5);
@@ -139,6 +146,19 @@ export function isMemberBirthdayToday(value?: string | null, now = new Date()) {
 
 export function birthdaysToday(members: Member[], now = new Date()) {
   return members.filter((m) => isMemberBirthdayToday(m.dob, now));
+}
+
+/** True when member has a real DOB (not missing / placeholder). */
+export function memberHasBirthday(value?: string | null) {
+  return Boolean(normalizeMemberDobInput(value));
+}
+
+/** Day-of-month sort key (1–31) for birthdays within the current month list. */
+export function birthdayDayOfMonthSortKey(value?: string | null) {
+  const dobKey = normalizeMemberDobInput(value);
+  if (!dobKey) return 99;
+  const day = Number(dobKey.slice(8, 10));
+  return Number.isFinite(day) && day > 0 ? day : 99;
 }
 
 export function recentPayments(members: Member[], limit = 10) {

@@ -1,10 +1,14 @@
 import type { Member } from "@/types";
 import {
+  effectiveFineGraceDays,
+  fineActionDueDateKey,
+  fineRuleConfigFromSettings,
   isPaymentByPastDue,
   localCalendarDateKey,
   localTodayCalendarKey,
   overdueDaysForMember,
   paymentByDateKey,
+  type FineSmsRule,
 } from "@/lib/domain/billing";
 
 export type MemberMessageAction = {
@@ -58,7 +62,17 @@ function reminderSentForCurrentBilling(member: Member) {
 /** Production WhatsApp primary action for member list rows. */
 export function primaryMessageActionForMember(
   member: Member | null | undefined,
-  opts: { isOwner?: boolean; asOfKey?: string | null } = {},
+  opts: {
+    isOwner?: boolean;
+    asOfKey?: string | null;
+    fineRule?: FineSmsRule | null;
+    actorRole?: string | null;
+    settings?: {
+      fineSmsEnabled?: boolean;
+      fineSmsGraceDays?: number;
+      fineSmsImmediateRoles?: string[];
+    } | null;
+  } = {},
 ): MemberMessageAction {
   if (!member) return { key: "none", label: "", disabled: true };
   const todayKey = opts.asOfKey || localTodayCalendarKey();
@@ -68,15 +82,21 @@ export function primaryMessageActionForMember(
   const paymentOverdue = isPaymentByPastDue(member, { asOfKey: todayKey });
   const overdueDays = overdueDaysForMember(member, todayKey);
   const sameJoinAndBillingDay = Boolean(joiningKey && billingKey && joiningKey === billingKey);
+  const fineRule = opts.fineRule || fineRuleConfigFromSettings(opts.settings);
+  const fineDueKey = fineActionDueDateKey(member, fineRule, opts.actorRole);
+  const fineDue = Boolean(fineDueKey && todayKey && fineDueKey < todayKey);
+  const effectiveGraceDays = effectiveFineGraceDays(fineRule, opts.actorRole);
 
   if (member.status === "Active") {
-    if (paymentOverdue) {
+    if (fineDue && fineRule.enabled !== false) {
       return {
         key: "fine",
         label: "Fine SMS",
         disabled: false,
         overdueDays,
-        reason: `Payment By ${paymentByKey} crossed.`,
+        reason: `Payment By ${paymentByKey} crossed${
+          effectiveGraceDays > 0 ? ` (+${effectiveGraceDays} day grace)` : ""
+        }.`,
       };
     }
     if (!paymentOverdue && sameJoinAndBillingDay && billingKey && billingKey <= todayKey) {

@@ -137,3 +137,81 @@ export function paymentByColumnValue(member: {
 }): string {
   return paymentByDateKey(member) || member.billingDate || "";
 }
+
+/** Months inactive from billing date while Hold / Deactivated (prod reactivation rule). */
+export function elapsedInactiveMonthsFromBillingDate(
+  member: { status?: string | null; billingDate?: string | null } | null | undefined,
+  asOf: string | Date = new Date(),
+): number {
+  if (!member || !isHoldOrDeactivated(member.status)) return 0;
+  return monthsBetweenCalendarDates(member.billingDate, asOf);
+}
+
+export type ReactivationFeeRule = {
+  admissionType: "full" | "readmission";
+  months: number;
+};
+
+/** >12 months → full admission; >6 months → readmission; else no fee modal. */
+export function getReactivationFeeRule(
+  member: { status?: string | null; billingDate?: string | null } | null | undefined,
+  asOf: string | Date = new Date(),
+): ReactivationFeeRule | null {
+  const months = elapsedInactiveMonthsFromBillingDate(member, asOf);
+  if (months > 12) return { admissionType: "full", months };
+  if (months > 6) return { admissionType: "readmission", months };
+  return null;
+}
+
+export function holdPolicyNote(inactiveMonths: number) {
+  if (inactiveMonths > 12) return "Full Admission is mandatory";
+  if (inactiveMonths > 6) return "Readmission fee mandatory";
+  return "";
+}
+
+export type FineSmsRule = {
+  enabled: boolean;
+  graceDays: number;
+  immediateRoles: string[];
+};
+
+export function fineRuleConfigFromSettings(settingsLike?: {
+  fineSmsEnabled?: boolean;
+  fineSmsGraceDays?: number;
+  fineSmsImmediateRoles?: string[];
+} | null): FineSmsRule {
+  const rawGrace = Number(settingsLike?.fineSmsGraceDays ?? 0);
+  const immediateRoles = Array.isArray(settingsLike?.fineSmsImmediateRoles)
+    ? settingsLike.fineSmsImmediateRoles
+        .map((r) => String(r || "").trim().toLowerCase())
+        .filter(Boolean)
+    : [];
+  return {
+    enabled: settingsLike?.fineSmsEnabled !== false,
+    graceDays: Number.isFinite(rawGrace) && rawGrace > 0 ? Math.floor(rawGrace) : 0,
+    immediateRoles,
+  };
+}
+
+export function effectiveFineGraceDays(fineRule: FineSmsRule | null | undefined, actorRole?: string | null) {
+  const graceDays = Number(fineRule?.graceDays || 0);
+  const roleKey = String(actorRole || "").trim().toLowerCase();
+  const immediateRoles = Array.isArray(fineRule?.immediateRoles) ? fineRule.immediateRoles : [];
+  return immediateRoles.includes(roleKey)
+    ? 0
+    : Number.isFinite(graceDays) && graceDays > 0
+      ? Math.floor(graceDays)
+      : 0;
+}
+
+/** Fine SMS deadline = Payment By (+ grace unless role is immediate). */
+export function fineActionDueDateKey(
+  member: { billingDate?: string | null; paymentBy?: string | null },
+  fineRule: FineSmsRule | null | undefined,
+  actorRole?: string | null,
+) {
+  const paymentKey = paymentByDateKey(member);
+  if (!paymentKey) return "";
+  const grace = effectiveFineGraceDays(fineRule, actorRole);
+  return grace > 0 ? addDaysToDateKey(paymentKey, grace) : paymentKey;
+}

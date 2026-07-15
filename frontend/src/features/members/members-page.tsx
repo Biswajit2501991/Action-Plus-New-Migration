@@ -1,6 +1,6 @@
 "use client";
 
-import { Fragment, useCallback, useEffect, useMemo, useState } from "react";
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
@@ -18,22 +18,27 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Input, Label, Select } from "@/components/ui/input";
 import { useMembers, useSettings, useVisitors, useGymCodes } from "@/hooks/use-data";
 import { useMemberPhotoHydration } from "@/hooks/use-member-photo-hydration";
-import { membersApi } from "@/services/api";
+import { membersApi, logsApi, whatsappApi } from "@/services/api";
 import { MemberPhotoPreviewModal } from "@/features/members/member-photo-modals";
 import { EditMemberModal } from "@/features/members/edit-member-modal";
 import {
   MemberMetricModal,
   type MetricModalKey,
 } from "@/features/members/member-metric-modal";
-import { memberSearchHaystack } from "@/lib/domain/members";
+import { memberSearchHaystack, isMemberBirthdayThisMonth, birthdayDayOfMonthSortKey, normalizePhone } from "@/lib/domain/members";
 import {
   daysBetweenCalendarDates,
+  getReactivationFeeRule,
   isHoldOrDeactivated,
   isPaymentByPastDue,
   paymentByDateKey,
   localTodayCalendarKey,
   localCalendarDateKey,
 } from "@/lib/domain/billing";
+import {
+  nextPaymentDateFromBillingDate,
+  paymentByFromBillingDate,
+} from "@/lib/domain/member-dates";
 import { formatCurrency, formatDate, downloadTextFile, toCsv, cn, formatMonthKey } from "@/lib/utils";
 import { hasAccess, isMasterOwnerUser } from "@/lib/domain/permissions";
 import { useAuthStore, useUiStore } from "@/stores";
@@ -45,6 +50,23 @@ import { PaymentQrButton } from "@/features/members/payment-qr-viewer";
 import { MemberCardRow, MemberListHeader } from "@/features/members/member-card-row";
 import { PaymentEntryModal, type PaymentFormValues } from "@/features/members/payment-entry-modal";
 import { PaidForMonthOverrideDialog } from "@/features/members/paid-for-month-override-dialog";
+import {
+  ReactivationFeeModal,
+  buildReactivationFeePrompt,
+  type ReactivationFeePrompt,
+} from "@/features/members/reactivation-fee-modal";
+import { CsvImportModal } from "@/features/members/csv-import-modal";
+import {
+  mergeCsvImportIntoMembers,
+  prepareCsvImportRows,
+  type CsvImportPreparedRow,
+} from "@/lib/domain/csv-import";
+import {
+  buildWhatsAppCallMemberPatch,
+  buildWhatsAppCallSmsEvent,
+  buildWhatsAppCallUrl,
+  formatWhatsAppPhone,
+} from "@/lib/domain/whatsapp";
 import { VisitorsPanel } from "@/features/visitors/visitors-panel";
 import { MessagePreviewModal } from "@/features/whatsapp/message-preview-modal";
 import { useWhatsappSend } from "@/features/whatsapp/use-whatsapp-send";
@@ -53,6 +75,8 @@ import { pushHistoryCheckpoint } from "@/lib/history-stack";
 const PAGE_SIZE = 10;
 const STATUS_KEYS = ["Active", "Hold", "Deactivated", "Cancelled"] as const;
 type StatusKey = (typeof STATUS_KEYS)[number];
+type SectionKey = StatusKey | "Birthday";
+const BIRTHDAY_ELIGIBLE_STATUSES = new Set(["Active", "Hold", "Deactivated"]);
 type SortField = "memberId" | "name" | "plan" | "billingDate" | "paymentBy" | "joiningDate";
 
 type MemberFilters = {
@@ -138,14 +162,16 @@ export function MembersPage() {
   const [sortField, setSortField] = useState<SortField>("joiningDate");
   const [sortDirection, setSortDirection] = useState<"asc" | "desc">("desc");
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
-  const [pages, setPages] = useState<Record<StatusKey, number>>({
+  const [pages, setPages] = useState<Record<SectionKey, number>>({
     Active: 1,
+    Birthday: 1,
     Hold: 1,
     Deactivated: 1,
     Cancelled: 1,
   });
-  const [hiddenSections, setHiddenSections] = useState<Record<StatusKey, boolean>>({
+  const [hiddenSections, setHiddenSections] = useState<Record<SectionKey, boolean>>({
     Active: false,
+    Birthday: false,
     Hold: false,
     Deactivated: false,
     Cancelled: false,
@@ -161,6 +187,23 @@ export function MembersPage() {
     monthKey: string;
     amount: number;
   } | null>(null);
+  const [reactivationPrompt, setReactivationPrompt] = useState<ReactivationFeePrompt | null>(
+    null,
+  );
+  const [feeQueue, setFeeQueue] = useState<string[]>([]);
+  const csvInputRef = useRef<HTMLInputElement | null>(null);
+  const [csvImport, setCsvImport] = useState<{
+    open: boolean;
+    fileName: string;
+    rows: CsvImportPreparedRow[];
+    summary: { added: number; updated: number; skipped: number };
+  }>({ open: false, fileName: "", rows: [], summary: { added: 0, updated: 0, skipped: 0 } });
+
+  const actorRole = String(user?.staffRole || user?.role || user?.id || "").trim();
+  const messageOpts = useMemo(
+    () => ({ settings: settings || null, actorRole }),
+    [settings, actorRole],
+  );
 
   useEffect(() => {
     // Applied filters persist for this browser so staff keep their saved filter set.
@@ -172,7 +215,7 @@ export function MembersPage() {
   }, [filters]);
 
   useEffect(() => {
-    setPages({ Active: 1, Hold: 1, Deactivated: 1, Cancelled: 1 });
+    setPages({ Active: 1, Birthday: 1, Hold: 1, Deactivated: 1, Cancelled: 1 });
     setSelectedIds([]);
   }, [filters, appliedQuickSearch, focusStatus]);
 
@@ -315,10 +358,33 @@ export function MembersPage() {
     };
   }, [members, applyFilters, sortMembers]);
 
+  /** Active / Hold / Deactivated with birthday this month — earliest day of month first. */
+  const birthdayMembers = useMemo(() => {
+    const base = applyFilters(members).filter(
+      (m) =>
+        BIRTHDAY_ELIGIBLE_STATUSES.has(String(m.status || "").trim()) &&
+        isMemberBirthdayThisMonth(m.dob),
+    );
+    return [...base].sort((a, b) => {
+      const byDay = birthdayDayOfMonthSortKey(a.dob) - birthdayDayOfMonthSortKey(b.dob);
+      if (byDay !== 0) return byDay;
+      return String(a.name || "").localeCompare(String(b.name || ""));
+    });
+  }, [members, applyFilters]);
+
+  const sectionListFor = useCallback(
+    (key: SectionKey): Member[] => {
+      if (key === "Birthday") return birthdayMembers;
+      return grouped[key] || [];
+    },
+    [birthdayMembers, grouped],
+  );
+
   const visiblePhotoPriorityIds = useMemo(() => {
     const ids: string[] = [];
-    for (const key of STATUS_KEYS) {
-      const list = grouped[key] || [];
+    const keys: SectionKey[] = ["Active", "Birthday", "Hold", "Deactivated", "Cancelled"];
+    for (const key of keys) {
+      const list = sectionListFor(key);
       const totalPages = Math.max(1, Math.ceil(list.length / PAGE_SIZE));
       const page = pages[key] > totalPages ? 1 : pages[key];
       const start = (page - 1) * PAGE_SIZE;
@@ -327,7 +393,7 @@ export function MembersPage() {
       }
     }
     return ids;
-  }, [grouped, pages]);
+  }, [sectionListFor, pages]);
 
   useMemberPhotoHydration(members, { priorityIds: visiblePhotoPriorityIds });
 
@@ -371,18 +437,43 @@ export function MembersPage() {
   });
 
   const statusMutation = useMutation({
-    mutationFn: async ({ ids, status, holdDuration }: { ids: string[]; status: string; holdDuration?: string }) => {
+    mutationFn: async ({
+      ids,
+      status,
+      holdDuration,
+      amountOverride,
+      billingDateOverride,
+    }: {
+      ids: string[];
+      status: string;
+      holdDuration?: string;
+      amountOverride?: string;
+      billingDateOverride?: string;
+    }) => {
       pushHistoryCheckpoint(qc, "member status");
+      const ts = new Date().toISOString();
       await Promise.all(
         ids.map((id) => {
           const current = members.find((m) => m.memberId === id);
           if (!current) return Promise.resolve(null);
-          return membersApi.patch(id, {
+          const patch: Partial<Member> = {
             ...current,
             status,
-            ...(status === "Hold" ? { holdDuration: holdDuration || settings?.holdDurations?.[0] || "1 Month" } : {}),
-            updatedAt: new Date().toISOString(),
-          });
+            ...(status === "Hold"
+              ? { holdDuration: holdDuration || settings?.holdDurations?.[0] || "1 Month" }
+              : { holdDuration: "" }),
+            updatedAt: ts,
+          };
+          if (amountOverride != null) {
+            patch.amount = Number(amountOverride);
+          }
+          if (billingDateOverride) {
+            patch.billingDate = billingDateOverride;
+            patch.nextPaymentDate = nextPaymentDateFromBillingDate(billingDateOverride);
+            patch.paymentBy = paymentByFromBillingDate(billingDateOverride);
+            (patch as { billingDateUpdatedAt?: string }).billingDateUpdatedAt = ts;
+          }
+          return membersApi.patch(id, patch);
         }),
       );
     },
@@ -394,6 +485,41 @@ export function MembersPage() {
     onError: (e: Error) => toast.error(e.message),
   });
 
+  const requestStatusChange = useCallback(
+    (ids: string[], status: string, holdDuration?: string) => {
+      if (status !== "Active") {
+        statusMutation.mutate({ ids, status, holdDuration });
+        return;
+      }
+      const targets = ids
+        .map((id) => members.find((m) => m.memberId === id))
+        .filter(Boolean) as Member[];
+      const needsFee: Member[] = [];
+      const direct: string[] = [];
+      for (const m of targets) {
+        const from = String(m.status || "").trim().toLowerCase();
+        const rule =
+          from === "hold" || from === "deactivated" ? getReactivationFeeRule(m) : null;
+        if (rule) needsFee.push(m);
+        else direct.push(m.memberId);
+      }
+      if (direct.length) {
+        statusMutation.mutate({ ids: direct, status: "Active" });
+      }
+      if (needsFee.length) {
+        const [first, ...rest] = needsFee;
+        const rule = getReactivationFeeRule(first)!;
+        setFeeQueue(rest.map((m) => m.memberId));
+        setReactivationPrompt(buildReactivationFeePrompt(first, "Active", rule));
+        if (rest.length) {
+          toast.message(
+            `${rest.length} more member${rest.length === 1 ? "" : "s"} need reactivation fee after this one.`,
+          );
+        }
+      }
+    },
+    [members, statusMutation],
+  );
   const paymentMutation = useMutation({
     mutationFn: async (values: PaymentFormValues) => {
       if (!paymentFor) return;
@@ -510,6 +636,99 @@ export function MembersPage() {
     openWhatsAppPreview(m, kind);
   };
 
+  const openWhatsAppCall = async (m: Member) => {
+    const callUrl = buildWhatsAppCallUrl(m.mobile);
+    if (!callUrl) {
+      toast.error("Mobile number is missing.");
+      return;
+    }
+    const calledAt = new Date().toISOString();
+    const calledBy = String(user?.name || user?.id || "Staff").trim() || "Staff";
+    window.open(callUrl, "_blank", "noopener,noreferrer");
+    try {
+      await membersApi.patch(m.memberId, buildWhatsAppCallMemberPatch(m, { calledAt, calledBy }));
+      const event = buildWhatsAppCallSmsEvent(m, { callUrl, calledAt, calledBy });
+      void whatsappApi
+        .smsEvents()
+        .then((existing) => {
+          const list = Array.isArray(existing) ? existing : [];
+          return whatsappApi.saveSmsEvents([event, ...list].slice(0, 300));
+        })
+        .catch(() => undefined);
+      void logsApi
+        .create({
+          action: "whatsapp.call.opened",
+          entityType: "member",
+          entityId: m.memberId,
+          meta: {
+            memberName: m.name || "",
+            calledAt,
+            calledBy,
+            mobile: formatWhatsAppPhone(m.mobile),
+          },
+        })
+        .catch(() => undefined);
+      toast.success("WhatsApp opened for call.");
+      await qc.invalidateQueries({ queryKey: ["members"] });
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Could not record WhatsApp call");
+    }
+  };
+
+  const handleCsvFile = async (file: File | null) => {
+    if (!file) return;
+    try {
+      const text = await file.text();
+      const prepared = prepareCsvImportRows(text, members, {
+        plans: settings?.plans,
+        paymentMethods: settings?.paymentMethods,
+        staffName: user?.name || user?.id || "",
+      });
+      if (prepared.fileError) {
+        toast.error(prepared.fileError);
+        return;
+      }
+      setCsvImport({
+        open: true,
+        fileName: file.name || "import.csv",
+        rows: prepared.rows,
+        summary: prepared.summary,
+      });
+    } catch {
+      toast.error("Failed to read CSV file.");
+    }
+  };
+
+  const applyCsvImport = async () => {
+    const upsertRows = csvImport.rows.filter((r) => r.action === "add" || r.action === "update");
+    if (!upsertRows.length) {
+      setCsvImport({ open: false, fileName: "", rows: [], summary: { added: 0, updated: 0, skipped: 0 } });
+      toast.message("No valid rows to import.");
+      return;
+    }
+    try {
+      pushHistoryCheckpoint(qc, "csv import");
+      const merged = mergeCsvImportIntoMembers(members, upsertRows);
+      // Only send changed/new members to keep payload small.
+      const changed = upsertRows
+        .map((r) => {
+          const id = String(r.member?.memberId || r.matchMemberId || "").trim();
+          const byId = merged.find((m) => String(m.memberId || "").trim() === id);
+          if (byId) return byId;
+          const phone = normalizePhone(r.member?.mobile);
+          return merged.find((m) => normalizePhone(m.mobile) === phone);
+        })
+        .filter(Boolean) as Member[];
+      await membersApi.bulk(changed);
+      const s = csvImport.summary;
+      toast.success(`CSV import done. Added: ${s.added}, Updated: ${s.updated}, Skipped: ${s.skipped}`);
+      setCsvImport({ open: false, fileName: "", rows: [], summary: { added: 0, updated: 0, skipped: 0 } });
+      await qc.invalidateQueries({ queryKey: ["members"] });
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "CSV import failed");
+    }
+  };
+
   const openWelcomeMail = (m: Member) => {
     const result = openGmailWelcome(m, settings?.gmailWelcomeTemplate);
     if (!result.ok) {
@@ -567,7 +786,14 @@ export function MembersPage() {
     }
   };
 
-  const sectionsToShow = (focusStatus ? [focusStatus] : [...STATUS_KEYS]) as StatusKey[];
+  const sectionsToShow = useMemo((): SectionKey[] => {
+    if (focusStatus === "Birthday") return ["Birthday"];
+    if (focusStatus && STATUS_KEYS.includes(focusStatus as StatusKey)) {
+      return [focusStatus as StatusKey];
+    }
+    // Birthday sits directly under Active Members.
+    return ["Active", "Birthday", "Hold", "Deactivated", "Cancelled"];
+  }, [focusStatus]);
 
   if (isLoading) {
     return (
@@ -662,6 +888,11 @@ export function MembersPage() {
                         dot: "bg-emerald-500",
                       },
                       {
+                        key: "Birthday",
+                        label: `Birthday (${birthdayMembers.length})`,
+                        dot: "bg-pink-500",
+                      },
+                      {
                         key: "Hold",
                         label: `Hold (${grouped.Hold.length})`,
                         dot: "bg-amber-500",
@@ -737,8 +968,18 @@ export function MembersPage() {
                         type="button"
                         className="w-full rounded-xl px-3 py-2.5 text-left text-sm text-slate-700 hover:bg-slate-100 dark:text-slate-200 dark:hover:bg-white/5"
                         onClick={() => {
-                          toast.message("CSV import uses the same Members API — paste/export workflow available via Export CSV for now.");
                           setActionsOpen(false);
+                          if (
+                            !hasAccess(user, "members", "addMembers") &&
+                            !hasAccess(user, "members", "editMembers")
+                          ) {
+                            toast.error("CSV import requires Members access.");
+                            return;
+                          }
+                          if (csvInputRef.current) {
+                            csvInputRef.current.value = "";
+                            csvInputRef.current.click();
+                          }
                         }}
                       >
                         Import CSV
@@ -750,7 +991,7 @@ export function MembersPage() {
                             type="button"
                             className="w-full rounded-xl px-3 py-2.5 text-left text-sm text-slate-700 hover:bg-slate-100 dark:text-slate-200 dark:hover:bg-white/5"
                             onClick={() => {
-                              statusMutation.mutate({ ids: selectedIds, status: "Active" });
+                              requestStatusChange(selectedIds, "Active");
                               setActionsOpen(false);
                             }}
                           >
@@ -760,11 +1001,11 @@ export function MembersPage() {
                             type="button"
                             className="w-full rounded-xl px-3 py-2.5 text-left text-sm text-slate-700 hover:bg-slate-100 dark:text-slate-200 dark:hover:bg-white/5"
                             onClick={() => {
-                              statusMutation.mutate({
-                                ids: selectedIds,
-                                status: "Hold",
-                                holdDuration: settings?.holdDurations?.[0] || "1 Month",
-                              });
+                              requestStatusChange(
+                                selectedIds,
+                                "Hold",
+                                settings?.holdDurations?.[0] || "1 Month",
+                              );
                               setActionsOpen(false);
                             }}
                           >
@@ -839,11 +1080,15 @@ export function MembersPage() {
           </div>
 
           {sectionsToShow.map((key) => {
-            const list = grouped[key] || [];
+            const list = sectionListFor(key);
             const totalPages = Math.max(1, Math.ceil(list.length / PAGE_SIZE));
             const page = pages[key] > totalPages ? 1 : pages[key];
             const start = (page - 1) * PAGE_SIZE;
             const pageList = list.slice(start, start + PAGE_SIZE);
+            const sectionTitle =
+              key === "Birthday"
+                ? `Birthday Members (${list.length})`
+                : `${key} Members (${list.length})`;
 
             return (
               <div key={key} className="space-y-3">
@@ -853,6 +1098,8 @@ export function MembersPage() {
                       "inline-flex w-fit items-center gap-2 overflow-hidden rounded-xl border px-3 py-1.5 text-base font-semibold md:text-lg",
                       key === "Active" &&
                         "border-emerald-200/80 bg-gradient-to-r from-emerald-50 to-white text-emerald-900 dark:border-emerald-500/25 dark:from-emerald-950/40 dark:to-slate-950 dark:text-emerald-100",
+                      key === "Birthday" &&
+                        "border-pink-200/80 bg-gradient-to-r from-pink-50 to-white text-pink-900 dark:border-pink-500/25 dark:from-pink-950/40 dark:to-slate-950 dark:text-pink-100",
                       key === "Hold" &&
                         "border-amber-200/80 bg-gradient-to-r from-amber-50 to-white text-amber-900 dark:border-amber-500/25 dark:from-amber-950/40 dark:to-slate-950 dark:text-amber-100",
                       key === "Deactivated" &&
@@ -865,12 +1112,13 @@ export function MembersPage() {
                       className={cn(
                         "h-4 w-1 shrink-0 rounded-full",
                         key === "Active" && "bg-emerald-500",
+                        key === "Birthday" && "bg-pink-500",
                         key === "Hold" && "bg-amber-500",
                         key === "Deactivated" && "bg-rose-500",
                         key === "Cancelled" && "bg-slate-400 dark:bg-slate-500",
                       )}
                     />
-                    {key} Members ({list.length})
+                    {sectionTitle}
                   </h3>
                   <div className="flex flex-wrap items-center gap-2">
                     {key === "Active" ? (
@@ -966,6 +1214,7 @@ export function MembersPage() {
                                   expanded={expanded}
                                   isOwner={isOwner}
                                   canEdit={hasAccess(user, "members", "editMembers")}
+                                  messageOpts={messageOpts}
                                   onToggleSelect={() => toggleSelect(m.memberId)}
                                   onToggleExpand={() =>
                                     setExpandedId((prev) => (prev === m.memberId ? null : m.memberId))
@@ -987,6 +1236,7 @@ export function MembersPage() {
                                       holdOptions={
                                         settings?.holdDurations || ["1 Month", "2 Months", "3 Months"]
                                       }
+                                      messageOpts={messageOpts}
                                       onEdit={() => openEdit(m)}
                                       onAddPayment={() => {
                                         setEditingPayment(null);
@@ -1024,6 +1274,7 @@ export function MembersPage() {
                                         });
                                       }}
                                       onWhatsApp={(kind) => openWhatsApp(m, kind)}
+                                      onWhatsAppCall={() => void openWhatsAppCall(m)}
                                       onWelcomeMail={() => openWelcomeMail(m)}
                                       onUploadDocument={(file) => void uploadMemberDocument(m, file)}
                                       onDelete={() => {
@@ -1032,11 +1283,7 @@ export function MembersPage() {
                                         }
                                       }}
                                       onStatusChange={(status, holdDuration) => {
-                                        statusMutation.mutate({
-                                          ids: [m.memberId],
-                                          status,
-                                          holdDuration,
-                                        });
+                                        requestStatusChange([m.memberId], status, holdDuration);
                                       }}
                                       onNavigateMember={(other) => {
                                         setExpandedId(other.memberId);
@@ -1080,7 +1327,9 @@ export function MembersPage() {
                           })}
                           {!pageList.length ? (
                             <div className="rounded-xl border border-dashed px-4 py-8 text-center text-[11px] text-muted-foreground">
-                              No {key.toLowerCase()} members match your filters.
+                              {key === "Birthday"
+                                ? "No Active, Hold, or Deactivated members have a birthday this month."
+                                : `No ${key.toLowerCase()} members match your filters.`}
                             </div>
                           ) : null}
                         </div>
@@ -1369,6 +1618,60 @@ export function MembersPage() {
         gymLabel={gymLabelFor(
           photoPreviewMember?.assignedGymCodeId || photoPreviewMember?.assigned_gym_code_id,
         )}
+      />
+
+      <input
+        ref={csvInputRef}
+        type="file"
+        accept=".csv,text/csv"
+        className="hidden"
+        onChange={(e) => {
+          const file = e.target.files?.[0] || null;
+          void handleCsvFile(file);
+        }}
+      />
+
+      <CsvImportModal
+        open={csvImport.open}
+        fileName={csvImport.fileName}
+        rows={csvImport.rows}
+        summary={csvImport.summary}
+        onClose={() =>
+          setCsvImport({
+            open: false,
+            fileName: "",
+            rows: [],
+            summary: { added: 0, updated: 0, skipped: 0 },
+          })
+        }
+        onConfirm={() => void applyCsvImport()}
+      />
+
+      <ReactivationFeeModal
+        prompt={reactivationPrompt}
+        saving={statusMutation.isPending}
+        onClose={() => {
+          setReactivationPrompt(null);
+          setFeeQueue([]);
+        }}
+        onConfirm={async (values) => {
+          await statusMutation.mutateAsync({
+            ids: [values.memberId],
+            status: values.nextStatus || "Active",
+            amountOverride: values.amount,
+            billingDateOverride: values.billingDate,
+          });
+          setReactivationPrompt(null);
+          if (feeQueue.length) {
+            const [nextId, ...rest] = feeQueue;
+            setFeeQueue(rest);
+            const nextMember = members.find((row) => row.memberId === nextId);
+            const rule = nextMember ? getReactivationFeeRule(nextMember) : null;
+            if (nextMember && rule) {
+              setReactivationPrompt(buildReactivationFeePrompt(nextMember, "Active", rule));
+            }
+          }
+        }}
       />
     </div>
   );

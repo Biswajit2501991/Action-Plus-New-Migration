@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useTheme } from "next-themes";
 import { toast } from "sonner";
@@ -9,12 +9,15 @@ import {
   ChevronDown,
   ChevronUp,
   ClipboardList,
+  Download,
+  HardDrive,
   ImagePlus,
   MessageSquareWarning,
   Moon,
   Sparkles,
   Sun,
   Trash2,
+  Upload,
   Users,
 } from "lucide-react";
 import { PageHeader, Skeleton } from "@/components/ui/misc";
@@ -26,7 +29,7 @@ import { useGymCodes, useSettings } from "@/hooks/use-data";
 import { gymCodesApi, settingsApi } from "@/services/api";
 import { resolveClientBranchBranding } from "@/lib/domain/branch-branding";
 import { hasAccess, isMasterOwnerUser } from "@/lib/domain/permissions";
-import { cn } from "@/lib/utils";
+import { cn, downloadTextFile } from "@/lib/utils";
 import { useAuthStore } from "@/stores";
 import type { AppSettings, GymCode } from "@/types";
 
@@ -273,6 +276,14 @@ const SECTION_ACCENTS = {
     icon: "text-amber-700 dark:text-amber-300",
     border: "border-amber-200/80 dark:border-amber-900/40",
   },
+  recovery: {
+    bar: "bg-gradient-to-r from-indigo-400 to-sky-500",
+    header:
+      "border-indigo-100/80 bg-gradient-to-r from-indigo-50 to-white dark:border-indigo-900/40 dark:from-indigo-950/25 dark:to-card",
+    iconWrap: "bg-indigo-100 dark:bg-indigo-950/60",
+    icon: "text-indigo-700 dark:text-indigo-300",
+    border: "border-indigo-200/80 dark:border-indigo-900/40",
+  },
 } as const;
 
 function AppearanceCard({
@@ -388,12 +399,14 @@ export function SettingsPage() {
     features: false,
     business: false,
     member: false,
+    recovery: false,
   });
   const [drafts, setDrafts] = useState<Record<string, string>>({});
   const [gymForm, setGymForm] = useState({ code: "", name: "" });
   const [shiftDrafts, setShiftDrafts] = useState<Record<string, string>>({});
   const [brandingDrafts, setBrandingDrafts] = useState<Record<string, string>>({});
   const [expandedGymId, setExpandedGymId] = useState<string | null>(null);
+  const settingsImportRef = useRef<HTMLInputElement | null>(null);
 
   const canFine = hasAccess(user, "settings", "manageFineRule");
   const followSystemTheme = themeReady && theme === "system";
@@ -1011,6 +1024,86 @@ export function SettingsPage() {
       >
         <div className="grid gap-3 lg:grid-cols-2">{MEMBER_LOOKUPS.map(renderLookupCard)}</div>
       </SettingsSectionShell>
+
+      {isOwner ? (
+        <SettingsSectionShell
+          title="Settings backup & recovery"
+          description="Export/import Settings JSON here; full database disaster recovery stays on Backend"
+          open={Boolean(openCat.recovery)}
+          onToggle={() => toggleCat("recovery")}
+          accent={SECTION_ACCENTS.recovery}
+          icon={<HardDrive className="h-4 w-4" />}
+        >
+          <div className="space-y-3 rounded-2xl border border-indigo-200/70 bg-gradient-to-b from-indigo-50/50 to-white p-4 dark:border-indigo-900/40 dark:from-indigo-950/25 dark:to-card">
+            <p className="text-xs leading-relaxed text-muted-foreground">
+              Settings JSON covers feature flags and lookup lists only. Member data, finance, SQLite
+              backups, restore, and Fresh Start remain on the{" "}
+              <span className="font-medium text-foreground">Backend</span> page (owner).
+            </p>
+            <div className="flex flex-wrap gap-2">
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                className="gap-1.5"
+                onClick={() => {
+                  if (!settings) {
+                    toast.error("Settings not loaded yet.");
+                    return;
+                  }
+                  const stamp = new Date().toISOString().slice(0, 10);
+                  downloadTextFile(
+                    `apg-settings-${stamp}.json`,
+                    JSON.stringify(settings, null, 2),
+                    "application/json",
+                  );
+                  toast.success("Settings JSON exported");
+                }}
+              >
+                <Download className="h-3.5 w-3.5" /> Export Settings JSON
+              </Button>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                className="gap-1.5"
+                onClick={() => {
+                  if (settingsImportRef.current) {
+                    settingsImportRef.current.value = "";
+                    settingsImportRef.current.click();
+                  }
+                }}
+              >
+                <Upload className="h-3.5 w-3.5" /> Import Settings JSON
+              </Button>
+              <input
+                ref={settingsImportRef}
+                type="file"
+                accept="application/json,.json"
+                className="hidden"
+                onChange={(e) => {
+                  const file = e.target.files?.[0];
+                  if (!file) return;
+                  void file
+                    .text()
+                    .then(async (text) => {
+                      const parsed = JSON.parse(text) as Partial<AppSettings>;
+                      if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+                        throw new Error("Invalid settings JSON");
+                      }
+                      await settingsApi.bulk(parsed);
+                      toast.success("Settings imported");
+                      await qc.invalidateQueries({ queryKey: ["settings"] });
+                    })
+                    .catch((err: Error) => {
+                      toast.error(err?.message || "Failed to import settings JSON");
+                    });
+                }}
+              />
+            </div>
+          </div>
+        </SettingsSectionShell>
+      ) : null}
     </div>
   );
 }

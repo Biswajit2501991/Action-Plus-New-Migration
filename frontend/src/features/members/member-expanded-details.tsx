@@ -221,12 +221,22 @@ function SmsSentChip({ text }: { text: string }) {
 function CommunicationDocumentsBlock({
   m,
   canWhatsApp,
+  messageOpts,
   onWhatsApp,
   onWelcomeMail,
   onUploadDocument,
 }: {
   m: Member;
   canWhatsApp: boolean;
+  messageOpts?: {
+    isOwner?: boolean;
+    settings?: {
+      fineSmsEnabled?: boolean;
+      fineSmsGraceDays?: number;
+      fineSmsImmediateRoles?: string[];
+    } | null;
+    actorRole?: string | null;
+  };
   onWhatsApp: (kind: WhatsAppKind) => void;
   onWelcomeMail: () => void;
   onUploadDocument: (file: File) => void;
@@ -235,7 +245,7 @@ function CommunicationDocumentsBlock({
   const joiningKey = localCalendarDateKey(m.joiningDate);
   const showWelcome = Boolean(joiningKey && todayKey && joiningKey === todayKey);
   const showBirthday = isMemberBirthdayToday(m.dob);
-  const suggested = primaryMessageActionForMember(m);
+  const suggested = primaryMessageActionForMember(m, messageOpts);
 
   const types: { key: WhatsAppKind; label: string }[] = [
     { key: "reminder", label: "Reminder" },
@@ -396,12 +406,14 @@ export function MemberExpandedDetails({
   canEdit,
   canDelete,
   holdOptions,
+  messageOpts,
   onEdit,
   onAddPayment,
   onEditPayment,
   onDeletePayment,
   onEditPayMonth,
   onWhatsApp,
+  onWhatsAppCall,
   onWelcomeMail,
   onUploadDocument,
   onDelete,
@@ -415,12 +427,21 @@ export function MemberExpandedDetails({
   canEdit: boolean;
   canDelete: boolean;
   holdOptions: string[];
+  messageOpts?: {
+    settings?: {
+      fineSmsEnabled?: boolean;
+      fineSmsGraceDays?: number;
+      fineSmsImmediateRoles?: string[];
+    } | null;
+    actorRole?: string | null;
+  };
   onEdit: () => void;
   onAddPayment: () => void;
   onEditPayment?: (payment: Payment) => void;
   onDeletePayment?: (payment: Payment) => void;
   onEditPayMonth?: (monthKey: string) => void;
   onWhatsApp: (kind: WhatsAppKind) => void;
+  onWhatsAppCall?: () => void;
   onWelcomeMail: () => void;
   onUploadDocument: (file: File) => void;
   onDelete: () => void;
@@ -650,7 +671,11 @@ export function MemberExpandedDetails({
           variant="outline"
           className="h-7 text-[10px]"
           onClick={() => {
-            const suggested = primaryMessageActionForMember(m, { isOwner });
+            const suggested = primaryMessageActionForMember(m, {
+              isOwner,
+              settings: messageOpts?.settings,
+              actorRole: messageOpts?.actorRole,
+            });
             onWhatsApp(
               suggested.key !== "none" ? suggested.key : "reminder",
             );
@@ -658,6 +683,17 @@ export function MemberExpandedDetails({
         >
           <MessageCircle className="h-3.5 w-3.5" /> WhatsApp
         </Button>
+        {onWhatsAppCall && canWhatsApp ? (
+          <Button
+            size="sm"
+            variant="outline"
+            className="h-7 border-emerald-300 text-[10px] text-emerald-800 hover:bg-emerald-50"
+            onClick={onWhatsAppCall}
+            title="Open WhatsApp chat for call"
+          >
+            Call / Chat
+          </Button>
+        ) : null}
         {canDelete ? (
           <Button
             size="sm"
@@ -880,6 +916,7 @@ export function MemberExpandedDetails({
         <CommunicationDocumentsBlock
           m={m}
           canWhatsApp={canWhatsApp}
+          messageOpts={{ isOwner, ...messageOpts }}
           onWhatsApp={onWhatsApp}
           onWelcomeMail={onWelcomeMail}
           onUploadDocument={onUploadDocument}

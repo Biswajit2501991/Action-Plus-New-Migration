@@ -58,6 +58,7 @@ export function MemberCardRow({
   expanded,
   isOwner,
   canEdit,
+  messageOpts,
   onToggleSelect,
   onToggleExpand,
   onEdit,
@@ -69,6 +70,14 @@ export function MemberCardRow({
   expanded: boolean;
   isOwner: boolean;
   canEdit: boolean;
+  messageOpts?: {
+    settings?: {
+      fineSmsEnabled?: boolean;
+      fineSmsGraceDays?: number;
+      fineSmsImmediateRoles?: string[];
+    } | null;
+    actorRole?: string | null;
+  };
   onToggleSelect: () => void;
   onToggleExpand: () => void;
   onEdit: () => void;
@@ -87,7 +96,11 @@ export function MemberCardRow({
 }) {
   const overdue = isPaymentByPastDue(m);
   const billingToday = isBillingToday(m) && !overdue;
-  const msg = primaryMessageActionForMember(m, { isOwner });
+  const msg = primaryMessageActionForMember(m, {
+    isOwner,
+    settings: messageOpts?.settings,
+    actorRole: messageOpts?.actorRole,
+  });
   const statusSentText = msg.key !== "none" ? getSmsSentInfoText(m, msg.key) : "";
   const inactiveDuration = inactiveDurationLabel(m);
   const paymentBy = paymentByDateKey(m) || m.billingDate || "";
@@ -112,7 +125,10 @@ export function MemberCardRow({
           "apg-member-row-card grid w-full min-w-[980px] cursor-pointer grid-cols-[22px_88px_minmax(140px,1.4fr)_90px_78px_78px_minmax(280px,1.8fr)] items-center gap-1.5 rounded-xl border bg-white px-2.5 py-1.5 text-left text-[10px] text-slate-700 shadow-[0_1px_0_rgba(15,23,42,0.02)] transition hover:border-slate-300 hover:bg-slate-50/70 hover:shadow-[0_6px_20px_rgba(15,23,42,0.06)] dark:bg-card dark:text-foreground dark:hover:border-white/15 dark:hover:bg-white/[0.06] dark:hover:shadow-[0_8px_24px_rgba(0,0,0,0.35)]",
           overdue && "apg-member-row--fine-due font-medium",
           billingToday && "apg-member-row--billing-today font-medium",
-          !overdue && !billingToday && "border-slate-200/90 dark:border-border",
+          birthdayToday &&
+            !overdue &&
+            "border-pink-300 bg-gradient-to-r from-pink-50 via-rose-50/80 to-white font-medium ring-1 ring-pink-200/80 dark:border-pink-500/40 dark:from-pink-950/50 dark:via-rose-950/30 dark:to-card dark:ring-pink-500/20",
+          !overdue && !billingToday && !birthdayToday && "border-slate-200/90 dark:border-border",
         )}
       >
         <span
@@ -162,8 +178,16 @@ export function MemberCardRow({
               ) : null}
             </span>
             {memberBirthday !== "—" ? (
-              <span className="truncate text-[9px] font-medium text-pink-700 dark:text-pink-300">
-                Birthday · {memberBirthday}
+              <span
+                className={cn(
+                  "truncate text-[9px] font-medium",
+                  birthdayToday
+                    ? "font-semibold text-pink-700 dark:text-pink-200"
+                    : "text-pink-700 dark:text-pink-300",
+                )}
+              >
+                {birthdayToday ? "Birthday today · " : "Birthday · "}
+                {memberBirthday}
               </span>
             ) : null}
           </span>

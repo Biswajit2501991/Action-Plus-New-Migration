@@ -32,10 +32,16 @@ import {
   resolveFamilyGroupId,
 } from "@/lib/domain/family-link";
 import { normalizeMemberDobInput } from "@/lib/domain/members";
+import { getReactivationFeeRule } from "@/lib/domain/billing";
 import {
   FamilyLinkPromptModal,
   type FamilyLinkPromptState,
 } from "@/features/members/family-link-prompt-modal";
+import {
+  ReactivationFeeModal,
+  buildReactivationFeePrompt,
+  type ReactivationFeePrompt,
+} from "@/features/members/reactivation-fee-modal";
 import { cn } from "@/lib/utils";
 import { membersApi } from "@/services/api";
 import type { AppSettings, AuthUser, GymCode, Member } from "@/types";
@@ -252,6 +258,10 @@ export function EditMemberModal({
   const [injuryDraft, setInjuryDraft] = useState("");
   const [injuryBusy, setInjuryBusy] = useState(false);
   const [familyPrompt, setFamilyPrompt] = useState<FamilyLinkPromptState | null>(null);
+  const [reactivationPrompt, setReactivationPrompt] = useState<ReactivationFeePrompt | null>(null);
+  const [pendingFamily, setPendingFamily] = useState<
+    { groupId: string; primaryMemberId: string } | undefined
+  >(undefined);
 
   useEffect(() => {
     setEdit(buildEditDraft(member));
@@ -521,10 +531,27 @@ export function EditMemberModal({
 
   const persistSave = async (
     family?: { groupId: string; primaryMemberId: string },
-    opts?: { skipDuplicateMobile?: boolean },
+    opts?: {
+      skipDuplicateMobile?: boolean;
+      skipReactivationFeeCheck?: boolean;
+      amountOverride?: string;
+      billingDateOverride?: string;
+    },
   ) => {
     const id = String(member.memberId || "").trim();
     const payload = buildSavePayload(family);
+    if (opts?.amountOverride != null) {
+      payload.amount = Number(opts.amountOverride);
+      payload.status = "Active";
+      payload.holdDuration = "";
+    }
+    if (opts?.billingDateOverride) {
+      payload.billingDate = opts.billingDateOverride;
+      payload.nextPaymentDate = nextPaymentDateFromBillingDate(opts.billingDateOverride);
+      payload.paymentBy = paymentByFromBillingDate(opts.billingDateOverride);
+      payload.status = "Active";
+      payload.holdDuration = "";
+    }
     const mobileChanged =
       String(payload.mobile || "").trim() !== String(member.mobile || "").trim();
 
@@ -543,6 +570,34 @@ export function EditMemberModal({
           matches,
           selectedPrimaryId: matches[0]?.memberId || id,
         });
+        return;
+      }
+    }
+
+    const fromStatus = String(member.status || "").trim().toLowerCase();
+    const toStatus = String(payload.status || "").trim().toLowerCase();
+    const isReactivation =
+      toStatus === "active" && (fromStatus === "hold" || fromStatus === "deactivated");
+    if (isReactivation && !opts?.skipReactivationFeeCheck) {
+      const rule = getReactivationFeeRule({
+        status: member.status,
+        billingDate: member.billingDate,
+      });
+      if (rule) {
+        setPendingFamily(family);
+        setReactivationPrompt(
+          buildReactivationFeePrompt(
+            {
+              memberId: id,
+              name: String(payload.name || member.name || ""),
+              amount: payload.amount,
+              status: member.status,
+              billingDate: member.billingDate,
+            },
+            "Active",
+            rule,
+          ),
+        );
         return;
       }
     }
@@ -573,6 +628,8 @@ export function EditMemberModal({
       }
       toast.success(family ? "Family linked and member updated" : "Member updated");
       setFamilyPrompt(null);
+      setReactivationPrompt(null);
+      setPendingFamily(undefined);
       await onSaved();
       onClose();
     } catch (err) {
@@ -1105,6 +1162,23 @@ export function EditMemberModal({
           onConfirm={() => void confirmFamilyLink()}
         />
       ) : null}
+      <ReactivationFeeModal
+        prompt={reactivationPrompt}
+        saving={saving}
+        onClose={() => {
+          setReactivationPrompt(null);
+          setPendingFamily(undefined);
+        }}
+        onConfirm={async (values) => {
+          setReactivationPrompt(null);
+          await persistSave(pendingFamily, {
+            skipDuplicateMobile: true,
+            skipReactivationFeeCheck: true,
+            amountOverride: values.amount,
+            billingDateOverride: values.billingDate,
+          });
+        }}
+      />
     </div>
   );
 }
