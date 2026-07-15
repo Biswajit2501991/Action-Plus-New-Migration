@@ -23,8 +23,10 @@ export function useMembers() {
     queryKey: ["members", branchId],
     queryFn: membersApi.list,
     enabled: authed,
-    staleTime: 30_000,
-    refetchOnMount: "always",
+    staleTime: STALE.lists,
+    // Paint persisted cache first; refresh in background when stale.
+    refetchOnMount: true,
+    placeholderData: (prev) => prev,
   });
 }
 
@@ -36,8 +38,9 @@ export function useVisitors() {
     queryKey: ["visitors", branchId],
     queryFn: visitorsApi.list,
     enabled: authed,
-    staleTime: 30_000,
-    refetchOnMount: "always",
+    staleTime: STALE.lists,
+    refetchOnMount: true,
+    placeholderData: (prev) => prev,
   });
 }
 

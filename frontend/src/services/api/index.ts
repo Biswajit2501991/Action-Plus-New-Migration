@@ -5,6 +5,7 @@ import {
   tombstonedMembersStillOnServer,
 } from "@/lib/domain/member-delete-tombstones";
 import { getPendingMemberDeleteIds } from "@/lib/domain/member-pending-deletes";
+import { mergePendingCreatesIntoMembers } from "@/lib/domain/member-pending-creates";
 import type {
   AppSettings,
   AttendanceNote,
@@ -36,7 +37,7 @@ export const membersApi = {
         ),
       );
     }
-    return sanitizeMembersForDisplay(remote);
+    return sanitizeMembersForDisplay(mergePendingCreatesIntoMembers(remote));
   },
   get: (id: string) => apiFetch<Member>(`/members/${encodeURIComponent(id)}`),
   bulk: (members: Member[], deletedMemberIds?: string[]) =>

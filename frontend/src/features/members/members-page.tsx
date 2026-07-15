@@ -458,20 +458,20 @@ export function MembersPage() {
       );
       return permanentDeleteWithOfflineFallback(id);
     },
-    onSuccess: async (result, id) => {
+    onSuccess: (result, id) => {
       if (result.queued) {
         toast.message("Delete queued — will sync when online");
       } else {
         toast.success("Member deleted");
         clearPendingMemberDelete(id);
       }
-      await qc.invalidateQueries({ queryKey: ["members"] });
+      void qc.invalidateQueries({ queryKey: ["members"] });
     },
-    onError: async (e: Error, id) => {
+    onError: (e: Error, id) => {
       removeMemberDeleteTombstone(id);
       clearPendingMemberDelete(id);
       toast.error(e.message);
-      await qc.invalidateQueries({ queryKey: ["members"] });
+      void qc.invalidateQueries({ queryKey: ["members"] });
     },
   });
 
@@ -1720,14 +1720,11 @@ export function MembersPage() {
           if (!deleteMutation.isPending) setDeleteConfirmMember(null);
         }}
         onConfirm={() => {
-          const id = String(deleteConfirmMember?.memberId || "").trim();
-          if (!id) {
-            setDeleteConfirmMember(null);
-            return;
-          }
-          deleteMutation.mutate(id, {
-            onSettled: () => setDeleteConfirmMember(null),
-          });
+          const target = deleteConfirmMember;
+          const id = String(target?.memberId || "").trim();
+          setDeleteConfirmMember(null);
+          if (!id) return;
+          deleteMutation.mutate(id);
         }}
       >
         <div className="space-y-3 text-sm">

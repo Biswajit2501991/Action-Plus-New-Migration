@@ -57,3 +57,33 @@ export async function permanentDeleteWithOfflineFallback(memberId: string): Prom
     throw err;
   }
 }
+
+/** Create/update via bulk; queue when offline so Add Member stays instant. */
+export async function bulkCreateMemberWithOfflineFallback(
+  members: Member[],
+): Promise<{ queued: boolean }> {
+  const list = Array.isArray(members) ? members : [];
+  if (!list.length) return { queued: false };
+  if (isBrowserOffline()) {
+    enqueueOfflineMutation({
+      kind: "member.bulk",
+      memberId: String(list[0]?.memberId || ""),
+      payload: list,
+    });
+    return { queued: true };
+  }
+  try {
+    await membersApi.bulk(list);
+    return { queued: false };
+  } catch (err) {
+    if (isLikelyNetworkError(err)) {
+      enqueueOfflineMutation({
+        kind: "member.bulk",
+        memberId: String(list[0]?.memberId || ""),
+        payload: list,
+      });
+      return { queued: true };
+    }
+    throw err;
+  }
+}

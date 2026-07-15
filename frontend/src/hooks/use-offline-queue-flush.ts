@@ -12,6 +12,7 @@ import {
 } from "@/lib/offline-queue";
 import { clearPendingMemberDelete } from "@/lib/domain/member-pending-deletes";
 import { removeMemberDeleteTombstone } from "@/lib/domain/member-delete-tombstones";
+import { clearPendingMemberCreate } from "@/lib/domain/member-pending-creates";
 import type { Member } from "@/types";
 
 async function flushItem(item: OfflineQueueItem) {
@@ -26,6 +27,9 @@ async function flushItem(item: OfflineQueueItem) {
   }
   if (item.kind === "member.bulk" && Array.isArray(item.payload)) {
     await membersApi.bulk(item.payload as Member[]);
+    for (const row of item.payload as Member[]) {
+      clearPendingMemberCreate(String(row?.memberId || ""));
+    }
   }
 }
 

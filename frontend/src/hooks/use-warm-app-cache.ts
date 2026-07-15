@@ -37,7 +37,7 @@ export function useWarmAppDataCache(enabled: boolean) {
       qc.prefetchQuery({
         queryKey: ["members", branchId],
         queryFn: membersApi.list,
-        staleTime: 30_000,
+        staleTime: STALE.lists,
       }),
       qc.prefetchQuery({
         queryKey: ["settings", "default"],
