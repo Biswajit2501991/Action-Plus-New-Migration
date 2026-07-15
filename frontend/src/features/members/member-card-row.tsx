@@ -18,6 +18,7 @@ import {
 } from "@/lib/domain/billing";
 import { cn } from "@/lib/utils";
 import { formatMemberBirthday, isMemberBirthdayToday } from "@/lib/domain/members";
+import { SmsSentChip } from "@/features/members/sms-sent-chip";
 import type { Member } from "@/types";
 
 const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
@@ -294,12 +295,7 @@ export function MemberCardRow({
           ) : null}
 
           {statusSentText ? (
-            <span
-              className="max-w-[210px] truncate rounded-md border border-amber-200 bg-amber-50 px-2 py-1 text-[9px] text-amber-800 dark:border-amber-900 dark:bg-amber-950/40 dark:text-amber-200"
-              title={statusSentText}
-            >
-              {statusSentText}
-            </span>
+            <SmsSentChip text={statusSentText} maxWidthClass="max-w-[210px]" />
           ) : null}
 
           <span className="ml-auto inline-flex text-slate-400" aria-hidden="true">

@@ -8,6 +8,7 @@ import { paymentByDateKey, localCalendarDateKey, inactiveDurationLabel, isHoldOr
 import { familyMembersInGroup } from "@/lib/domain/family-link";
 import { nextPaymentDateFromBillingDate } from "@/lib/domain/member-dates";
 import { getSmsSentInfoText, primaryMessageActionForMember } from "@/lib/domain/member-actions";
+import { SmsSentChip } from "@/features/members/sms-sent-chip";
 import { formatMemberBirthday, isMemberBirthdayToday } from "@/lib/domain/members";
 import { cn, formatCurrency, formatDate } from "@/lib/utils";
 import type { Member, Payment } from "@/types";
@@ -241,18 +242,6 @@ function SectionCard({
       </button>
       {open ? <div className="mt-2">{children}</div> : null}
     </div>
-  );
-}
-
-function SmsSentChip({ text }: { text: string }) {
-  if (!text) return null;
-  return (
-    <span
-      className="max-w-[240px] truncate rounded-md border border-amber-200 bg-amber-50 px-2 py-1 text-[9px] text-amber-800 dark:border-amber-900 dark:bg-amber-950/40 dark:text-amber-200"
-      title={text}
-    >
-      {text}
-    </span>
   );
 }
 

@@ -28,6 +28,7 @@ import { cn, formatDate } from "@/lib/utils";
 import { MessagePreviewModal } from "@/features/whatsapp/message-preview-modal";
 import { WhatsappTemplatesPanel } from "@/features/whatsapp/whatsapp-templates-panel";
 import { useWhatsappSend } from "@/features/whatsapp/use-whatsapp-send";
+import { SmsSentChip } from "@/features/members/sms-sent-chip";
 
 const PAGE_SIZE = 10;
 
@@ -255,12 +256,10 @@ export function WhatsappPage() {
                               Send
                             </Button>
                             {getSmsSentInfoText(m, activeType) ? (
-                              <span
-                                className="max-w-[180px] truncate rounded-md border border-amber-200 bg-amber-50 px-2 py-1 text-[9px] text-amber-800 dark:border-amber-900 dark:bg-amber-950/40 dark:text-amber-200"
-                                title={getSmsSentInfoText(m, activeType)}
-                              >
-                                {getSmsSentInfoText(m, activeType)}
-                              </span>
+                              <SmsSentChip
+                                text={getSmsSentInfoText(m, activeType)}
+                                maxWidthClass="max-w-[180px]"
+                              />
                             ) : null}
                           </div>
                         </td>
