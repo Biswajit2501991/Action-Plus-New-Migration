@@ -1,6 +1,6 @@
 "use client";
 
-import { ChevronDown, ChevronUp, MessageCircle } from "lucide-react";
+import { ChevronDown, ChevronUp, Cake, MessageCircle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { MemberAvatar } from "@/components/member-avatar";
 import {
@@ -17,6 +17,7 @@ import {
   inactiveDurationLabel,
 } from "@/lib/domain/billing";
 import { cn } from "@/lib/utils";
+import { formatMemberBirthday, isMemberBirthdayToday } from "@/lib/domain/members";
 import type { Member } from "@/types";
 
 const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
@@ -72,7 +73,15 @@ export function MemberCardRow({
   onToggleExpand: () => void;
   onEdit: () => void;
   onWhatsApp: (
-    kind: "reminder" | "monthReminder" | "welcome" | "fine" | "hold" | "deactivate" | "success",
+    kind:
+      | "reminder"
+      | "monthReminder"
+      | "welcome"
+      | "fine"
+      | "hold"
+      | "deactivate"
+      | "success"
+      | "birthday",
   ) => void;
   onPhotoClick?: () => void;
 }) {
@@ -82,6 +91,10 @@ export function MemberCardRow({
   const statusSentText = msg.key !== "none" ? getSmsSentInfoText(m, msg.key) : "";
   const inactiveDuration = inactiveDurationLabel(m);
   const paymentBy = paymentByDateKey(m) || m.billingDate || "";
+  const memberBirthday = formatMemberBirthday(m.dob);
+  const birthdayToday = isMemberBirthdayToday(m.dob);
+  const hasMobile = Boolean(String(m.mobile || "").trim());
+  const birthdaySentText = getSmsSentInfoText(m, "birthday");
 
   return (
     <div className="space-y-0">
@@ -137,13 +150,20 @@ export function MemberCardRow({
               textClassName="h-full w-full text-[9px]"
             />
           </button>
-          <span className="flex min-w-0 items-center gap-1">
-            <span className="truncate font-semibold text-slate-900 dark:text-foreground">
-              {m.name || "—"}
+          <span className="flex min-w-0 flex-col">
+            <span className="flex min-w-0 items-center gap-1">
+              <span className="truncate font-semibold text-slate-900 dark:text-foreground">
+                {m.name || "—"}
+              </span>
+              {isNewMember(m) ? (
+                <span className="inline-flex shrink-0 items-center rounded-md bg-[#EF4444] px-1.5 py-0.5 text-[8px] font-semibold uppercase leading-none text-white">
+                  New
+                </span>
+              ) : null}
             </span>
-            {isNewMember(m) ? (
-              <span className="inline-flex shrink-0 items-center rounded-md bg-[#EF4444] px-1.5 py-0.5 text-[8px] font-semibold uppercase leading-none text-white">
-                New
+            {memberBirthday !== "—" ? (
+              <span className="truncate text-[9px] font-medium text-pink-700 dark:text-pink-300">
+                Birthday · {memberBirthday}
               </span>
             ) : null}
           </span>
@@ -217,13 +237,35 @@ export function MemberCardRow({
                 msg.key === "deactivate" &&
                   "border-pink-300 bg-pink-50 text-pink-800 hover:bg-pink-100",
               )}
-              onClick={() =>
-                onWhatsApp(msg.key === "none" ? "reminder" : msg.key)
-              }
+              onClick={(e) => {
+                e.stopPropagation();
+                onWhatsApp(msg.key === "none" ? "reminder" : msg.key);
+              }}
               title={msg.reason || msg.label}
             >
               <MessageCircle className="h-3 w-3" />
               {msg.label}
+            </Button>
+          ) : null}
+
+          {birthdayToday ? (
+            <Button
+              size="sm"
+              variant="outline"
+              disabled={!hasMobile}
+              className="h-6 shrink-0 gap-0.5 border-pink-300 bg-gradient-to-r from-pink-50 to-rose-50 px-2 text-[10px] font-semibold text-pink-800 hover:from-pink-100 hover:to-rose-100 dark:border-pink-500/30 dark:from-pink-950/40 dark:to-rose-950/30 dark:text-pink-200"
+              onClick={(e) => {
+                e.stopPropagation();
+                onWhatsApp("birthday");
+              }}
+              title={
+                hasMobile
+                  ? birthdaySentText || "Send birthday wish on WhatsApp"
+                  : "Add a mobile number to send birthday wishes"
+              }
+            >
+              <Cake className="h-3 w-3" />
+              Birthday
             </Button>
           ) : null}
 
@@ -272,7 +314,7 @@ export function MemberListHeader({
       <button type="button" className="text-left" onClick={() => onSort?.("paymentBy")}>
         Payment By {ind("paymentBy")}
       </button>
-      <span className="normal-case tracking-normal">Status / Action / Welcome</span>
+      <span className="normal-case tracking-normal">Status / Action / Messages</span>
     </div>
   );
 }

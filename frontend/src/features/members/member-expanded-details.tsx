@@ -8,6 +8,7 @@ import { paymentByDateKey, localCalendarDateKey, inactiveDurationLabel, isHoldOr
 import { familyMembersInGroup } from "@/lib/domain/family-link";
 import { nextPaymentDateFromBillingDate } from "@/lib/domain/member-dates";
 import { getSmsSentInfoText, primaryMessageActionForMember } from "@/lib/domain/member-actions";
+import { formatMemberBirthday, isMemberBirthdayToday } from "@/lib/domain/members";
 import { cn, formatCurrency, formatDate } from "@/lib/utils";
 import type { Member, Payment } from "@/types";
 
@@ -19,7 +20,8 @@ type WhatsAppKind =
   | "fine"
   | "hold"
   | "deactivate"
-  | "success";
+  | "success"
+  | "birthday";
 
 type DetailField = {
   key: string;
@@ -232,6 +234,7 @@ function CommunicationDocumentsBlock({
   const todayKey = localCalendarDateKey(new Date());
   const joiningKey = localCalendarDateKey(m.joiningDate);
   const showWelcome = Boolean(joiningKey && todayKey && joiningKey === todayKey);
+  const showBirthday = isMemberBirthdayToday(m.dob);
   const suggested = primaryMessageActionForMember(m);
 
   const types: { key: WhatsAppKind; label: string }[] = [
@@ -242,6 +245,7 @@ function CommunicationDocumentsBlock({
     { key: "hold", label: "Hold SMS" },
     ...(showWelcome ? [{ key: "welcome" as const, label: "Welcome SMS" }] : []),
     { key: "success", label: "Success SMS" },
+    ...(showBirthday ? [{ key: "birthday" as const, label: "Birthday SMS" }] : []),
   ];
 
   return (
@@ -477,7 +481,7 @@ export function MemberExpandedDetails({
     { key: "formNo", label: "Form #", value: dash(m.formNo), required: true },
     { key: "memberId", label: "ID", value: dash(m.memberId), required: true },
     { key: "name", label: "Name", value: dash(m.name), required: true },
-    { key: "dob", label: "DOB", value: formatDate(m.dob), required: true },
+    { key: "dob", label: "Member Birthday", value: formatMemberBirthday(m.dob), required: true },
     { key: "gender", label: "Gender", value: dash(m.gender), required: true },
     { key: "mobile", label: "Mobile", value: dash(m.mobile), required: true },
     { key: "email", label: "Email", value: dash(m.email) },
@@ -553,6 +557,7 @@ export function MemberExpandedDetails({
 
   const summaryItems = [
     { label: "Plan", value: dash(m.plan) },
+    { label: "Member Birthday", value: formatMemberBirthday(m.dob) },
     {
       label: "Amount",
       value: m.amount !== undefined && m.amount !== null ? formatCurrency(Number(m.amount || 0)) : "—",

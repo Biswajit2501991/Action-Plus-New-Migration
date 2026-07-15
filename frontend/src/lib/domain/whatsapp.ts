@@ -6,6 +6,7 @@ import {
   primaryMessageActionForMember,
 } from "@/lib/domain/member-actions";
 import { formatDate } from "@/lib/utils";
+import { formatMemberBirthday, birthdaysToday } from "@/lib/domain/members";
 import {
   SMS_TEMPLATE_DEFAULTS,
   WHATSAPP_TEMPLATE_KEYS,
@@ -88,6 +89,7 @@ export function renderWhatsappTemplate(
   const replacements: Record<string, string> = {
     "[Name]": m.name || "",
     "[CustomerName]": m.name || "",
+    "[BirthdayDate]": formatMemberBirthday(m.dob),
     "[PLAN]": m.plan || "",
     "[CurrentPlan]": m.plan || "",
     "[Amount]": `${Number(m.amount || 0)}`,
@@ -234,6 +236,7 @@ export function smsTypeLabel(key: string) {
     deactivate: "Deactivate SMS",
     hold: "Hold SMS",
     welcome: "Welcome SMS",
+    birthday: "Birthday SMS",
   };
   return map[key] || key;
 }
@@ -272,6 +275,7 @@ export function membersByWhatsAppType(
       const billing = localCalendarDateKey(m.billingDate);
       return Boolean(join && billing && join === billing && billing <= todayKey);
     }),
+    birthday: birthdaysToday(members),
   };
 }
 
@@ -294,6 +298,9 @@ export function suggestionToneClasses(key: string) {
   }
   if (key === "success") {
     return "border-emerald-300 bg-emerald-50 text-emerald-800 hover:bg-emerald-100 dark:border-emerald-500/30 dark:bg-emerald-950/50 dark:text-emerald-200 dark:hover:bg-emerald-950/80";
+  }
+  if (key === "birthday") {
+    return "border-pink-300 bg-pink-50 text-pink-800 hover:bg-pink-100 dark:border-pink-500/30 dark:bg-pink-950/50 dark:text-pink-200 dark:hover:bg-pink-950/80";
   }
   return "border-sky-300 bg-sky-50 text-sky-800 hover:bg-sky-100 dark:border-sky-500/30 dark:bg-sky-950/50 dark:text-sky-200 dark:hover:bg-sky-950/80";
 }

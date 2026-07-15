@@ -477,7 +477,7 @@ export function AddMemberWizard({
     if (req1.assignedGymCodeId) lines.push("Gym Branch");
     if (req1.name) lines.push("Full Name");
     if (req1.email) lines.push("Valid Gmail");
-    if (req1.dob) lines.push("Valid DOB");
+    if (req1.dob) lines.push("Valid Member Birthday");
     if (req1.gender) lines.push("Gender");
     if (req1.mobile) lines.push("Valid Mobile");
     if (req1.address) lines.push("Address");
@@ -763,7 +763,7 @@ export function AddMemberWizard({
               </div>
               <div>
                 <Label>
-                  Date of Birth <span className="text-rose-600">*</span>
+                  Member Birthday <span className="text-rose-600">*</span>
                 </Label>
                 <Input
                   id="add-member-dob"

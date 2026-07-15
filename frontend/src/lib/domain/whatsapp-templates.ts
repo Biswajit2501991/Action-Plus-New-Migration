@@ -87,6 +87,21 @@ Action Plus Gym Adra
 🌐 www.actionplusgym.com
 📞 +91 7047157510
 📧 gymactionplus@gmail.com`,
+  birthday: `🎂 *Happy Birthday, [CustomerName]!* 🎉
+
+Dear *[CustomerName]*,
+
+On this special day — *[BirthdayDate]* — the entire *Action Plus Gym & Fitness Club* family sends you our warmest birthday wishes! 🥳
+
+May your year ahead be filled with strength, joy, and milestones you're proud of. Keep showing up for yourself — every rep, every step, every choice counts. 💪✨
+
+Your fitness family is cheering for you today and always. Come celebrate with us at the gym whenever you're ready!
+
+With love and best wishes,
+*Action Plus Gym & Fitness Club*
+📧 gymactionplus@gmail.com
+🌐 www.actionplusgym.com
+📞 +91-7047157510`,
   welcome: `Hello, *[CustomerName]*! 🏋️
 
 Greetings from Action Plus Gym!
@@ -168,6 +183,7 @@ Action Plus Gym & Fitness Club
 
 export const WHATSAPP_VARIABLE_KEYS = [
   "[CustomerName]",
+  "[BirthdayDate]",
   "[PLAN]",
   "[CurrentPlan]",
   "[Amount]",
@@ -187,6 +203,7 @@ export const WHATSAPP_TEMPLATE_KEYS = [
   "deactivate",
   "hold",
   "welcome",
+  "birthday",
 ] as const;
 
 export type WhatsAppTemplateKey = (typeof WHATSAPP_TEMPLATE_KEYS)[number];
@@ -257,6 +274,14 @@ export const WHATSAPP_TYPE_META: {
     tone: "border-teal-200/90 bg-gradient-to-br from-teal-50 to-white text-teal-950 dark:border-teal-500/20 dark:from-teal-950/35 dark:to-slate-950 dark:text-teal-50",
     accent: "bg-teal-500",
     glow: "dark:shadow-[0_0_0_1px_rgba(20,184,166,0.12),0_12px_40px_-16px_rgba(20,184,166,0.3)]",
+  },
+  {
+    key: "birthday",
+    label: "Birthday SMS",
+    title: "Birthday Wish SMS",
+    tone: "border-pink-200/90 bg-gradient-to-br from-pink-50 via-rose-50 to-white text-rose-950 dark:border-pink-500/20 dark:from-pink-950/35 dark:via-rose-950/25 dark:to-slate-950 dark:text-pink-50",
+    accent: "bg-gradient-to-r from-pink-500 to-rose-500",
+    glow: "dark:shadow-[0_0_0_1px_rgba(236,72,153,0.12),0_12px_40px_-16px_rgba(236,72,153,0.35)]",
   },
   {
     key: "templates",

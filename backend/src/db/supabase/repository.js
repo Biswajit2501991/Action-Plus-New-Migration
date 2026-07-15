@@ -31,7 +31,7 @@ import {
   staffRowToApp,
   visitorRowToApp,
 } from './mappers.js';
-import { leaveDaysFromDateRange } from './leaveRequestsWrite.js';
+import { isValidMemberDob, preserveProfileFieldsOnBulkRow } from './memberProfileBulkGuard.js';
 import { filterFinanceBulkWriteRows } from '../../../../src/features/finance/financeRowFilters.js';
 import { branchScopeAllowsMember, branchScopeAllowsMemberTransfer } from '../../auth/branchScope.js';
 import { hashPassword } from '../../auth/passwords.js';
@@ -854,6 +854,10 @@ async function updateMemberFields(memberCode, patch, branchScope = null) {
   for (const key of Object.keys(patch)) {
     const mapping = MEMBER_PATCH_KEY_MAP[key];
     if (!mapping) continue;
+    if (key === 'dob') {
+      dbPatch[mapping] = toDate(patch.dob, { required: false });
+      continue;
+    }
     dbPatch[mapping] = projection[mapping];
   }
   dbPatch.updated_at = projection.updated_at;
@@ -1136,7 +1140,7 @@ async function writeMembers(members, scope, options = {}) {
 
   const existing = await fetchAll((from, to) => sb
     .from(T.members)
-    .select('id, member_code, photo_url, billing_date, billing_date_updated_at, next_payment_date, payment_by')
+    .select('id, member_code, photo_url, billing_date, billing_date_updated_at, next_payment_date, payment_by, dob, gender, address, updated_at')
     .eq('gym_id', gid)
     .range(from, to));
   const existingByCode = new Map((existing || []).map((r) => [String(r.member_code), r]));
@@ -1150,7 +1154,10 @@ async function writeMembers(members, scope, options = {}) {
     .map((m) => {
       let row = appMemberToRow(m, gid, { partialBulkSync: true });
       const prev = existingByCode.get(String(row.member_code));
-      if (prev) row = preserveNewerBillingOnBulkRow(row, prev);
+      if (prev) {
+        row = preserveNewerBillingOnBulkRow(row, prev);
+        row = preserveProfileFieldsOnBulkRow(row, prev, m);
+      }
       if (!String(row.photo_url || '').trim()) {
         const prevPhoto = photoByCode.get(String(row.member_code));
         if (String(prevPhoto || '').trim()) row.photo_url = prevPhoto;

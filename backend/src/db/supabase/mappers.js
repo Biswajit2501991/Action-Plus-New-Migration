@@ -3,6 +3,7 @@ import { memberPhotoStorageEnabled } from '../../services/memberPhoto/storageCon
 import { passwordResetStatusFromRecord } from '../../../../src/features/passwordReset/passwordResetStatus.js';
 import { isBcryptHash } from '../../auth/passwords.js';
 import { emptyText, financeStatusFromNumeric, financeStatusToNumeric, toDate, toTs } from './utils.js';
+import { isValidMemberDob } from './memberProfileBulkGuard.js';
 
 /** Columns fetched for list pulls — excludes photo blob; includes storage metadata. */
 export const MEMBER_LIST_COLUMNS = [
@@ -126,7 +127,7 @@ export function appMemberToRow(m, gymId, options = {}) {
     full_name: emptyText(m.name) || 'Unknown',
     email: emptyText(m.email),
     mobile: emptyText(m.mobile),
-    dob: toDate(m.dob, { required: true }),
+    dob: toDate(m.dob, { required: !options.partialBulkSync }),
     gender: emptyText(m.gender),
     address: emptyText(m.address),
     assigned_staff: emptyText(m.staff),
@@ -164,6 +165,10 @@ export function appMemberToRow(m, gymId, options = {}) {
     if (!Object.prototype.hasOwnProperty.call(m, 'ackSignature')) delete row.ack_signature;
     if (!Object.prototype.hasOwnProperty.call(m, 'parentGuardianSignature')) delete row.parent_guardian_signature;
     if (!Object.prototype.hasOwnProperty.call(m, 'medicalAnswers')) delete row.medical_answers_json;
+    if (!Object.prototype.hasOwnProperty.call(m, 'dob')) delete row.dob;
+    else if (!isValidMemberDob(row.dob)) delete row.dob;
+    if (!Object.prototype.hasOwnProperty.call(m, 'gender')) delete row.gender;
+    if (!Object.prototype.hasOwnProperty.call(m, 'address')) delete row.address;
   }
   return row;
 }

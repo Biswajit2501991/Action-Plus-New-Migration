@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { MemberAvatar } from "@/components/member-avatar";
 import { Button } from "@/components/ui/button";
@@ -30,6 +31,7 @@ import {
   membersSharingNormalizedPhone,
   resolveFamilyGroupId,
 } from "@/lib/domain/family-link";
+import { normalizeMemberDobInput } from "@/lib/domain/members";
 import {
   FamilyLinkPromptModal,
   type FamilyLinkPromptState,
@@ -168,7 +170,7 @@ function buildEditDraft(member: Member): EditDraft {
     holdDuration: String(member.holdDuration || ""),
     billingDate: isoDate(member.billingDate) || "",
     joiningDate: isoDate(member.joiningDate) || "",
-    dob: isoDate(member.dob) || "",
+    dob: normalizeMemberDobInput(member.dob),
     amount: member.amount != null ? String(member.amount) : "",
     paymentMethod: String(member.paymentMethod || ""),
     nextPaymentDate: isoDate(member.nextPaymentDate) || nextPaymentDateFromBillingDate(member.billingDate),
@@ -239,6 +241,7 @@ export function EditMemberModal({
   holdOptions,
   paymentOptions,
 }: Props) {
+  const qc = useQueryClient();
   const isOwner = isMasterOwnerUser(currentUser);
   const canEditFormNo = isOwner;
   const [edit, setEdit] = useState<EditDraft>(() => buildEditDraft(member));
@@ -303,6 +306,7 @@ export function EditMemberModal({
   const req = {
     name: !String(edit.name || "").trim(),
     mobile: !String(edit.mobile || "").trim() || !isValidPhone(edit.mobile),
+    dob: !isoDate(edit.dob),
     plan: !edit.plan,
     status: !edit.status,
     billingDate: !isoDate(edit.billingDate),
@@ -329,6 +333,7 @@ export function EditMemberModal({
       String(edit.name || "") !== String(member.name || "") ||
       String(edit.email || "") !== String(member.email || "") ||
       String(edit.mobile || "") !== String(member.mobile || "") ||
+      isoDate(edit.dob) !== isoDate(normalizeMemberDobInput(member.dob) || member.dob) ||
       String(edit.plan || "") !== String(member.plan || "") ||
       String(edit.status || "") !== String(member.status || "") ||
       String(edit.holdDuration || "") !== String(member.holdDuration || "") ||
@@ -482,12 +487,14 @@ export function EditMemberModal({
     family?: { groupId: string; primaryMemberId: string },
   ): Partial<Member> => {
     const billing = isoDate(edit.billingDate);
+    const dob = isoDate(edit.dob);
     const payload: Partial<Member> = {
       formNo: edit.formNo,
       memberId: edit.memberId,
       name: String(edit.name || "").trim(),
       mobile: String(edit.mobile || "").trim(),
       email: String(edit.email || "").trim(),
+      dob,
       plan: edit.plan,
       status: edit.status,
       holdDuration: edit.status === "Hold" ? edit.holdDuration || "" : "",
@@ -542,7 +549,17 @@ export function EditMemberModal({
 
     setSaving(true);
     try {
-      await membersApi.patch(id, payload);
+      const res = await membersApi.patch(id, payload);
+      const updated = res.member;
+      if (updated?.memberId) {
+        qc.setQueryData<Member[]>(["members"], (old) =>
+          Array.isArray(old)
+            ? old.map((row) =>
+                String(row.memberId) === String(updated.memberId) ? { ...row, ...updated } : row,
+              )
+            : old,
+        );
+      }
       if (family) {
         const peers = membersSharingNormalizedPhone(members, payload.mobile, id);
         await Promise.all(
@@ -702,6 +719,17 @@ export function EditMemberModal({
                 value={edit.mobile || ""}
                 placeholder="e.g. 9876543210 or +919876543210"
                 onChange={(e) => setEdit((p) => ({ ...p, mobile: e.target.value }))}
+              />
+            </div>
+            <div>
+              <Label>
+                <ReqLabel>Member Birthday</ReqLabel>
+              </Label>
+              <Input
+                type="date"
+                className={fieldClass("dob")}
+                value={edit.dob || ""}
+                onChange={(e) => setEdit((p) => ({ ...p, dob: e.target.value }))}
               />
             </div>
             <div>

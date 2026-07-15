@@ -30,6 +30,7 @@ import {
   birthdaysThisMonth,
   countByStatus,
   expiringSoon,
+  formatMemberBirthday,
   memberSearchHaystack,
   recentPayments,
 } from "@/lib/domain/members";
@@ -707,7 +708,7 @@ export function DashboardPage() {
                 onClick={() => goMembers(undefined, m.memberId, "memberId")}
               >
                 <span>{m.name || m.memberId}</span>
-                <Badge variant="muted">{formatDate(m.dob)}</Badge>
+                <Badge variant="muted">{formatMemberBirthday(m.dob)}</Badge>
               </button>
             ))}
             {!birthdays.length ? (

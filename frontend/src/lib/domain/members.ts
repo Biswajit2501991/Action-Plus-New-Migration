@@ -1,4 +1,29 @@
 import type { Member } from "@/types";
+import { localCalendarDateKey } from "@/lib/domain/billing";
+
+const BIRTHDAY_MONTHS = [
+  "Jan", "Feb", "Mar", "Apr", "May", "Jun",
+  "Jul", "Aug", "Sep", "Oct", "Nov", "Dec",
+];
+
+/** Backend default when DOB was missing on legacy writes — treat as empty in UI. */
+export const MEMBER_DOB_PLACEHOLDER = "1970-01-01";
+
+/** Normalize stored DOB for date inputs (empty when missing/placeholder). */
+export function normalizeMemberDobInput(value?: string | null) {
+  const key = localCalendarDateKey(value);
+  if (!key || key === MEMBER_DOB_PLACEHOLDER) return "";
+  return key;
+}
+
+/** Calendar-safe display for member date of birth (Member Birthday). */
+export function formatMemberBirthday(value?: string | null) {
+  const key = normalizeMemberDobInput(value);
+  if (!key) return "—";
+  const [y, m, d] = key.split("-").map(Number);
+  if (!y || !m || !d) return "—";
+  return `${String(d).padStart(2, "0")}/${BIRTHDAY_MONTHS[m - 1]}/${y}`;
+}
 
 export function normalizePhone(value?: string | null) {
   return String(value || "").replace(/\D/g, "");
@@ -96,12 +121,24 @@ export function expiringSoon(members: Member[], withinDays = 14) {
 }
 
 export function birthdaysThisMonth(members: Member[]) {
-  const month = new Date().getMonth();
+  const month = String(new Date().getMonth() + 1).padStart(2, "0");
   return members.filter((m) => {
-    if (!m.dob) return false;
-    const d = new Date(m.dob);
-    return !Number.isNaN(d.getTime()) && d.getMonth() === month;
+    const key = localCalendarDateKey(m.dob);
+    if (!key) return false;
+    return key.slice(5, 7) === month;
   });
+}
+
+/** True when today's calendar month/day matches the member's date of birth. */
+export function isMemberBirthdayToday(value?: string | null, now = new Date()) {
+  const dobKey = localCalendarDateKey(value);
+  const todayKey = localCalendarDateKey(now);
+  if (!dobKey || !todayKey) return false;
+  return dobKey.slice(5) === todayKey.slice(5);
+}
+
+export function birthdaysToday(members: Member[], now = new Date()) {
+  return members.filter((m) => isMemberBirthdayToday(m.dob, now));
 }
 
 export function recentPayments(members: Member[], limit = 10) {

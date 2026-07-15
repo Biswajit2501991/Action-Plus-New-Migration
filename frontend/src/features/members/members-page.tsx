@@ -504,7 +504,8 @@ export function MembersPage() {
       | "fine"
       | "hold"
       | "deactivate"
-      | "success" = "reminder",
+      | "success"
+      | "birthday" = "reminder",
   ) => {
     openWhatsAppPreview(m, kind);
   };
