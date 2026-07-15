@@ -990,18 +990,37 @@ export function MembersPage() {
       ) : (
         <>
           <Card className="border-black/[0.06] bg-gradient-to-b from-white/90 to-slate-50/80 shadow-[0_1px_0_rgba(15,23,42,0.04),0_12px_32px_-20px_rgba(15,23,42,0.25)] backdrop-blur-xl dark:border-white/[0.07] dark:from-white/[0.05] dark:to-slate-950/80 dark:shadow-[0_0_0_1px_rgba(255,255,255,0.03),0_16px_40px_-24px_rgba(0,0,0,0.8)]">
-            <CardContent className="p-2 sm:p-2.5">
-              <div className="flex min-w-0 items-center gap-2 overflow-x-auto whitespace-nowrap [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
-                <div className="flex shrink-0 items-center gap-2 pl-1.5">
-                  <h2 className="text-[13px] font-semibold tracking-tight text-slate-900 dark:text-slate-50">
-                    Members
-                  </h2>
-                  <span className="rounded-lg bg-slate-900/5 px-2 py-0.5 text-[11px] font-semibold tabular-nums text-slate-600 dark:bg-white/10 dark:text-slate-300">
-                    {totalCount}
-                  </span>
+            <CardContent className="relative p-2 sm:p-2.5">
+              <div className="flex flex-col gap-2 xl:flex-row xl:min-w-0 xl:items-center xl:gap-2 xl:overflow-x-auto xl:whitespace-nowrap xl:[-ms-overflow-style:none] xl:[scrollbar-width:none] xl:[&::-webkit-scrollbar]:hidden">
+                <div className="flex shrink-0 items-center justify-between gap-2 pl-1.5 xl:justify-start">
+                  <div className="flex shrink-0 items-center gap-2">
+                    <h2 className="text-[13px] font-semibold tracking-tight text-slate-900 dark:text-slate-50">
+                      Members
+                    </h2>
+                    <span className="rounded-lg bg-slate-900/5 px-2 py-0.5 text-[11px] font-semibold tabular-nums text-slate-600 dark:bg-white/10 dark:text-slate-300">
+                      {totalCount}
+                    </span>
+                  </div>
+                  <div className="relative inline-flex shrink-0 items-center gap-1.5 pr-0.5 xl:hidden">
+                    <PaymentQrButton className="!h-8 gap-1 !rounded-xl !border-emerald-500/25 !bg-emerald-500/10 !px-2.5 !text-[11px] !font-medium !text-emerald-800 hover:!bg-emerald-500/15 dark:!border-emerald-400/20 dark:!bg-emerald-400/10 dark:!text-emerald-200" />
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="h-8 gap-1 rounded-xl border-slate-200/80 bg-white/70 px-2.5 text-[11px] font-medium text-slate-700 shadow-none hover:bg-slate-50 dark:border-white/10 dark:bg-white/[0.04] dark:text-slate-200 dark:hover:bg-white/[0.08]"
+                      onClick={() => setActionsOpen((v) => !v)}
+                    >
+                      <MoreHorizontal className="h-3.5 w-3.5" />
+                      Actions
+                      {selectedIds.length ? (
+                        <span className="rounded-md bg-slate-900 px-1.5 py-0.5 text-[10px] font-semibold text-white dark:bg-teal-400 dark:text-slate-950">
+                          {selectedIds.length}
+                        </span>
+                      ) : null}
+                    </Button>
+                  </div>
                 </div>
-                <span className="mx-0.5 hidden h-5 w-px shrink-0 bg-slate-200 dark:bg-white/10 sm:block" aria-hidden />
-                <div className="inline-flex shrink-0 items-center gap-1">
+                <span className="mx-0.5 hidden h-5 w-px shrink-0 bg-slate-200 dark:bg-white/10 xl:block" aria-hidden />
+                <div className="member-status-filters grid w-full grid-cols-3 gap-1.5 lg:grid-cols-6 xl:inline-flex xl:w-auto xl:shrink-0 xl:items-center xl:gap-1">
                   {(
                     [
                       { key: "", label: "All Members", dot: "bg-slate-400 dark:bg-slate-500" },
@@ -1040,10 +1059,10 @@ export function MembersPage() {
                         aria-pressed={active}
                         onClick={() => setFocusStatus(chip.key)}
                         className={cn(
-                          "inline-flex h-9 shrink-0 items-center gap-1.5 rounded-xl px-3 text-[12px] font-medium tracking-tight transition-all duration-200",
+                          "inline-flex h-8 min-w-0 w-full items-center justify-center gap-1 rounded-xl px-1.5 text-[11px] font-medium tracking-tight transition-all duration-200 xl:h-9 xl:w-auto xl:shrink-0 xl:justify-start xl:gap-1.5 xl:px-3 xl:text-[12px]",
                           active
                             ? "bg-slate-900 text-white shadow-[0_8px_20px_-10px_rgba(15,23,42,0.65)] dark:bg-teal-400 dark:text-slate-950 dark:shadow-[0_10px_24px_-12px_rgba(45,212,191,0.55)]"
-                            : "text-slate-500 hover:bg-black/[0.04] hover:text-slate-900 dark:text-slate-400 dark:hover:bg-white/[0.06] dark:hover:text-slate-100",
+                            : "border border-slate-200/70 bg-white/70 text-slate-500 hover:bg-black/[0.04] hover:text-slate-900 dark:border-white/10 dark:bg-white/[0.04] dark:text-slate-400 dark:hover:bg-white/[0.06] dark:hover:text-slate-100 xl:border-transparent xl:bg-transparent",
                         )}
                       >
                         <span
@@ -1053,13 +1072,13 @@ export function MembersPage() {
                             active && "ring-2 ring-white/30 dark:ring-slate-950/25",
                           )}
                         />
-                        {chip.label}
+                        <span className="truncate">{chip.label}</span>
                       </button>
                     );
                   })}
                 </div>
-                <span className="mx-0.5 hidden h-5 w-px shrink-0 bg-slate-200 dark:bg-white/10 sm:block" aria-hidden />
-                <div className="relative ml-auto inline-flex shrink-0 items-center gap-1.5 pr-0.5">
+                <span className="mx-0.5 hidden h-5 w-px shrink-0 bg-slate-200 dark:bg-white/10 xl:block" aria-hidden />
+                <div className="relative ml-auto hidden shrink-0 items-center gap-1.5 pr-0.5 xl:inline-flex">
                   <PaymentQrButton className="!h-9 gap-1.5 !rounded-xl !border-emerald-500/25 !bg-emerald-500/10 !px-3 !text-[12px] !font-medium !text-emerald-800 hover:!bg-emerald-500/15 dark:!border-emerald-400/20 dark:!bg-emerald-400/10 dark:!text-emerald-200" />
                   <Button
                     variant="outline"
@@ -1075,80 +1094,80 @@ export function MembersPage() {
                       </span>
                     ) : null}
                   </Button>
-                  {actionsOpen ? (
-                    <div className="absolute right-0 top-11 z-30 min-w-[230px] overflow-hidden rounded-2xl border border-black/5 bg-white/95 p-1.5 shadow-xl backdrop-blur-xl dark:border-white/10 dark:bg-slate-950/95">
-                      <button
-                        type="button"
-                        className="w-full rounded-xl px-3 py-2.5 text-left text-sm text-slate-700 hover:bg-slate-100 dark:text-slate-200 dark:hover:bg-white/5"
-                        onClick={() => {
-                          router.push("/finance");
-                          setActionsOpen(false);
-                        }}
-                      >
-                        Add Expense
-                      </button>
-                      <button
-                        type="button"
-                        className="w-full rounded-xl px-3 py-2.5 text-left text-sm text-slate-700 hover:bg-slate-100 dark:text-slate-200 dark:hover:bg-white/5"
-                        onClick={() => {
-                          setActionsOpen(false);
-                          if (
-                            !hasAccess(user, "members", "addMembers") &&
-                            !hasAccess(user, "members", "editMembers")
-                          ) {
-                            toast.error("CSV import requires Members access.");
-                            return;
-                          }
-                          if (csvInputRef.current) {
-                            csvInputRef.current.value = "";
-                            csvInputRef.current.click();
-                          }
-                        }}
-                      >
-                        Import CSV
-                      </button>
-                      {selectedIds.length ? (
-                        <>
-                          <div className="my-1 border-t border-slate-100 dark:border-white/10" />
-                          <button
-                            type="button"
-                            className="w-full rounded-xl px-3 py-2.5 text-left text-sm text-slate-700 hover:bg-slate-100 dark:text-slate-200 dark:hover:bg-white/5"
-                            onClick={() => {
-                              requestStatusChange(selectedIds, "Active");
-                              setActionsOpen(false);
-                            }}
-                          >
-                            Bulk Activate ({selectedIds.length})
-                          </button>
-                          <button
-                            type="button"
-                            className="w-full rounded-xl px-3 py-2.5 text-left text-sm text-slate-700 hover:bg-slate-100 dark:text-slate-200 dark:hover:bg-white/5"
-                            onClick={() => {
-                              requestStatusChange(
-                                selectedIds,
-                                "Hold",
-                                settings?.holdDurations?.[0] || "1 Month",
-                              );
-                              setActionsOpen(false);
-                            }}
-                          >
-                            Bulk Hold ({selectedIds.length})
-                          </button>
-                          <button
-                            type="button"
-                            className="w-full rounded-xl px-3 py-2.5 text-left text-sm text-slate-700 hover:bg-slate-100 dark:text-slate-200 dark:hover:bg-white/5"
-                            onClick={() => {
-                              statusMutation.mutate({ ids: selectedIds, status: "Deactivated" });
-                              setActionsOpen(false);
-                            }}
-                          >
-                            Bulk Deactivate ({selectedIds.length})
-                          </button>
-                        </>
-                      ) : null}
-                    </div>
-                  ) : null}
                 </div>
+                {actionsOpen ? (
+                  <div className="absolute right-3 top-[3.25rem] z-30 min-w-[230px] overflow-hidden rounded-2xl border border-black/5 bg-white/95 p-1.5 shadow-xl backdrop-blur-xl dark:border-white/10 dark:bg-slate-950/95 xl:right-2 xl:top-11">
+                    <button
+                      type="button"
+                      className="w-full rounded-xl px-3 py-2.5 text-left text-sm text-slate-700 hover:bg-slate-100 dark:text-slate-200 dark:hover:bg-white/5"
+                      onClick={() => {
+                        router.push("/finance");
+                        setActionsOpen(false);
+                      }}
+                    >
+                      Add Expense
+                    </button>
+                    <button
+                      type="button"
+                      className="w-full rounded-xl px-3 py-2.5 text-left text-sm text-slate-700 hover:bg-slate-100 dark:text-slate-200 dark:hover:bg-white/5"
+                      onClick={() => {
+                        setActionsOpen(false);
+                        if (
+                          !hasAccess(user, "members", "addMembers") &&
+                          !hasAccess(user, "members", "editMembers")
+                        ) {
+                          toast.error("CSV import requires Members access.");
+                          return;
+                        }
+                        if (csvInputRef.current) {
+                          csvInputRef.current.value = "";
+                          csvInputRef.current.click();
+                        }
+                      }}
+                    >
+                      Import CSV
+                    </button>
+                    {selectedIds.length ? (
+                      <>
+                        <div className="my-1 border-t border-slate-100 dark:border-white/10" />
+                        <button
+                          type="button"
+                          className="w-full rounded-xl px-3 py-2.5 text-left text-sm text-slate-700 hover:bg-slate-100 dark:text-slate-200 dark:hover:bg-white/5"
+                          onClick={() => {
+                            requestStatusChange(selectedIds, "Active");
+                            setActionsOpen(false);
+                          }}
+                        >
+                          Bulk Activate ({selectedIds.length})
+                        </button>
+                        <button
+                          type="button"
+                          className="w-full rounded-xl px-3 py-2.5 text-left text-sm text-slate-700 hover:bg-slate-100 dark:text-slate-200 dark:hover:bg-white/5"
+                          onClick={() => {
+                            requestStatusChange(
+                              selectedIds,
+                              "Hold",
+                              settings?.holdDurations?.[0] || "1 Month",
+                            );
+                            setActionsOpen(false);
+                          }}
+                        >
+                          Bulk Hold ({selectedIds.length})
+                        </button>
+                        <button
+                          type="button"
+                          className="w-full rounded-xl px-3 py-2.5 text-left text-sm text-slate-700 hover:bg-slate-100 dark:text-slate-200 dark:hover:bg-white/5"
+                          onClick={() => {
+                            statusMutation.mutate({ ids: selectedIds, status: "Deactivated" });
+                            setActionsOpen(false);
+                          }}
+                        >
+                          Bulk Deactivate ({selectedIds.length})
+                        </button>
+                      </>
+                    ) : null}
+                  </div>
+                ) : null}
               </div>
             </CardContent>
           </Card>
