@@ -1,4 +1,4 @@
-import { readJsonValue } from '../../db/dataStore.js';
+import { readJsonValue } from '../db/dataStore.js';
 
 async function readSettingsFlags() {
   const settings = (await readJsonValue('apg.settings', {}, null)) || {};

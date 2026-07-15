@@ -1005,6 +1005,21 @@ export function SettingsPage() {
               description="Show the Visitor QR card and allow walk-ins to submit details from the public form."
               onChange={(next) => setFeatureFlags({ qrVisitorIntakeEnabled: next })}
             />
+            {flags.qrVisitorIntakeEnabled ? (
+              <div className="rounded-xl border border-teal-200/70 bg-teal-50/40 p-3 text-xs text-muted-foreground dark:border-teal-900/40 dark:bg-teal-950/20">
+                <p>
+                  Download / print the QR on{" "}
+                  <a href="/members?tab=visitors" className="font-medium text-foreground underline">
+                    Members → Visitors
+                  </a>
+                  . Guests open{" "}
+                  <span className="font-mono text-[11px] text-foreground">
+                    /public/visit/&#123;gymCode&#125;
+                  </span>{" "}
+                  (no login).
+                </p>
+              </div>
+            ) : null}
             <SettingsToggle
               checked={flags.attendanceRequirePresenceQr}
               label="Require attendance QR for Time In"
