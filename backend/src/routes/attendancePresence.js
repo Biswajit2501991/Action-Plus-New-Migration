@@ -4,23 +4,32 @@ import { requireAccess } from '../middleware/permissions.js';
 import { authIsBranchAdmin, authHasGlobalBranchRead, resolveActiveBranchId } from '../auth/tenant/scopedAuth.js';
 import { rotateAttendancePresenceToken } from '../services/attendance/presenceTokens.js';
 import { readJsonValue, writeJsonValue } from '../db/dataStore.js';
-import {
-  isAttendancePresenceQrFeatureEnabled,
-  qrAttendanceFeatureDisabledError,
-} from '../services/qrVisitorAttendanceFeature.js';
 
 const router = Router();
 
 router.post('/rotate', requireAccess(Access.attendancePunch), async (req, res) => {
   try {
-    if (!(await isAttendancePresenceQrFeatureEnabled())) {
-      throw qrAttendanceFeatureDisabledError();
-    }
-    const branchId = String(
+    // Kiosk may run before the enforce-toggle is on (setup/training). Punch + redeem still gate on the setting.
+    let branchId = String(
       req.body?.gymCodeId || resolveActiveBranchId(req.auth) || req.auth?.gymCodeId || '',
     ).trim();
+    if (!branchId && Array.isArray(req.auth?.allowedBranchIds) && req.auth.allowedBranchIds.length) {
+      branchId = String(req.auth.allowedBranchIds[0] || '').trim();
+    }
     if (!branchId) {
-      return res.status(400).json({ error: 'gym-code-id-required', message: 'Active branch required.' });
+      try {
+        const { listGymCodes } = await import('../services/gymCodesService.js');
+        const codes = await listGymCodes();
+        branchId = String(codes?.[0]?.id || '').trim();
+      } catch {
+        /* ignore */
+      }
+    }
+    if (!branchId) {
+      return res.status(400).json({
+        error: 'gym-code-id-required',
+        message: 'Select an active branch, then open the Attendance QR kiosk again.',
+      });
     }
     if (
       !authIsBranchAdmin(req.auth) &&

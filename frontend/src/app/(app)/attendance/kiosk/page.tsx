@@ -1,10 +1,10 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
-import { useSettings } from "@/hooks/use-data";
+import { useGymCodes, useSettings } from "@/hooks/use-data";
 import { isAttendancePresenceQrEnabled } from "@/lib/domain/attendance";
 import { attendanceClaimUrl, qrImageUrl } from "@/lib/qr";
 import { attendanceApi } from "@/services/api";
@@ -19,20 +19,27 @@ type RotateState = {
 
 export default function AttendanceKioskPage() {
   const user = useAuthStore((s) => s.user);
-  const { data: settings, isLoading: settingsLoading } = useSettings();
-  const attendanceQrEnabled = isAttendancePresenceQrEnabled(settings as Record<string, unknown>);
+  const { data: settings } = useSettings();
+  const { data: gymCodes = [] } = useGymCodes();
+  const requireQrEnabled = isAttendancePresenceQrEnabled(settings as Record<string, unknown>);
+  const branchId = useMemo(() => {
+    const active = String(user?.activeBranchId || user?.gymCodeId || "").trim();
+    if (active) return active;
+    return String(gymCodes[0]?.id || "").trim();
+  }, [user?.activeBranchId, user?.gymCodeId, gymCodes]);
+
   const [state, setState] = useState<RotateState | null>(null);
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
 
   const refresh = useCallback(async () => {
-    if (!attendanceQrEnabled) return;
     setBusy(true);
     setError("");
     try {
-      const rotated = await attendanceApi.rotatePresence({
-        gymCodeId: String(user?.activeBranchId || user?.gymCodeId || ""),
-      });
+      if (!branchId) {
+        throw new Error("No branch selected. Switch branch in the header, then refresh.");
+      }
+      const rotated = await attendanceApi.rotatePresence({ gymCodeId: branchId });
       const token = String(rotated.token || "").trim();
       if (!token) throw new Error("No token returned");
       setState({
@@ -48,55 +55,20 @@ export default function AttendanceKioskPage() {
     } finally {
       setBusy(false);
     }
-  }, [attendanceQrEnabled, user?.activeBranchId, user?.gymCodeId]);
+  }, [branchId]);
 
   useEffect(() => {
-    if (!settingsLoading && attendanceQrEnabled) void refresh();
-  }, [settingsLoading, attendanceQrEnabled, refresh]);
+    void refresh();
+  }, [refresh]);
 
   useEffect(() => {
-    if (!attendanceQrEnabled || !state?.expiresInSec) return;
+    if (!state?.expiresInSec) return;
     const waitMs = Math.max(15_000, Math.floor(state.expiresInSec * 1000 * 0.55));
     const t = window.setTimeout(() => {
       void refresh();
     }, waitMs);
     return () => window.clearTimeout(t);
-  }, [attendanceQrEnabled, state?.token, state?.expiresInSec, refresh]);
-
-  if (settingsLoading) {
-    return (
-      <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950 text-slate-300">
-        Loading…
-      </div>
-    );
-  }
-
-  if (!attendanceQrEnabled) {
-    return (
-      <div className="fixed inset-0 z-50 flex flex-col items-center justify-center bg-slate-950 px-4 text-center text-slate-100">
-        <h1 className="text-2xl font-semibold">Staff Attendance QR is off</h1>
-        <p className="mt-2 max-w-md text-sm text-slate-400">
-          An owner must enable{" "}
-          <span className="text-teal-300">Require attendance QR for Time In</span> in Settings
-          before the kiosk is available.
-        </p>
-        <div className="mt-6 flex flex-wrap justify-center gap-2">
-          <Link
-            href="/settings"
-            className="inline-flex h-10 items-center rounded-xl bg-teal-400 px-4 text-sm font-semibold text-slate-950"
-          >
-            Open Settings
-          </Link>
-          <Link
-            href="/attendance"
-            className="inline-flex h-10 items-center rounded-xl border border-white/20 px-4 text-sm text-slate-100"
-          >
-            Back to Attendance
-          </Link>
-        </div>
-      </div>
-    );
-  }
+  }, [state?.token, state?.expiresInSec, refresh]);
 
   return (
     <div className="fixed inset-0 z-50 flex flex-col items-center justify-center bg-slate-950 px-4 text-slate-100">
@@ -108,8 +80,16 @@ export default function AttendanceKioskPage() {
       </h1>
       <p className="mt-2 max-w-md text-center text-sm text-slate-400">
         Open the camera on your phone, scan this code, then log in. The code refreshes
-        automatically.
+        automatically — nothing to upload.
       </p>
+
+      {!requireQrEnabled ? (
+        <p className="mt-3 max-w-md rounded-xl border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-center text-xs text-amber-100">
+          Settings → <span className="font-semibold">Require attendance QR for Time In</span> is
+          off. You can still display this QR for setup; login will not require it until the
+          toggle is on.
+        </p>
+      ) : null}
 
       <div className="mt-8 rounded-3xl border border-white/10 bg-white p-4 shadow-2xl">
         {state?.claimUrl ? (
@@ -120,7 +100,7 @@ export default function AttendanceKioskPage() {
           />
         ) : (
           <div className="flex h-72 w-72 items-center justify-center text-sm text-slate-500 sm:h-80 sm:w-80">
-            {busy ? "Loading…" : "No QR yet"}
+            {busy ? "Generating QR…" : "No QR yet"}
           </div>
         )}
       </div>
@@ -154,6 +134,12 @@ export default function AttendanceKioskPage() {
         >
           Exit kiosk
         </Button>
+        <Link
+          href="/settings"
+          className="inline-flex h-10 items-center rounded-xl border border-white/20 px-4 text-sm text-slate-100 hover:bg-white/10"
+        >
+          Settings
+        </Link>
       </div>
     </div>
   );

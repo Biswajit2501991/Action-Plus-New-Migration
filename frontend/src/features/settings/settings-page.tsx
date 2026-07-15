@@ -1018,7 +1018,14 @@ export function SettingsPage() {
               >
                 Open Attendance QR kiosk
               </a>
-            ) : null}
+            ) : (
+              <a
+                href="/attendance/kiosk"
+                className="inline-flex h-9 items-center rounded-md border border-input bg-background px-3 text-xs font-medium hover:bg-accent"
+              >
+                Preview Attendance QR kiosk
+              </a>
+            )}
             <SettingsToggle
               checked={flags.customTemplatesEnabled}
               label="Custom WhatsApp templates"

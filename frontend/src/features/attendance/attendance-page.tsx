@@ -17,7 +17,6 @@ import { localTodayCalendarKey } from "@/lib/domain/billing";
 import {
   formatAttendanceNoteBadge,
   isAttendanceNotesEnabled,
-  isAttendancePresenceQrEnabled,
 } from "@/lib/domain/attendance";
 import {
   attendanceRecordKey,
@@ -69,7 +68,6 @@ export function AttendancePage() {
   const { data: users = [] } = useUsers();
   const { data: settings } = useSettings();
   const notesEnabled = isAttendanceNotesEnabled(settings as Record<string, unknown>);
-  const attendanceQrEnabled = isAttendancePresenceQrEnabled(settings as Record<string, unknown>);
 
   const notesRange = notesDefaultRange();
   const { data: attendanceNotes = [] } = useQuery({
@@ -263,7 +261,7 @@ export function AttendancePage() {
                 Mark All Present
               </Button>
             ) : null}
-            {attendanceQrEnabled ? (
+            {canView ? (
               <Button
                 variant="outline"
                 onClick={() => {
