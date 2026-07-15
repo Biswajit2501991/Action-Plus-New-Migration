@@ -17,9 +17,12 @@ import {
   LEAVE_TYPES,
   annualLeaveBalanceRemaining,
   buildStaffLoginAliasMap,
+  canReviewAllLeave,
+  filterLeaveRequestsForViewer,
   findLeaveDateConflicts,
   formatLeaveOverlapError,
   leaveDaysBetween,
+  leaveRequestMatchesStaff,
   leaveStatusBadgeVariant,
   leaveSubmitErrorMessage,
   normalizeLeaveRequest,
@@ -43,27 +46,27 @@ export function LeavePage() {
   const { data: users = [] } = useUsers();
   const { data: attendanceRecords = [] } = useAttendance();
 
-  const isOwnerOrManager =
-    String(user?.id || "").toLowerCase() === "owner" ||
-    String(user?.id || "").toLowerCase() === "manager" ||
-    String(user?.staffRole || user?.role || "")
-      .toLowerCase()
-      .includes("owner") ||
-    String(user?.staffRole || user?.role || "")
-      .toLowerCase()
-      .includes("manager");
-  const canApprove = isOwnerOrManager && canViewRequests;
-  const isOwnerView = isOwnerOrManager;
+  const isOwnerView = canReviewAllLeave(user);
+  const canApprove = isOwnerView && canViewRequests;
+  // Staff on Leave always see their own requests / balance / history.
+  const showRequests = isOwnerView ? canViewRequests : true;
+  const showBalance = isOwnerView ? canViewBalance : true;
+  const showHistory = isOwnerView ? canViewHistory : true;
 
   const staff = useMemo(() => (users || []).filter((u) => !u.blocked), [users]);
   const aliasMap = useMemo(() => buildStaffLoginAliasMap(staff), [staff]);
   const calendarYear = new Date().getFullYear();
   const today = localTodayCalendarKey();
+  const viewerId = String(user?.id || "").trim();
 
   const leaveRequests = useMemo(
     () =>
-      ((settings?.leaveRequests || []) as LeaveRequest[]).map((r) => normalizeLeaveRequest(r)),
-    [settings?.leaveRequests],
+      filterLeaveRequestsForViewer(
+        ((settings?.leaveRequests || []) as LeaveRequest[]).map((r) => normalizeLeaveRequest(r)),
+        viewerId,
+        { reviewAll: isOwnerView, aliasMap },
+      ),
+    [settings?.leaveRequests, viewerId, isOwnerView, aliasMap],
   );
 
   const [form, setForm] = useState({
@@ -80,9 +83,9 @@ export function LeavePage() {
   const effectiveFormUserId = form.userId || user?.id || "";
 
   const { data: balanceData, isLoading: balanceLoading } = useQuery({
-    queryKey: ["leave-balance", calendarYear],
+    queryKey: ["leave-balance", calendarYear, viewerId, isOwnerView ? "all" : "self"],
     queryFn: () => leaveApi.balances(calendarYear),
-    enabled: Boolean(user) && canViewBalance,
+    enabled: Boolean(user) && showBalance,
   });
 
   const create = useMutation({
@@ -181,8 +184,6 @@ export function LeavePage() {
   const historyRows = useMemo(() => {
     const cutoff = new Date();
     cutoff.setFullYear(cutoff.getFullYear() - 2);
-    const cutoffKey = localTodayCalendarKey().slice(0, 4); // not ideal - use proper
-    void cutoffKey;
     return leaveRequests
       .filter((r) => normalizeLeaveStatus(r.status) === "Approved")
       .filter((r) => {
@@ -192,59 +193,95 @@ export function LeavePage() {
         return !Number.isNaN(d.getTime()) && d >= cutoff;
       })
       .filter((r) => {
+        if (!isOwnerView) {
+          return leaveRequestMatchesStaff(r.userId || r.staffId, viewerId, aliasMap);
+        }
         if (!historyFilter) return true;
-        return String(r.userId || r.staffId) === historyFilter;
+        return leaveRequestMatchesStaff(r.userId || r.staffId, historyFilter, aliasMap);
       })
       .sort((a, b) =>
         String(b.startDate || b.fromDate || "").localeCompare(String(a.startDate || a.fromDate || "")),
       );
-  }, [leaveRequests, historyFilter]);
+  }, [leaveRequests, historyFilter, isOwnerView, viewerId, aliasMap]);
 
   const balanceRows = useMemo(() => {
     const apiRows = Array.isArray(balanceData?.rows) ? balanceData.rows : [];
-    if (apiRows.length) {
-      return apiRows.map((row) => {
-        const id = String(
-          (row as { userId?: string; staffLoginId?: string }).userId ||
-            row.staffLoginId ||
-            "",
-        ).trim();
-        const name = String(
-          (row as { name?: string; staffName?: string }).name ||
-            row.staffName ||
-            staffDisplayName(staff, id) ||
-            id ||
-            "—",
-        );
-        const remaining = Number(
-          (row as { balance?: number; remainingDays?: number }).balance ??
-            row.remainingDays ??
-            0,
-        );
-        return {
-          id: id || name,
-          name,
-          remaining: Number.isFinite(remaining) ? remaining : 0,
-          used: Number(row.usedDays ?? 0),
-          base: Number(row.baseDays ?? balanceData?.baseDays ?? 24),
-        };
-      });
+    let rows = apiRows.length
+      ? apiRows.map((row) => {
+          const id = String(
+            (row as { userId?: string; staffLoginId?: string }).userId ||
+              row.staffLoginId ||
+              "",
+          ).trim();
+          const name = String(
+            (row as { name?: string; staffName?: string }).name ||
+              row.staffName ||
+              staffDisplayName(staff, id) ||
+              id ||
+              "—",
+          );
+          const remaining = Number(
+            (row as { balance?: number; remainingDays?: number }).balance ??
+              row.remainingDays ??
+              0,
+          );
+          return {
+            id: id || name,
+            name,
+            remaining: Number.isFinite(remaining) ? remaining : 0,
+            used: Number(row.usedDays ?? 0),
+            base: Number(row.baseDays ?? balanceData?.baseDays ?? 24),
+          };
+        })
+      : (() => {
+          const base = Number(balanceData?.baseDays ?? 24);
+          const adjustments = (balanceData?.adjustments || []) as Array<Record<string, unknown>>;
+          return staff.map((s) => ({
+            id: s.id,
+            name: s.name || s.id,
+            remaining: annualLeaveBalanceRemaining(leaveRequests, s.id, {
+              year: calendarYear,
+              baseDays: base,
+              aliasMap,
+              adjustments: adjustments as never,
+            }),
+            used: 0,
+            base,
+          }));
+        })();
+
+    if (!isOwnerView) {
+      rows = rows.filter((row) => leaveRequestMatchesStaff(row.id, viewerId, aliasMap));
+      if (!rows.length && viewerId) {
+        const base = Number(balanceData?.baseDays ?? 24);
+        const adjustments = (balanceData?.adjustments || []) as Array<Record<string, unknown>>;
+        rows = [
+          {
+            id: viewerId,
+            name: String(user?.name || viewerId),
+            remaining: annualLeaveBalanceRemaining(leaveRequests, viewerId, {
+              year: calendarYear,
+              baseDays: base,
+              aliasMap,
+              adjustments: adjustments as never,
+            }),
+            used: 0,
+            base,
+          },
+        ];
+      }
     }
-    const base = Number(balanceData?.baseDays ?? 24);
-    const adjustments = (balanceData?.adjustments || []) as Array<Record<string, unknown>>;
-    return staff.map((s) => ({
-      id: s.id,
-      name: s.name || s.id,
-      remaining: annualLeaveBalanceRemaining(leaveRequests, s.id, {
-        year: calendarYear,
-        baseDays: base,
-        aliasMap,
-        adjustments: adjustments as never,
-      }),
-      used: 0,
-      base,
-    }));
-  }, [balanceData, staff, leaveRequests, aliasMap, calendarYear]);
+    return rows;
+  }, [
+    balanceData,
+    staff,
+    leaveRequests,
+    aliasMap,
+    calendarYear,
+    isOwnerView,
+    viewerId,
+    user?.name,
+  ]);
 
   if (isLoading) return <Skeleton className="h-96" />;
 
@@ -252,8 +289,46 @@ export function LeavePage() {
     <div className="space-y-5">
       <PageHeader
         title="Leave Tracker"
-        description="Request leave, review approvals, balances, and two-year history."
+        description={
+          isOwnerView
+            ? "Request leave, review approvals, balances, and two-year history."
+            : "Your leave requests, annual balance, and two-year history."
+        }
       />
+
+      {!isOwnerView ? (
+        <div className="grid gap-3 sm:grid-cols-3">
+          <Card className="border-slate-200 shadow-sm dark:border-border">
+            <CardContent className="p-4">
+              <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-400">
+                Leave Requests
+              </p>
+              <p className="mt-1 text-2xl font-semibold tabular-nums">{leaveRequests.length}</p>
+              <p className="text-xs text-muted-foreground">Your total</p>
+            </CardContent>
+          </Card>
+          <Card className="border-violet-100 shadow-sm dark:border-border">
+            <CardContent className="p-4">
+              <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-violet-400">
+                Annual Balance · {calendarYear}
+              </p>
+              <p className="mt-1 text-2xl font-semibold tabular-nums text-violet-800 dark:text-violet-300">
+                {balanceLoading ? "…" : balanceRows[0]?.remaining ?? "—"}
+              </p>
+              <p className="text-xs text-muted-foreground">Days left</p>
+            </CardContent>
+          </Card>
+          <Card className="border-slate-200 shadow-sm dark:border-border">
+            <CardContent className="p-4">
+              <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-400">
+                Leave History
+              </p>
+              <p className="mt-1 text-2xl font-semibold tabular-nums">{historyRows.length}</p>
+              <p className="text-xs text-muted-foreground">Approved · last 2 years</p>
+            </CardContent>
+          </Card>
+        </div>
+      ) : null}
 
       {canCreate ? (
         <Card className="overflow-hidden border-sky-100 shadow-sm dark:border-border">
@@ -342,11 +417,14 @@ export function LeavePage() {
         </Card>
       ) : null}
 
-      {canViewRequests ? (
+      {showRequests ? (
         <Card className="border-slate-200 shadow-sm dark:border-border">
           <div className="border-b border-slate-100 px-4 py-3 dark:border-border">
             <h2 className="text-sm font-semibold">Leave Requests</h2>
-            <p className="text-xs text-muted-foreground">{leaveRequests.length} total</p>
+            <p className="text-xs text-muted-foreground">
+              {leaveRequests.length} total
+              {!isOwnerView ? " · your requests only" : ""}
+            </p>
           </div>
           <CardContent className="space-y-2 p-4">
             {leaveRequests.map((r) => {
@@ -402,12 +480,14 @@ export function LeavePage() {
         </Card>
       ) : null}
 
-      {canViewBalance ? (
+      {showBalance ? (
         <Card className="border-violet-100 shadow-sm dark:border-border">
           <div className="border-b border-violet-100 bg-gradient-to-r from-violet-50 to-white px-4 py-3 dark:border-border dark:from-violet-950/30 dark:to-card">
             <h2 className="text-sm font-semibold">Annual Leave Balance · {calendarYear}</h2>
             <p className="text-xs text-muted-foreground">
-              Remaining days after approved leave
+              {isOwnerView
+                ? "Remaining days after approved leave"
+                : "Your remaining days after approved leave"}
               {balanceData?.baseDays ? ` · base ${balanceData.baseDays}` : ""}.
             </p>
           </div>
@@ -439,12 +519,15 @@ export function LeavePage() {
         </Card>
       ) : null}
 
-      {canViewHistory ? (
+      {showHistory ? (
         <Card className="border-slate-200 shadow-sm dark:border-border">
           <div className="flex flex-wrap items-end justify-between gap-3 border-b border-slate-100 px-4 py-3 dark:border-border">
             <div>
               <h2 className="text-sm font-semibold">Leave History (2 years)</h2>
-              <p className="text-xs text-muted-foreground">Approved leave only</p>
+              <p className="text-xs text-muted-foreground">
+                Approved leave only
+                {!isOwnerView ? " · your history only" : ""}
+              </p>
             </div>
             {isOwnerView ? (
               <Select

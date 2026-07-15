@@ -102,6 +102,39 @@ export function leaveRequestMatchesStaff(
   return Boolean(req && staff && req === staff);
 }
 
+/** Owners / managers / branch admins can review everyone’s leave. */
+export function canReviewAllLeave(user: {
+  id?: string | null;
+  staffRole?: string | null;
+  role?: string | null;
+} | null | undefined) {
+  if (!user) return false;
+  const id = String(user.id || "").trim().toLowerCase();
+  if (id === "owner" || id === "manager") return true;
+  const role = String(user.staffRole || user.role || "")
+    .trim()
+    .toLowerCase();
+  return role.includes("owner") || role.includes("manager") || role.includes("admin");
+}
+
+/** Keep only the signed-in staff member’s leave rows (owners see all). */
+export function filterLeaveRequestsForViewer(
+  requests: LeaveRequest[] | null | undefined,
+  viewerId: string | null | undefined,
+  options: {
+    reviewAll?: boolean;
+    aliasMap?: Map<string, string> | null;
+  } = {},
+) {
+  const list = Array.isArray(requests) ? requests : [];
+  if (options.reviewAll) return list;
+  const viewer = String(viewerId || "").trim();
+  if (!viewer) return [];
+  return list.filter((r) =>
+    leaveRequestMatchesStaff(r.userId || r.staffId, viewer, options.aliasMap || null),
+  );
+}
+
 const LEAVE_NON_BLOCKING = new Set(["rejected", "cancelled", "canceled"]);
 const LEAVE_BLOCKING = new Set(["pending", "approved", "submitted", "awaiting approval"]);
 

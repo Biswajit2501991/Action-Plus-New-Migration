@@ -25,16 +25,33 @@ router.get('/', requireAccess(Access.leaveBalanceView), async (req, res) => {
     const year = Number(req.query?.year) || new Date().getFullYear();
     const snapshot = await buildLeaveBalanceSnapshot(year);
     const caller = String(req.auth?.userId || '').trim().toLowerCase();
-    const isOwner = req.access?.__owner || caller === 'owner';
+    const role = String(req.auth?.staffRole || req.auth?.roles?.[0] || '').trim().toLowerCase();
+    const isElevated = Boolean(
+      req.access?.__owner
+      || caller === 'owner'
+      || caller === 'manager'
+      || role.includes('owner')
+      || role.includes('manager')
+      || role.includes('admin'),
+    );
     let rows = snapshot.rows;
-    if (!isOwner) {
-      rows = rows.filter((r) => String(r.userId || '').trim().toLowerCase() === caller);
+    if (!isElevated) {
+      const aliases = new Set([caller]);
+      for (const row of snapshot.rows || []) {
+        const id = String(row?.userId || '').trim().toLowerCase();
+        const name = String(row?.name || '').trim().toLowerCase();
+        if (id === caller || name === caller) {
+          aliases.add(id);
+          if (name) aliases.add(name);
+        }
+      }
+      rows = rows.filter((r) => aliases.has(String(r.userId || '').trim().toLowerCase()));
     }
     return res.json({
       ok: true,
       calendarYear: snapshot.calendarYear,
       baseDays: snapshot.baseDays,
-      adjustments: snapshot.adjustments,
+      adjustments: isElevated ? snapshot.adjustments : [],
       rows,
     });
   } catch (err) {

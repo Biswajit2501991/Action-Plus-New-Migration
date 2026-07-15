@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { MobileChip, MobileHero, MobilePanel } from "@/components/layout/mobile-ui";
 import { Badge, Skeleton } from "@/components/ui/misc";
@@ -14,7 +14,12 @@ import { hasAccess } from "@/lib/domain/permissions";
 import { localTodayCalendarKey } from "@/lib/domain/billing";
 import {
   LEAVE_TYPES,
+  annualLeaveBalanceRemaining,
+  buildStaffLoginAliasMap,
+  canReviewAllLeave,
+  filterLeaveRequestsForViewer,
   leaveDaysBetween,
+  leaveRequestMatchesStaff,
   leaveStatusBadgeVariant,
   leaveSubmitErrorMessage,
   normalizeLeaveRequest,
@@ -38,20 +43,15 @@ export function MobileLeave() {
     refetchInterval: canViewRequests ? 12_000 : false,
   });
   const { data: users = [] } = useUsers();
-  const isOwnerOrManager =
-    String(user?.id || "").toLowerCase() === "owner" ||
-    String(user?.id || "").toLowerCase() === "manager" ||
-    String(user?.staffRole || user?.role || "")
-      .toLowerCase()
-      .includes("owner") ||
-    String(user?.staffRole || user?.role || "")
-      .toLowerCase()
-      .includes("manager");
-  const canApprove = isOwnerOrManager && canViewRequests && mobile.leaveApprove;
+  const isOwnerView = canReviewAllLeave(user);
+  const canApprove = isOwnerView && canViewRequests && mobile.leaveApprove;
+  const viewerId = String(user?.id || "").trim();
+  const calendarYear = new Date().getFullYear();
 
   const staff = useMemo(() => (users || []).filter((u) => !u.blocked), [users]);
+  const aliasMap = useMemo(() => buildStaffLoginAliasMap(staff), [staff]);
   const today = localTodayCalendarKey();
-  const [tab, setTab] = useState<"requests" | "create">("requests");
+  const [tab, setTab] = useState<"requests" | "create" | "balance" | "history">("requests");
   const [form, setForm] = useState({
     userId: "",
     type: "Casual",
@@ -62,27 +62,67 @@ export function MobileLeave() {
 
   const leaveRequests = useMemo(
     () =>
-      ((settings?.leaveRequests || []) as LeaveRequest[])
-        .map((r) => normalizeLeaveRequest(r))
-        .sort((a, b) =>
-          String(b.startDate || b.fromDate || "").localeCompare(
-            String(a.startDate || a.fromDate || ""),
-          ),
+      filterLeaveRequestsForViewer(
+        ((settings?.leaveRequests || []) as LeaveRequest[]).map((r) => normalizeLeaveRequest(r)),
+        viewerId,
+        { reviewAll: isOwnerView, aliasMap },
+      ).sort((a, b) =>
+        String(b.startDate || b.fromDate || "").localeCompare(
+          String(a.startDate || a.fromDate || ""),
         ),
-    [settings?.leaveRequests],
+      ),
+    [settings?.leaveRequests, viewerId, isOwnerView, aliasMap],
   );
 
-  const visible = useMemo(() => {
-    if (isOwnerOrManager) return leaveRequests.slice(0, 40);
-    const id = String(user?.id || "");
+  const visible = useMemo(() => leaveRequests.slice(0, 40), [leaveRequests]);
+
+  const historyRows = useMemo(() => {
+    const cutoff = new Date();
+    cutoff.setFullYear(cutoff.getFullYear() - 2);
     return leaveRequests
-      .filter((r) => String(r.userId || r.staffId || "") === id)
+      .filter((r) => normalizeLeaveStatus(r.status) === "Approved")
+      .filter((r) => {
+        const start = r.startDate || r.fromDate || "";
+        if (!start) return false;
+        const d = new Date(start);
+        return !Number.isNaN(d.getTime()) && d >= cutoff;
+      })
       .slice(0, 40);
-  }, [leaveRequests, isOwnerOrManager, user?.id]);
+  }, [leaveRequests]);
+
+  const { data: balanceData, isLoading: balanceLoading } = useQuery({
+    queryKey: ["leave-balance", calendarYear, viewerId, isOwnerView ? "all" : "self"],
+    queryFn: () => leaveApi.balances(calendarYear),
+    enabled: Boolean(user),
+  });
+
+  const myBalance = useMemo(() => {
+    const apiRows = Array.isArray(balanceData?.rows) ? balanceData.rows : [];
+    const match = apiRows.find((row) =>
+      leaveRequestMatchesStaff(
+        String((row as { userId?: string }).userId || row.staffLoginId || ""),
+        viewerId,
+        aliasMap,
+      ),
+    );
+    if (match) {
+      return Number(
+        (match as { balance?: number; remainingDays?: number }).balance ??
+          match.remainingDays ??
+          0,
+      );
+    }
+    return annualLeaveBalanceRemaining(leaveRequests, viewerId, {
+      year: calendarYear,
+      baseDays: Number(balanceData?.baseDays ?? 24),
+      aliasMap,
+      adjustments: (balanceData?.adjustments || []) as never,
+    });
+  }, [balanceData, leaveRequests, viewerId, aliasMap, calendarYear]);
 
   const createMut = useMutation({
     mutationFn: async () => {
-      const userId = form.userId || user?.id || "";
+      const userId = isOwnerView ? form.userId || user?.id || "" : viewerId;
       if (!userId) throw new Error("Select staff");
       if (!form.startDate || !form.endDate) throw new Error("Choose dates");
       return leaveApi.create({
@@ -100,6 +140,7 @@ export function MobileLeave() {
       setForm((f) => ({ ...f, reason: "", startDate: today, endDate: today }));
       setTab("requests");
       await qc.invalidateQueries({ queryKey: ["settings"] });
+      await qc.invalidateQueries({ queryKey: ["leave-balance"] });
     },
     onError: (err) => {
       if (err instanceof ApiError) {
@@ -122,6 +163,7 @@ export function MobileLeave() {
     onSuccess: async () => {
       toast.success("Updated");
       await qc.invalidateQueries({ queryKey: ["settings"] });
+      await qc.invalidateQueries({ queryKey: ["leave-balance"] });
     },
     onError: () => toast.error("Could not update leave"),
   });
@@ -140,12 +182,40 @@ export function MobileLeave() {
       <MobileHero
         eyebrow="Time off"
         title="Leave"
-        subtitle="Request and review leave without the desktop clutter."
+        subtitle={
+          isOwnerView
+            ? "Request and review leave without the desktop clutter."
+            : "Your requests, balance, and history only."
+        }
       />
 
-      <div className="flex gap-2">
+      <MobilePanel className="grid grid-cols-2 gap-2 p-3">
+        <div className="rounded-xl bg-slate-50 px-3 py-2 dark:bg-white/[0.04]">
+          <p className="text-[10px] font-semibold uppercase tracking-wide text-slate-400">
+            Requests
+          </p>
+          <p className="text-lg font-semibold tabular-nums">{leaveRequests.length}</p>
+        </div>
+        <div className="rounded-xl bg-violet-50 px-3 py-2 dark:bg-violet-950/30">
+          <p className="text-[10px] font-semibold uppercase tracking-wide text-violet-400">
+            Balance · {calendarYear}
+          </p>
+          <p className="text-lg font-semibold tabular-nums text-violet-800 dark:text-violet-300">
+            {balanceLoading ? "…" : myBalance}
+            <span className="ml-1 text-xs font-medium text-violet-500">days</span>
+          </p>
+        </div>
+      </MobilePanel>
+
+      <div className="flex flex-wrap gap-2">
         <MobileChip active={tab === "requests"} onClick={() => setTab("requests")}>
           Requests
+        </MobileChip>
+        <MobileChip active={tab === "balance"} onClick={() => setTab("balance")}>
+          Balance
+        </MobileChip>
+        <MobileChip active={tab === "history"} onClick={() => setTab("history")}>
+          History
         </MobileChip>
         {canCreate ? (
           <MobileChip active={tab === "create"} onClick={() => setTab("create")}>
@@ -156,7 +226,7 @@ export function MobileLeave() {
 
       {tab === "create" && canCreate ? (
         <MobilePanel accent="bg-sky-500" className="space-y-3 p-4">
-          {isOwnerOrManager ? (
+          {isOwnerView ? (
             <div>
               <Label>Staff</Label>
               <Select
@@ -228,6 +298,61 @@ export function MobileLeave() {
         </MobilePanel>
       ) : null}
 
+      {tab === "balance" ? (
+        <MobilePanel className="p-4">
+          <p className="text-[10px] font-semibold uppercase tracking-wide text-violet-400">
+            Annual Leave Balance · {calendarYear}
+          </p>
+          <p className="mt-1 text-3xl font-semibold tabular-nums text-violet-800 dark:text-violet-300">
+            {balanceLoading ? "…" : myBalance}
+          </p>
+          <p className="mt-1 text-xs text-slate-500">
+            Days left after approved leave
+            {balanceData?.baseDays ? ` · base ${balanceData.baseDays}` : ""}.
+          </p>
+          {!isOwnerView ? (
+            <p className="mt-2 text-xs text-slate-400">Showing your balance only.</p>
+          ) : null}
+        </MobilePanel>
+      ) : null}
+
+      {tab === "history" ? (
+        <div className="space-y-2.5">
+          {!historyRows.length ? (
+            <MobilePanel>
+              <p className="px-4 py-8 text-center text-sm text-slate-500">
+                No approved leave in the last 2 years.
+              </p>
+            </MobilePanel>
+          ) : (
+            historyRows.map((r) => {
+              const start = r.startDate || r.fromDate;
+              const end = r.endDate || r.toDate;
+              return (
+                <MobilePanel key={r.id || `${r.userId}-${start}`} className="p-4">
+                  <p className="text-sm font-semibold">
+                    {isOwnerView
+                      ? staffDisplayName(staff, String(r.userId || r.staffId || "")) ||
+                        r.userId ||
+                        "Staff"
+                      : r.type || "Leave"}
+                  </p>
+                  <p className="text-[11px] text-slate-500">
+                    {r.type} · {formatDate(start)} → {formatDate(end)} ·{" "}
+                    {r.days || leaveDaysBetween(start, end)} day(s)
+                  </p>
+                  {r.reason ? (
+                    <p className="mt-2 line-clamp-2 text-xs text-slate-600 dark:text-slate-300">
+                      {r.reason}
+                    </p>
+                  ) : null}
+                </MobilePanel>
+              );
+            })
+          )}
+        </div>
+      ) : null}
+
       {tab === "requests" ? (
         <div className="space-y-2.5">
           {!visible.length ? (
@@ -245,9 +370,11 @@ export function MobileLeave() {
                   <div className="flex items-start justify-between gap-2">
                     <div className="min-w-0">
                       <p className="truncate text-sm font-semibold">
-                        {staffDisplayName(staff, String(r.userId || r.staffId || "")) ||
-                          r.userId ||
-                          "Staff"}
+                        {isOwnerView
+                          ? staffDisplayName(staff, String(r.userId || r.staffId || "")) ||
+                            r.userId ||
+                            "Staff"
+                          : r.type || "Leave"}
                       </p>
                       <p className="text-[11px] text-slate-500">
                         {r.type} · {formatDate(start)} → {formatDate(end)}
