@@ -310,3 +310,38 @@
     animation: none !important;
   }
 }
+
+@keyframes classical-modal-fade {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+@keyframes classical-modal-rise {
+  from {
+    opacity: 0;
+    transform: translateY(18px) scale(0.975);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+.classical-modal-backdrop {
+  background:
+    radial-gradient(ellipse 80% 60% at 50% 20%, rgba(15, 23, 42, 0.28), transparent 55%),
+    rgba(2, 6, 23, 0.52);
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
+  animation: classical-modal-fade 0.22s ease-out both;
+}
+
+.classical-modal-panel {
+  animation: classical-modal-rise 0.38s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .classical-modal-backdrop,
+  .classical-modal-panel {
+    animation: none !important;
+  }
+}
