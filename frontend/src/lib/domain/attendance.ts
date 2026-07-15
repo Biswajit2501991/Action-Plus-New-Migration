@@ -2,6 +2,13 @@
 
 export const ATTENDANCE_NOTES_FEATURE_FLAG_KEY = "attendanceNotesEnabled";
 
+/** Master switch for Visitor intake QR + Attendance presence QR staff UI/flows. */
+export const QR_VISITOR_ATTENDANCE_FEATURE_FLAG_KEY = "qrVisitorAttendanceEnabled";
+
+export function isQrVisitorAttendanceEnabled(settings?: Record<string, unknown> | null) {
+  return settings?.[QR_VISITOR_ATTENDANCE_FEATURE_FLAG_KEY] === true;
+}
+
 export const ATTENDANCE_NOTE_CATEGORIES = [
   "traffic",
   "rain",

@@ -112,7 +112,10 @@ import staffPhotosRouter from './routes/staffPhotos.js';
 import paymentQrRouter from './routes/paymentQr.js';
 import leaveBalanceRouter from './routes/leaveBalance.js';
 import publicPaymentQrRouter from './routes/publicPaymentQr.js';
+import publicVisitorsRouter from './routes/publicVisitors.js';
 import publicMemberStatusRouter from './routes/publicMemberStatus.js';
+import publicAttendancePresenceRouter from './routes/publicAttendancePresence.js';
+import attendancePresenceRouter from './routes/attendancePresence.js';
 import {
   authIsOwner,
   stampBranchOnRows,
@@ -515,7 +518,10 @@ app.get('/api/version', (_req, res) => {
 });
 
 app.use('/api/public/payment-qr', publicPaymentQrRouter);
+app.use('/api/public/visitors', publicVisitorsRouter);
 app.use('/api/public/member-status', publicMemberStatusRouter);
+app.use('/api/public/attendance/presence', publicAttendancePresenceRouter);
+app.use('/api/attendance/presence', attendancePresenceRouter);
 
 app.use('/api/auth', authRouter);
 
@@ -1924,6 +1930,28 @@ app.post('/api/attendance/punch', requireAccess(Access.attendancePunch), async (
     if (punchType !== 'login' && punchType !== 'logout') {
       return res.status(400).json({ error: 'invalid_type', message: 'type must be login or logout' });
     }
+
+    if (punchType === 'login') {
+      const settings = (await readJsonValue('apg.settings', {}, null)) || {};
+      const featureOn = settings.qrVisitorAttendanceEnabled === true;
+      const requirePresence =
+        featureOn && settings.attendanceRequirePresenceQr === true;
+      if (requirePresence) {
+        try {
+          const { consumeAttendancePresenceTicket } = await import('./services/attendance/presenceTokens.js');
+          consumeAttendancePresenceTicket(req.body?.presenceTicket, req.auth.userId);
+        } catch (presErr) {
+          if (presErr?.code === 'presence_required' || presErr?.status === 403) {
+            return res.status(403).json({
+              error: 'presence_required',
+              message: presErr.detail || 'Scan the gym Attendance QR before Time In.',
+            });
+          }
+          throw presErr;
+        }
+      }
+    }
+
     const record = await punchStaffAttendance(readSandboxScope(req), {
       userId: req.auth.userId,
       punchType,

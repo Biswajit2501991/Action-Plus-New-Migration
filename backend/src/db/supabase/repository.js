@@ -1732,6 +1732,8 @@ function buildSettingsObject({ lookups, templates, configRow, staffDir, roles, l
     financeUseEstimatedExpense: true,
     customTemplatesEnabled: false,
     attendanceNotesEnabled: false,
+    qrVisitorAttendanceEnabled: false,
+    attendanceRequirePresenceQr: false,
     paymentQrInReminderEnabled: false,
   };
 
@@ -2289,6 +2291,67 @@ export async function deleteVisitorByExternalId(externalVisitorId, branchScope =
   if (delErr) throw new Error(`visitor delete: ${delErr.message}`);
   notifyCollectionChange('visitors');
   return { ok: true, id: extId };
+}
+
+/**
+ * Public QR intake: create visitor, or update same-day New visitor with same mobile+branch.
+ */
+export async function createOrUpsertPublicVisitor(visitor) {
+  const sb = getSupabase();
+  const gid = gymId();
+  const includeGymCode = await visitorsHaveGymCodeColumn(sb);
+  const mobile = String(visitor?.mobile || '').replace(/\D/g, '').slice(-10);
+  const branchId = String(visitor?.assignedGymCodeId || '').trim();
+  const today = new Date().toISOString().slice(0, 10);
+
+  if (mobile && branchId && includeGymCode) {
+    const { data: existingRows, error: findErr } = await sb
+      .from(T.visitors)
+      .select('*')
+      .eq('gym_id', gid)
+      .eq('assigned_gym_code_id', branchId)
+      .eq('mobile', mobile)
+      .eq('status', 'New')
+      .order('added_at', { ascending: false })
+      .limit(20);
+    if (findErr) throw findErr;
+    const sameDay = (existingRows || []).find((row) => {
+      const added = String(row.added_at || '').slice(0, 10);
+      return added === today;
+    });
+    if (sameDay) {
+      const merged = {
+        ...visitorRowToApp(sameDay),
+        fullName: visitor.fullName || visitor.name,
+        name: visitor.fullName || visitor.name,
+        email: visitor.email || sameDay.email || '',
+        gender: visitor.gender || sameDay.gender || '',
+        dob: visitor.dob || sameDay.dob || '',
+        notes: visitor.notes || '',
+        intakeSource: 'qr_public',
+        updatedAt: new Date().toISOString(),
+      };
+      const row = appVisitorToRow(merged, gid);
+      const payload = includeGymCode ? row : stripVisitorGymCodeColumn(row);
+      const { error: updErr } = await sb
+        .from(T.visitors)
+        .update(payload)
+        .eq('gym_id', gid)
+        .eq('external_visitor_id', sameDay.external_visitor_id);
+      if (updErr) throw updErr;
+      notifyCollectionChange('visitors');
+      return merged;
+    }
+  }
+
+  const row = appVisitorToRow(visitor, gid);
+  const payload = includeGymCode ? row : stripVisitorGymCodeColumn(row);
+  const { error: insErr } = await sb.from(T.visitors).upsert(payload, {
+    onConflict: 'gym_id,external_visitor_id',
+  });
+  if (insErr) throw insErr;
+  notifyCollectionChange('visitors');
+  return visitorRowToApp({ ...payload, external_visitor_id: payload.external_visitor_id });
 }
 
 /**

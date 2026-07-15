@@ -85,6 +85,46 @@ describe('mergeSettingsBulkPatch', () => {
 });
 
 describe('buildSettingsAppConfigWriteFromLive', () => {
+  it('preserves live qrVisitorAttendanceEnabled when patch only toggles notes', () => {
+    const row = buildSettingsAppConfigWriteFromLive(
+      {
+        fine_sms_enabled: true,
+        fine_sms_grace_days: 0,
+        fine_sms_immediate_roles_json: [],
+        finance_use_estimated_expense: true,
+        config_json: {
+          attendanceNotesEnabled: false,
+          qrVisitorAttendanceEnabled: true,
+          attendanceRequirePresenceQr: true,
+          customTemplatesEnabled: false,
+        },
+      },
+      { attendanceNotesEnabled: true },
+    );
+    expect(row.config_json.qrVisitorAttendanceEnabled).toBe(true);
+    expect(row.config_json.attendanceRequirePresenceQr).toBe(true);
+    expect(row.config_json.attendanceNotesEnabled).toBe(true);
+  });
+
+  it('preserves live attendanceRequirePresenceQr when patch only toggles notes', () => {
+    const row = buildSettingsAppConfigWriteFromLive(
+      {
+        fine_sms_enabled: true,
+        fine_sms_grace_days: 0,
+        fine_sms_immediate_roles_json: [],
+        finance_use_estimated_expense: true,
+        config_json: {
+          attendanceNotesEnabled: false,
+          attendanceRequirePresenceQr: true,
+          customTemplatesEnabled: false,
+        },
+      },
+      { attendanceNotesEnabled: true },
+    );
+    expect(row.config_json.attendanceRequirePresenceQr).toBe(true);
+    expect(row.config_json.attendanceNotesEnabled).toBe(true);
+  });
+
   it('preserves live attendanceNotesEnabled when patch only toggles custom templates', () => {
     const row = buildSettingsAppConfigWriteFromLive(
       {

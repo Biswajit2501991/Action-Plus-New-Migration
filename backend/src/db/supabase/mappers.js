@@ -435,10 +435,22 @@ export function visitorRowToApp(row) {
     lastCalledBy: row.last_called_by,
     assignedGymCodeId: row.assigned_gym_code_id || null,
     addedAt: row.added_at,
+    notes: row.notes || '',
+    intakeSource:
+      row.intake_source ||
+      (String(row.last_called_by || '').startsWith('__intake:')
+        ? String(row.last_called_by).slice('__intake:'.length)
+        : null),
   };
 }
 
 export function appVisitorToRow(v, gymId) {
+  const intake = v.intakeSource ? String(v.intakeSource).trim() : '';
+  const lastCalledBy = v.lastCalledBy
+    ? String(v.lastCalledBy)
+    : intake
+      ? `__intake:${intake}`
+      : null;
   return {
     gym_id: gymId,
     external_visitor_id: String(v.id || crypto.randomUUID()),
@@ -451,7 +463,7 @@ export function appVisitorToRow(v, gymId) {
     call_back_required: Boolean(v.callBackRequired),
     tentative_joining_date: toDate(v.tentativeJoiningDate),
     last_called_at: toTs(v.lastCalledAt),
-    last_called_by: v.lastCalledBy || null,
+    last_called_by: lastCalledBy,
     assigned_gym_code_id: v.assignedGymCodeId ? String(v.assignedGymCodeId).trim() : null,
     added_at: toTs(v.addedAt),
     created_at: toTs(v.addedAt) || new Date().toISOString(),

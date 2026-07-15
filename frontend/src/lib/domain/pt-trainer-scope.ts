@@ -1,10 +1,9 @@
 import {
   isBranchAdminUser,
   isMasterOwnerUser,
-  type AuthUser,
 } from "@/lib/domain/permissions";
 import { isPtEligibleMember } from "@/lib/domain/pt-eligibility";
-import type { Member } from "@/types";
+import type { AuthUser, Member } from "@/types";
 import type { PtClientProfile } from "@/types/pt";
 
 type StaffLike = { id?: string; name?: string | null; email?: string | null };
@@ -47,7 +46,27 @@ export function resolveStaffCanonical(
   return raw;
 }
 
-/** Tokens that identify who a PT client is assigned to. */
+/** Exact / alias / short-prefix match (Bis → Biswajit). */
+export function staffTokenMatchesViewer(token: string, viewerKeys: Set<string>) {
+  const t = String(token || "")
+    .trim()
+    .toLowerCase();
+  if (!t || !viewerKeys.size) return false;
+  if (viewerKeys.has(t)) return true;
+  for (const vk of viewerKeys) {
+    const v = String(vk || "")
+      .trim()
+      .toLowerCase();
+    if (!v) continue;
+    if (t.length >= 3 && v.length >= 3 && (v.startsWith(t) || t.startsWith(v))) return true;
+  }
+  return false;
+}
+
+/**
+ * Tokens that identify who a PT client is assigned to.
+ * Prefer plan suffix (PT-Raja) + profile trainer; enrollment staff only for generic PT plans.
+ */
 export function ptAssignmentTokens(
   member?: Pick<Member, "staff" | "trainerId" | "plan"> | null,
   profile?: Pick<PtClientProfile, "trainerId"> | { trainer?: unknown } | null,
@@ -59,13 +78,15 @@ export function ptAssignmentTokens(
   };
   push((profile as { trainerId?: unknown } | null | undefined)?.trainerId);
   push((profile as { trainer?: unknown } | null | undefined)?.trainer);
-  push(member?.staff);
-  push(member?.trainerId);
 
   const plan = String(member?.plan || "").trim();
-  // Convention: PT-Raja / PT_Kaushik / PT Raja → trainer name/id suffix
   const suffix = plan.match(/\bpt[-_\s]+(.+)$/i)?.[1]?.trim();
-  if (suffix) push(suffix);
+  if (suffix) {
+    push(suffix);
+  } else {
+    push(member?.staff);
+    push(member?.trainerId);
+  }
 
   return tokens;
 }
@@ -90,13 +111,13 @@ export function ptClientAssignedToViewer(
     .filter(Boolean);
   if (!assigned.length) return false;
 
-  return assigned.some((token) => viewerKeys.has(token));
+  return assigned.some((token) => staffTokenMatchesViewer(token, viewerKeys));
 }
 
 /**
  * PT roster for the current viewer.
  * Admins: all eligible PT members.
- * Staff: only clients assigned to them (trainerId / staff / PT-Name plan).
+ * Staff: only clients assigned to them (trainerId / PT-Name plan).
  */
 export function filterPtMembersForViewer(
   members: Member[],
@@ -108,7 +129,6 @@ export function filterPtMembersForViewer(
   if (canViewAllPtClients(viewer)) return eligible;
 
   const aliasMap = buildStaffAliasLookup(users);
-  // Ensure the viewer's own id/name resolve even if users list is thin.
   const selfId = String(viewer?.id || "")
     .trim()
     .toLowerCase();

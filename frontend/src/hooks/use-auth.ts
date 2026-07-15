@@ -12,6 +12,10 @@ import {
   switchActiveBranch,
 } from "@/services/api/auth";
 import { attendanceApi } from "@/services/api";
+import {
+  clearPresenceTicket,
+  readPresenceTicket,
+} from "@/lib/attendance-presence";
 import { readAuthSession, touchAuthSession } from "@/lib/auth-storage";
 import {
   clearAppQueryCache,
@@ -30,13 +34,27 @@ function unwrapUser(payload: { user: AuthUser } | AuthUser): AuthUser {
 
 async function punchSafe(type: "login" | "logout", actorName?: string) {
   try {
-    return await attendanceApi.punch({
+    const presenceTicket = type === "login" ? readPresenceTicket() || undefined : undefined;
+    const record = await attendanceApi.punch({
       type,
       at: new Date().toISOString(),
       timeZone: "IST",
       actorName: actorName || undefined,
+      presenceTicket,
     });
-  } catch {
+    if (type === "login" && presenceTicket) clearPresenceTicket();
+    return record;
+  } catch (err) {
+    if (
+      type === "login" &&
+      err instanceof ApiError &&
+      (err.code === "presence_required" || err.status === 403)
+    ) {
+      toast.message("Scan gym Attendance QR to mark Time In.", {
+        description: err.message || undefined,
+      });
+      return null;
+    }
     /* punch is best-effort — never block auth */
     return null;
   }
@@ -81,9 +99,12 @@ export function useAuth() {
     setUser(data.user);
     setActiveBranchId(data.user.activeBranchId || data.user.gymCodeId || null);
     const punchRecord = await punchSafe("login", data.user.name || data.user.id);
-    const loginAt =
-      String(punchRecord?.firstLoginAt || "").trim() || new Date().toISOString();
-    setJustLoggedInAt(loginAt);
+    const stamped = String(punchRecord?.firstLoginAt || "").trim();
+    if (stamped) {
+      setJustLoggedInAt(stamped);
+    } else {
+      setJustLoggedInAt(null);
+    }
     setLateNoteOpen(false);
     toast.success(`Welcome back, ${data.user.name || data.user.id}`);
     return data.user;

@@ -257,6 +257,7 @@ export const attendanceApi = {
     at?: string;
     timeZone?: string;
     actorName?: string;
+    presenceTicket?: string;
   }) => {
     const res = await apiFetch<{ ok?: boolean; record?: AttendanceRecord }>(
       "/attendance/punch",
@@ -267,6 +268,29 @@ export const attendanceApi = {
     );
     return res?.record ?? null;
   },
+  rotatePresence: (body?: { gymCodeId?: string }) =>
+    apiFetch<{
+      ok?: boolean;
+      token: string;
+      gymCodeId?: string;
+      expiresAt?: string;
+      expiresInSec?: number;
+    }>("/attendance/presence/rotate", {
+      method: "POST",
+      body: JSON.stringify(body || {}),
+    }),
+  presenceSettings: () =>
+    apiFetch<{ ok?: boolean; attendanceRequirePresenceQr?: boolean }>(
+      "/attendance/presence/settings",
+    ),
+  savePresenceSettings: (body: { attendanceRequirePresenceQr: boolean }) =>
+    apiFetch<{ ok?: boolean; attendanceRequirePresenceQr?: boolean }>(
+      "/attendance/presence/settings",
+      {
+        method: "PUT",
+        body: JSON.stringify(body),
+      },
+    ),
   saveRecords: (records: AttendanceRecord[]) =>
     apiFetch<{ ok?: boolean; count?: number }>("/attendance/records", {
       method: "PUT",

@@ -89,6 +89,8 @@ function SettingsToggle({
 
 type FeatureFlagState = {
   attendanceNotesEnabled: boolean;
+  qrVisitorAttendanceEnabled: boolean;
+  attendanceRequirePresenceQr: boolean;
   customTemplatesEnabled: boolean;
   fineSmsEnabled: boolean;
   fineSmsGraceDays: number;
@@ -415,6 +417,8 @@ export function SettingsPage() {
   const flags = useMemo<FeatureFlagState>(
     () => ({
       attendanceNotesEnabled: settings?.attendanceNotesEnabled === true,
+      qrVisitorAttendanceEnabled: settings?.qrVisitorAttendanceEnabled === true,
+      attendanceRequirePresenceQr: settings?.attendanceRequirePresenceQr === true,
       customTemplatesEnabled: settings?.customTemplatesEnabled === true,
       fineSmsEnabled: settings?.fineSmsEnabled !== false,
       fineSmsGraceDays: Number(settings?.fineSmsGraceDays ?? 0) || 0,
@@ -478,6 +482,12 @@ export function SettingsPage() {
     }
     if (flags.attendanceNotesEnabled && patch.attendanceNotesEnabled === undefined) {
       patch.attendanceNotesEnabled = true;
+    }
+    if (flags.qrVisitorAttendanceEnabled && patch.qrVisitorAttendanceEnabled === undefined) {
+      patch.qrVisitorAttendanceEnabled = true;
+    }
+    if (flags.attendanceRequirePresenceQr && patch.attendanceRequirePresenceQr === undefined) {
+      patch.attendanceRequirePresenceQr = true;
     }
     if (flags.paymentQrInReminderEnabled && patch.paymentQrInReminderEnabled === undefined) {
       patch.paymentQrInReminderEnabled = true;
@@ -971,7 +981,7 @@ export function SettingsPage() {
       {isOwner ? (
         <SettingsSectionShell
           title="System Features"
-          description="Attendance notes, custom templates, and finance estimates"
+          description="Attendance notes, QR flows, custom templates, and finance estimates"
           open={Boolean(openCat.features)}
           onToggle={() => toggleCat("features")}
           accent={SECTION_ACCENTS.features}
@@ -987,6 +997,37 @@ export function SettingsPage() {
               description="Allow staff to submit late-arrival notes on Attendance."
               onChange={(next) => setFeatureFlags({ attendanceNotesEnabled: next })}
             />
+            <SettingsToggle
+              checked={flags.qrVisitorAttendanceEnabled}
+              label="QR Visitor & Attendance"
+              description="Show Visitor intake QR and Attendance QR kiosk. Turn this on when you are ready to use gym QR posters and the reception tablet."
+              onChange={(next) => {
+                if (!next) {
+                  setFeatureFlags({
+                    qrVisitorAttendanceEnabled: false,
+                    attendanceRequirePresenceQr: false,
+                  });
+                  return;
+                }
+                setFeatureFlags({ qrVisitorAttendanceEnabled: true });
+              }}
+            />
+            {flags.qrVisitorAttendanceEnabled ? (
+              <div className="space-y-3 rounded-xl border border-teal-200/70 bg-teal-50/40 p-3 dark:border-teal-900/40 dark:bg-teal-950/20">
+                <SettingsToggle
+                  checked={flags.attendanceRequirePresenceQr}
+                  label="Require attendance QR for Time In"
+                  description="After the kiosk is running, require staff to scan the gym Attendance QR before login marks Time In. Open Attendance → Attendance QR on a tablet."
+                  onChange={(next) => setFeatureFlags({ attendanceRequirePresenceQr: next })}
+                />
+                <a
+                  href="/attendance/kiosk"
+                  className="inline-flex h-9 items-center rounded-md border border-input bg-background px-3 text-xs font-medium hover:bg-accent"
+                >
+                  Open Attendance QR kiosk
+                </a>
+              </div>
+            ) : null}
             <SettingsToggle
               checked={flags.customTemplatesEnabled}
               label="Custom WhatsApp templates"

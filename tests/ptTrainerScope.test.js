@@ -4,11 +4,17 @@ import {
   ptAssignmentTokens,
   ptClientAssignedToViewer,
   resolveStaffCanonical,
+  staffTokenMatchesViewer,
 } from '../backend/src/services/pt/ptTrainerScope.js';
 
 describe('ptTrainerScope', () => {
   it('matches PT-Name plan suffixes and trainerId', () => {
     expect(ptAssignmentTokens({ plan: 'PT-Raja' }, null)).toContain('Raja');
+    expect(ptAssignmentTokens({ plan: 'PT-Raja' }, null)).not.toContain('Deep');
+    expect(
+      ptAssignmentTokens({ plan: 'PT-Raja', staff: 'Deep' }, null),
+    ).toEqual(expect.not.arrayContaining(['Deep']));
+
     expect(
       ptClientAssignedToViewer(
         { plan: 'PT-Kaushik' },
@@ -16,7 +22,6 @@ describe('ptTrainerScope', () => {
         'kaushik',
         'Kaushik',
         new Map([
-          ['kaushik', 'kaushik'],
           ['kaushik', 'kaushik'],
         ]),
       ),
@@ -28,11 +33,42 @@ describe('ptTrainerScope', () => {
     ]);
     expect(resolveStaffCanonical('Kaushik', alias)).toBe('kaushik');
     expect(
-      ptClientAssignedToViewer({ staff: 'Raja' }, { trainerId: 'raja' }, 'raja', null, alias),
+      ptClientAssignedToViewer({ plan: 'PT-Raja' }, { trainerId: 'raja' }, 'raja', null, alias),
     ).toBe(true);
     expect(
-      ptClientAssignedToViewer({ staff: 'Raja' }, { trainerId: 'raja' }, 'kaushik', null, alias),
+      ptClientAssignedToViewer({ plan: 'PT-Raja' }, { trainerId: 'raja' }, 'kaushik', null, alias),
     ).toBe(false);
+  });
+
+  it('matches short plan suffix to longer staff login (Bis → Biswajit)', () => {
+    expect(staffTokenMatchesViewer('bis', new Set(['biswajit']))).toBe(true);
+    expect(
+      ptClientAssignedToViewer({ plan: 'PT-Bis' }, {}, 'Biswajit', 'Biswajit', null),
+    ).toBe(true);
+    expect(
+      ptClientAssignedToViewer(
+        { plan: 'PT-Raja', staff: 'Biswajit' },
+        {},
+        'Biswajit',
+        'Biswajit',
+        null,
+      ),
+    ).toBe(false);
+  });
+
+  it('uses enrollment staff only for generic PT plans', () => {
+    expect(
+      ptAssignmentTokens({ plan: 'Personal Training (PT)', staff: 'Biswajit' }, null),
+    ).toContain('Biswajit');
+    expect(
+      ptClientAssignedToViewer(
+        { plan: 'Personal Training (PT)', staff: 'Biswajit' },
+        {},
+        'Biswajit',
+        null,
+        null,
+      ),
+    ).toBe(true);
   });
 
   it('filters profiles to the calling trainer only', () => {

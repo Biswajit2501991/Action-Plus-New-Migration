@@ -69,12 +69,16 @@ export const SETTINGS_CONFIG_JSON_KEYS = [
   'smsTemplatePresetVersion',
   'customTemplatesEnabled',
   'attendanceNotesEnabled',
+  'qrVisitorAttendanceEnabled',
+  'attendanceRequirePresenceQr',
   'paymentQrInReminderEnabled',
 ];
 
 const OPT_IN_BOOL_KEYS = new Set([
   'customTemplatesEnabled',
   'attendanceNotesEnabled',
+  'qrVisitorAttendanceEnabled',
+  'attendanceRequirePresenceQr',
   'paymentQrInReminderEnabled',
 ]);
 
@@ -118,6 +122,8 @@ export function buildSettingsAppConfigWriteFromLive(liveConfigRow, incoming, exi
   // Always persist known opt-in keys as booleans so reads stay consistent.
   nextCfg.customTemplatesEnabled = nextCfg.customTemplatesEnabled === true;
   nextCfg.attendanceNotesEnabled = nextCfg.attendanceNotesEnabled === true;
+  nextCfg.qrVisitorAttendanceEnabled = nextCfg.qrVisitorAttendanceEnabled === true;
+  nextCfg.attendanceRequirePresenceQr = nextCfg.attendanceRequirePresenceQr === true;
   nextCfg.paymentQrInReminderEnabled = nextCfg.paymentQrInReminderEnabled === true;
 
   const fineSmsEnabled = Object.prototype.hasOwnProperty.call(patch, 'fineSmsEnabled')
@@ -149,6 +155,8 @@ export function buildSettingsAppConfigWriteFromLive(liveConfigRow, incoming, exi
       smsTemplatePresetVersion: nextCfg.smsTemplatePresetVersion || null,
       customTemplatesEnabled: nextCfg.customTemplatesEnabled === true,
       attendanceNotesEnabled: nextCfg.attendanceNotesEnabled === true,
+      qrVisitorAttendanceEnabled: nextCfg.qrVisitorAttendanceEnabled === true,
+      attendanceRequirePresenceQr: nextCfg.attendanceRequirePresenceQr === true,
       paymentQrInReminderEnabled: nextCfg.paymentQrInReminderEnabled === true,
     },
   };

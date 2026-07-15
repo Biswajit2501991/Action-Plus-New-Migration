@@ -366,6 +366,36 @@ export async function deleteVisitor(externalVisitorId, branchScope = null) {
   return { ok: true, id: extId };
 }
 
+/** Public QR visitor intake (create or same-day mobile upsert). */
+export async function createOrUpsertPublicVisitor(visitor) {
+  if (useSupabase()) return supabaseStore.createOrUpsertPublicVisitor(visitor);
+  const rows = await kvStore.readJsonCollection('apg.visitors', []);
+  const mobile = String(visitor?.mobile || '').replace(/\D/g, '').slice(-10);
+  const branchId = String(visitor?.assignedGymCodeId || '').trim();
+  const today = new Date().toISOString().slice(0, 10);
+  const idx = rows.findIndex((v) => {
+    if (String(v?.status || '') !== 'New') return false;
+    if (String(v?.mobile || '').replace(/\D/g, '').slice(-10) !== mobile) return false;
+    if (branchId && String(v?.assignedGymCodeId || '') !== branchId) return false;
+    return String(v?.addedAt || v?.visitDate || '').slice(0, 10) === today;
+  });
+  if (idx >= 0) {
+    const merged = {
+      ...rows[idx],
+      ...visitor,
+      id: rows[idx].id,
+      intakeSource: 'qr_public',
+      updatedAt: new Date().toISOString(),
+    };
+    rows[idx] = merged;
+    await kvStore.writeJsonCollection('apg.visitors', rows);
+    return merged;
+  }
+  rows.push(visitor);
+  await kvStore.writeJsonCollection('apg.visitors', rows);
+  return visitor;
+}
+
 export async function updateMember(memberCode, patch, branchScope = null) {
   if (useSupabase()) return supabaseStore.updateMemberFields(memberCode, patch, branchScope);
   const rows = await kvStore.readJsonCollection('apg.members', []);

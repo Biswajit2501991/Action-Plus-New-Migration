@@ -1,5 +1,9 @@
 /**
  * Shared PT trainer assignment matching (Node + mirror of frontend helper).
+ *
+ * Gym convention: plan names like PT-Raja / PT-Bis encode the trainer.
+ * members.assigned_staff is usually sales enrollment staff — not used when a
+ * PT-* plan suffix is present.
  */
 
 export function resolveStaffCanonical(value, aliasMap = null) {
@@ -11,6 +15,21 @@ export function resolveStaffCanonical(value, aliasMap = null) {
   return raw;
 }
 
+/**
+ * Match assignment token to viewer keys (exact, alias, or short prefix like Bis→Biswajit).
+ */
+export function staffTokenMatchesViewer(token, viewerKeys) {
+  const t = String(token || '').trim().toLowerCase();
+  if (!t || !viewerKeys?.size) return false;
+  if (viewerKeys.has(t)) return true;
+  for (const vk of viewerKeys) {
+    const v = String(vk || '').trim().toLowerCase();
+    if (!v) continue;
+    if (t.length >= 3 && v.length >= 3 && (v.startsWith(t) || t.startsWith(v))) return true;
+  }
+  return false;
+}
+
 export function ptAssignmentTokens(member, profile) {
   const tokens = [];
   const push = (v) => {
@@ -19,13 +38,18 @@ export function ptAssignmentTokens(member, profile) {
   };
   push(profile?.trainerId);
   push(profile?.trainer);
-  push(member?.staff);
-  push(member?.assigned_staff);
-  push(member?.trainerId);
 
   const plan = String(member?.plan || member?.plan_name || '').trim();
   const suffix = plan.match(/\bpt[-_\s]+(.+)$/i)?.[1]?.trim();
-  if (suffix) push(suffix);
+  if (suffix) {
+    // PT-Raja / PT-Bis → trainer is the plan suffix (not sales assigned_staff).
+    push(suffix);
+  } else {
+    // Generic PT plan — fall back to enrollment / trainer fields.
+    push(member?.staff);
+    push(member?.assigned_staff);
+    push(member?.trainerId);
+  }
 
   return tokens;
 }
@@ -44,7 +68,7 @@ export function ptClientAssignedToViewer(member, profile, viewerId, viewerName, 
     .filter(Boolean);
   if (!assigned.length) return false;
 
-  return assigned.some((token) => viewerKeys.has(token));
+  return assigned.some((token) => staffTokenMatchesViewer(token, viewerKeys));
 }
 
 /**

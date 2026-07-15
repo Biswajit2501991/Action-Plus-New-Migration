@@ -77,6 +77,8 @@ export type Visitor = {
   updatedAt?: string;
   convertedAt?: string;
   convertedMemberId?: string;
+  /** Set when created via public Visitor QR intake. */
+  intakeSource?: string;
   [key: string]: unknown;
 };
 
@@ -267,6 +269,10 @@ export type AppSettings = {
   gmailWelcomeTemplate?: string;
   financeUseEstimatedExpense?: boolean;
   attendanceNotesEnabled?: boolean;
+  /** Master switch: Visitor intake QR + Attendance QR UI/flows. Default off. */
+  qrVisitorAttendanceEnabled?: boolean;
+  /** When true (and master QR enabled), login Time In requires presence ticket. Default off. */
+  attendanceRequirePresenceQr?: boolean;
   customTemplatesEnabled?: boolean;
   fineSmsEnabled?: boolean;
   fineSmsGraceDays?: number;

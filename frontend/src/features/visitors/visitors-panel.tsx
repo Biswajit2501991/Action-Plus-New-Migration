@@ -11,11 +11,14 @@ import {
   VisitorFormModal,
   type VisitorFormValues,
 } from "@/features/visitors/visitor-form-modal";
+import { VisitorIntakeQrCard } from "@/features/visitors/visitor-intake-qr-card";
 import { hasAccess } from "@/lib/domain/permissions";
 import { isRecordNewWithinHours } from "@/lib/domain/new-record";
+import { isQrVisitorAttendanceEnabled } from "@/lib/domain/attendance";
 import { cn, formatDate, uid } from "@/lib/utils";
 import { visitorsApi } from "@/services/api";
 import { useAuthStore, useUiStore } from "@/stores";
+import { useSettings } from "@/hooks/use-data";
 import type { Visitor } from "@/types";
 
 function displayName(v: Visitor) {
@@ -39,6 +42,8 @@ export function VisitorsPanel({ visitors }: Props) {
   const user = useAuthStore((s) => s.user);
   const openConvertVisitor = useUiStore((s) => s.openConvertVisitor);
   const qc = useQueryClient();
+  const { data: settings } = useSettings();
+  const qrFlowsEnabled = isQrVisitorAttendanceEnabled(settings as Record<string, unknown>);
   const canWrite =
     hasAccess(user, "members", "addMembers") || hasAccess(user, "members", "editMembers");
   const canDelete =
@@ -150,6 +155,8 @@ export function VisitorsPanel({ visitors }: Props) {
             ) : null}
           </div>
 
+          {canWrite && qrFlowsEnabled ? <VisitorIntakeQrCard /> : null}
+
           {!sorted.length ? (
             <EmptyState title="No visitors yet" description="Add a walk-in or phone enquiry." />
           ) : (
@@ -191,6 +198,9 @@ export function VisitorsPanel({ visitors }: Props) {
                             {displayName(v)}
                           </p>
                           <NewVisitorBadge timestamp={String(v.addedAt || v.visitDate || "")} />
+                          {String(v.intakeSource || "") === "qr_public" ? (
+                            <Badge variant="muted">QR</Badge>
+                          ) : null}
                           {(() => {
                             const status = String(v.status || "New").trim() || "New";
                             if (status.toLowerCase() === "new") return null;
