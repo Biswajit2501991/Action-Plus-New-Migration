@@ -11,6 +11,7 @@ import {
 } from "@/services/api";
 import { formatMonthKey } from "@/lib/utils";
 import { STALE } from "@/lib/query-cache";
+import { useAuthStore } from "@/stores";
 
 /**
  * Warm core caches after login so Dashboard / Members / Finance open from memory.
@@ -19,6 +20,9 @@ import { STALE } from "@/lib/query-cache";
 export function useWarmAppDataCache(enabled: boolean) {
   const qc = useQueryClient();
   const warmed = useRef(false);
+  const branchId = useAuthStore((s) =>
+    String(s.user?.activeBranchId || s.user?.gymCodeId || ""),
+  );
 
   useEffect(() => {
     if (!enabled) {
@@ -31,9 +35,9 @@ export function useWarmAppDataCache(enabled: boolean) {
     const month = formatMonthKey();
     void Promise.allSettled([
       qc.prefetchQuery({
-        queryKey: ["members"],
+        queryKey: ["members", branchId],
         queryFn: membersApi.list,
-        staleTime: STALE.lists,
+        staleTime: 30_000,
       }),
       qc.prefetchQuery({
         queryKey: ["settings", "default"],
@@ -62,5 +66,5 @@ export function useWarmAppDataCache(enabled: boolean) {
         staleTime: STALE.finance,
       }),
     ]);
-  }, [enabled, qc]);
+  }, [enabled, qc, branchId]);
 }

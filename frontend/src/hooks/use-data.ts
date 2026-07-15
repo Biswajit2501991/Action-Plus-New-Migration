@@ -16,12 +16,15 @@ import { STALE } from "@/lib/query-cache";
 import { useAuthStore } from "@/stores";
 
 export function useMembers() {
-  const authed = Boolean(useAuthStore((s) => s.user));
+  const user = useAuthStore((s) => s.user);
+  const authed = Boolean(user);
+  const branchId = String(user?.activeBranchId || user?.gymCodeId || "");
   return useQuery({
-    queryKey: ["members"],
+    queryKey: ["members", branchId],
     queryFn: membersApi.list,
     enabled: authed,
-    staleTime: STALE.lists,
+    staleTime: 30_000,
+    refetchOnMount: "always",
   });
 }
 

@@ -127,9 +127,9 @@ export function captureAppSnapshot(qc: QueryClient, label = "state"): AppSnapsho
 export function restoreAppSnapshot(qc: QueryClient, snap: AppSnapshot) {
   const store = useHistoryStore.getState();
   store.setSkipCapture(true);
-  if (snap.members !== undefined) qc.setQueryData(["members"], snap.members);
+  if (snap.members !== undefined) qc.setQueriesData({ queryKey: ["members"] }, () => snap.members);
   if (snap.users !== undefined) qc.setQueryData(["users"], snap.users);
-  if (snap.visitors !== undefined) qc.setQueryData(["visitors"], snap.visitors);
+  if (snap.visitors !== undefined) qc.setQueriesData({ queryKey: ["visitors"] }, () => snap.visitors);
   if (snap.settingsDefault !== undefined) {
     qc.setQueryData(["settings", "default"], snap.settingsDefault);
   }

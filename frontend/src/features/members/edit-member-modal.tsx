@@ -607,7 +607,7 @@ export function EditMemberModal({
       const res = await membersApi.patch(id, payload);
       const updated = res.member;
       if (updated?.memberId) {
-        qc.setQueryData<Member[]>(["members"], (old) =>
+        qc.setQueriesData<Member[]>({ queryKey: ["members"] }, (old) =>
           Array.isArray(old)
             ? old.map((row) =>
                 String(row.memberId) === String(updated.memberId) ? { ...row, ...updated } : row,

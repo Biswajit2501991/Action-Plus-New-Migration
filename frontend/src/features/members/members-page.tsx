@@ -451,7 +451,7 @@ export function MembersPage() {
       pushHistoryCheckpoint(qc, "delete member");
       addMemberDeleteTombstone(id);
       markPendingMemberDelete(id);
-      qc.setQueryData<Member[]>(["members"], (old) =>
+      qc.setQueriesData<Member[]>({ queryKey: ["members"] }, (old) =>
         sanitizeMembersForDisplay(Array.isArray(old) ? old : []),
       );
       return permanentDeleteWithOfflineFallback(id);
@@ -510,7 +510,7 @@ export function MembersPage() {
             patch.paymentBy = paymentByFromBillingDate(billingDateOverride);
             (patch as { billingDateUpdatedAt?: string }).billingDateUpdatedAt = ts;
           }
-          qc.setQueryData<Member[]>(["members"], (old) =>
+          qc.setQueriesData<Member[]>({ queryKey: ["members"] }, (old) =>
             Array.isArray(old)
               ? old.map((row) => (row.memberId === id ? { ...row, ...patch } : row))
               : old,
@@ -852,7 +852,7 @@ export function MembersPage() {
     setQuickFieldSaving(true);
     try {
       pushHistoryCheckpoint(qc, "quick field edit");
-      qc.setQueryData<Member[]>(["members"], (old) =>
+      qc.setQueriesData<Member[]>({ queryKey: ["members"] }, (old) =>
         Array.isArray(old)
           ? old.map((row) =>
               row.memberId === member.memberId ? { ...row, ...patch } : row,

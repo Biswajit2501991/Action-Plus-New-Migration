@@ -122,6 +122,14 @@ export function AddMemberHost() {
           ? `${payload.name || "Member"} saved · visitor converted`
           : `${payload.name || "Member"} has been saved successfully`,
       );
+      // Show immediately even if list refetch is slow / cached.
+      qc.setQueriesData<Member[]>({ queryKey: ["members"] }, (old) => {
+        const list = Array.isArray(old) ? old : [];
+        const id = String(payload.memberId || "").trim();
+        if (!id) return list;
+        const without = list.filter((m) => String(m.memberId || "").trim() !== id);
+        return [payload, ...without];
+      });
       close();
       await qc.invalidateQueries({ queryKey: ["members"] });
       await qc.invalidateQueries({ queryKey: ["visitors"] });

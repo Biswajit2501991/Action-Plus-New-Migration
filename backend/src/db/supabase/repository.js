@@ -1136,6 +1136,18 @@ async function writeMembers(members, scope, options = {}) {
   if (skipped.length) {
     // eslint-disable-next-line no-console
     console.warn(`[writeMembers] skipped ${skipped.length} blocked deleted member_code(s)`);
+    // Single-member / all-blocked writes must not report success — Add Member would toast
+    // "saved" while the soft-deleted row stays hidden from GET /members.
+    if (!writable.length) {
+      const err = new Error('member-code-deleted');
+      err.status = 409;
+      err.code = 'member-code-deleted';
+      err.skipped = skipped;
+      err.detail =
+        `Member ID(s) ${skipped.join(', ')} were deleted and cannot be re-added. ` +
+        'Change the Form Number and save again.';
+      throw err;
+    }
   }
   const incoming = writable;
 

@@ -735,9 +735,18 @@ app.put('/api/members/bulk', requireAccess(Access.membersWrite), async (req, res
   const stamped = stampBranchOnRows(incoming, req.auth);
   const scope = readSandboxScope(req);
   const { writeJsonCollection } = await import('./db/dataStore.js');
-  await writeJsonCollection('apg.members', stamped, scope, {
-    blockedMemberCodes: [...deletedSet],
-  });
+  try {
+    await writeJsonCollection('apg.members', stamped, scope, {
+      blockedMemberCodes: [...deletedSet],
+    });
+  } catch (err) {
+    const status = err?.status || 500;
+    return res.status(status).json({
+      error: err?.code || err?.message || 'members-bulk-failed',
+      message: err?.detail || err?.message || 'Unable to save members.',
+      skipped: err?.skipped || undefined,
+    });
+  }
   queueDatabaseBackup('members-bulk');
   res.json({ ok: true });
 });
