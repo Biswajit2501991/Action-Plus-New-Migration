@@ -2332,6 +2332,8 @@ export async function createOrUpsertPublicVisitor(visitor) {
         notes: visitor.notes || '',
         interestPlan: visitor.interestPlan || sameDay.interest_plan || '',
         goal: visitor.goal || sameDay.goal || '',
+        tentativeJoiningDate:
+          visitor.tentativeJoiningDate || sameDay.tentative_joining_date || '',
         intakeSource: 'qr_public',
         updatedAt: new Date().toISOString(),
       };

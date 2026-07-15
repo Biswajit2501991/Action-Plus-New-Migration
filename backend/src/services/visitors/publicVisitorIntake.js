@@ -183,6 +183,32 @@ export function assertPublicVisitorPayload(body) {
   const dob = String(body?.dob || '').trim().slice(0, 10);
   const notes = String(body?.notes || '').trim().slice(0, 500);
 
+  const tentativeRaw = String(
+    body?.tentativeJoiningDate || body?.tentative_joining_date || '',
+  )
+    .trim()
+    .slice(0, 10);
+  let tentativeJoiningDate = null;
+  if (tentativeRaw) {
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(tentativeRaw)) {
+      const err = new Error('Enter a valid tentative joining date.');
+      err.status = 400;
+      err.code = 'invalid-tentative-joining-date';
+      err.detail = 'Enter a valid tentative joining date.';
+      throw err;
+    }
+    const today = new Date();
+    const todayKey = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
+    if (tentativeRaw < todayKey) {
+      const err = new Error('Tentative joining date must be today or a future date.');
+      err.status = 400;
+      err.code = 'tentative-joining-date-past';
+      err.detail = 'Tentative joining date must be today or a future date.';
+      throw err;
+    }
+    tentativeJoiningDate = tentativeRaw;
+  }
+
   return {
     fullName,
     mobile: mobileNormalized,
@@ -192,6 +218,7 @@ export function assertPublicVisitorPayload(body) {
     notes,
     interestPlan,
     goal,
+    tentativeJoiningDate,
   };
 }
 
@@ -257,7 +284,7 @@ export async function submitPublicVisitorIntake(gymCode, body, req) {
     goal: payload.goal,
     status: 'New',
     callBackRequired: false,
-    tentativeJoiningDate: '',
+    tentativeJoiningDate: payload.tentativeJoiningDate || '',
     assignedGymCodeId: branchId,
     addedAt: now,
     visitDate: now,

@@ -99,6 +99,7 @@ export default function PublicVisitorIntakePage() {
   const [gender, setGender] = useState("");
   const [email, setEmail] = useState("");
   const [dob, setDob] = useState("");
+  const [tentativeJoiningDate, setTentativeJoiningDate] = useState("");
   const [interestPlan, setInterestPlan] = useState("");
   const [goal, setGoal] = useState("");
   const [notes, setNotes] = useState("");
@@ -109,6 +110,10 @@ export default function PublicVisitorIntakePage() {
   const title = useMemo(() => (gymCode ? `Visit · ${gymCode}` : "Visitor intake"), [gymCode]);
   const mobileHint = useMemo(() => mobileLiveHint(mobile), [mobile]);
   const showMobileError = Boolean(mobileHint && (mobileTouched || state === "error"));
+  const todayIso = useMemo(() => {
+    const d = new Date();
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+  }, []);
 
   async function onSubmit(e: FormEvent) {
     e.preventDefault();
@@ -134,6 +139,11 @@ export default function PublicVisitorIntakePage() {
       setMessage("Select a goal from the list.");
       return;
     }
+    if (tentativeJoiningDate && tentativeJoiningDate < todayIso) {
+      setState("error");
+      setMessage("Tentative joining date must be today or a future date.");
+      return;
+    }
 
     setState("saving");
     setMessage("");
@@ -147,6 +157,7 @@ export default function PublicVisitorIntakePage() {
           gender: gender || undefined,
           email: email || undefined,
           dob: dob || undefined,
+          tentativeJoiningDate: tentativeJoiningDate || undefined,
           interestPlan,
           goal,
           notes: notes || undefined,
@@ -277,6 +288,16 @@ export default function PublicVisitorIntakePage() {
                 type="date"
                 value={dob}
                 onChange={(e) => setDob(e.target.value)}
+                className={`${fieldClass} appearance-none`}
+              />
+            </label>
+            <label className="block w-full text-sm">
+              <span className="mb-1 block text-slate-300">Tentative joining date (optional)</span>
+              <input
+                type="date"
+                value={tentativeJoiningDate}
+                min={todayIso}
+                onChange={(e) => setTentativeJoiningDate(e.target.value)}
                 className={`${fieldClass} appearance-none`}
               />
             </label>

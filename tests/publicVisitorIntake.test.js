@@ -61,12 +61,24 @@ describe('publicVisitorIntake helpers', () => {
       gender: 'Female',
       interestPlan: 'Personal Training',
       goal: 'Weight loss',
+      tentativeJoiningDate: '2099-01-15',
     });
     expect(ok.fullName).toBe('Ada Lovelace');
     expect(ok.mobile).toBe('9876543210');
     expect(ok.gender).toBe('Female');
     expect(ok.interestPlan).toBe('Personal Training');
     expect(ok.goal).toBe('Weight loss');
+    expect(ok.tentativeJoiningDate).toBe('2099-01-15');
+
+    expect(() =>
+      assertPublicVisitorPayload({
+        fullName: 'Ada Lovelace',
+        mobile: '9876543210',
+        interestPlan: 'Basic',
+        goal: 'Weight loss',
+        tentativeJoiningDate: '2001-01-01',
+      }),
+    ).toThrow(/future date|today or a future/i);
   });
 
   it('rate-limits by IP after the configured max', () => {
