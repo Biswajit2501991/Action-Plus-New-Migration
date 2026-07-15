@@ -30,7 +30,23 @@ type DetailField = {
   required?: boolean;
   tone?: "default" | "hold";
   hint?: string;
+  editable?: boolean;
+  editType?: "text" | "tel" | "number" | "date" | "month" | "email" | "select";
+  editOptions?: string[];
+  editValue?: string;
 };
+
+const QUICK_EDITABLE_KEYS = new Set([
+  "name",
+  "mobile",
+  "amount",
+  "plan",
+  "status",
+  "billingDate",
+  "paymentMethod",
+  "payMonth",
+  "joiningDate",
+]);
 
 const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
 const COMPACT_HIDDEN = new Set([
@@ -126,21 +142,36 @@ function paymentRows(m: Member): Payment[] {
   });
 }
 
-function FieldCard({ field }: { field: DetailField }) {
+function FieldCard({
+  field,
+  onEdit,
+}: {
+  field: DetailField;
+  onEdit?: (field: DetailField) => void;
+}) {
+  const editable = Boolean(field.editable && onEdit);
   return (
-    <div
+    <button
+      type="button"
+      disabled={!editable}
+      onClick={() => {
+        if (editable) onEdit?.(field);
+      }}
       className={cn(
-        "min-w-0 rounded-lg border px-2.5 py-1.5",
+        "min-w-0 rounded-lg border px-2.5 py-1.5 text-left transition",
         field.tone === "hold"
           ? "border-rose-200 bg-rose-50/70 dark:border-rose-900 dark:bg-rose-950/30"
           : field.required
             ? "border-amber-200/80 bg-amber-50/40 dark:border-amber-900 dark:bg-amber-950/20"
             : "border-border/70 bg-background",
+        editable &&
+          "cursor-pointer hover:border-sky-300 hover:bg-sky-50/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-500 dark:hover:border-sky-500/40 dark:hover:bg-sky-950/30",
+        !editable && "cursor-default",
       )}
     >
       <div
         className={cn(
-          "text-[10px] font-medium uppercase tracking-wide",
+          "flex items-center justify-between gap-1 text-[10px] font-medium uppercase tracking-wide",
           field.tone === "hold"
             ? "text-rose-700 dark:text-rose-300"
             : field.required
@@ -148,16 +179,23 @@ function FieldCard({ field }: { field: DetailField }) {
               : "text-muted-foreground",
         )}
       >
-        {field.label}
-        {field.required ? (
-          <span className="ml-1 rounded-full border border-amber-300 bg-amber-100 px-1.5 py-0.5 text-[8px] font-semibold text-amber-700 dark:border-amber-800 dark:bg-amber-950 dark:text-amber-300">
-            REQUIRED
+        <span>
+          {field.label}
+          {field.required ? (
+            <span className="ml-1 rounded-full border border-amber-300 bg-amber-100 px-1.5 py-0.5 text-[8px] font-semibold text-amber-700 dark:border-amber-800 dark:bg-amber-950 dark:text-amber-300">
+              REQUIRED
+            </span>
+          ) : null}
+        </span>
+        {editable ? (
+          <span className="shrink-0 rounded border border-sky-200 bg-sky-50 px-1 py-0.5 text-[8px] font-semibold normal-case tracking-normal text-sky-700 dark:border-sky-800 dark:bg-sky-950/50 dark:text-sky-300">
+            Edit
           </span>
         ) : null}
       </div>
       <div className="mt-0.5 break-words text-[11px] font-semibold text-foreground">{field.value}</div>
       {field.hint ? <div className="mt-0.5 text-[9px] text-rose-600">{field.hint}</div> : null}
-    </div>
+    </button>
   );
 }
 
@@ -406,6 +444,9 @@ export function MemberExpandedDetails({
   canEdit,
   canDelete,
   holdOptions,
+  planOptions = [],
+  statusOptions = ["Active", "Hold", "Deactivated", "Cancelled"],
+  paymentOptions = [],
   messageOpts,
   onEdit,
   onAddPayment,
@@ -420,6 +461,7 @@ export function MemberExpandedDetails({
   onStatusChange,
   onNavigateMember,
   onUnlinkFamilyGroup,
+  onQuickFieldEdit,
 }: {
   m: Member;
   allMembers?: Member[];
@@ -427,6 +469,9 @@ export function MemberExpandedDetails({
   canEdit: boolean;
   canDelete: boolean;
   holdOptions: string[];
+  planOptions?: string[];
+  statusOptions?: string[];
+  paymentOptions?: string[];
   messageOpts?: {
     settings?: {
       fineSmsEnabled?: boolean;
@@ -448,6 +493,14 @@ export function MemberExpandedDetails({
   onStatusChange: (status: string, holdDuration?: string) => void;
   onNavigateMember?: (member: Member) => void;
   onUnlinkFamilyGroup?: (groupId: string) => void;
+  onQuickFieldEdit?: (payload: {
+    memberId: string;
+    fieldKey: string;
+    label: string;
+    type: NonNullable<DetailField["editType"]>;
+    value: string;
+    options?: string[];
+  }) => void;
 }) {
   const [viewMode, setViewMode] = useState<DetailsViewMode>(() => {
     try {
@@ -498,13 +551,41 @@ export function MemberExpandedDetails({
 
   const paymentTotal = filteredPayments.reduce((sum, row) => sum + Number(row.amount || 0), 0);
 
+  const canQuick = Boolean(canEdit && onQuickFieldEdit);
+  const withQuick = (
+    field: DetailField,
+    editType: NonNullable<DetailField["editType"]>,
+    editValue: string,
+    editOptions?: string[],
+  ): DetailField => {
+    const ownerOnlyJoining = field.key === "joiningDate" && !isOwner;
+    const allowed = QUICK_EDITABLE_KEYS.has(field.key) && !ownerOnlyJoining;
+    if (!canQuick || !allowed) return field;
+    return {
+      ...field,
+      editable: true,
+      editType,
+      editValue,
+      editOptions,
+      hint: field.hint || "Click to edit",
+    };
+  };
+
   const profileFields: DetailField[] = [
     { key: "formNo", label: "Form #", value: dash(m.formNo), required: true },
     { key: "memberId", label: "ID", value: dash(m.memberId), required: true },
-    { key: "name", label: "Name", value: dash(m.name), required: true },
+    withQuick(
+      { key: "name", label: "Name", value: dash(m.name), required: true },
+      "text",
+      String(m.name || ""),
+    ),
     { key: "dob", label: "Member Birthday", value: formatMemberBirthday(m.dob), required: true },
     { key: "gender", label: "Gender", value: dash(m.gender), required: true },
-    { key: "mobile", label: "Mobile", value: dash(m.mobile), required: true },
+    withQuick(
+      { key: "mobile", label: "Mobile", value: dash(m.mobile), required: true },
+      "tel",
+      String(m.mobile || ""),
+    ),
     { key: "email", label: "Email", value: dash(m.email) },
     { key: "address", label: "Address", value: dash(m.address), required: true },
     { key: "staff", label: "Staff", value: dash(m.staff || m.trainerId), required: true },
@@ -515,16 +596,38 @@ export function MemberExpandedDetails({
     },
   ];
 
+  const planOpts = planOptions.length ? planOptions : [String(m.plan || "Basic Plan")].filter(Boolean);
+  const payOpts = paymentOptions.length
+    ? paymentOptions
+    : [String(m.paymentMethod || "Cash")].filter(Boolean);
+
   const membershipFields: DetailField[] = [
-    {
-      key: "amount",
-      label: "Amount",
-      value: m.amount !== undefined && m.amount !== null ? formatCurrency(Number(m.amount || 0)) : "—",
-      required: true,
-    },
-    { key: "plan", label: "Plan", value: dash(m.plan), required: true },
-    { key: "joiningDate", label: "Joining Date", value: formatDate(m.joiningDate), required: true },
-    { key: "billingDate", label: "Billing Date", value: formatDate(m.billingDate), required: true },
+    withQuick(
+      {
+        key: "amount",
+        label: "Amount",
+        value: m.amount !== undefined && m.amount !== null ? formatCurrency(Number(m.amount || 0)) : "—",
+        required: true,
+      },
+      "number",
+      String(m.amount ?? ""),
+    ),
+    withQuick(
+      { key: "plan", label: "Plan", value: dash(m.plan), required: true },
+      "select",
+      String(m.plan || planOpts[0] || ""),
+      planOpts,
+    ),
+    withQuick(
+      { key: "joiningDate", label: "Joining Date", value: formatDate(m.joiningDate), required: true },
+      "date",
+      localCalendarDateKey(m.joiningDate) || "",
+    ),
+    withQuick(
+      { key: "billingDate", label: "Billing Date", value: formatDate(m.billingDate), required: true },
+      "date",
+      localCalendarDateKey(m.billingDate) || "",
+    ),
     { key: "nextPaymentDate", label: "Next Payment Date", value: formatDate(nextPay), required: true },
     {
       key: "paymentBy",
@@ -534,7 +637,12 @@ export function MemberExpandedDetails({
       hint: inactiveLabel || undefined,
       tone: inactiveLabel ? ("hold" as const) : undefined,
     },
-    { key: "status", label: "Status", value: dash(m.status), required: true },
+    withQuick(
+      { key: "status", label: "Status", value: dash(m.status), required: true },
+      "select",
+      String(m.status || "Active"),
+      statusOptions,
+    ),
     ...(isActive
       ? [{ key: "injuriesNotes", label: "Injuries / Notes", value: injuriesNotesValue(m) }]
       : []),
@@ -560,15 +668,38 @@ export function MemberExpandedDetails({
             : []),
         ]
       : []),
-    { key: "paymentMethod", label: "Payment Method", value: dash(m.paymentMethod), required: true },
-    {
-      key: "payMonth",
-      label: "Paid for Month",
-      value: payMonthDisplay(m),
-      required: true,
-      hint: canEdit && onEditPayMonth ? "Use Edit month to change" : undefined,
-    },
+    withQuick(
+      { key: "paymentMethod", label: "Payment Method", value: dash(m.paymentMethod), required: true },
+      "select",
+      String(m.paymentMethod || payOpts[0] || "Cash"),
+      payOpts,
+    ),
+    withQuick(
+      {
+        key: "payMonth",
+        label: "Paid for Month",
+        value: payMonthDisplay(m),
+        required: true,
+        hint: canEdit && onEditPayMonth ? "Click to change" : undefined,
+      },
+      "month",
+      String(m.payMonth || m.pay_month || "").match(/^\d{4}-\d{2}$/)
+        ? String(m.payMonth || m.pay_month)
+        : "",
+    ),
   ];
+
+  const openQuick = (field: DetailField) => {
+    if (!onQuickFieldEdit || !field.editable || !field.editType) return;
+    onQuickFieldEdit({
+      memberId: m.memberId,
+      fieldKey: field.key,
+      label: field.label,
+      type: field.editType,
+      value: field.editValue ?? "",
+      options: field.editOptions,
+    });
+  };
 
   const visible = (fields: DetailField[]) =>
     fields.filter((f) => {
@@ -759,7 +890,7 @@ export function MemberExpandedDetails({
       <SectionCard title="Profile" open={openSections.profile} onToggle={() => toggle("profile")}>
         <div className={gridClass}>
           {visible(profileFields).map((field) => (
-            <FieldCard key={field.key} field={field} />
+            <FieldCard key={field.key} field={field} onEdit={openQuick} />
           ))}
         </div>
       </SectionCard>
@@ -771,7 +902,7 @@ export function MemberExpandedDetails({
       >
         <div className={gridClass}>
           {visible(membershipFields).map((field) => (
-            <FieldCard key={field.key} field={field} />
+            <FieldCard key={field.key} field={field} onEdit={openQuick} />
           ))}
         </div>
         {canEdit && onEditPayMonth ? (

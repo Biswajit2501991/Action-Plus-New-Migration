@@ -19,6 +19,24 @@ import { Input, Label, Select } from "@/components/ui/input";
 import { useMembers, useSettings, useVisitors, useGymCodes } from "@/hooks/use-data";
 import { useMemberPhotoHydration } from "@/hooks/use-member-photo-hydration";
 import { membersApi, logsApi, whatsappApi } from "@/services/api";
+import {
+  addMemberDeleteTombstone,
+  removeMemberDeleteTombstone,
+  sanitizeMembersForDisplay,
+} from "@/lib/domain/member-delete-tombstones";
+import {
+  clearPendingMemberDelete,
+  markPendingMemberDelete,
+} from "@/lib/domain/member-pending-deletes";
+import {
+  patchMemberWithOfflineFallback,
+  permanentDeleteWithOfflineFallback,
+} from "@/lib/member-write";
+import { useOfflineQueueFlush } from "@/hooks/use-offline-queue-flush";
+import {
+  QuickFieldEditModal,
+  type QuickFieldEditState,
+} from "@/features/members/quick-field-edit-modal";
 import { MemberPhotoPreviewModal } from "@/features/members/member-photo-modals";
 import { EditMemberModal } from "@/features/members/edit-member-modal";
 import {
@@ -198,6 +216,10 @@ export function MembersPage() {
     rows: CsvImportPreparedRow[];
     summary: { added: number; updated: number; skipped: number };
   }>({ open: false, fileName: "", rows: [], summary: { added: 0, updated: 0, skipped: 0 } });
+  const [quickFieldEdit, setQuickFieldEdit] = useState<QuickFieldEditState | null>(null);
+  const [quickFieldSaving, setQuickFieldSaving] = useState(false);
+
+  const { pendingCount: offlinePendingCount } = useOfflineQueueFlush(Boolean(user));
 
   const actorRole = String(user?.staffRole || user?.role || user?.id || "").trim();
   const messageOpts = useMemo(
@@ -425,15 +447,30 @@ export function MembersPage() {
   };
 
   const deleteMutation = useMutation({
-    mutationFn: (id: string) => {
+    mutationFn: async (id: string) => {
       pushHistoryCheckpoint(qc, "delete member");
-      return membersApi.remove(id);
+      addMemberDeleteTombstone(id);
+      markPendingMemberDelete(id);
+      qc.setQueryData<Member[]>(["members"], (old) =>
+        sanitizeMembersForDisplay(Array.isArray(old) ? old : []),
+      );
+      return permanentDeleteWithOfflineFallback(id);
     },
-    onSuccess: async () => {
-      toast.success("Member deleted");
+    onSuccess: async (result, id) => {
+      if (result.queued) {
+        toast.message("Delete queued — will sync when online");
+      } else {
+        toast.success("Member deleted");
+        clearPendingMemberDelete(id);
+      }
       await qc.invalidateQueries({ queryKey: ["members"] });
     },
-    onError: (e: Error) => toast.error(e.message),
+    onError: async (e: Error, id) => {
+      removeMemberDeleteTombstone(id);
+      clearPendingMemberDelete(id);
+      toast.error(e.message);
+      await qc.invalidateQueries({ queryKey: ["members"] });
+    },
   });
 
   const statusMutation = useMutation({
@@ -453,9 +490,9 @@ export function MembersPage() {
       pushHistoryCheckpoint(qc, "member status");
       const ts = new Date().toISOString();
       await Promise.all(
-        ids.map((id) => {
+        ids.map(async (id) => {
           const current = members.find((m) => m.memberId === id);
-          if (!current) return Promise.resolve(null);
+          if (!current) return null;
           const patch: Partial<Member> = {
             ...current,
             status,
@@ -473,12 +510,18 @@ export function MembersPage() {
             patch.paymentBy = paymentByFromBillingDate(billingDateOverride);
             (patch as { billingDateUpdatedAt?: string }).billingDateUpdatedAt = ts;
           }
-          return membersApi.patch(id, patch);
+          qc.setQueryData<Member[]>(["members"], (old) =>
+            Array.isArray(old)
+              ? old.map((row) => (row.memberId === id ? { ...row, ...patch } : row))
+              : old,
+          );
+          return patchMemberWithOfflineFallback(id, patch);
         }),
       );
     },
-    onSuccess: async () => {
-      toast.success("Status updated");
+    onSuccess: async (results) => {
+      const queued = Array.isArray(results) && results.some((r) => r && (r as { queued?: boolean }).queued);
+      toast.success(queued ? "Status queued — will sync when online" : "Status updated");
       setSelectedIds([]);
       await qc.invalidateQueries({ queryKey: ["members"] });
     },
@@ -754,6 +797,81 @@ export function MembersPage() {
       .catch(() => {});
   };
 
+  const saveQuickField = async (nextValue: string) => {
+    if (!quickFieldEdit) return;
+    const member = members.find((row) => row.memberId === quickFieldEdit.memberId);
+    if (!member) {
+      toast.error("Member not found");
+      return;
+    }
+    const key = quickFieldEdit.fieldKey;
+    const raw = String(nextValue ?? "").trim();
+
+    if (key === "payMonth") {
+      if (!/^\d{4}-\d{2}$/.test(raw)) {
+        toast.error("Paid for month must be YYYY-MM");
+        return;
+      }
+      setQuickFieldEdit(null);
+      setPayMonthEdit({
+        member,
+        monthKey: raw,
+        amount: Number(member.amount || 0),
+      });
+      return;
+    }
+
+    if (key === "status") {
+      setQuickFieldEdit(null);
+      requestStatusChange([member.memberId], raw || "Active");
+      return;
+    }
+
+    const patch: Partial<Member> = {};
+    if (key === "name") patch.name = raw;
+    else if (key === "mobile") patch.mobile = raw;
+    else if (key === "amount") {
+      const n = Number(String(raw).replace(/[^0-9.-]/g, ""));
+      if (!Number.isFinite(n) || n < 0) {
+        toast.error("Enter a valid amount");
+        return;
+      }
+      patch.amount = n;
+    } else if (key === "plan") patch.plan = raw;
+    else if (key === "paymentMethod") patch.paymentMethod = raw;
+    else if (key === "joiningDate") patch.joiningDate = raw;
+    else if (key === "billingDate") {
+      patch.billingDate = raw;
+      patch.nextPaymentDate = nextPaymentDateFromBillingDate(raw);
+      patch.paymentBy = paymentByFromBillingDate(raw);
+    } else {
+      toast.error("This field is not quick-editable");
+      return;
+    }
+
+    setQuickFieldSaving(true);
+    try {
+      pushHistoryCheckpoint(qc, "quick field edit");
+      qc.setQueryData<Member[]>(["members"], (old) =>
+        Array.isArray(old)
+          ? old.map((row) =>
+              row.memberId === member.memberId ? { ...row, ...patch } : row,
+            )
+          : old,
+      );
+      const result = await patchMemberWithOfflineFallback(member.memberId, patch);
+      if (result.queued) toast.message("Change queued — will sync when online");
+      else toast.success(`${quickFieldEdit.label} updated`);
+      setQuickFieldEdit(null);
+      await qc.invalidateQueries({ queryKey: ["members"] });
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Update failed");
+      await qc.invalidateQueries({ queryKey: ["members"] });
+    } finally {
+      setQuickFieldSaving(false);
+    }
+  };
+
   const uploadMemberDocument = async (m: Member, file: File) => {
     if (file.size > 10 * 1024 * 1024) {
       toast.error("Document must be 10MB or smaller");
@@ -816,6 +934,11 @@ export function MembersPage() {
         description="Production member workflows with the new Action Plus UI."
         actions={
           <>
+            {offlinePendingCount > 0 ? (
+              <span className="inline-flex items-center rounded-full border border-amber-300 bg-amber-50 px-2.5 py-1 text-[11px] font-semibold text-amber-800 dark:border-amber-500/40 dark:bg-amber-950/40 dark:text-amber-200">
+                Offline queue: {offlinePendingCount}
+              </span>
+            ) : null}
             <Button variant="outline" onClick={() => downloadTextFile("members.csv", toCsv(filtered as unknown as Record<string, unknown>[]))}>
               Export CSV
             </Button>
@@ -1236,6 +1359,9 @@ export function MembersPage() {
                                       holdOptions={
                                         settings?.holdDurations || ["1 Month", "2 Months", "3 Months"]
                                       }
+                                      planOptions={settings?.plans || []}
+                                      statusOptions={settings?.statuses || [...STATUS_KEYS]}
+                                      paymentOptions={settings?.paymentMethods || []}
                                       messageOpts={messageOpts}
                                       onEdit={() => openEdit(m)}
                                       onAddPayment={() => {
@@ -1285,6 +1411,7 @@ export function MembersPage() {
                                       onStatusChange={(status, holdDuration) => {
                                         requestStatusChange([m.memberId], status, holdDuration);
                                       }}
+                                      onQuickFieldEdit={(payload) => setQuickFieldEdit(payload)}
                                       onNavigateMember={(other) => {
                                         setExpandedId(other.memberId);
                                         setAppliedQuickSearch(other.memberId);
@@ -1672,6 +1799,13 @@ export function MembersPage() {
             }
           }
         }}
+      />
+
+      <QuickFieldEditModal
+        edit={quickFieldEdit}
+        saving={quickFieldSaving}
+        onClose={() => setQuickFieldEdit(null)}
+        onSave={(value) => void saveQuickField(value)}
       />
     </div>
   );

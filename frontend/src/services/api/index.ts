@@ -1,4 +1,10 @@
 import { apiFetch } from "@/services/api/client";
+import {
+  reconcileMemberDeleteTombstones,
+  sanitizeMembersForDisplay,
+  tombstonedMembersStillOnServer,
+} from "@/lib/domain/member-delete-tombstones";
+import { getPendingMemberDeleteIds } from "@/lib/domain/member-pending-deletes";
 import type {
   AppSettings,
   AttendanceNote,
@@ -15,12 +21,31 @@ import type {
 } from "@/types";
 
 export const membersApi = {
-  list: () => apiFetch<Member[]>("/members"),
+  list: async () => {
+    const remote = await apiFetch<Member[]>("/members");
+    const pendingIds = getPendingMemberDeleteIds();
+    reconcileMemberDeleteTombstones(remote, pendingIds);
+    const stillThere = tombstonedMembersStillOnServer(remote);
+    if (stillThere.length) {
+      void Promise.allSettled(
+        stillThere.map((id) =>
+          apiFetch<{ ok?: boolean }>("/members/permanent-delete", {
+            method: "POST",
+            body: JSON.stringify({ memberId: id }),
+          }).catch(() => undefined),
+        ),
+      );
+    }
+    return sanitizeMembersForDisplay(remote);
+  },
   get: (id: string) => apiFetch<Member>(`/members/${encodeURIComponent(id)}`),
-  bulk: (members: Member[]) =>
+  bulk: (members: Member[], deletedMemberIds?: string[]) =>
     apiFetch<{ ok?: boolean }>("/members/bulk", {
       method: "PUT",
-      body: JSON.stringify({ members }),
+      body: JSON.stringify({
+        members,
+        ...(deletedMemberIds?.length ? { deletedMemberIds } : {}),
+      }),
     }),
   patch: (id: string, patch: Partial<Member>) =>
     apiFetch<{ ok?: boolean; member?: Member }>(`/members/${encodeURIComponent(id)}`, {
@@ -29,6 +54,12 @@ export const membersApi = {
     }),
   remove: (id: string) =>
     apiFetch<{ ok?: boolean }>(`/members/${encodeURIComponent(id)}`, { method: "DELETE" }),
+  /** Prefer POST — member codes can contain `/` and break path DELETE. */
+  permanentDelete: (id: string) =>
+    apiFetch<{ ok?: boolean }>("/members/permanent-delete", {
+      method: "POST",
+      body: JSON.stringify({ memberId: id }),
+    }),
   addPayment: (id: string, payment: Record<string, unknown>) =>
     apiFetch<Member>(`/members/${encodeURIComponent(id)}/payments`, {
       method: "POST",
