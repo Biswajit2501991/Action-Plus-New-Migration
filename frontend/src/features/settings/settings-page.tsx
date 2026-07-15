@@ -89,7 +89,7 @@ function SettingsToggle({
 
 type FeatureFlagState = {
   attendanceNotesEnabled: boolean;
-  qrVisitorAttendanceEnabled: boolean;
+  qrVisitorIntakeEnabled: boolean;
   attendanceRequirePresenceQr: boolean;
   customTemplatesEnabled: boolean;
   fineSmsEnabled: boolean;
@@ -417,7 +417,9 @@ export function SettingsPage() {
   const flags = useMemo<FeatureFlagState>(
     () => ({
       attendanceNotesEnabled: settings?.attendanceNotesEnabled === true,
-      qrVisitorAttendanceEnabled: settings?.qrVisitorAttendanceEnabled === true,
+      qrVisitorIntakeEnabled:
+        settings?.qrVisitorIntakeEnabled === true ||
+        settings?.qrVisitorAttendanceEnabled === true,
       attendanceRequirePresenceQr: settings?.attendanceRequirePresenceQr === true,
       customTemplatesEnabled: settings?.customTemplatesEnabled === true,
       fineSmsEnabled: settings?.fineSmsEnabled !== false,
@@ -483,8 +485,8 @@ export function SettingsPage() {
     if (flags.attendanceNotesEnabled && patch.attendanceNotesEnabled === undefined) {
       patch.attendanceNotesEnabled = true;
     }
-    if (flags.qrVisitorAttendanceEnabled && patch.qrVisitorAttendanceEnabled === undefined) {
-      patch.qrVisitorAttendanceEnabled = true;
+    if (flags.qrVisitorIntakeEnabled && patch.qrVisitorIntakeEnabled === undefined) {
+      patch.qrVisitorIntakeEnabled = true;
     }
     if (flags.attendanceRequirePresenceQr && patch.attendanceRequirePresenceQr === undefined) {
       patch.attendanceRequirePresenceQr = true;
@@ -998,35 +1000,24 @@ export function SettingsPage() {
               onChange={(next) => setFeatureFlags({ attendanceNotesEnabled: next })}
             />
             <SettingsToggle
-              checked={flags.qrVisitorAttendanceEnabled}
-              label="QR Visitor & Attendance"
-              description="Show Visitor intake QR and Attendance QR kiosk. Turn this on when you are ready to use gym QR posters and the reception tablet."
-              onChange={(next) => {
-                if (!next) {
-                  setFeatureFlags({
-                    qrVisitorAttendanceEnabled: false,
-                    attendanceRequirePresenceQr: false,
-                  });
-                  return;
-                }
-                setFeatureFlags({ qrVisitorAttendanceEnabled: true });
-              }}
+              checked={flags.qrVisitorIntakeEnabled}
+              label="QR Visitor intake"
+              description="Show the Visitor QR card and allow walk-ins to submit details from the public form."
+              onChange={(next) => setFeatureFlags({ qrVisitorIntakeEnabled: next })}
             />
-            {flags.qrVisitorAttendanceEnabled ? (
-              <div className="space-y-3 rounded-xl border border-teal-200/70 bg-teal-50/40 p-3 dark:border-teal-900/40 dark:bg-teal-950/20">
-                <SettingsToggle
-                  checked={flags.attendanceRequirePresenceQr}
-                  label="Require attendance QR for Time In"
-                  description="After the kiosk is running, require staff to scan the gym Attendance QR before login marks Time In. Open Attendance → Attendance QR on a tablet."
-                  onChange={(next) => setFeatureFlags({ attendanceRequirePresenceQr: next })}
-                />
-                <a
-                  href="/attendance/kiosk"
-                  className="inline-flex h-9 items-center rounded-md border border-input bg-background px-3 text-xs font-medium hover:bg-accent"
-                >
-                  Open Attendance QR kiosk
-                </a>
-              </div>
+            <SettingsToggle
+              checked={flags.attendanceRequirePresenceQr}
+              label="Require attendance QR for Time In"
+              description="Staff must scan the gym Attendance QR before login marks Time In. Shows Attendance → Attendance QR kiosk for the reception tablet."
+              onChange={(next) => setFeatureFlags({ attendanceRequirePresenceQr: next })}
+            />
+            {flags.attendanceRequirePresenceQr ? (
+              <a
+                href="/attendance/kiosk"
+                className="inline-flex h-9 items-center rounded-md border border-input bg-background px-3 text-xs font-medium hover:bg-accent"
+              >
+                Open Attendance QR kiosk
+              </a>
             ) : null}
             <SettingsToggle
               checked={flags.customTemplatesEnabled}

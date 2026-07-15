@@ -1933,9 +1933,7 @@ app.post('/api/attendance/punch', requireAccess(Access.attendancePunch), async (
 
     if (punchType === 'login') {
       const settings = (await readJsonValue('apg.settings', {}, null)) || {};
-      const featureOn = settings.qrVisitorAttendanceEnabled === true;
-      const requirePresence =
-        featureOn && settings.attendanceRequirePresenceQr === true;
+      const requirePresence = settings.attendanceRequirePresenceQr === true;
       if (requirePresence) {
         try {
           const { consumeAttendancePresenceTicket } = await import('./services/attendance/presenceTokens.js');

@@ -5,7 +5,7 @@ import Link from "next/link";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { useSettings } from "@/hooks/use-data";
-import { isQrVisitorAttendanceEnabled } from "@/lib/domain/attendance";
+import { isAttendancePresenceQrEnabled } from "@/lib/domain/attendance";
 import { attendanceClaimUrl, qrImageUrl } from "@/lib/qr";
 import { attendanceApi } from "@/services/api";
 import { useAuthStore } from "@/stores";
@@ -20,13 +20,13 @@ type RotateState = {
 export default function AttendanceKioskPage() {
   const user = useAuthStore((s) => s.user);
   const { data: settings, isLoading: settingsLoading } = useSettings();
-  const qrFlowsEnabled = isQrVisitorAttendanceEnabled(settings as Record<string, unknown>);
+  const attendanceQrEnabled = isAttendancePresenceQrEnabled(settings as Record<string, unknown>);
   const [state, setState] = useState<RotateState | null>(null);
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
 
   const refresh = useCallback(async () => {
-    if (!qrFlowsEnabled) return;
+    if (!attendanceQrEnabled) return;
     setBusy(true);
     setError("");
     try {
@@ -48,20 +48,20 @@ export default function AttendanceKioskPage() {
     } finally {
       setBusy(false);
     }
-  }, [qrFlowsEnabled, user?.activeBranchId, user?.gymCodeId]);
+  }, [attendanceQrEnabled, user?.activeBranchId, user?.gymCodeId]);
 
   useEffect(() => {
-    if (!settingsLoading && qrFlowsEnabled) void refresh();
-  }, [settingsLoading, qrFlowsEnabled, refresh]);
+    if (!settingsLoading && attendanceQrEnabled) void refresh();
+  }, [settingsLoading, attendanceQrEnabled, refresh]);
 
   useEffect(() => {
-    if (!qrFlowsEnabled || !state?.expiresInSec) return;
+    if (!attendanceQrEnabled || !state?.expiresInSec) return;
     const waitMs = Math.max(15_000, Math.floor(state.expiresInSec * 1000 * 0.55));
     const t = window.setTimeout(() => {
       void refresh();
     }, waitMs);
     return () => window.clearTimeout(t);
-  }, [qrFlowsEnabled, state?.token, state?.expiresInSec, refresh]);
+  }, [attendanceQrEnabled, state?.token, state?.expiresInSec, refresh]);
 
   if (settingsLoading) {
     return (
@@ -71,13 +71,14 @@ export default function AttendanceKioskPage() {
     );
   }
 
-  if (!qrFlowsEnabled) {
+  if (!attendanceQrEnabled) {
     return (
       <div className="fixed inset-0 z-50 flex flex-col items-center justify-center bg-slate-950 px-4 text-center text-slate-100">
-        <h1 className="text-2xl font-semibold">QR Visitor & Attendance is off</h1>
+        <h1 className="text-2xl font-semibold">Staff Attendance QR is off</h1>
         <p className="mt-2 max-w-md text-sm text-slate-400">
-          An owner must enable <span className="text-teal-300">QR Visitor & Attendance</span> in
-          Settings before the kiosk and Visitor QR are available.
+          An owner must enable{" "}
+          <span className="text-teal-300">Require attendance QR for Time In</span> in Settings
+          before the kiosk is available.
         </p>
         <div className="mt-6 flex flex-wrap justify-center gap-2">
           <Link

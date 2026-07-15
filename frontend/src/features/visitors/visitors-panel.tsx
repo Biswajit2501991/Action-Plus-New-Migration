@@ -14,7 +14,7 @@ import {
 import { VisitorIntakeQrCard } from "@/features/visitors/visitor-intake-qr-card";
 import { hasAccess } from "@/lib/domain/permissions";
 import { isRecordNewWithinHours } from "@/lib/domain/new-record";
-import { isQrVisitorAttendanceEnabled } from "@/lib/domain/attendance";
+import { isQrVisitorIntakeEnabled } from "@/lib/domain/attendance";
 import { cn, formatDate, uid } from "@/lib/utils";
 import { visitorsApi } from "@/services/api";
 import { useAuthStore, useUiStore } from "@/stores";
@@ -43,7 +43,7 @@ export function VisitorsPanel({ visitors }: Props) {
   const openConvertVisitor = useUiStore((s) => s.openConvertVisitor);
   const qc = useQueryClient();
   const { data: settings } = useSettings();
-  const qrFlowsEnabled = isQrVisitorAttendanceEnabled(settings as Record<string, unknown>);
+  const qrVisitorEnabled = isQrVisitorIntakeEnabled(settings as Record<string, unknown>);
   const canWrite =
     hasAccess(user, "members", "addMembers") || hasAccess(user, "members", "editMembers");
   const canDelete =
@@ -155,7 +155,7 @@ export function VisitorsPanel({ visitors }: Props) {
             ) : null}
           </div>
 
-          {canWrite && qrFlowsEnabled ? <VisitorIntakeQrCard /> : null}
+          {canWrite && qrVisitorEnabled ? <VisitorIntakeQrCard /> : null}
 
           {!sorted.length ? (
             <EmptyState title="No visitors yet" description="Add a walk-in or phone enquiry." />

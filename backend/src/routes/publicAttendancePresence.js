@@ -2,8 +2,8 @@ import { Router } from 'express';
 import { redeemAttendancePresenceToken } from '../services/attendance/presenceTokens.js';
 import { clientIp } from '../middleware/loginRateLimit.js';
 import {
-  isQrVisitorAttendanceFeatureEnabled,
-  qrFeatureDisabledError,
+  isAttendancePresenceQrFeatureEnabled,
+  qrAttendanceFeatureDisabledError,
 } from '../services/qrVisitorAttendanceFeature.js';
 
 const router = Router();
@@ -36,8 +36,8 @@ function rateLimit(req, res, next) {
 
 router.post('/redeem', rateLimit, async (req, res) => {
   try {
-    if (!(await isQrVisitorAttendanceFeatureEnabled())) {
-      throw qrFeatureDisabledError();
+    if (!(await isAttendancePresenceQrFeatureEnabled())) {
+      throw qrAttendanceFeatureDisabledError();
     }
     const token = String(req.body?.token || req.query?.token || '').trim();
     const result = redeemAttendancePresenceToken(token);

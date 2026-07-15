@@ -269,9 +269,11 @@ export type AppSettings = {
   gmailWelcomeTemplate?: string;
   financeUseEstimatedExpense?: boolean;
   attendanceNotesEnabled?: boolean;
-  /** Master switch: Visitor intake QR + Attendance QR UI/flows. Default off. */
+  /** Visitor intake QR (public form + staff Visitor QR card). Default off. */
+  qrVisitorIntakeEnabled?: boolean;
+  /** @deprecated Combined master; prefer qrVisitorIntakeEnabled. */
   qrVisitorAttendanceEnabled?: boolean;
-  /** When true (and master QR enabled), login Time In requires presence ticket. Default off. */
+  /** Staff attendance QR: show kiosk and require scan before Time In. Default off. */
   attendanceRequirePresenceQr?: boolean;
   customTemplatesEnabled?: boolean;
   fineSmsEnabled?: boolean;

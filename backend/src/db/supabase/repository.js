@@ -1732,6 +1732,7 @@ function buildSettingsObject({ lookups, templates, configRow, staffDir, roles, l
     financeUseEstimatedExpense: true,
     customTemplatesEnabled: false,
     attendanceNotesEnabled: false,
+    qrVisitorIntakeEnabled: false,
     qrVisitorAttendanceEnabled: false,
     attendanceRequirePresenceQr: false,
     paymentQrInReminderEnabled: false,

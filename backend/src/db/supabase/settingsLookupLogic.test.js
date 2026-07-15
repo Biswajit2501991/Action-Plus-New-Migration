@@ -85,7 +85,7 @@ describe('mergeSettingsBulkPatch', () => {
 });
 
 describe('buildSettingsAppConfigWriteFromLive', () => {
-  it('preserves live qrVisitorAttendanceEnabled when patch only toggles notes', () => {
+  it('preserves live qrVisitorIntakeEnabled when patch only toggles notes', () => {
     const row = buildSettingsAppConfigWriteFromLive(
       {
         fine_sms_enabled: true,
@@ -94,14 +94,14 @@ describe('buildSettingsAppConfigWriteFromLive', () => {
         finance_use_estimated_expense: true,
         config_json: {
           attendanceNotesEnabled: false,
-          qrVisitorAttendanceEnabled: true,
+          qrVisitorIntakeEnabled: true,
           attendanceRequirePresenceQr: true,
           customTemplatesEnabled: false,
         },
       },
       { attendanceNotesEnabled: true },
     );
-    expect(row.config_json.qrVisitorAttendanceEnabled).toBe(true);
+    expect(row.config_json.qrVisitorIntakeEnabled).toBe(true);
     expect(row.config_json.attendanceRequirePresenceQr).toBe(true);
     expect(row.config_json.attendanceNotesEnabled).toBe(true);
   });

@@ -1,8 +1,8 @@
 import { Router } from 'express';
 import { submitPublicVisitorIntake } from '../services/visitors/publicVisitorIntake.js';
 import {
-  isQrVisitorAttendanceFeatureEnabled,
-  qrFeatureDisabledError,
+  isQrVisitorIntakeFeatureEnabled,
+  qrVisitorFeatureDisabledError,
 } from '../services/qrVisitorAttendanceFeature.js';
 
 const router = Router();
@@ -13,8 +13,8 @@ router.post('/:gymCode', async (req, res) => {
     return res.status(400).json({ error: 'gym-code-required', message: 'Gym code is required.' });
   }
   try {
-    if (!(await isQrVisitorAttendanceFeatureEnabled())) {
-      throw qrFeatureDisabledError();
+    if (!(await isQrVisitorIntakeFeatureEnabled())) {
+      throw qrVisitorFeatureDisabledError();
     }
     const visitor = await submitPublicVisitorIntake(gymCode, req.body || {}, req);
     return res.status(201).json({

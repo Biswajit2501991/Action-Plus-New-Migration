@@ -2,11 +2,34 @@
 
 export const ATTENDANCE_NOTES_FEATURE_FLAG_KEY = "attendanceNotesEnabled";
 
-/** Master switch for Visitor intake QR + Attendance presence QR staff UI/flows. */
+/** Visitor intake QR (public form + staff Visitor QR card). */
+export const QR_VISITOR_INTAKE_FEATURE_FLAG_KEY = "qrVisitorIntakeEnabled";
+
+/** Staff attendance presence QR — kiosk + require scan before Time In. */
+export const ATTENDANCE_REQUIRE_PRESENCE_QR_FLAG_KEY = "attendanceRequirePresenceQr";
+
+/** @deprecated Prefer QR_VISITOR_INTAKE_FEATURE_FLAG_KEY / attendance require flag. */
 export const QR_VISITOR_ATTENDANCE_FEATURE_FLAG_KEY = "qrVisitorAttendanceEnabled";
 
+export function isQrVisitorIntakeEnabled(settings?: Record<string, unknown> | null) {
+  if (!settings) return false;
+  if (settings[QR_VISITOR_INTAKE_FEATURE_FLAG_KEY] === true) return true;
+  // Legacy combined master toggle
+  if (settings[QR_VISITOR_ATTENDANCE_FEATURE_FLAG_KEY] === true) return true;
+  return false;
+}
+
+export function isAttendancePresenceQrEnabled(settings?: Record<string, unknown> | null) {
+  return settings?.[ATTENDANCE_REQUIRE_PRESENCE_QR_FLAG_KEY] === true;
+}
+
+/** @deprecated Use isQrVisitorIntakeEnabled / isAttendancePresenceQrEnabled. */
 export function isQrVisitorAttendanceEnabled(settings?: Record<string, unknown> | null) {
-  return settings?.[QR_VISITOR_ATTENDANCE_FEATURE_FLAG_KEY] === true;
+  return isQrVisitorIntakeEnabled(settings) || isAttendancePresenceQrEnabled(settings);
+}
+
+export function isAttendanceNotesEnabled(settings?: Record<string, unknown> | null) {
+  return settings?.[ATTENDANCE_NOTES_FEATURE_FLAG_KEY] === true;
 }
 
 export const ATTENDANCE_NOTE_CATEGORIES = [
@@ -32,10 +55,6 @@ export const ATTENDANCE_NOTE_CATEGORY_LABELS: Record<AttendanceNoteCategory, str
 };
 
 export const ATTENDANCE_NOTE_MAX_LENGTH = 250;
-
-export function isAttendanceNotesEnabled(settings?: Record<string, unknown> | null) {
-  return settings?.[ATTENDANCE_NOTES_FEATURE_FLAG_KEY] === true;
-}
 
 const CONTROL_CHARS = /[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F]/g;
 

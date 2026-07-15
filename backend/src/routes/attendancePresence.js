@@ -5,16 +5,16 @@ import { authIsBranchAdmin, authHasGlobalBranchRead, resolveActiveBranchId } fro
 import { rotateAttendancePresenceToken } from '../services/attendance/presenceTokens.js';
 import { readJsonValue, writeJsonValue } from '../db/dataStore.js';
 import {
-  isQrVisitorAttendanceFeatureEnabled,
-  qrFeatureDisabledError,
+  isAttendancePresenceQrFeatureEnabled,
+  qrAttendanceFeatureDisabledError,
 } from '../services/qrVisitorAttendanceFeature.js';
 
 const router = Router();
 
 router.post('/rotate', requireAccess(Access.attendancePunch), async (req, res) => {
   try {
-    if (!(await isQrVisitorAttendanceFeatureEnabled())) {
-      throw qrFeatureDisabledError();
+    if (!(await isAttendancePresenceQrFeatureEnabled())) {
+      throw qrAttendanceFeatureDisabledError();
     }
     const branchId = String(
       req.body?.gymCodeId || resolveActiveBranchId(req.auth) || req.auth?.gymCodeId || '',
@@ -45,7 +45,8 @@ router.get('/settings', requireAccess(Access.attendancePunch), async (req, res) 
     const settings = (await readJsonValue('apg.settings', {}, null)) || {};
     return res.json({
       ok: true,
-      qrVisitorAttendanceEnabled: settings.qrVisitorAttendanceEnabled === true,
+      qrVisitorIntakeEnabled:
+        settings.qrVisitorIntakeEnabled === true || settings.qrVisitorAttendanceEnabled === true,
       attendanceRequirePresenceQr: settings.attendanceRequirePresenceQr === true,
     });
   } catch (err) {
@@ -60,18 +61,16 @@ router.put('/settings', requireAccess(Access.attendancePunch), async (req, res) 
     }
     const settings = (await readJsonValue('apg.settings', {}, null)) || {};
     const next = { ...settings };
-    if (Object.prototype.hasOwnProperty.call(req.body || {}, 'qrVisitorAttendanceEnabled')) {
-      next.qrVisitorAttendanceEnabled = req.body.qrVisitorAttendanceEnabled === true;
-      if (!next.qrVisitorAttendanceEnabled) next.attendanceRequirePresenceQr = false;
+    if (Object.prototype.hasOwnProperty.call(req.body || {}, 'qrVisitorIntakeEnabled')) {
+      next.qrVisitorIntakeEnabled = req.body.qrVisitorIntakeEnabled === true;
     }
     if (Object.prototype.hasOwnProperty.call(req.body || {}, 'attendanceRequirePresenceQr')) {
-      next.attendanceRequirePresenceQr =
-        next.qrVisitorAttendanceEnabled === true && req.body.attendanceRequirePresenceQr === true;
+      next.attendanceRequirePresenceQr = req.body.attendanceRequirePresenceQr === true;
     }
     await writeJsonValue('apg.settings', next, null);
     return res.json({
       ok: true,
-      qrVisitorAttendanceEnabled: next.qrVisitorAttendanceEnabled === true,
+      qrVisitorIntakeEnabled: next.qrVisitorIntakeEnabled === true,
       attendanceRequirePresenceQr: next.attendanceRequirePresenceQr === true,
     });
   } catch (err) {

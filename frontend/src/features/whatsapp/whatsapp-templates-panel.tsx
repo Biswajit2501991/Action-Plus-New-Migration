@@ -103,7 +103,9 @@ export function WhatsappTemplatesPanel({
     mutationFn: async (enabled: boolean) => {
       const patch: Record<string, boolean> = { customTemplatesEnabled: enabled };
       if (settings?.attendanceNotesEnabled === true) patch.attendanceNotesEnabled = true;
-      if (settings?.qrVisitorAttendanceEnabled === true) patch.qrVisitorAttendanceEnabled = true;
+      if (settings?.qrVisitorIntakeEnabled === true || settings?.qrVisitorAttendanceEnabled === true) {
+        patch.qrVisitorIntakeEnabled = true;
+      }
       if (settings?.attendanceRequirePresenceQr === true) patch.attendanceRequirePresenceQr = true;
       if (settings?.paymentQrInReminderEnabled === true) patch.paymentQrInReminderEnabled = true;
       await settingsApi.bulk(patch);
