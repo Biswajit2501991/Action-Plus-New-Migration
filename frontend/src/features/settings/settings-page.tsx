@@ -382,12 +382,12 @@ export function SettingsPage() {
   }, []);
 
   const [openCat, setOpenCat] = useState<Record<string, boolean>>({
-    appearance: true,
-    branches: true,
-    fine: true,
-    features: true,
-    business: true,
-    member: true,
+    appearance: false,
+    branches: false,
+    fine: false,
+    features: false,
+    business: false,
+    member: false,
   });
   const [drafts, setDrafts] = useState<Record<string, string>>({});
   const [gymForm, setGymForm] = useState({ code: "", name: "" });
@@ -604,7 +604,7 @@ export function SettingsPage() {
           activeAppearance={activeAppearance}
           themeReady={themeReady}
           resolvedTheme={resolvedTheme}
-          open={openCat.appearance !== false}
+          open={Boolean(openCat.appearance)}
           onToggleOpen={() => toggleCat("appearance")}
           onFollowSystem={(on) => {
             if (on) setTheme("system");
@@ -629,7 +629,7 @@ export function SettingsPage() {
         activeAppearance={activeAppearance}
         themeReady={themeReady}
         resolvedTheme={resolvedTheme}
-        open={openCat.appearance !== false}
+        open={Boolean(openCat.appearance)}
         onToggleOpen={() => toggleCat("appearance")}
         onFollowSystem={(on) => {
           if (on) setTheme("system");
@@ -642,7 +642,7 @@ export function SettingsPage() {
         <SettingsSectionShell
           title="Gym Branches"
           description="Codes, shift times, display names, and logos"
-          open={openCat.branches !== false}
+          open={Boolean(openCat.branches)}
           onToggle={() => toggleCat("branches")}
           accent={SECTION_ACCENTS.branches}
           icon={<Building2 className="h-4 w-4" />}
@@ -917,7 +917,7 @@ export function SettingsPage() {
         <SettingsSectionShell
           title="Fine SMS Rule"
           description="Grace days, Fine SMS eligibility, and payment QR reminders"
-          open={openCat.fine !== false}
+          open={Boolean(openCat.fine)}
           onToggle={() => toggleCat("fine")}
           accent={SECTION_ACCENTS.fine}
           icon={<MessageSquareWarning className="h-4 w-4" />}
@@ -959,7 +959,7 @@ export function SettingsPage() {
         <SettingsSectionShell
           title="System Features"
           description="Attendance notes, custom templates, and finance estimates"
-          open={openCat.features !== false}
+          open={Boolean(openCat.features)}
           onToggle={() => toggleCat("features")}
           accent={SECTION_ACCENTS.features}
           icon={<Sparkles className="h-4 w-4" />}
@@ -993,7 +993,7 @@ export function SettingsPage() {
       <SettingsSectionShell
         title="Business Configuration"
         description="Plans, statuses, payment methods, expense categories"
-        open={openCat.business !== false}
+        open={Boolean(openCat.business)}
         onToggle={() => toggleCat("business")}
         accent={SECTION_ACCENTS.business}
         icon={<ClipboardList className="h-4 w-4" />}
@@ -1004,7 +1004,7 @@ export function SettingsPage() {
       <SettingsSectionShell
         title="Member & PT"
         description="Hold durations, genders, exercise types"
-        open={openCat.member !== false}
+        open={Boolean(openCat.member)}
         onToggle={() => toggleCat("member")}
         accent={SECTION_ACCENTS.member}
         icon={<Users className="h-4 w-4" />}
