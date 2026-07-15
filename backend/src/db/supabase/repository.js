@@ -2049,14 +2049,9 @@ async function writeSettings(settings, scope) {
   }
 
   // Patch-only config write: keys omitted from `incoming` keep live DB values.
-  const { data: liveConfigRow, error: liveConfigErr } = await sb
-    .from(T.settings_app_config)
-    .select('*')
-    .eq('gym_id', gid)
-    .maybeSingle();
-  if (liveConfigErr) throw liveConfigErr;
+  const liveConfigRow = await fetchAppConfigRow(sb, gid);
 
-  const appConfig = buildSettingsAppConfigWriteFromLive(liveConfigRow || {}, incoming);
+  const appConfig = buildSettingsAppConfigWriteFromLive(liveConfigRow || {}, incoming, existing);
   await sb.from(T.settings_app_config).delete().eq('gym_id', gid);
   await sb.from(T.settings_app_config).insert({
     gym_id: gid,

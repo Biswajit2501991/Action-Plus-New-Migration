@@ -101,8 +101,10 @@ export function WhatsappTemplatesPanel({
 
   const saveFeatureFlag = useMutation({
     mutationFn: async (enabled: boolean) => {
-      // Sparse patch only — never rewrite sibling flags from a stale cache.
-      await settingsApi.bulk({ customTemplatesEnabled: enabled });
+      const patch: Record<string, boolean> = { customTemplatesEnabled: enabled };
+      if (settings?.attendanceNotesEnabled === true) patch.attendanceNotesEnabled = true;
+      if (settings?.paymentQrInReminderEnabled === true) patch.paymentQrInReminderEnabled = true;
+      await settingsApi.bulk(patch);
     },
     onMutate: async (enabled) => {
       await qc.cancelQueries({ queryKey: ["settings"] });

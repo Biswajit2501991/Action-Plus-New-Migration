@@ -125,6 +125,24 @@ describe('buildSettingsAppConfigWriteFromLive', () => {
     expect(row.config_json.customTemplatesEnabled).toBe(true);
   });
 
+  it('falls back to merged settings when config_json omits a sibling opt-in flag', () => {
+    const row = buildSettingsAppConfigWriteFromLive(
+      {
+        fine_sms_enabled: true,
+        fine_sms_grace_days: 0,
+        fine_sms_immediate_roles_json: [],
+        finance_use_estimated_expense: true,
+        config_json: {
+          attendanceNotesEnabled: false,
+        },
+      },
+      { attendanceNotesEnabled: true },
+      { customTemplatesEnabled: true },
+    );
+    expect(row.config_json.attendanceNotesEnabled).toBe(true);
+    expect(row.config_json.customTemplatesEnabled).toBe(true);
+  });
+
   it('does not invent false for missing live opt-in flags on unrelated patch', () => {
     const row = buildSettingsAppConfigWriteFromLive(
       {

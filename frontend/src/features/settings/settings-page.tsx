@@ -351,8 +351,18 @@ export function SettingsPage() {
   });
 
   const setFeatureFlags = (override: Partial<FeatureFlagState>) => {
-    // Sparse patch only — backend preserves sibling flags from the live DB row.
-    saveFlags.mutate(override);
+    // Re-send sibling opt-in flags that are already on so sparse saves never wipe them.
+    const patch: Partial<FeatureFlagState> = { ...override };
+    if (flags.customTemplatesEnabled && patch.customTemplatesEnabled === undefined) {
+      patch.customTemplatesEnabled = true;
+    }
+    if (flags.attendanceNotesEnabled && patch.attendanceNotesEnabled === undefined) {
+      patch.attendanceNotesEnabled = true;
+    }
+    if (flags.paymentQrInReminderEnabled && patch.paymentQrInReminderEnabled === undefined) {
+      patch.paymentQrInReminderEnabled = true;
+    }
+    saveFlags.mutate(patch);
   };
 
   const createGym = useMutation({

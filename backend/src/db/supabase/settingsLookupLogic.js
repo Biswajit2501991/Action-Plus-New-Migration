@@ -83,13 +83,29 @@ const OPT_IN_BOOL_KEYS = new Set([
  * patch. Keys absent from `incoming` keep their live values — this prevents
  * stale full-flag clients from wiping attendanceNotesEnabled / customTemplates.
  */
-export function buildSettingsAppConfigWriteFromLive(liveConfigRow, incoming) {
+export function buildSettingsAppConfigWriteFromLive(liveConfigRow, incoming, existingSettings = null) {
   const live = liveConfigRow && typeof liveConfigRow === 'object' ? liveConfigRow : {};
   const patch = incoming && typeof incoming === 'object' ? incoming : {};
+  const ex = existingSettings && typeof existingSettings === 'object' ? existingSettings : {};
   const liveCfg =
     live.config_json && typeof live.config_json === 'object' ? { ...live.config_json } : {};
 
   const nextCfg = { ...liveCfg };
+
+  // When config_json is partial (legacy drift), keep enabled opt-in flags from merged settings.
+  for (const key of OPT_IN_BOOL_KEYS) {
+    if (Object.prototype.hasOwnProperty.call(liveCfg, key)) continue;
+    if (ex[key] === true) nextCfg[key] = true;
+  }
+
+  for (const key of SETTINGS_CONFIG_JSON_KEYS) {
+    if (OPT_IN_BOOL_KEYS.has(key)) continue;
+    if (Object.prototype.hasOwnProperty.call(liveCfg, key)) continue;
+    if (Object.prototype.hasOwnProperty.call(ex, key) && ex[key] != null) {
+      nextCfg[key] = ex[key];
+    }
+  }
+
   for (const key of SETTINGS_CONFIG_JSON_KEYS) {
     if (!Object.prototype.hasOwnProperty.call(patch, key)) continue;
     if (OPT_IN_BOOL_KEYS.has(key)) {
