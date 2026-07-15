@@ -23,6 +23,10 @@ import type { Member } from "@/types";
 
 const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
 
+/** checkbox | ID | Name | Plan | Bill | PayBy | spacer | Status/Action/Messages */
+const MEMBER_LIST_GRID =
+  "grid-cols-[22px_88px_minmax(120px,1fr)_84px_78px_78px_14px_minmax(280px,1.9fr)] gap-x-1 gap-y-1.5";
+
 function fmtDate(value?: string | null) {
   if (!value) return "—";
   const raw = String(value).trim();
@@ -123,7 +127,7 @@ export function MemberCardRow({
           }
         }}
         className={cn(
-          "apg-member-row-card grid w-full min-w-[980px] cursor-pointer grid-cols-[22px_88px_minmax(140px,1.4fr)_90px_78px_78px_minmax(280px,1.8fr)] items-center gap-1.5 rounded-xl border bg-white px-2.5 py-1.5 text-left text-[10px] text-slate-700 shadow-[0_1px_0_rgba(15,23,42,0.02)] transition hover:border-slate-300 hover:bg-slate-50/70 hover:shadow-[0_6px_20px_rgba(15,23,42,0.06)] dark:bg-card dark:text-foreground dark:hover:border-white/15 dark:hover:bg-white/[0.06] dark:hover:shadow-[0_8px_24px_rgba(0,0,0,0.35)]",
+          `apg-member-row-card grid w-full min-w-[980px] cursor-pointer ${MEMBER_LIST_GRID} items-center rounded-xl border bg-white px-2.5 py-1.5 text-left text-[10px] text-slate-700 shadow-[0_1px_0_rgba(15,23,42,0.02)] transition hover:border-slate-300 hover:bg-slate-50/70 hover:shadow-[0_6px_20px_rgba(15,23,42,0.06)] dark:bg-card dark:text-foreground dark:hover:border-white/15 dark:hover:bg-white/[0.06] dark:hover:shadow-[0_8px_24px_rgba(0,0,0,0.35)]`,
           overdue && "apg-member-row--fine-due font-medium",
           billingToday && "apg-member-row--billing-today font-medium",
           birthdayToday &&
@@ -218,6 +222,8 @@ export function MemberCardRow({
             </span>
           ) : null}
         </span>
+
+        <span aria-hidden="true" />
 
         <span
           className="flex min-w-0 flex-nowrap items-center gap-1.5"
@@ -317,7 +323,9 @@ export function MemberListHeader({
   const ind = (field: "memberId" | "name" | "plan" | "billingDate" | "paymentBy") =>
     sortIndicator ? sortIndicator(field) : "";
   return (
-    <div className="grid min-w-[980px] grid-cols-[22px_88px_minmax(140px,1.4fr)_90px_78px_78px_minmax(280px,1.8fr)] items-center gap-1.5 rounded-xl border border-sky-100 bg-sky-50/80 px-2.5 py-1.5 text-[10px] font-semibold uppercase tracking-wide text-slate-600 dark:border-sky-900 dark:bg-sky-950/30 dark:text-sky-100">
+    <div
+      className={`grid min-w-[980px] ${MEMBER_LIST_GRID} items-center rounded-xl border border-sky-100 bg-sky-50/80 px-2.5 py-1.5 text-[10px] font-semibold uppercase tracking-wide text-slate-600 dark:border-sky-900 dark:bg-sky-950/30 dark:text-sky-100`}
+    >
       <span />
       <button type="button" className="text-left" onClick={() => onSort?.("memberId")}>
         ID {ind("memberId")}
@@ -334,6 +342,7 @@ export function MemberListHeader({
       <button type="button" className="text-left" onClick={() => onSort?.("paymentBy")}>
         Payment By {ind("paymentBy")}
       </button>
+      <span aria-hidden="true" />
       <span className="normal-case tracking-normal">Status / Action / Messages</span>
     </div>
   );
