@@ -2348,9 +2348,8 @@ export async function createOrUpsertPublicVisitor(visitor) {
 
   const row = appVisitorToRow(visitor, gid);
   const payload = includeGymCode ? row : stripVisitorGymCodeColumn(row);
-  const { error: insErr } = await sb.from(T.visitors).upsert(payload, {
-    onConflict: 'gym_id,external_visitor_id',
-  });
+  // Public intake always issues a fresh external id — insert (no ON CONFLICT required).
+  const { error: insErr } = await sb.from(T.visitors).insert(payload);
   if (insErr) throw insErr;
   notifyCollectionChange('visitors');
   return visitorRowToApp({ ...payload, external_visitor_id: payload.external_visitor_id });
