@@ -11,6 +11,12 @@ const RATE_MOBILE_WINDOW_MS = Math.max(
   Number(process.env.PUBLIC_VISITOR_RATE_MOBILE_WINDOW_MS || 24 * 60 * 60 * 1000),
 );
 
+export const PUBLIC_VISITOR_PLAN_OPTIONS = ['Basic', 'Personal Training'];
+export const PUBLIC_VISITOR_GOAL_OPTIONS = [
+  'Weight loss',
+  'Recovering from injury or Medical condition?',
+];
+
 /** @type {Map<string, { count: number, resetAt: number }>} */
 const ipBuckets = new Map();
 /** @type {Map<string, { count: number, resetAt: number }>} */
@@ -37,11 +43,101 @@ function touchBucket(map, key, max, windowMs) {
   return { ok: entry.count <= max, retryAfterSec: Math.max(1, Math.ceil((entry.resetAt - now) / 1000)) };
 }
 
+function invalidMobile(detail) {
+  const err = new Error(detail || 'invalid-mobile');
+  err.status = 400;
+  err.code = 'invalid-mobile';
+  err.detail = detail;
+  return err;
+}
+
+/**
+ * Accept:
+ * - 10 digits
+ * - 11 digits starting with 0
+ * - 12 digits starting with 91
+ * - 13 characters starting with +91 (e.g. +919876543210)
+ * Returns normalized 10-digit mobile.
+ */
 export function normalizePublicMobile(raw) {
-  const digits = String(raw || '').replace(/\D/g, '');
-  if (digits.length === 12 && digits.startsWith('91')) return digits.slice(-10);
-  if (digits.length === 11 && digits.startsWith('0')) return digits.slice(-10);
-  return digits.slice(-10);
+  const compact = String(raw || '').trim().replace(/[\s-]/g, '');
+  if (!compact) {
+    throw invalidMobile('Enter a mobile number.');
+  }
+
+  if (compact.startsWith('+')) {
+    if (!/^\+91\d{10}$/.test(compact)) {
+      throw invalidMobile(
+        '13-character numbers must start with +91 followed by 10 digits (e.g. +919876543210).',
+      );
+    }
+    return compact.slice(3);
+  }
+
+  if (!/^\d+$/.test(compact)) {
+    throw invalidMobile('Use digits only, or +91 before a 10-digit mobile.');
+  }
+
+  if (compact.length === 10) return compact;
+  if (compact.length === 11) {
+    if (!compact.startsWith('0')) {
+      throw invalidMobile('11-digit numbers must start with 0 (e.g. 09876543210).');
+    }
+    return compact.slice(1);
+  }
+  if (compact.length === 12) {
+    if (!compact.startsWith('91')) {
+      throw invalidMobile('12-digit numbers must start with 91 (e.g. 919876543210).');
+    }
+    return compact.slice(2);
+  }
+  if (compact.length === 13) {
+    throw invalidMobile(
+      'For 13 characters use +91 before the 10-digit mobile (e.g. +919876543210).',
+    );
+  }
+
+  throw invalidMobile(
+    'Mobile must be 10 digits, or 11 (0…), 12 (91…), or +91 plus 10 digits.',
+  );
+}
+
+/** Soft live check while typing — empty/partial returns null; clear errors return a message. */
+export function publicMobileLiveHint(raw) {
+  const compact = String(raw || '').trim().replace(/[\s-]/g, '');
+  if (!compact) return null;
+  try {
+    if (compact.startsWith('+')) {
+      if (compact.length < 3) return null;
+      if (!compact.startsWith('+91')) {
+        return 'Numbers with + must start with +91.';
+      }
+      if (compact.length > 13) {
+        return 'Too long — use +91 and 10 digits.';
+      }
+      if (compact.length === 13) {
+        normalizePublicMobile(compact);
+        return null;
+      }
+      return null;
+    }
+    if (!/^\d+$/.test(compact)) {
+      return 'Use digits only, or start with +91.';
+    }
+    if (compact.length > 13) {
+      return 'Too long — use 10–12 digits or +91…';
+    }
+    if ([10, 11, 12].includes(compact.length)) {
+      normalizePublicMobile(compact);
+      return null;
+    }
+    if (compact.length === 13) {
+      return 'For 13 characters use +91 before the 10-digit mobile.';
+    }
+    return null;
+  } catch (err) {
+    return err?.detail || err?.message || 'Invalid mobile number.';
+  }
 }
 
 export function assertPublicVisitorPayload(body) {
@@ -63,11 +159,22 @@ export function assertPublicVisitorPayload(body) {
   }
 
   const mobileNormalized = normalizePublicMobile(body?.mobile);
-  if (mobileNormalized.length !== 10) {
-    const err = new Error('invalid-mobile');
+
+  const interestPlan = String(body?.interestPlan || body?.plan || '').trim();
+  if (!PUBLIC_VISITOR_PLAN_OPTIONS.includes(interestPlan)) {
+    const err = new Error('plan-required');
     err.status = 400;
-    err.code = 'invalid-mobile';
-    err.detail = 'Enter a valid 10-digit mobile number.';
+    err.code = 'plan-required';
+    err.detail = 'Select a plan: Basic or Personal Training.';
+    throw err;
+  }
+
+  const goal = String(body?.goal || '').trim();
+  if (!PUBLIC_VISITOR_GOAL_OPTIONS.includes(goal)) {
+    const err = new Error('goal-required');
+    err.status = 400;
+    err.code = 'goal-required';
+    err.detail = 'Select a goal from the list.';
     throw err;
   }
 
@@ -83,6 +190,8 @@ export function assertPublicVisitorPayload(body) {
     email: email || '',
     dob: /^\d{4}-\d{2}-\d{2}$/.test(dob) ? dob : null,
     notes,
+    interestPlan,
+    goal,
   };
 }
 
@@ -144,6 +253,8 @@ export async function submitPublicVisitorIntake(gymCode, body, req) {
     dob: payload.dob || '',
     gender: payload.gender || '',
     notes: payload.notes || '',
+    interestPlan: payload.interestPlan,
+    goal: payload.goal,
     status: 'New',
     callBackRequired: false,
     tentativeJoiningDate: '',

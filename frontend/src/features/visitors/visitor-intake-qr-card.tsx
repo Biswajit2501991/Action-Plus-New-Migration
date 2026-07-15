@@ -38,6 +38,11 @@ export function VisitorIntakeQrCard() {
             <p className="text-xs text-muted-foreground">
               Guests scan this to join the Visitor list. Staff can convert them to Members later.
             </p>
+            <ul className="mt-1 list-inside list-disc text-[11px] text-muted-foreground">
+              <li>Name, mobile (10–12 digits or +91…)</li>
+              <li>Plan: Basic or Personal Training</li>
+              <li>Goal: Weight loss or recovery / medical</li>
+            </ul>
           </div>
           <p className="truncate rounded-lg border border-border/70 bg-background/80 px-2 py-1.5 font-mono text-[11px]">
             {url}

@@ -232,6 +232,14 @@ export function VisitorsPanel({ visitors }: Props) {
                             {formatDate(String(v.dob || ""))}
                           </p>
                           <p>
+                            <span className="text-slate-400">Plan · </span>
+                            {String(v.interestPlan || "—")}
+                          </p>
+                          <p>
+                            <span className="text-slate-400">Goal · </span>
+                            {String(v.goal || "—")}
+                          </p>
+                          <p>
                             <span className="text-slate-400">Tentative join · </span>
                             {formatDate(String(v.tentativeJoiningDate || ""))}
                           </p>
@@ -241,6 +249,12 @@ export function VisitorsPanel({ visitors }: Props) {
                               ? `${formatDate(String(v.lastCalledAt))} by ${v.lastCalledBy || "—"}`
                               : "Not yet"}
                           </p>
+                          {v.notes ? (
+                            <p className="sm:col-span-2">
+                              <span className="text-slate-400">Notes · </span>
+                              {String(v.notes)}
+                            </p>
+                          ) : null}
                           {converted ? (
                             <p className="sm:col-span-2">
                               <span className="text-slate-400">Converted member · </span>

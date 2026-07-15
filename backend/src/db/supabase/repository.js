@@ -2330,6 +2330,8 @@ export async function createOrUpsertPublicVisitor(visitor) {
         gender: visitor.gender || sameDay.gender || '',
         dob: visitor.dob || sameDay.dob || '',
         notes: visitor.notes || '',
+        interestPlan: visitor.interestPlan || sameDay.interest_plan || '',
+        goal: visitor.goal || sameDay.goal || '',
         intakeSource: 'qr_public',
         updatedAt: new Date().toISOString(),
       };

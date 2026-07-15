@@ -436,6 +436,8 @@ export function visitorRowToApp(row) {
     assignedGymCodeId: row.assigned_gym_code_id || null,
     addedAt: row.added_at,
     notes: row.notes || '',
+    interestPlan: row.interest_plan || '',
+    goal: row.goal || '',
     intakeSource:
       row.intake_source ||
       (String(row.last_called_by || '').startsWith('__intake:')
@@ -468,5 +470,12 @@ export function appVisitorToRow(v, gymId) {
     added_at: toTs(v.addedAt),
     created_at: toTs(v.addedAt) || new Date().toISOString(),
     updated_at: new Date().toISOString(),
+    notes: v.notes != null && String(v.notes).trim() ? String(v.notes).trim() : null,
+    interest_plan:
+      v.interestPlan != null && String(v.interestPlan).trim()
+        ? String(v.interestPlan).trim()
+        : null,
+    goal: v.goal != null && String(v.goal).trim() ? String(v.goal).trim() : null,
+    intake_source: intake || null,
   };
 }

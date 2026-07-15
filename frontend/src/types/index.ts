@@ -68,6 +68,8 @@ export type Visitor = {
   visitDate?: string;
   addedAt?: string;
   notes?: string;
+  interestPlan?: string;
+  goal?: string;
   status?: string;
   callBackRequired?: boolean;
   tentativeJoiningDate?: string;
