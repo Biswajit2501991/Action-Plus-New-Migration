@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { Phone, Plus, UserRound } from "lucide-react";
 import { toast } from "sonner";
@@ -53,6 +53,10 @@ export function VisitorsPanel({ visitors }: Props) {
   const [formOpen, setFormOpen] = useState(false);
   const [editing, setEditing] = useState<Visitor | null>(null);
   const [expandedId, setExpandedId] = useState("");
+
+  useEffect(() => {
+    void qc.invalidateQueries({ queryKey: ["visitors"] });
+  }, [qc]);
 
   const sorted = useMemo(() => {
     return [...visitors].sort((a, b) => {

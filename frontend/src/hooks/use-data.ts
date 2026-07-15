@@ -26,12 +26,15 @@ export function useMembers() {
 }
 
 export function useVisitors() {
-  const authed = Boolean(useAuthStore((s) => s.user));
+  const user = useAuthStore((s) => s.user);
+  const authed = Boolean(user);
+  const branchId = String(user?.activeBranchId || user?.gymCodeId || "");
   return useQuery({
-    queryKey: ["visitors"],
+    queryKey: ["visitors", branchId],
     queryFn: visitorsApi.list,
     enabled: authed,
-    staleTime: STALE.lists,
+    staleTime: 30_000,
+    refetchOnMount: "always",
   });
 }
 

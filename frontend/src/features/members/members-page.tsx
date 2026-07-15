@@ -978,7 +978,10 @@ export function MembersPage() {
                 ? "bg-slate-900 text-white hover:bg-slate-800 hover:text-white dark:bg-teal-400 dark:text-slate-950 dark:hover:bg-teal-300 dark:hover:text-slate-950"
                 : "text-slate-500 hover:bg-black/[0.04] hover:text-slate-900 dark:text-slate-400 dark:hover:bg-white/[0.06]",
             )}
-            onClick={() => setTab("visitors")}
+            onClick={() => {
+              setTab("visitors");
+              void qc.invalidateQueries({ queryKey: ["visitors"] });
+            }}
           >
             Visitors ({visitors.length})
           </Button>

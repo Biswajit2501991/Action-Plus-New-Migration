@@ -212,9 +212,6 @@ export default function PublicVisitorIntakePage() {
                 placeholder="10 digits, or 0… / 91… / +91…"
                 aria-invalid={showMobileError}
               />
-              <span className="mt-1 block text-[11px] text-slate-500">
-                10 digits · 11 with 0 · 12 with 91 · or +91 + 10 digits
-              </span>
               {showMobileError ? (
                 <span className="mt-1 block text-[11px] text-rose-300">{mobileHint}</span>
               ) : null}

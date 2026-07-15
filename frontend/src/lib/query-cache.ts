@@ -7,7 +7,7 @@ import { readAuthSession } from "@/lib/auth-storage";
 export const APP_QUERY_CACHE_KEY = "apg.rq.v2";
 
 /** Bump to invalidate all persisted caches after breaking shape changes. */
-export const APP_QUERY_CACHE_VERSION = "v2";
+export const APP_QUERY_CACHE_VERSION = "v3";
 
 export const STALE = {
   /** Large lists used across many sections */

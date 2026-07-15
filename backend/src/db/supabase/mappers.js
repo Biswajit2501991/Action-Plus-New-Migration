@@ -424,6 +424,7 @@ export function visitorRowToApp(row) {
   return {
     id: row.external_visitor_id,
     fullName: row.full_name,
+    name: row.full_name,
     email: row.email,
     mobile: row.mobile,
     dob: row.dob,
@@ -435,6 +436,7 @@ export function visitorRowToApp(row) {
     lastCalledBy: row.last_called_by,
     assignedGymCodeId: row.assigned_gym_code_id || null,
     addedAt: row.added_at,
+    visitDate: row.added_at,
     notes: row.notes || '',
     interestPlan: row.interest_plan || '',
     goal: row.goal || '',
