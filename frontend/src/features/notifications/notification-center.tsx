@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useRouter } from "next/navigation";
 import { Bell, KeyRound, Phone, Plane } from "lucide-react";
@@ -58,6 +58,7 @@ export function NotificationCenter() {
   const { data: attendanceRecords = [] } = useAttendance();
 
   const [open, setOpen] = useState(false);
+  const rootRef = useRef<HTMLDivElement | null>(null);
   const [busyLeaveId, setBusyLeaveId] = useState("");
   const [busyVisitorId, setBusyVisitorId] = useState("");
   const [approveFor, setApproveFor] = useState<StaffUser | null>(null);
@@ -104,6 +105,22 @@ export function NotificationCenter() {
 
   const total =
     leavePending.length + passwordPending.length + callbackPending.length;
+
+  useEffect(() => {
+    if (!open) return;
+    const onDoc = (e: MouseEvent) => {
+      if (!rootRef.current?.contains(e.target as Node)) setOpen(false);
+    };
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setOpen(false);
+    };
+    document.addEventListener("mousedown", onDoc);
+    document.addEventListener("keydown", onKey);
+    return () => {
+      document.removeEventListener("mousedown", onDoc);
+      document.removeEventListener("keydown", onKey);
+    };
+  }, [open]);
 
   const leaveDecide = useMutation({
     mutationFn: async ({
@@ -198,15 +215,15 @@ export function NotificationCenter() {
   if (!user || (!canLeave && !canResets && !canVisitors)) return null;
 
   return (
-    <div className="relative">
+    <div className="relative" ref={rootRef}>
       <button
         type="button"
         onClick={() => setOpen((v) => !v)}
         className={cn(
-          "relative inline-flex h-9 items-center gap-2 rounded-xl border px-3 text-xs font-semibold tracking-wide transition",
+          "relative inline-flex h-9 items-center gap-2 rounded-xl border px-3 text-xs font-semibold transition",
           total
-            ? "border-slate-800/15 bg-slate-900 text-white shadow-[0_8px_24px_-12px_rgba(15,23,42,0.55)] hover:bg-slate-800 dark:border-teal-400/30 dark:bg-teal-400 dark:text-slate-950 dark:hover:bg-teal-300"
-            : "border-slate-200/90 bg-white/90 text-slate-600 shadow-sm hover:border-slate-300 hover:bg-white dark:border-white/10 dark:bg-white/[0.04] dark:text-slate-300 dark:hover:bg-white/[0.07]",
+            ? "border-amber-200/80 bg-amber-50/90 text-amber-950 hover:bg-amber-100 dark:border-amber-500/25 dark:bg-amber-950/40 dark:text-amber-100"
+            : "border-slate-200/80 bg-white/80 text-slate-600 hover:bg-slate-50 dark:border-white/10 dark:bg-white/[0.04] dark:text-slate-300",
         )}
         aria-label={total ? `${total} notifications` : "Notifications"}
         aria-expanded={open}
@@ -215,267 +232,217 @@ export function NotificationCenter() {
         <Bell className="h-3.5 w-3.5" />
         <span className="hidden sm:inline">Alerts</span>
         {total > 0 ? (
-          <span className="inline-flex h-5 min-w-5 items-center justify-center rounded-md bg-white/15 px-1.5 text-[10px] font-bold tabular-nums text-white dark:bg-slate-950/15 dark:text-slate-950">
+          <span className="inline-flex h-5 min-w-5 items-center justify-center rounded-md bg-slate-900 px-1.5 text-[10px] font-bold text-white dark:bg-teal-400 dark:text-slate-950">
             {total}
           </span>
         ) : null}
       </button>
 
-      <ClassicalModal
-        open={open && !approveFor}
-        title="Notifications"
-        description={
-          total
-            ? `${total} item${total === 1 ? "" : "s"} awaiting your decision`
-            : "Your inbox is clear — nothing needs attention right now."
-        }
-        onClose={() => setOpen(false)}
-        size="md"
-        testId="notification-center-panel"
-        headerAside={
-          total > 0 ? (
-            <span className="inline-flex h-9 min-w-9 items-center justify-center rounded-xl border border-slate-200 bg-slate-50 px-2.5 text-[12px] font-semibold tabular-nums text-slate-700 dark:border-white/10 dark:bg-white/[0.04] dark:text-slate-200">
-              {total}
-            </span>
-          ) : null
-        }
-        footer={
-          <Button variant="outline" onClick={() => setOpen(false)} className="rounded-xl">
-            Close
-          </Button>
-        }
-      >
-        <div className="space-y-6">
-          {canResets ? (
-            <section>
-              <div className="mb-3 flex items-center gap-2.5">
-                <span className="inline-flex h-8 w-8 items-center justify-center rounded-xl border border-slate-200/90 bg-slate-50 text-slate-600 shadow-sm dark:border-white/10 dark:bg-white/[0.04] dark:text-slate-300">
-                  <KeyRound className="h-3.5 w-3.5" />
-                </span>
-                <div>
-                  <p className="text-[10px] font-semibold uppercase tracking-[0.2em] text-slate-400">
-                    Security
-                  </p>
-                  <p className="text-[13px] font-semibold text-slate-800 dark:text-slate-100">
-                    Password resets
-                  </p>
-                </div>
-              </div>
-              {!passwordPending.length ? (
-                <p className="rounded-xl border border-dashed border-slate-200 px-3 py-3 text-xs text-slate-400 dark:border-white/10">
-                  No pending resets.
-                </p>
-              ) : (
-                <div className="space-y-2.5">
-                  {passwordPending.map((staff) => (
-                    <div
-                      key={staff.id}
-                      className="rounded-2xl border border-slate-200/90 bg-gradient-to-b from-white to-slate-50/80 p-3.5 shadow-[0_1px_0_rgba(255,255,255,0.8)_inset] dark:border-white/10 dark:from-white/[0.05] dark:to-transparent dark:shadow-none"
-                      data-testid={`password-reset-notification-${staff.id}`}
-                    >
-                      <div className="flex items-start gap-3">
-                        <span className="mt-1 h-9 w-0.5 shrink-0 rounded-full bg-sky-500/80" />
-                        <div className="min-w-0 flex-1">
-                          <p className="text-[14px] font-semibold tracking-tight text-slate-900 dark:text-slate-50">
-                            {staff.name || staff.id}
-                          </p>
-                          <p className="mt-0.5 text-[12px] leading-relaxed text-slate-500 dark:text-slate-400">
-                            Requested a password reset · {staff.email || staff.id}
-                          </p>
-                          <p className="mt-1.5 text-[10px] uppercase tracking-[0.16em] text-slate-400">
-                            {formatDate(
-                              String(
-                                staff.passwordResetRequestedAt ||
-                                  staff.password_reset_requested_at ||
-                                  "",
-                              ),
-                            )}
-                          </p>
-                        </div>
-                      </div>
-                      <div className="mt-3.5 flex gap-2">
-                        <Button
-                          size="sm"
-                          className="h-9 flex-1 rounded-xl bg-slate-900 text-[12px] font-semibold tracking-wide text-white hover:bg-slate-800 dark:bg-teal-400 dark:text-slate-950 dark:hover:bg-teal-300"
-                          onClick={() => {
-                            setApproveFor(staff);
-                            setOpen(false);
-                          }}
-                        >
-                          Approve
-                        </Button>
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          className="h-9 flex-1 rounded-xl border-slate-200 text-[12px] font-semibold tracking-wide dark:border-white/15"
-                          disabled={rejectReset.isPending}
-                          onClick={() => {
-                            if (
-                              confirm(
-                                `Reject password reset for ${staff.name || staff.id}?`,
-                              )
-                            ) {
-                              rejectReset.mutate(staff.id);
-                            }
-                          }}
-                        >
-                          Decline
-                        </Button>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </section>
-          ) : null}
+      {open ? (
+        <div
+          className="absolute right-0 top-11 z-[95] w-[min(100vw-1.5rem,24rem)] overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-2xl dark:border-white/10 dark:bg-[#0f141c]"
+          data-testid="notification-center-panel"
+        >
+          <div className="border-b border-slate-100 px-4 py-3 dark:border-white/10">
+            <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-slate-400">
+              Inbox
+            </p>
+            <p className="text-sm font-semibold text-slate-900 dark:text-slate-50">
+              Owner notifications
+            </p>
+            <p className="text-[11px] text-slate-500">
+              {total
+                ? `${total} item${total === 1 ? "" : "s"} need attention`
+                : "All clear for now"}
+            </p>
+          </div>
 
-          {canLeave ? (
-            <section>
-              <div className="mb-3 flex items-center gap-2.5">
-                <span className="inline-flex h-8 w-8 items-center justify-center rounded-xl border border-slate-200/90 bg-slate-50 text-slate-600 shadow-sm dark:border-white/10 dark:bg-white/[0.04] dark:text-slate-300">
-                  <Plane className="h-3.5 w-3.5" />
-                </span>
-                <div>
-                  <p className="text-[10px] font-semibold uppercase tracking-[0.2em] text-slate-400">
-                    Staff
-                  </p>
-                  <p className="text-[13px] font-semibold text-slate-800 dark:text-slate-100">
-                    Leave approvals
-                  </p>
+          <div className="max-h-[min(70vh,28rem)] space-y-3 overflow-y-auto p-3">
+            {canResets ? (
+              <section>
+                <div className="mb-1.5 flex items-center gap-1.5 px-1 text-[11px] font-semibold uppercase tracking-wide text-slate-500">
+                  <KeyRound className="h-3.5 w-3.5" />
+                  Password resets
                 </div>
-              </div>
-              {!leavePending.length ? (
-                <p className="rounded-xl border border-dashed border-slate-200 px-3 py-3 text-xs text-slate-400 dark:border-white/10">
-                  No pending leave.
-                </p>
-              ) : (
-                <div className="space-y-2.5">
-                  {leavePending.map((n) => {
-                    const busy = busyLeaveId === n.id;
-                    const who =
-                      staffDisplayName(users, n.userId || n.staffId) ||
-                      n.userId ||
-                      n.staffId ||
-                      "Staff";
-                    return (
+                {!passwordPending.length ? (
+                  <p className="px-1 text-xs text-slate-400">No pending resets.</p>
+                ) : (
+                  <div className="space-y-1.5">
+                    {passwordPending.map((staff) => (
                       <div
-                        key={n.id}
-                        className="rounded-2xl border border-slate-200/90 bg-gradient-to-b from-white to-slate-50/80 p-3.5 shadow-[0_1px_0_rgba(255,255,255,0.8)_inset] dark:border-white/10 dark:from-white/[0.05] dark:to-transparent dark:shadow-none"
-                        data-testid={`leave-notification-${n.id}`}
+                        key={staff.id}
+                        className="rounded-xl border border-blue-200/80 bg-blue-50/70 p-2.5 dark:border-blue-500/20 dark:bg-blue-950/30"
+                        data-testid={`password-reset-notification-${staff.id}`}
                       >
-                        <button
-                          type="button"
-                          className="flex w-full items-start gap-3 text-left"
-                          onClick={() => {
-                            setOpen(false);
-                            router.push("/leave");
-                          }}
-                        >
-                          <span className="mt-1 h-9 w-0.5 shrink-0 rounded-full bg-emerald-500/80" />
-                          <div className="min-w-0 flex-1">
-                            <p className="text-[14px] font-semibold tracking-tight text-slate-900 dark:text-slate-50">
-                              {n.type || "Leave"} · {who}
-                            </p>
-                            <p className="mt-0.5 text-[12px] leading-relaxed text-slate-500 dark:text-slate-400">
-                              {formatDate(n.startDate)} – {formatDate(n.endDate)}
-                              {n.days ? ` · ${n.days} day${n.days === 1 ? "" : "s"}` : ""}
-                            </p>
-                          </div>
-                        </button>
-                        <div className="mt-3.5 flex gap-2">
+                        <p className="text-xs font-semibold text-blue-950 dark:text-blue-100">
+                          {staff.name || staff.id} requested a password reset
+                        </p>
+                        <p className="text-[11px] text-blue-800/80 dark:text-blue-200/70">
+                          {staff.email || staff.id} ·{" "}
+                          {formatDate(
+                            String(
+                              staff.passwordResetRequestedAt ||
+                                staff.password_reset_requested_at ||
+                                "",
+                            ),
+                          )}
+                        </p>
+                        <div className="mt-2 flex gap-1.5">
                           <Button
                             size="sm"
-                            className="h-9 flex-1 rounded-xl border border-emerald-700/20 bg-emerald-700 text-[12px] font-semibold tracking-wide text-white hover:bg-emerald-800 dark:border-emerald-400/30 dark:bg-emerald-400/15 dark:text-emerald-200 dark:hover:bg-emerald-400/25"
-                            disabled={busy}
-                            data-testid={`leave-notification-approve-${n.id}`}
-                            onClick={() =>
-                              leaveDecide.mutate({ id: n.id, status: "Approved" })
-                            }
+                            className="h-7 flex-1 bg-slate-900 text-white hover:bg-slate-800 dark:bg-teal-400 dark:text-slate-950"
+                            onClick={() => {
+                              setApproveFor(staff);
+                              setOpen(false);
+                            }}
                           >
-                            {busy ? "…" : "Approve"}
+                            Approve
                           </Button>
                           <Button
                             size="sm"
                             variant="outline"
-                            className="h-9 flex-1 rounded-xl border-slate-200 text-[12px] font-semibold tracking-wide text-rose-700 hover:bg-rose-50 dark:border-white/15 dark:text-rose-300 dark:hover:bg-rose-950/30"
-                            disabled={busy}
-                            data-testid={`leave-notification-reject-${n.id}`}
-                            onClick={() =>
-                              leaveDecide.mutate({ id: n.id, status: "Rejected" })
-                            }
+                            className="h-7 flex-1"
+                            disabled={rejectReset.isPending}
+                            onClick={() => {
+                              if (
+                                confirm(
+                                  `Reject password reset for ${staff.name || staff.id}?`,
+                                )
+                              ) {
+                                rejectReset.mutate(staff.id);
+                              }
+                            }}
                           >
                             Reject
                           </Button>
                         </div>
                       </div>
-                    );
-                  })}
-                </div>
-              )}
-            </section>
-          ) : null}
+                    ))}
+                  </div>
+                )}
+              </section>
+            ) : null}
 
-          {canVisitors ? (
-            <section>
-              <div className="mb-3 flex items-center gap-2.5">
-                <span className="inline-flex h-8 w-8 items-center justify-center rounded-xl border border-slate-200/90 bg-slate-50 text-slate-600 shadow-sm dark:border-white/10 dark:bg-white/[0.04] dark:text-slate-300">
-                  <Phone className="h-3.5 w-3.5" />
-                </span>
-                <div>
-                  <p className="text-[10px] font-semibold uppercase tracking-[0.2em] text-slate-400">
-                    Outreach
-                  </p>
-                  <p className="text-[13px] font-semibold text-slate-800 dark:text-slate-100">
-                    Visitor callbacks
-                  </p>
+            {canLeave ? (
+              <section>
+                <div className="mb-1.5 flex items-center gap-1.5 px-1 text-[11px] font-semibold uppercase tracking-wide text-slate-500">
+                  <Plane className="h-3.5 w-3.5" />
+                  Leave approvals
                 </div>
-              </div>
-              {!callbackPending.length ? (
-                <p className="rounded-xl border border-dashed border-slate-200 px-3 py-3 text-xs text-slate-400 dark:border-white/10">
-                  No callbacks due today.
-                </p>
-              ) : (
-                <div className="space-y-2.5">
-                  {callbackPending.map((v) => (
-                    <div
-                      key={v.id}
-                      className="rounded-2xl border border-slate-200/90 bg-gradient-to-b from-white to-slate-50/80 p-3.5 shadow-[0_1px_0_rgba(255,255,255,0.8)_inset] dark:border-white/10 dark:from-white/[0.05] dark:to-transparent dark:shadow-none"
-                    >
-                      <button
-                        type="button"
-                        className="flex w-full items-start gap-3 text-left"
-                        onClick={() => {
-                          setOpen(false);
-                          router.push("/members?tab=visitors");
-                        }}
+                {!leavePending.length ? (
+                  <p className="px-1 text-xs text-slate-400">No pending leave.</p>
+                ) : (
+                  <div className="space-y-1.5">
+                    {leavePending.map((n) => {
+                      const busy = busyLeaveId === n.id;
+                      const who =
+                        staffDisplayName(users, n.userId || n.staffId) ||
+                        n.userId ||
+                        n.staffId ||
+                        "Staff";
+                      return (
+                        <div
+                          key={n.id}
+                          className="rounded-xl border border-slate-200 bg-slate-50/80 p-2.5 dark:border-white/10 dark:bg-white/[0.03]"
+                          data-testid={`leave-notification-${n.id}`}
+                        >
+                          <button
+                            type="button"
+                            className="w-full text-left"
+                            onClick={() => {
+                              setOpen(false);
+                              router.push("/leave");
+                            }}
+                          >
+                            <p className="text-xs font-semibold text-slate-900 dark:text-slate-50">
+                              {n.type || "Leave"} · {who}
+                            </p>
+                            <p className="text-[11px] text-slate-500">
+                              {formatDate(n.startDate)} – {formatDate(n.endDate)}
+                              {n.days ? ` · ${n.days}d` : ""}
+                            </p>
+                          </button>
+                          <div className="mt-2 flex gap-1.5">
+                            <Button
+                              size="sm"
+                              className="h-7 flex-1 border border-emerald-300 bg-emerald-50 text-emerald-800 hover:bg-emerald-100 dark:border-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-200"
+                              disabled={busy}
+                              data-testid={`leave-notification-approve-${n.id}`}
+                              onClick={() =>
+                                leaveDecide.mutate({ id: n.id, status: "Approved" })
+                              }
+                            >
+                              {busy ? "…" : "Approve"}
+                            </Button>
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              className="h-7 flex-1 border-rose-200 text-rose-700 hover:bg-rose-50 dark:border-rose-900 dark:text-rose-300"
+                              disabled={busy}
+                              data-testid={`leave-notification-reject-${n.id}`}
+                              onClick={() =>
+                                leaveDecide.mutate({ id: n.id, status: "Rejected" })
+                              }
+                            >
+                              Reject
+                            </Button>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </section>
+            ) : null}
+
+            {canVisitors ? (
+              <section>
+                <div className="mb-1.5 flex items-center gap-1.5 px-1 text-[11px] font-semibold uppercase tracking-wide text-slate-500">
+                  <Phone className="h-3.5 w-3.5" />
+                  Visitor call backs
+                </div>
+                {!callbackPending.length ? (
+                  <p className="px-1 text-xs text-slate-400">No callbacks due today.</p>
+                ) : (
+                  <div className="space-y-1.5">
+                    {callbackPending.map((v) => (
+                      <div
+                        key={v.id}
+                        className="rounded-xl border border-amber-200/80 bg-amber-50/80 p-2.5 dark:border-amber-500/20 dark:bg-amber-950/30"
                       >
-                        <span className="mt-1 h-9 w-0.5 shrink-0 rounded-full bg-amber-500/85" />
-                        <div className="min-w-0 flex-1">
-                          <p className="text-[14px] font-semibold tracking-tight text-slate-900 dark:text-slate-50">
-                            Call {visitorDisplayName(v)}
+                        <button
+                          type="button"
+                          className="w-full text-left"
+                          onClick={() => {
+                            setOpen(false);
+                            router.push("/members?tab=visitors");
+                          }}
+                        >
+                          <p className="text-xs font-semibold text-amber-950 dark:text-amber-100">
+                            Call {visitorDisplayName(v)} today
                           </p>
-                          <p className="mt-0.5 text-[12px] leading-relaxed text-slate-500 dark:text-slate-400">
-                            {v.mobile || "—"} · joining{" "}
+                          <p className="text-[11px] text-amber-800/80 dark:text-amber-200/70">
+                            {v.mobile || "—"} · join{" "}
                             {formatDate(String(v.tentativeJoiningDate || ""))}
                           </p>
-                        </div>
-                      </button>
-                      <Button
-                        size="sm"
-                        className="mt-3.5 h-9 w-full rounded-xl border border-emerald-700/20 bg-emerald-700 text-[12px] font-semibold tracking-wide text-white hover:bg-emerald-800 dark:border-emerald-400/30 dark:bg-emerald-400/15 dark:text-emerald-200 dark:hover:bg-emerald-400/25"
-                        disabled={busyVisitorId === v.id}
-                        onClick={() => markCalled.mutate(v)}
-                      >
-                        {busyVisitorId === v.id ? "Saving…" : "Mark as called"}
-                      </Button>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </section>
-          ) : null}
+                        </button>
+                        <Button
+                          size="sm"
+                          className="mt-2 h-7 w-full border border-emerald-300 bg-emerald-50 text-emerald-800 hover:bg-emerald-100 dark:border-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-200"
+                          disabled={busyVisitorId === v.id}
+                          onClick={() => markCalled.mutate(v)}
+                        >
+                          {busyVisitorId === v.id ? "Saving…" : "Mark as called"}
+                        </Button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </section>
+            ) : null}
+          </div>
         </div>
-      </ClassicalModal>
+      ) : null}
 
       <ClassicalModal
         open={Boolean(approveFor)}
@@ -494,7 +461,6 @@ export function NotificationCenter() {
           <>
             <Button
               variant="outline"
-              className="rounded-xl"
               onClick={() => {
                 setApproveFor(null);
                 setNewPassword("");
@@ -506,7 +472,7 @@ export function NotificationCenter() {
             <Button
               onClick={() => approveReset.mutate()}
               disabled={approveReset.isPending}
-              className="rounded-xl bg-slate-900 text-white hover:bg-slate-800 dark:bg-teal-400 dark:text-slate-950 dark:hover:bg-teal-300"
+              className="bg-slate-900 text-white hover:bg-slate-800 dark:bg-teal-400 dark:text-slate-950 dark:hover:bg-teal-300"
             >
               {approveReset.isPending ? "Saving…" : "Approve & set password"}
             </Button>

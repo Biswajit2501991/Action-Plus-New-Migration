@@ -4,7 +4,7 @@ import { QueryClientProvider } from "@tanstack/react-query";
 import { PersistQueryClientProvider } from "@tanstack/react-query-persist-client";
 import { ThemeProvider } from "next-themes";
 import { useState } from "react";
-import { Toaster } from "sonner";
+import { ClassicToaster } from "@/components/ui/classic-toaster";
 import {
   PERSIST_MAX_AGE,
   appQueryPersistBuster,
@@ -30,12 +30,12 @@ export function AppProviders({ children }: { children: React.ReactNode }) {
       }}
     >
       {children}
-      <Toaster richColors closeButton position="top-right" />
+      <ClassicToaster />
     </PersistQueryClientProvider>
   ) : (
     <QueryClientProvider client={client}>
       {children}
-      <Toaster richColors closeButton position="top-right" />
+      <ClassicToaster />
     </QueryClientProvider>
   );
 
