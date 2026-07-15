@@ -80,6 +80,37 @@ describe('settingsBranchFilter (V-005)', () => {
     expect(filterPtClientProfilesForAuth(profiles, auth, memberMap)).toEqual({ M001: { plan: 1 } });
   });
 
+  it('regular staff only sees PT profiles assigned to them', () => {
+    const auth = {
+      userId: 'kaushik',
+      staffRole: 'staff',
+      roles: ['staff'],
+      allowedBranchIds: [branchA],
+      gymCodeId: branchA,
+    };
+    const memberMap = new Map([
+      ['M1', branchA],
+      ['M2', branchA],
+    ]);
+    const profiles = {
+      M1: { trainerId: 'kaushik' },
+      M2: { trainerId: 'raja' },
+    };
+    const aliasMap = new Map([
+      ['kaushik', 'kaushik'],
+      ['raja', 'raja'],
+    ]);
+    expect(
+      filterPtClientProfilesForAuth(profiles, auth, memberMap, {
+        aliasMap,
+        memberPlanByCode: new Map([
+          ['M1', 'PT-Kaushik'],
+          ['M2', 'PT-Raja'],
+        ]),
+      }),
+    ).toEqual({ M1: { trainerId: 'kaushik' } });
+  });
+
   it('hides role templates from non-admin staff', () => {
     const auth = { userId: 'deep', staffRole: 'staff', roles: ['staff'], gymCodeId: branchA };
     const templates = [{ id: 't1', title: 'Front Desk' }];

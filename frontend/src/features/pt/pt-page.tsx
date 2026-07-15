@@ -16,7 +16,7 @@ import {
   buildDietAttachmentsFromFiles,
 } from "@/features/pt/pt-plan-tabs";
 import { DEFAULT_EXERCISE_TYPES, PT_TABS, type PtTab } from "@/lib/domain/pt-defaults";
-import { isPtEligibleMember } from "@/lib/domain/pt-eligibility";
+import { filterPtMembersForViewer } from "@/lib/domain/pt-trainer-scope";
 import {
   ptDietDraftFromProfile,
   ptWorkoutNotesDraftFromProfile,
@@ -47,7 +47,10 @@ export function PtPage() {
 
   const profilesMap = settings?.ptClientProfiles as Record<string, PtClientProfile> | undefined;
   const profiles = profilesMap || EMPTY_PT_PROFILES;
-  const ptMembers = useMemo(() => members.filter((m) => isPtEligibleMember(m)), [members]);
+  const ptMembers = useMemo(
+    () => filterPtMembersForViewer(members, profiles, user, users),
+    [members, profiles, user, users],
+  );
 
   const [selectedMemberId, setSelectedMemberId] = useState("");
   const [activeSubTab, setActiveSubTab] = useState<PtTab>("PT Workout");

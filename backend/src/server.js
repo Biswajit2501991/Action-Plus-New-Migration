@@ -98,8 +98,9 @@ import {
   resolveLookupDeleteRequesterForAuth,
   resolveLookupProvenanceForAuth,
 } from './auth/tenant/lookupProvenance.js';
-import { authIsBranchOwner, authIsMasterOwner, authUsesGlobalDataRead, authHasGlobalBranchRead, resolveActiveBranchId, resolveReadBranchIds } from './auth/tenant/scopedAuth.js';
+import { authIsBranchOwner, authIsMasterOwner, authUsesGlobalDataRead, authHasGlobalBranchRead, authIsBranchAdmin, resolveActiveBranchId, resolveReadBranchIds } from './auth/tenant/scopedAuth.js';
 import { Access, getStaffAccessForUser } from './auth/accessControl.js';
+import { ptClientAssignedToViewer, resolveStaffCanonical } from './services/pt/ptTrainerScope.js';
 import { canReadSettingsScope } from './db/supabase/settingsBranchFilter.js';
 import { normalizeSettingsScope } from './db/supabase/settingsScope.js';
 import { requireAccess, requireLogsBulkAccess } from './middleware/permissions.js';
@@ -1808,6 +1809,46 @@ async function handlePatchPtClientProfile(req, res) {
     const { readMember } = await import('./db/dataStore.js');
     const memberRow = await readMember(memberId, branchScope);
     if (!memberRow) return res.status(404).json({ error: 'member-not-found' });
+
+    const callerIsAdmin = callerIsOwner || authIsBranchAdmin(req.auth);
+    if (!callerIsAdmin) {
+      const settings = (await readJsonValue('apg.settings', {}, branchScope)) || {};
+      const prevAll = settings.ptClientProfiles && typeof settings.ptClientProfiles === 'object'
+        ? settings.ptClientProfiles
+        : {};
+      const prevProfile = prevAll[memberId] && typeof prevAll[memberId] === 'object'
+        ? prevAll[memberId]
+        : {};
+      const allowed = ptClientAssignedToViewer(
+        memberRow,
+        prevProfile,
+        req.auth?.userId,
+        null,
+        null,
+      );
+      if (!allowed) {
+        return res.status(403).json({
+          error: 'forbidden',
+          message: 'You can only edit PT clients assigned to you.',
+        });
+      }
+      // Staff cannot reassign the client to another trainer.
+      if (Object.prototype.hasOwnProperty.call(profile, 'trainerId')
+        || Object.prototype.hasOwnProperty.call(profile, 'trainer')) {
+        const nextTrainer = String(profile.trainerId || profile.trainer || '').trim();
+        if (nextTrainer) {
+          const callerKey = resolveStaffCanonical(req.auth?.userId);
+          const nextKey = resolveStaffCanonical(nextTrainer);
+          if (nextKey && callerKey && nextKey !== callerKey) {
+            return res.status(403).json({
+              error: 'forbidden',
+              message: 'You cannot reassign PT clients to another trainer.',
+            });
+          }
+        }
+      }
+    }
+
     const saved = await patchPtClientProfileValue(memberId, profile, {
       updatedBy: String(req.auth?.userId || '').trim(),
     });

@@ -8,7 +8,7 @@ import { Skeleton } from "@/components/ui/misc";
 import { useMembers, useSettings, useUsers } from "@/hooks/use-data";
 import { usePtProfile } from "@/hooks/use-pt-profile";
 import { PtWorkoutTab } from "@/features/pt/pt-workout-tab";
-import { isPtEligibleMember } from "@/lib/domain/pt-eligibility";
+import { filterPtMembersForViewer } from "@/lib/domain/pt-trainer-scope";
 import { DEFAULT_EXERCISE_TYPES } from "@/lib/domain/pt-defaults";
 import { ptWorkoutNotesDraftFromProfile } from "@/lib/domain/pt-drafts";
 import { normalizeAccess } from "@/lib/domain/permissions";
@@ -33,7 +33,10 @@ export function MobilePt() {
   const canEditPtWorkout = access.ptClients?.editPtWorkout !== false;
 
   const profilesMap = (settings?.ptClientProfiles || {}) as Record<string, PtClientProfile>;
-  const ptMembers = useMemo(() => members.filter((m) => isPtEligibleMember(m)), [members]);
+  const ptMembers = useMemo(
+    () => filterPtMembersForViewer(members, profilesMap, user, users),
+    [members, profilesMap, user, users],
+  );
   const [selected, setSelected] = useState<Member | null>(null);
   const [workoutNotesDraft, setWorkoutNotesDraft] = useState("");
   const [workoutDateReviewPending, setWorkoutDateReviewPending] = useState(false);

@@ -6,6 +6,7 @@ import {
 import { isAccessAllowed } from '../../auth/accessControl.js';
 import { T } from '../tables.js';
 import { filterSettingsStaffForAuth } from './settingsLookupBranchFilter.js';
+import { filterPtClientProfilesForTrainerScope } from '../../services/pt/ptTrainerScope.js';
 
 /**
  * Branch IDs for sensitive settings slices (leave, PT). null = all branches (master, no active slice).
@@ -75,20 +76,32 @@ export function filterLeaveRequestsForAuth(leaveRequests, auth, staffBranchByLog
 /**
  * @param {Record<string, unknown>} profiles memberCode -> plan json
  * @param {Map<string, string>} memberBranchByCode member_code -> assigned_gym_code_id
+ * @param {{ aliasMap?: Map<string, string>, memberStaffByCode?: Map<string, string>, memberPlanByCode?: Map<string, string> }} [opts]
  */
-export function filterPtClientProfilesForAuth(profiles, auth, memberBranchByCode) {
+export function filterPtClientProfilesForAuth(profiles, auth, memberBranchByCode, opts = {}) {
   if (!profiles || typeof profiles !== 'object') return {};
   if (!auth) return {};
   const readIds = resolveSettingsSensitiveBranchIds(auth);
-  if (readIds === null) return profiles;
-
-  const out = {};
-  for (const [memberCode, plan] of Object.entries(profiles)) {
-    const branch = memberBranchByCode.get(String(memberCode || '').trim()) || '';
-    if (!branch || !readIds.includes(branch)) continue;
-    out[memberCode] = plan;
+  let scoped = profiles;
+  if (readIds !== null) {
+    const out = {};
+    for (const [memberCode, plan] of Object.entries(profiles)) {
+      const branch = memberBranchByCode.get(String(memberCode || '').trim()) || '';
+      if (!branch || !readIds.includes(branch)) continue;
+      out[memberCode] = plan;
+    }
+    scoped = out;
   }
-  return out;
+
+  // Regular staff: only PT clients assigned to them (trainerId / staff / PT-Name plan).
+  if (authIsBranchAdmin(auth) || authHasGlobalBranchRead(auth)) return scoped;
+
+  return filterPtClientProfilesForTrainerScope(scoped, auth, memberBranchByCode, {
+    aliasMap: opts.aliasMap || null,
+    memberStaffByCode: opts.memberStaffByCode || null,
+    memberPlanByCode: opts.memberPlanByCode || null,
+    isAdmin: false,
+  });
 }
 
 export function filterRoleTemplatesForAuth(roleTemplates, auth) {
@@ -193,6 +206,34 @@ export async function loadMemberBranchByCode(sb, gid, memberCodes, chunkFn) {
   return map;
 }
 
+/** Branch + enrollment staff + plan for PT trainer scoping. */
+export async function loadMemberPtMetaByCode(sb, gid, memberCodes, chunkFn) {
+  const branchMap = new Map();
+  const staffMap = new Map();
+  const planMap = new Map();
+  const codes = [...new Set(memberCodes.map((c) => String(c || '').trim()).filter(Boolean))];
+  for (const part of chunkFn(codes, 100)) {
+    if (!part.length) continue;
+    const { data, error } = await sb
+      .from(T.members)
+      .select('member_code, assigned_gym_code_id, assigned_staff, plan_name')
+      .eq('gym_id', gid)
+      .in('member_code', part);
+    if (error) throw error;
+    for (const row of data || []) {
+      const code = String(row.member_code || '').trim();
+      if (!code) continue;
+      const branch = String(row.assigned_gym_code_id || '').trim();
+      if (branch) branchMap.set(code, branch);
+      const staff = String(row.assigned_staff || '').trim();
+      if (staff) staffMap.set(code, staff);
+      const plan = String(row.plan_name || '').trim();
+      if (plan) planMap.set(code, plan);
+    }
+  }
+  return { branchMap, staffMap, planMap };
+}
+
 /**
  * V-005: apply branch + RBAC filters to settings payload before returning to client.
  */
@@ -223,11 +264,32 @@ export async function applySettingsBranchFilter(settings, auth, staffAccess, set
 
     if (needsPt && out.ptClientProfiles && typeof out.ptClientProfiles === 'object') {
       const codes = Object.keys(out.ptClientProfiles);
-      const memberMap = await loadMemberBranchByCode(deps.sb, deps.gid, codes, deps.chunk);
-      out = {
-        ...out,
-        ptClientProfiles: filterPtClientProfilesForAuth(out.ptClientProfiles, auth, memberMap),
-      };
+      const needsTrainerScope = !authIsBranchAdmin(auth) && !authHasGlobalBranchRead(auth);
+      if (needsTrainerScope) {
+        const [meta, aliasMap] = await Promise.all([
+          loadMemberPtMetaByCode(deps.sb, deps.gid, codes, deps.chunk),
+          loadStaffLoginAliasMap(deps.sb, deps.gid, deps.fetchAll),
+        ]);
+        out = {
+          ...out,
+          ptClientProfiles: filterPtClientProfilesForAuth(
+            out.ptClientProfiles,
+            auth,
+            meta.branchMap,
+            {
+              aliasMap,
+              memberStaffByCode: meta.staffMap,
+              memberPlanByCode: meta.planMap,
+            },
+          ),
+        };
+      } else {
+        const memberMap = await loadMemberBranchByCode(deps.sb, deps.gid, codes, deps.chunk);
+        out = {
+          ...out,
+          ptClientProfiles: filterPtClientProfilesForAuth(out.ptClientProfiles, auth, memberMap),
+        };
+      }
     }
   }
 
