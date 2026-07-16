@@ -13,6 +13,32 @@ export function canViewAllPtClients(user: AuthUser | null | undefined) {
   return isMasterOwnerUser(user) || isBranchAdminUser(user);
 }
 
+/**
+ * Known login vs plan-suffix spelling differences (staff Koushik, plan PT-Kaushik).
+ */
+export const TRAINER_SPELLING_ALIASES: Array<[string, string]> = [
+  ["koushik", "kaushik"],
+];
+
+export function seedTrainerSpellingAliases(
+  aliasMap: Map<string, string> | null | undefined = null,
+): Map<string, string> {
+  const map = aliasMap instanceof Map ? aliasMap : new Map<string, string>();
+  for (const [left, right] of TRAINER_SPELLING_ALIASES) {
+    const a = String(left || "")
+      .trim()
+      .toLowerCase();
+    const b = String(right || "")
+      .trim()
+      .toLowerCase();
+    if (!a || !b) continue;
+    const canonical = map.get(a) || map.get(b) || a;
+    map.set(a, canonical);
+    map.set(b, canonical);
+  }
+  return map;
+}
+
 export function buildStaffAliasLookup(users: StaffLike[] = []): Map<string, string> {
   const map = new Map<string, string>();
   for (const u of users) {
@@ -31,7 +57,7 @@ export function buildStaffAliasLookup(users: StaffLike[] = []): Map<string, stri
       .toLowerCase();
     if (emailLocal) map.set(emailLocal, canonical);
   }
-  return map;
+  return seedTrainerSpellingAliases(map);
 }
 
 export function resolveStaffCanonical(
@@ -42,7 +68,8 @@ export function resolveStaffCanonical(
     .trim()
     .toLowerCase();
   if (!raw) return "";
-  if (aliasMap?.has(raw)) return aliasMap.get(raw) || raw;
+  const map = seedTrainerSpellingAliases(aliasMap);
+  if (map.has(raw)) return map.get(raw) || raw;
   return raw;
 }
 
@@ -63,6 +90,16 @@ export function staffTokenMatchesViewer(token: string, viewerKeys: Set<string>) 
   return false;
 }
 
+/** Extract trainer from PT-Raja or Personal Trainer (PT) - RAJA. */
+export function ptPlanTrainerSuffix(plan: string | null | undefined) {
+  const raw = String(plan || "").trim();
+  if (!raw) return "";
+  const compact = raw.match(/\bpt[-_\s]+(.+)$/i)?.[1]?.trim();
+  if (compact) return compact;
+  const paren = raw.match(/\(\s*pt\s*\)\s*[-–—:]\s*(.+)$/i)?.[1]?.trim();
+  return paren || "";
+}
+
 /**
  * Tokens that identify who a PT client is assigned to.
  * Prefer plan suffix (PT-Raja) + profile trainer; enrollment staff only for generic PT plans.
@@ -80,7 +117,7 @@ export function ptAssignmentTokens(
   push((profile as { trainer?: unknown } | null | undefined)?.trainer);
 
   const plan = String(member?.plan || "").trim();
-  const suffix = plan.match(/\bpt[-_\s]+(.+)$/i)?.[1]?.trim();
+  const suffix = ptPlanTrainerSuffix(plan);
   if (suffix) {
     push(suffix);
   } else {
@@ -98,16 +135,19 @@ export function ptClientAssignedToViewer(
   aliasMap?: Map<string, string> | null,
 ): boolean {
   if (!viewer) return false;
+  const map = seedTrainerSpellingAliases(
+    aliasMap instanceof Map ? new Map(aliasMap) : new Map(),
+  );
   const viewerKeys = new Set(
     [
-      resolveStaffCanonical(viewer.id, aliasMap),
-      resolveStaffCanonical(viewer.name, aliasMap),
+      resolveStaffCanonical(viewer.id, map),
+      resolveStaffCanonical(viewer.name, map),
     ].filter(Boolean),
   );
   if (!viewerKeys.size) return false;
 
   const assigned = ptAssignmentTokens(member, profile)
-    .map((t) => resolveStaffCanonical(t, aliasMap))
+    .map((t) => resolveStaffCanonical(t, map))
     .filter(Boolean);
   if (!assigned.length) return false;
 
@@ -137,6 +177,7 @@ export function filterPtMembersForViewer(
     .trim()
     .toLowerCase();
   if (selfName) aliasMap.set(selfName, selfId || selfName);
+  seedTrainerSpellingAliases(aliasMap);
 
   const map = profiles && typeof profiles === "object" ? profiles : {};
   return eligible.filter((m) =>

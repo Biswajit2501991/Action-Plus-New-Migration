@@ -166,6 +166,9 @@ export async function loadStaffLoginAliasMap(sb, gid, fetchAll) {
     ].map((x) => String(x || '').trim().toLowerCase()).filter(Boolean);
     for (const alias of aliases) map.set(alias, canonical);
   }
+  // Plan suffixes may use alternate spellings (PT-Kaushik vs login Koushik).
+  const { seedTrainerSpellingAliases } = await import('../../services/pt/ptTrainerScope.js');
+  seedTrainerSpellingAliases(map);
   const dirRows = await fetchAll((from, to) =>
     sb.from(T.settings_staff_directory).select('staff_code, display_name').eq('gym_id', gid).range(from, to));
   for (const row of dirRows || []) {

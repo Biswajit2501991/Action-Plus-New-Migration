@@ -40,6 +40,27 @@ describe('ptTrainerScope', () => {
     ).toBe(false);
   });
 
+  it('matches staff login Koushik to plan PT-Kaushik (spelling alias)', () => {
+    expect(
+      ptClientAssignedToViewer(
+        { plan: 'PT-Kaushik', staff: 'Deep' },
+        {},
+        'Koushik',
+        'Koushik',
+        new Map([['koushik', 'koushik']]),
+      ),
+    ).toBe(true);
+    expect(
+      ptClientAssignedToViewer(
+        { plan: 'PT-Raja', staff: 'Koushik' },
+        {},
+        'Koushik',
+        'Koushik',
+        new Map([['koushik', 'koushik']]),
+      ),
+    ).toBe(false);
+  });
+
   it('matches short plan suffix to longer staff login (Bis → Biswajit)', () => {
     expect(staffTokenMatchesViewer('bis', new Set(['biswajit']))).toBe(true);
     expect(
@@ -72,7 +93,7 @@ describe('ptTrainerScope', () => {
   });
 
   it('filters profiles to the calling trainer only', () => {
-    const auth = { userId: 'kaushik', staffRole: 'staff' };
+    const auth = { userId: 'Koushik', staffRole: 'staff' };
     const profiles = {
       M1: { trainerId: 'kaushik' },
       M2: { trainerId: 'raja' },
@@ -80,7 +101,7 @@ describe('ptTrainerScope', () => {
     };
     const out = filterPtClientProfilesForTrainerScope(profiles, auth, new Map(), {
       aliasMap: new Map([
-        ['kaushik', 'kaushik'],
+        ['koushik', 'koushik'],
         ['raja', 'raja'],
       ]),
       memberPlanByCode: new Map([

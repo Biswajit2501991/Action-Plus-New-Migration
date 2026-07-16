@@ -6,12 +6,32 @@
  * PT-* plan suffix is present.
  */
 
+/**
+ * Known login vs plan-suffix spelling differences (e.g. staff Koushik, plan PT-Kaushik).
+ * Bidirectional: either form resolves to the same canonical id.
+ */
+export const TRAINER_SPELLING_ALIASES = [
+  ['koushik', 'kaushik'],
+];
+
+export function seedTrainerSpellingAliases(aliasMap = null) {
+  const map = aliasMap instanceof Map ? aliasMap : new Map();
+  for (const pair of TRAINER_SPELLING_ALIASES) {
+    const a = String(pair[0] || '').trim().toLowerCase();
+    const b = String(pair[1] || '').trim().toLowerCase();
+    if (!a || !b) continue;
+    const canonical = map.get(a) || map.get(b) || a;
+    map.set(a, canonical);
+    map.set(b, canonical);
+  }
+  return map;
+}
+
 export function resolveStaffCanonical(value, aliasMap = null) {
   const raw = String(value || '').trim().toLowerCase();
   if (!raw) return '';
-  if (aliasMap && typeof aliasMap.get === 'function' && aliasMap.has(raw)) {
-    return aliasMap.get(raw) || raw;
-  }
+  const map = seedTrainerSpellingAliases(aliasMap);
+  if (map.has(raw)) return map.get(raw) || raw;
   return raw;
 }
 
@@ -30,6 +50,16 @@ export function staffTokenMatchesViewer(token, viewerKeys) {
   return false;
 }
 
+/** Extract trainer name from plan strings like PT-Raja or Personal Trainer (PT) - RAJA. */
+export function ptPlanTrainerSuffix(plan) {
+  const raw = String(plan || '').trim();
+  if (!raw) return '';
+  const compact = raw.match(/\bpt[-_\s]+(.+)$/i)?.[1]?.trim();
+  if (compact) return compact;
+  const paren = raw.match(/\(\s*pt\s*\)\s*[-–—:]\s*(.+)$/i)?.[1]?.trim();
+  return paren || '';
+}
+
 export function ptAssignmentTokens(member, profile) {
   const tokens = [];
   const push = (v) => {
@@ -40,7 +70,7 @@ export function ptAssignmentTokens(member, profile) {
   push(profile?.trainer);
 
   const plan = String(member?.plan || member?.plan_name || '').trim();
-  const suffix = plan.match(/\bpt[-_\s]+(.+)$/i)?.[1]?.trim();
+  const suffix = ptPlanTrainerSuffix(plan);
   if (suffix) {
     // PT-Raja / PT-Bis → trainer is the plan suffix (not sales assigned_staff).
     push(suffix);
@@ -55,16 +85,17 @@ export function ptAssignmentTokens(member, profile) {
 }
 
 export function ptClientAssignedToViewer(member, profile, viewerId, viewerName, aliasMap = null) {
+  const map = seedTrainerSpellingAliases(aliasMap instanceof Map ? new Map(aliasMap) : new Map());
   const viewerKeys = new Set(
     [
-      resolveStaffCanonical(viewerId, aliasMap),
-      resolveStaffCanonical(viewerName, aliasMap),
+      resolveStaffCanonical(viewerId, map),
+      resolveStaffCanonical(viewerName, map),
     ].filter(Boolean),
   );
   if (!viewerKeys.size) return false;
 
   const assigned = ptAssignmentTokens(member, profile)
-    .map((t) => resolveStaffCanonical(t, aliasMap))
+    .map((t) => resolveStaffCanonical(t, map))
     .filter(Boolean);
   if (!assigned.length) return false;
 
@@ -85,7 +116,9 @@ export function filterPtClientProfilesForTrainerScope(profiles, auth, memberBran
   if (!auth) return {};
   if (opts.isAdmin) return profiles;
 
-  const aliasMap = opts.aliasMap || null;
+  const aliasMap = seedTrainerSpellingAliases(
+    opts.aliasMap instanceof Map ? new Map(opts.aliasMap) : new Map(),
+  );
   const memberStaffByCode = opts.memberStaffByCode || null;
   const memberPlanByCode = opts.memberPlanByCode || null;
   const caller = String(auth.userId || '').trim();
