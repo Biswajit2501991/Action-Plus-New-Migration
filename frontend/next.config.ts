@@ -1,7 +1,17 @@
 import type { NextConfig } from "next";
 import path from "path";
 
-const backendTarget = process.env.API_PROXY_TARGET || "http://127.0.0.1:4000";
+function resolveApiProxyTarget() {
+  let raw = String(process.env.API_PROXY_TARGET || "http://127.0.0.1:4000").trim();
+  if (!raw) raw = "http://127.0.0.1:4000";
+  // Railway users often paste the host without a scheme; Next rewrites require one.
+  if (!/^https?:\/\//i.test(raw)) {
+    raw = `https://${raw.replace(/^\/+/, "")}`;
+  }
+  return raw.replace(/\/+$/, "");
+}
+
+const backendTarget = resolveApiProxyTarget();
 
 const nextConfig: NextConfig = {
   turbopack: {
