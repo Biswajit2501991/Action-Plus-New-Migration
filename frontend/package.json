@@ -9,7 +9,8 @@
     "dev": "PATH=\"/opt/homebrew/bin:$PATH\" next dev --turbopack --hostname 127.0.0.1 --port 3055",
     "start:pulsgyms:v2": "PATH=\"/opt/homebrew/bin:$PATH\" NEXT_PUBLIC_APP_URL=https://www.pulsgyms.com API_PROXY_TARGET=http://127.0.0.1:4000 next dev --turbopack --hostname 127.0.0.1 --port 3055",
     "build": "PATH=\"/opt/homebrew/bin:$PATH\" next build --turbopack",
-    "start": "PATH=\"/opt/homebrew/bin:$PATH\" next start --hostname 127.0.0.1 --port 3055",
+    "start": "next start --hostname 0.0.0.0 --port ${PORT:-3055}",
+    "start:local": "PATH=\"/opt/homebrew/bin:$PATH\" next start --hostname 127.0.0.1 --port 3055",
     "lint": "PATH=\"/opt/homebrew/bin:$PATH\" eslint"
   },
   "dependencies": {
