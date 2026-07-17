@@ -1,7 +1,7 @@
-# Railway: set service Root Directory to "frontend" (or deploy this folder).
+# Railway: service Root Directory must be "frontend".
 [build]
 builder = "RAILPACK"
-buildCommand = "npm ci && npm run build"
+buildCommand = "npm ci --include=optional && npm run build"
 
 [deploy]
 startCommand = "npm run start"

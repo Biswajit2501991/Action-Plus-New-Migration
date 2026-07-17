@@ -3,12 +3,13 @@
   "version": "0.1.0",
   "private": true,
   "engines": {
-    "node": ">=18.18.0"
+    "node": ">=20.19.0"
   },
   "scripts": {
     "dev": "PATH=\"/opt/homebrew/bin:$PATH\" next dev --turbopack --hostname 127.0.0.1 --port 3055",
     "start:pulsgyms:v2": "PATH=\"/opt/homebrew/bin:$PATH\" NEXT_PUBLIC_APP_URL=https://www.pulsgyms.com API_PROXY_TARGET=http://127.0.0.1:4000 next dev --turbopack --hostname 127.0.0.1 --port 3055",
-    "build": "PATH=\"/opt/homebrew/bin:$PATH\" next build --turbopack",
+    "build": "next build",
+    "build:turbo": "PATH=\"/opt/homebrew/bin:$PATH\" next build --turbopack",
     "start": "next start --hostname 0.0.0.0 --port ${PORT:-3055}",
     "start:local": "PATH=\"/opt/homebrew/bin:$PATH\" next start --hostname 127.0.0.1 --port 3055",
     "lint": "PATH=\"/opt/homebrew/bin:$PATH\" eslint"
@@ -51,5 +52,8 @@
     "eslint-config-next": "15.5.20",
     "tailwindcss": "^4",
     "typescript": "^5"
+  },
+  "optionalDependencies": {
+    "@tailwindcss/oxide-linux-x64-gnu": "4.3.2"
   }
 }
