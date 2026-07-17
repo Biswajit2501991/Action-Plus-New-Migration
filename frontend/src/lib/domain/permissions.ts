@@ -40,15 +40,27 @@ export const FINANCE_CHILD_PERMISSIONS: AccessChildPermission[] = [
 ];
 
 export const SETTINGS_CHILD_PERMISSIONS: AccessChildPermission[] = [
+  { key: "viewAppearance", label: "Appearance" },
+  { key: "manageGymBranches", label: "Gym Branches" },
+  { key: "manageFineRule", label: "Fine SMS Rule" },
+  { key: "manageSystemFeatures", label: "System Features" },
   { key: "managePlans", label: "Plans" },
   { key: "manageStatuses", label: "Statuses" },
   { key: "managePaymentMethods", label: "Payment Methods" },
   { key: "manageExpenseCategories", label: "Expense Categories" },
   { key: "manageHoldDurations", label: "Hold Durations" },
   { key: "manageGenders", label: "Genders" },
+  { key: "manageExerciseTypes", label: "Exercise Types" },
+  { key: "manageSettingsBackup", label: "Settings backup & recovery" },
   { key: "viewBackendDiskUsage", label: "Disk Usage (Backend)" },
-  { key: "manageFineRule", label: "Fine SMS Rule" },
 ];
+
+/** Owner-grade Settings areas — off unless explicitly granted to staff. */
+export const SETTINGS_OPT_IN_KEYS = new Set([
+  "manageGymBranches",
+  "manageSystemFeatures",
+  "manageSettingsBackup",
+]);
 
 export const WHATSAPP_CHILD_PERMISSIONS: AccessChildPermission[] = [
   { key: "viewReminder", label: "Reminder" },
@@ -348,14 +360,19 @@ export function toggleAllSectionsAccess(form: StaffAccessFormSlice): StaffAccess
         manageExpenses: false,
       },
       settings: {
+        viewAppearance: false,
+        manageGymBranches: false,
+        manageFineRule: false,
+        manageSystemFeatures: false,
         managePlans: false,
         manageStatuses: false,
         managePaymentMethods: false,
         manageExpenseCategories: false,
         manageHoldDurations: false,
         manageGenders: false,
+        manageExerciseTypes: false,
+        manageSettingsBackup: false,
         viewBackendDiskUsage: false,
-        manageFineRule: false,
       },
       whatsapp: {
         viewReminder: false,
@@ -406,6 +423,9 @@ export function isAccessChildEnabled(access: AccessMap, group: keyof AccessMap, 
   if (group === "paymentQr" && key === "managePaymentSettings") {
     return normalized.paymentQr?.managePaymentSettings === true;
   }
+  if (group === "settings" && SETTINGS_OPT_IN_KEYS.has(key)) {
+    return normalized.settings?.[key] === true;
+  }
   return (normalized[group] as Record<string, boolean> | undefined)?.[key] !== false;
 }
 
@@ -429,14 +449,19 @@ export const DEFAULT_ACCESS: AccessMap = {
     manageExpenses: true,
   },
   settings: {
+    viewAppearance: true,
+    manageGymBranches: false,
+    manageFineRule: true,
+    manageSystemFeatures: false,
     managePlans: true,
     manageStatuses: true,
     managePaymentMethods: true,
     manageExpenseCategories: true,
     manageHoldDurations: true,
     manageGenders: true,
+    manageExerciseTypes: true,
+    manageSettingsBackup: false,
     viewBackendDiskUsage: true,
-    manageFineRule: true,
   },
   whatsapp: {
     viewReminder: true,
@@ -515,14 +540,19 @@ export function normalizeAccess(access?: AccessMap | null): AccessMap {
       manageExpenses: a.finance?.manageExpenses !== false,
     },
     settings: {
+      viewAppearance: a.settings?.viewAppearance !== false,
+      manageGymBranches: a.settings?.manageGymBranches === true,
+      manageFineRule: a.settings?.manageFineRule !== false,
+      manageSystemFeatures: a.settings?.manageSystemFeatures === true,
       managePlans: a.settings?.managePlans !== false,
       manageStatuses: a.settings?.manageStatuses !== false,
       managePaymentMethods: a.settings?.managePaymentMethods !== false,
       manageExpenseCategories: a.settings?.manageExpenseCategories !== false,
       manageHoldDurations: a.settings?.manageHoldDurations !== false,
       manageGenders: a.settings?.manageGenders !== false,
+      manageExerciseTypes: a.settings?.manageExerciseTypes !== false,
+      manageSettingsBackup: a.settings?.manageSettingsBackup === true,
       viewBackendDiskUsage: a.settings?.viewBackendDiskUsage !== false,
-      manageFineRule: a.settings?.manageFineRule !== false,
     },
     whatsapp: {
       viewReminder: a.whatsapp?.viewReminder !== false,
@@ -642,6 +672,12 @@ export function hasAccess(
     return true;
   }
   const access = normalizeAccess(user.access);
+  if (group === "paymentQr" && key === "managePaymentSettings") {
+    return access.paymentQr?.managePaymentSettings === true;
+  }
+  if (group === "settings" && SETTINGS_OPT_IN_KEYS.has(key)) {
+    return access.settings?.[key] === true;
+  }
   return (access[group] as Record<string, boolean> | undefined)?.[key] !== false;
 }
 

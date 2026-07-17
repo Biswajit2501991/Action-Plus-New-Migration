@@ -26,7 +26,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Input, Label } from "@/components/ui/input";
 import { BranchLogo } from "@/components/branding/branch-logo";
 import { useGymCodes, useSettings } from "@/hooks/use-data";
-import { gymCodesApi, settingsApi } from "@/services/api";
+import { attendanceKioskApi, gymCodesApi, settingsApi } from "@/services/api";
 import { resolveClientBranchBranding } from "@/lib/domain/branch-branding";
 import { hasAccess, isMasterOwnerUser } from "@/lib/domain/permissions";
 import { cn, downloadTextFile } from "@/lib/utils";
@@ -161,7 +161,7 @@ const MEMBER_LOOKUPS: {
     key: "exerciseTypes",
     label: "Exercise types",
     description: "PT exercise type lookups.",
-    permission: "managePlans",
+    permission: "manageExerciseTypes",
   },
 ];
 
@@ -409,10 +409,22 @@ export function SettingsPage() {
   const [brandingDrafts, setBrandingDrafts] = useState<Record<string, string>>({});
   const [expandedGymId, setExpandedGymId] = useState<string | null>(null);
   const settingsImportRef = useRef<HTMLInputElement | null>(null);
+  const [punchKioskBusy, setPunchKioskBusy] = useState(false);
 
   const canFine = hasAccess(user, "settings", "manageFineRule");
+  const canAppearance = hasAccess(user, "settings", "viewAppearance");
+  const canBranches = isOwner || hasAccess(user, "settings", "manageGymBranches");
+  const canSystemFeatures = isOwner || hasAccess(user, "settings", "manageSystemFeatures");
+  const canSettingsBackup = isOwner || hasAccess(user, "settings", "manageSettingsBackup");
   const followSystemTheme = themeReady && theme === "system";
   const activeAppearance = themeReady && resolvedTheme === "dark" ? "Night" : "Day";
+
+  const visibleBusinessLookups = BUSINESS_LOOKUPS.filter((cat) =>
+    hasAccess(user, "settings", cat.permission),
+  );
+  const visibleMemberLookups = MEMBER_LOOKUPS.filter((cat) =>
+    hasAccess(user, "settings", cat.permission),
+  );
 
   const flags = useMemo<FeatureFlagState>(
     () => ({
@@ -649,21 +661,23 @@ export function SettingsPage() {
         description="Appearance, gym branches, Fine SMS rules, system features, and lookups."
       />
 
-      <AppearanceCard
-        followSystemTheme={followSystemTheme}
-        activeAppearance={activeAppearance}
-        themeReady={themeReady}
-        resolvedTheme={resolvedTheme}
-        open={Boolean(openCat.appearance)}
-        onToggleOpen={() => toggleCat("appearance")}
-        onFollowSystem={(on) => {
-          if (on) setTheme("system");
-          else setTheme(resolvedTheme === "dark" ? "dark" : "light");
-        }}
-        onSetTheme={setTheme}
-      />
+      {canAppearance ? (
+        <AppearanceCard
+          followSystemTheme={followSystemTheme}
+          activeAppearance={activeAppearance}
+          themeReady={themeReady}
+          resolvedTheme={resolvedTheme}
+          open={Boolean(openCat.appearance)}
+          onToggleOpen={() => toggleCat("appearance")}
+          onFollowSystem={(on) => {
+            if (on) setTheme("system");
+            else setTheme(resolvedTheme === "dark" ? "dark" : "light");
+          }}
+          onSetTheme={setTheme}
+        />
+      ) : null}
 
-      {isOwner ? (
+      {canBranches ? (
         <SettingsSectionShell
           title="Gym Branches"
           description="Codes, shift times, display names, and logos"
@@ -980,7 +994,7 @@ export function SettingsPage() {
         </SettingsSectionShell>
       ) : null}
 
-      {isOwner ? (
+      {canSystemFeatures ? (
         <SettingsSectionShell
           title="System Features"
           description="Attendance notes, QR flows, custom templates, and finance estimates"
@@ -1028,19 +1042,64 @@ export function SettingsPage() {
             />
             {flags.attendanceRequirePresenceQr ? (
               <a
-                href="/attendance/kiosk"
+                href="/attendance/presence-kiosk"
                 className="inline-flex h-9 items-center rounded-md border border-input bg-background px-3 text-xs font-medium hover:bg-accent"
               >
                 Open Attendance QR kiosk
               </a>
             ) : (
               <a
-                href="/attendance/kiosk"
+                href="/attendance/presence-kiosk"
                 className="inline-flex h-9 items-center rounded-md border border-input bg-background px-3 text-xs font-medium hover:bg-accent"
               >
                 Preview Attendance QR kiosk
               </a>
             )}
+
+            <div className="rounded-xl border border-emerald-200/70 bg-emerald-50/40 p-3 dark:border-emerald-900/40 dark:bg-emerald-950/20">
+              <p className="text-xs font-semibold text-foreground">Always-on punch QR kiosk</p>
+              <p className="mt-1 text-xs text-muted-foreground">
+                Wall tablet URL with a device token — keeps rotating punch QR after logout. No staff login session required.
+              </p>
+              <div className="mt-2 flex flex-wrap gap-2">
+                <button
+                  type="button"
+                  disabled={punchKioskBusy || !isOwner}
+                  className="inline-flex h-9 items-center rounded-md border border-input bg-background px-3 text-xs font-medium hover:bg-accent disabled:opacity-50"
+                  onClick={async () => {
+                    try {
+                      setPunchKioskBusy(true);
+                      const branchId = String(user?.activeBranchId || user?.gymCodeId || gymCodes[0]?.id || "").trim();
+                      const gymCode = String(
+                        (gymCodes as GymCode[]).find((g) => g.id === branchId)?.code || gymCodes[0]?.code || branchId,
+                      ).trim();
+                      if (!branchId) throw new Error("Select a branch first.");
+                      const created = await attendanceKioskApi.createDevice({
+                        gymCodeId: branchId,
+                        gymCode,
+                        label: "Reception Kiosk",
+                      });
+                      const path = String(created.kioskUrl || "").trim();
+                      const url = path.startsWith("http")
+                        ? path
+                        : `${window.location.origin}/attendance/kiosk?gym=${encodeURIComponent(gymCode)}&device=${encodeURIComponent(created.token)}`;
+                      try {
+                        await navigator.clipboard.writeText(url);
+                      } catch { /* ignore */ }
+                      window.open(url, "_blank", "noopener,noreferrer");
+                      toast.success("Kiosk opened — URL copied to clipboard");
+                    } catch (e) {
+                      toast.error(e instanceof Error ? e.message : "Could not open punch QR kiosk");
+                    } finally {
+                      setPunchKioskBusy(false);
+                    }
+                  }}
+                >
+                  {punchKioskBusy ? "Opening…" : "Open always-on punch QR kiosk"}
+                </button>
+              </div>
+            </div>
+
             <SettingsToggle
               checked={flags.customTemplatesEnabled}
               label="Custom WhatsApp templates"
@@ -1057,6 +1116,7 @@ export function SettingsPage() {
         </SettingsSectionShell>
       ) : null}
 
+      {visibleBusinessLookups.length ? (
       <SettingsSectionShell
         title="Business Configuration"
         description="Plans, statuses, payment methods, expense categories"
@@ -1065,9 +1125,11 @@ export function SettingsPage() {
         accent={SECTION_ACCENTS.business}
         icon={<ClipboardList className="h-4 w-4" />}
       >
-        <div className="grid gap-3 lg:grid-cols-2">{BUSINESS_LOOKUPS.map(renderLookupCard)}</div>
+        <div className="grid gap-3 lg:grid-cols-2">{visibleBusinessLookups.map(renderLookupCard)}</div>
       </SettingsSectionShell>
+      ) : null}
 
+      {visibleMemberLookups.length ? (
       <SettingsSectionShell
         title="Member & PT"
         description="Hold durations, genders, exercise types"
@@ -1076,10 +1138,11 @@ export function SettingsPage() {
         accent={SECTION_ACCENTS.member}
         icon={<Users className="h-4 w-4" />}
       >
-        <div className="grid gap-3 lg:grid-cols-2">{MEMBER_LOOKUPS.map(renderLookupCard)}</div>
+        <div className="grid gap-3 lg:grid-cols-2">{visibleMemberLookups.map(renderLookupCard)}</div>
       </SettingsSectionShell>
+      ) : null}
 
-      {isOwner ? (
+      {canSettingsBackup ? (
         <SettingsSectionShell
           title="Settings backup & recovery"
           description="Export/import Settings JSON here; full database disaster recovery stays on Backend"

@@ -812,6 +812,7 @@ export function StaffPage() {
               <StaffSectionsAccessEditor
                 sections={form.sections}
                 access={form.access}
+                expandAllOnMount
                 onChange={(next) =>
                   setForm((f) => ({
                     ...f,
