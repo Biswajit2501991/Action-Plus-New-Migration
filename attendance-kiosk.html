@@ -4,9 +4,8 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
   <meta name="robots" content="noindex,nofollow" />
-  <title>Attendance QR Kiosk (always-on)</title>
-  <script src="https://cdn.jsdelivr.net/npm/qrcode@1.5.4/build/qrcode.min.js" defer></script>
-  <style>
+  <title>Staff Attendance (always-on)</title>
+    <style>
     :root { --bg:#0b1220; --panel:#121a2b; --text:#f8fafc; --muted:#94a3b8; --accent:#38bdf8; --err:#fb7185; }
     * { box-sizing: border-box; }
     html, body { margin:0; min-height:100%; background:radial-gradient(1200px 600px at 50% -10%, #1e293b, var(--bg)); color:var(--text); font-family:"Segoe UI",system-ui,sans-serif; }
@@ -15,7 +14,7 @@
     .sub { color:var(--muted); margin-bottom:18px; }
     .panel { background:color-mix(in srgb, var(--panel) 92%, black); border:1px solid #243044; border-radius:24px; padding:22px; }
     .qr-box { display:grid; place-items:center; background:#fff; border-radius:20px; padding:18px; min-height:280px; }
-    #qrCanvas { width:min(72vw,360px); height:auto; }
+    #qrImg { width:min(72vw,360px); height:auto; display:block; }
     .secs { font-size:clamp(3rem,12vw,5.5rem); font-weight:800; line-height:1; color:var(--accent); text-align:center; margin-top:16px; }
     .label { color:var(--muted); text-align:center; margin-top:4px; }
     .err { background:#4c0519; border:1px solid var(--err); color:#fecdd3; border-radius:14px; padding:12px 14px; margin-bottom:14px; display:none; }
@@ -30,11 +29,11 @@
 </head>
 <body>
   <div class="wrap">
-    <h1>Attendance QR Kiosk</h1>
+    <h1 id="pageTitle">Staff Attendance</h1>
     <p class="sub">Always-on display — no staff login required on this screen.</p>
     <div id="err" class="err"></div>
     <section class="panel">
-      <div class="qr-box"><canvas id="qrCanvas" width="360" height="360"></canvas></div>
+      <div class="qr-box"><img id="qrImg" alt="Staff attendance QR" width="360" height="360" /></div>
       <div class="secs" id="secs">--</div>
       <div class="label">seconds until QR refreshes · offline grace ~90s</div>
       <div class="meta">
@@ -58,7 +57,8 @@
   const secsEl = document.getElementById('secs');
   const punchList = document.getElementById('punchList');
   const branchChip = document.getElementById('branchChip');
-  const canvas = document.getElementById('qrCanvas');
+  const qrImg = document.getElementById('qrImg');
+  const pageTitle = document.getElementById('pageTitle');
   let expiresAt = 0;
 
   function showErr(msg) {
@@ -66,9 +66,9 @@
     errEl.classList.toggle('show', Boolean(msg));
   }
 
-  function drawQr(payload) {
-    if (!payload || typeof QRCode === 'undefined') return;
-    QRCode.toCanvas(canvas, payload, { width: 360, margin: 2, color: { dark: '#0f172a', light: '#ffffff' } }, function () {});
+  function drawQr(dataUrl) {
+    if (!qrImg || !dataUrl) return;
+    qrImg.src = dataUrl;
   }
 
   function renderPunches(list) {
@@ -107,7 +107,9 @@
       }
       showErr('');
       expiresAt = Number(data.expiresAt) || (Date.now() + (data.refreshInMs || 60000));
-      drawQr(data.qrPayload || '');
+      if (data.branchName) pageTitle.textContent = 'Staff Attendance — ' + data.branchName;
+      document.title = pageTitle.textContent;
+      drawQr(data.qrDataUrl || '');
       renderPunches(data.recentPunches);
       tick();
     } catch (e) {

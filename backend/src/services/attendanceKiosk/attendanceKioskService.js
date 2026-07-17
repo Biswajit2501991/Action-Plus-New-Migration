@@ -20,9 +20,25 @@ import {
 } from './attendanceChallenge.js';
 import { kioskDeviceStore } from './kioskDeviceStore.js';
 import { listRecentKioskPunches, recordKioskPunch } from './kioskPunchFeed.js';
+import QRCode from 'qrcode';
 
 function secretKey() {
   return attendanceKioskSecret(env.JWT_SECRET || env.ATTENDANCE_KIOSK_SECRET || 'change-me');
+}
+
+async function qrPayloadToDataUrl(payload) {
+  const text = String(payload || '').trim();
+  if (!text) return '';
+  try {
+    return await QRCode.toDataURL(text, {
+      width: 360,
+      margin: 2,
+      errorCorrectionLevel: 'M',
+      color: { dark: '#0f172a', light: '#ffffff' },
+    });
+  } catch {
+    return '';
+  }
 }
 
 async function loadBranchMeta(branchId) {
@@ -97,8 +113,10 @@ export async function buildPublicChallenge({ gymCode, deviceToken, nowMs = Date.
     branchCode: meta.code || gymCode,
     nowMs,
   });
+  const qrDataUrl = await qrPayloadToDataUrl(challenge.qrPayload);
   return {
     ...challenge,
+    qrDataUrl,
     branchName: meta.name || '',
     deviceLabel: verified.device.label,
     recentPunches: listRecentKioskPunches(branchId),

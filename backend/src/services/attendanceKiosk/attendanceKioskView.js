@@ -16,8 +16,8 @@ export function renderAttendanceKioskHtml({
   apiBase = '/api/public/attendance-kiosk',
 }) {
   const title = branchName
-    ? `Attendance Kiosk — ${branchName}`
-    : `Attendance Kiosk — ${gymCode}`;
+    ? `Staff Attendance — ${branchName}`
+    : `Staff Attendance — ${gymCode}`;
   const safeCode = escapeHtml(gymCode);
   const safeToken = escapeHtml(deviceToken);
   const safeTitle = escapeHtml(title);
@@ -30,7 +30,6 @@ export function renderAttendanceKioskHtml({
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
   <meta name="robots" content="noindex,nofollow" />
   <title>${safeTitle}</title>
-  <script src="https://cdn.jsdelivr.net/npm/qrcode@1.5.4/build/qrcode.min.js" defer></script>
   <style>
     :root {
       --bg: #0b1220;
@@ -52,7 +51,7 @@ export function renderAttendanceKioskHtml({
     .tab[aria-selected="true"] { background: var(--accent); color: #0b1220; border-color: var(--accent); }
     .panel { background: color-mix(in srgb, var(--panel) 92%, black); border: 1px solid #243044; border-radius: 24px; padding: 22px; }
     .qr-box { display: grid; place-items: center; background: #fff; border-radius: 20px; padding: 18px; min-height: 280px; }
-    #qrCanvas { width: min(72vw, 360px); height: auto; }
+    #qrImg { width: min(72vw, 360px); height: auto; display: block; }
     .countdown { margin-top: 18px; text-align: center; }
     .countdown .secs { font-size: clamp(3rem, 12vw, 5.5rem); font-weight: 800; line-height: 1; color: var(--accent); }
     .countdown .label { color: var(--muted); margin-top: 4px; font-size: 0.95rem; }
@@ -92,7 +91,7 @@ export function renderAttendanceKioskHtml({
       <button type="button" class="tab" id="tabPin" role="tab" aria-selected="false">PIN Fallback</button>
     </div>
     <section id="panelDisplay" class="panel" role="tabpanel">
-      <div class="qr-box"><canvas id="qrCanvas" width="360" height="360"></canvas></div>
+      <div class="qr-box"><img id="qrImg" alt="Staff attendance QR" width="360" height="360" /></div>
       <div class="countdown">
         <div class="secs" id="secsLeft">--</div>
         <div class="label">seconds until QR refreshes · offline grace ${Math.round(90)}s</div>
@@ -153,7 +152,7 @@ export function renderAttendanceKioskHtml({
     panelPin: document.getElementById('panelPin'),
     pinForm: document.getElementById('pinForm'),
     pinSubmit: document.getElementById('pinSubmit'),
-    canvas: document.getElementById('qrCanvas'),
+    qrImg: document.getElementById('qrImg'),
   };
 
   function showToast(msg, isErr) {
@@ -202,13 +201,9 @@ export function renderAttendanceKioskHtml({
     }).join('');
   }
 
-  function drawQr(payload) {
-    if (!payload || typeof QRCode === 'undefined') return;
-    QRCode.toCanvas(els.canvas, payload, {
-      width: 360,
-      margin: 2,
-      color: { dark: '#0f172a', light: '#ffffff' },
-    }, function () {});
+  function drawQr(dataUrl) {
+    if (!els.qrImg || !dataUrl) return;
+    els.qrImg.src = dataUrl;
   }
 
   function tick() {
@@ -230,7 +225,11 @@ export function renderAttendanceKioskHtml({
       els.err.classList.add('hidden');
       latestPayload = data.qrPayload || '';
       expiresAt = Number(data.expiresAt) || (Date.now() + (data.refreshInMs || 60000));
-      drawQr(latestPayload);
+      drawQr(data.qrDataUrl || '');
+      if (!data.qrDataUrl) {
+        els.err.classList.remove('hidden');
+        els.err.textContent = 'QR image missing from server — refresh the page.';
+      }
       renderPunches(data.recentPunches);
       tick();
     } catch (e) {
