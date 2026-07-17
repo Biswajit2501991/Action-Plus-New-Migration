@@ -2363,9 +2363,10 @@ process.on('unhandledRejection', (reason) => {
   console.error('[backend] unhandledRejection:', reason?.message || reason);
 });
 
-app.listen(env.PORT, () => {
+const listenHost = process.env.HOST || '0.0.0.0';
+app.listen(env.PORT, listenHost, () => {
   // eslint-disable-next-line no-console
-  console.log(`Backend listening on :${env.PORT} (data: ${dataBackendLabel()})`);
+  console.log(`Backend listening on ${listenHost}:${env.PORT} (data: ${dataBackendLabel()})`);
   if (useSupabase()) {
     pingDataStore()
       .then(async () => {
