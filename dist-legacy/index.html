@@ -4,6 +4,29 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Action Plus Gym Manager</title>
+  <script>
+    /* Always-on attendance kiosk must never enter the logged-in SPA. */
+    (function () {
+      try {
+        var path = String(location.pathname || '').replace(/\/+$/, '');
+        if (path !== '/attendance/kiosk' && !path.endsWith('/attendance/kiosk')) return;
+        var params = new URLSearchParams(location.search || '');
+        var device = String(params.get('device') || params.get('token') || '').trim();
+        var gym = String(params.get('gym') || params.get('branch') || params.get('code') || '').trim();
+        if (!device) {
+          document.open();
+          document.write('<!doctype html><meta charset="utf-8"><title>Attendance Kiosk</title><body style="font-family:system-ui;background:#0b1220;color:#f8fafc;padding:32px"><h1>Attendance QR Kiosk</h1><p>This URL needs a device token.</p><p>Sign in as Owner → Settings → <b>Open Attendance QR kiosk</b> → <b>Copy URL</b>, then open that full link on the tablet.</p><p style="color:#94a3b8">Expected shape:<br><code>/attendance/kiosk?gym=YOUR_BRANCH&amp;device=apk_…</code></p></body>');
+          document.close();
+          return;
+        }
+        // Prefer dedicated static page (no React/auth).
+        var target = '/attendance-kiosk.html?gym=' + encodeURIComponent(gym || 'HQ') + '&device=' + encodeURIComponent(device);
+        if (location.pathname.indexOf('attendance-kiosk.html') === -1) {
+          location.replace(target);
+        }
+      } catch (e) { /* ignore */ }
+    })();
+  </script>
   <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='6' fill='%231e293b'/%3E%3Ctext x='16' y='22' text-anchor='middle' font-size='16' fill='%23fbbf24'%3E%2B%3C/text%3E%3C/svg%3E" />
   <!-- Local vendor bundles for offline operation (no CDN dependencies). -->
   <script src="/vendor/tailwindcss-cdn.js"></script>
@@ -1488,9 +1511,9 @@
     });
   </script>
   <script src="/app.env.js"></script>
-  <script>window.__APG_ESM_CACHE_BUST='1783661054580';</script>
-  <script type="module" src="/dist-legacy/modules/registerApgModules.js?v=1783661054580"></script>
+  <script>window.__APG_ESM_CACHE_BUST='1784255097044';</script>
+  <script type="module" src="/dist-legacy/modules/registerApgModules.js?v=1784255097044"></script>
   <!-- Application Code. Babel will compile this JSX on the fly. -->
-  <script src="/dist-legacy/app.bundle.js?v=1783661054580"></script>
+  <script src="/dist-legacy/app.bundle.js?v=1784255097044"></script>
 </body>
 </html>

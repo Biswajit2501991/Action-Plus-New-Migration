@@ -394,7 +394,8 @@ function serveV2Static(req, res) {
 }
 
 const server = http.createServer((req, res) => {
-  const reqPath = req.url || '/';
+  const reqUrl = req.url || '/';
+  const reqPath = reqUrl.split('?')[0] || '/';
 
   if (reqPath === '/app.env.js') {
     const payload = {
@@ -480,6 +481,19 @@ const server = http.createServer((req, res) => {
     res.writeHead(301, { Location: '/index.html' });
     res.end();
     return;
+  }
+
+  // Always-on attendance QR kiosk (no staff login). Production bookmark path.
+  if (
+    reqPath === '/attendance/kiosk'
+    || reqPath === '/attendance/kiosk/'
+    || reqPath === '/attendance-kiosk.html'
+  ) {
+    const kioskHtml = path.join(rootDir, 'attendance-kiosk.html');
+    if (fs.existsSync(kioskHtml)) {
+      streamFile(req, res, kioskHtml, '/attendance-kiosk.html');
+      return;
+    }
   }
 
   const abs = safeResolveFile(reqPath);

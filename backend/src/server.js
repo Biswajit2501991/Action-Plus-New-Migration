@@ -112,6 +112,8 @@ import paymentQrRouter from './routes/paymentQr.js';
 import leaveBalanceRouter from './routes/leaveBalance.js';
 import publicPaymentQrRouter from './routes/publicPaymentQr.js';
 import publicMemberStatusRouter from './routes/publicMemberStatus.js';
+import publicAttendanceKioskRouter from './routes/publicAttendanceKiosk.js';
+import attendanceKioskRouter from './routes/attendanceKiosk.js';
 import {
   authIsOwner,
   stampBranchOnRows,
@@ -508,6 +510,7 @@ app.get('/api/version', (_req, res) => {
 
 app.use('/api/public/payment-qr', publicPaymentQrRouter);
 app.use('/api/public/member-status', publicMemberStatusRouter);
+app.use('/api/public/attendance-kiosk', publicAttendanceKioskRouter);
 
 app.use('/api/auth', authRouter);
 
@@ -1561,6 +1564,7 @@ app.delete('/api/custom-templates/:id', requireAccess(Access.templatesWrite), as
 
 app.use('/api/payment-qr', paymentQrRouter);
 app.use('/api/leave-balance', leaveBalanceRouter);
+app.use('/api/attendance-kiosk', attendanceKioskRouter);
 
 // ----------------------------------------------------------------------------
 // Leave Requests — dedicated mutation surface that bypasses the owner-only
