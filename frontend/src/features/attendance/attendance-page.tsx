@@ -261,16 +261,6 @@ export function AttendancePage() {
                 Mark All Present
               </Button>
             ) : null}
-            {canView ? (
-              <Button
-                variant="outline"
-                onClick={() => {
-                  window.location.href = "/attendance/kiosk";
-                }}
-              >
-                Attendance QR
-              </Button>
-            ) : null}
           </div>
         }
       />

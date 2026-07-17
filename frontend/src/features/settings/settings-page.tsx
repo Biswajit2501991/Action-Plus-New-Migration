@@ -1037,24 +1037,9 @@ export function SettingsPage() {
             <SettingsToggle
               checked={flags.attendanceRequirePresenceQr}
               label="Require attendance QR for Time In"
-              description="Staff must scan the gym Attendance QR before login marks Time In. Shows Attendance → Attendance QR kiosk for the reception tablet."
+              description="Staff must scan the gym Attendance QR before login marks Time In."
               onChange={(next) => setFeatureFlags({ attendanceRequirePresenceQr: next })}
             />
-            {flags.attendanceRequirePresenceQr ? (
-              <a
-                href="/attendance/presence-kiosk"
-                className="inline-flex h-9 items-center rounded-md border border-input bg-background px-3 text-xs font-medium hover:bg-accent"
-              >
-                Open Attendance QR kiosk
-              </a>
-            ) : (
-              <a
-                href="/attendance/presence-kiosk"
-                className="inline-flex h-9 items-center rounded-md border border-input bg-background px-3 text-xs font-medium hover:bg-accent"
-              >
-                Preview Attendance QR kiosk
-              </a>
-            )}
 
             <div className="rounded-xl border border-emerald-200/70 bg-emerald-50/40 p-3 dark:border-emerald-900/40 dark:bg-emerald-950/20">
               <p className="text-xs font-semibold text-foreground">Always-on punch QR kiosk</p>
@@ -1080,9 +1065,13 @@ export function SettingsPage() {
                         label: "Reception Kiosk",
                       });
                       const path = String(created.kioskUrl || "").trim();
+                      const token = String(created.token || "").trim();
+                      const fallback =
+                        `/api/public/attendance-kiosk/${encodeURIComponent(gymCode)}/view?device=${encodeURIComponent(token)}`;
+                      const relative = path.startsWith("http") ? "" : (path || fallback);
                       const url = path.startsWith("http")
                         ? path
-                        : `${window.location.origin}/attendance/kiosk?gym=${encodeURIComponent(gymCode)}&device=${encodeURIComponent(created.token)}`;
+                        : `${window.location.origin}${relative.startsWith("/") ? relative : `/${relative}`}`;
                       try {
                         await navigator.clipboard.writeText(url);
                       } catch { /* ignore */ }

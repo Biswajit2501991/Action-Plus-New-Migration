@@ -335,6 +335,21 @@ export const attendanceApi = {
   },
 };
 
+
+export const attendanceKioskApi = {
+  createDevice: (body: { gymCodeId: string; gymCode?: string; label?: string }) =>
+    apiFetch<{
+      ok?: boolean;
+      token: string;
+      kioskUrl: string;
+      device?: { id?: string };
+      hint?: string;
+    }>("/attendance-kiosk/devices", {
+      method: "POST",
+      body: JSON.stringify(body),
+    }),
+};
+
 export const leaveApi = {
   create: async (body: Record<string, unknown>) => {
     const res = await apiFetch<{ ok?: boolean; request?: LeaveRequest }>("/leave-requests", {
