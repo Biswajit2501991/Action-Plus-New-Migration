@@ -1,0 +1,10 @@
+# API service on Railway — use Root Directory = "/" (repo root), NOT "backend".
+# The Express app lives in backend/ but imports shared modules from src/.
+[build]
+builder = "RAILPACK"
+buildCommand = "npm ci --prefix backend"
+
+[deploy]
+startCommand = "npm --prefix backend start"
+healthcheckPath = "/api/health"
+restartPolicyType = "ON_FAILURE"
