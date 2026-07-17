@@ -84,7 +84,7 @@ export function renderAttendanceKioskHtml({
 <body>
   <div class="wrap">
     <h1>${safeTitle}</h1>
-    <p class="sub">Staff can mark attendance by scanning this QR, entering Staff ID + PIN, or logging into the app (login punch).</p>
+    <p class="sub">Staff scan this QR with their phone → staff login opens → check in/out. PIN tab and app login punch still work.</p>
     <div id="errBanner" class="err-banner hidden"></div>
     <div class="tabs" role="tablist">
       <button type="button" class="tab" id="tabDisplay" role="tab" aria-selected="true">QR Display</button>
@@ -280,6 +280,148 @@ export function renderAttendanceKioskHtml({
     pollTimer = setInterval(pullChallenge, 5000);
     tickTimer = setInterval(tick, 250);
   }
+})();
+  </script>
+</body>
+</html>`;
+}
+
+/**
+ * Phone-camera landing page after scanning the wall QR — staff login + punch.
+ */
+export function renderAttendanceScanHtml({
+  gymCode,
+  branchName = '',
+  qrPayload = '',
+  apiBase = '/api/public/attendance-kiosk',
+}) {
+  const title = branchName
+    ? `Staff Attendance — ${branchName}`
+    : `Staff Attendance — ${gymCode}`;
+  const safeTitle = escapeHtml(title);
+  const safeCode = escapeHtml(gymCode);
+
+  return `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <meta name="robots" content="noindex,nofollow" />
+  <title>${safeTitle}</title>
+  <style>
+    :root {
+      --bg: #0b1220; --panel: #121a2b; --text: #f8fafc; --muted: #94a3b8;
+      --accent: #38bdf8; --ok: #34d399; --err: #fb7185;
+    }
+    * { box-sizing: border-box; }
+    html, body {
+      margin: 0; min-height: 100%;
+      background: radial-gradient(1200px 600px at 50% -10%, #1e293b, var(--bg));
+      color: var(--text); font-family: "Segoe UI", system-ui, sans-serif;
+    }
+    .wrap { max-width: 440px; margin: 0 auto; padding: 28px 16px 48px; }
+    h1 { font-size: 1.45rem; margin: 0 0 6px; }
+    .sub { color: var(--muted); margin-bottom: 18px; font-size: 0.95rem; }
+    .panel { background: color-mix(in srgb, var(--panel) 92%, black); border: 1px solid #243044; border-radius: 20px; padding: 20px; }
+    form { display: grid; gap: 12px; }
+    label { font-size: 0.85rem; color: var(--muted); }
+    input, select, button.primary {
+      width: 100%; border-radius: 12px; border: 1px solid #334155; background: #0b1220; color: var(--text);
+      padding: 12px 14px; font-size: 1rem;
+    }
+    button.primary { background: var(--accent); color: #082f49; border: none; font-weight: 700; cursor: pointer; }
+    button.primary:disabled { opacity: 0.6; cursor: wait; }
+    .chip { display: inline-block; border: 1px solid #334155; border-radius: 999px; padding: 4px 10px; color: var(--muted); font-size: 0.85rem; margin-bottom: 14px; }
+    .err { background: #4c0519; border: 1px solid var(--err); color: #fecdd3; border-radius: 14px; padding: 12px 14px; margin-bottom: 14px; }
+    .ok { background: #064e3b; border: 1px solid var(--ok); color: #ecfdf5; border-radius: 14px; padding: 12px 14px; margin-bottom: 14px; }
+    .hidden { display: none !important; }
+    .hint { color: var(--muted); font-size: 0.82rem; margin-top: 14px; text-align: center; }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <h1>${safeTitle}</h1>
+    <p class="sub">Sign in with your staff ID to mark attendance for this branch.</p>
+    <span class="chip">Branch: ${safeCode}</span>
+    <div id="banner" class="err hidden"></div>
+    <section class="panel">
+      <form id="scanForm">
+        <div>
+          <label for="staffId">Staff ID / Email</label>
+          <input id="staffId" name="identifier" autocomplete="username" required autofocus />
+        </div>
+        <div>
+          <label for="staffPin">Password / PIN</label>
+          <input id="staffPin" name="password" type="password" autocomplete="current-password" required />
+        </div>
+        <div>
+          <label for="punchType">Action</label>
+          <select id="punchType" name="type">
+            <option value="login">Check in</option>
+            <option value="logout">Check out</option>
+          </select>
+        </div>
+        <button class="primary" type="submit" id="submitBtn">Mark attendance</button>
+      </form>
+    </section>
+    <p class="hint">This page opened from the wall QR. Keep the QR fresh on the display if check-in fails.</p>
+  </div>
+  <script>
+(function () {
+  const gymCode = ${JSON.stringify(String(gymCode || ''))};
+  const apiBase = ${JSON.stringify(String(apiBase || '/api/public/attendance-kiosk'))};
+  const params = new URLSearchParams(window.location.search);
+  let qrPayload = ${JSON.stringify(String(qrPayload || ''))}
+    || params.get('p')
+    || params.get('payload')
+    || params.get('qr')
+    || '';
+
+  const banner = document.getElementById('banner');
+  const form = document.getElementById('scanForm');
+  const submitBtn = document.getElementById('submitBtn');
+
+  function showBanner(msg, ok) {
+    banner.textContent = msg || '';
+    banner.classList.toggle('hidden', !msg);
+    banner.classList.toggle('err', !ok);
+    banner.classList.toggle('ok', Boolean(ok));
+  }
+
+  if (!qrPayload) {
+    showBanner('Missing QR payload. Scan the wall QR again.', false);
+  }
+
+  form.addEventListener('submit', async function (ev) {
+    ev.preventDefault();
+    submitBtn.disabled = true;
+    showBanner('', false);
+    try {
+      const body = {
+        identifier: document.getElementById('staffId').value,
+        password: document.getElementById('staffPin').value,
+        type: document.getElementById('punchType').value,
+        qrPayload: qrPayload || undefined,
+        branchId: gymCode,
+      };
+      const res = await fetch(apiBase.replace(/\\/$/, '') + '/pin-punch', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+      const data = await res.json().catch(function () { return {}; });
+      if (!res.ok) {
+        showBanner(data.message || data.error || ('Failed (' + res.status + ')'), false);
+        return;
+      }
+      showBanner(data.toast || 'Attendance marked', true);
+      document.getElementById('staffPin').value = '';
+    } catch (e) {
+      showBanner('Network error — try again.', false);
+    } finally {
+      submitBtn.disabled = false;
+    }
+  });
 })();
   </script>
 </body>

@@ -126,9 +126,36 @@ export function encodeQrPayload({ branchKey, branchId, code, expiresAt }) {
   return `${ATTENDANCE_QR_PREFIX}|${key}|${c}|${exp}`;
 }
 
+/**
+ * Phone cameras only open URLs reliably. Encode the challenge as an HTTPS scan page.
+ */
+export function buildQrScanUrl({ publicBase, gymCode, qrPayload }) {
+  const base = String(publicBase || 'https://app.gymactionplus.com').replace(/\/+$/, '');
+  const code = String(gymCode || '').trim() || 'HQ';
+  const payload = String(qrPayload || '').trim();
+  const url = new URL(`${base}/api/public/attendance-kiosk/${encodeURIComponent(code)}/scan`);
+  if (payload) url.searchParams.set('p', payload);
+  return url.toString();
+}
+
 export function parseQrPayload(raw) {
   const s = String(raw || '').trim();
   if (!s) return null;
+
+  // HTTPS scan link from wall QR: .../scan?p=APG1|BRANCH|code|exp
+  if (/^https?:\/\//i.test(s) || s.includes('/attendance-kiosk/')) {
+    try {
+      const u = new URL(s, 'https://app.gymactionplus.com');
+      const nested = u.searchParams.get('p')
+        || u.searchParams.get('payload')
+        || u.searchParams.get('qr')
+        || '';
+      if (nested) return parseQrPayload(nested);
+    } catch {
+      // fall through
+    }
+  }
+
   // Also accept deep-link style: apg-att://v1/BRANCH/CODE
   const deep = /^apg-att:\/\/v1\/([^/]+)\/([A-Za-z0-9_-]+)/i.exec(s);
   if (deep) {

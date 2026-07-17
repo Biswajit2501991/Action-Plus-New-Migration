@@ -4,7 +4,11 @@ import {
   buildPublicChallenge,
   punchViaPin,
 } from '../services/attendanceKiosk/attendanceKioskService.js';
-import { renderAttendanceKioskHtml } from '../services/attendanceKiosk/attendanceKioskView.js';
+import {
+  renderAttendanceKioskHtml,
+  renderAttendanceScanHtml,
+} from '../services/attendanceKiosk/attendanceKioskView.js';
+import { parseQrPayload } from '../services/attendanceKiosk/attendanceChallenge.js';
 
 const router = Router();
 
@@ -16,6 +20,15 @@ function deviceFromReq(req) {
       || req.body?.deviceToken
       || '',
   ).trim();
+}
+
+function publicBaseFromReq(req) {
+  const fromEnv = String(process.env.APP_PUBLIC_URL || process.env.PUBLIC_APP_URL || '').trim();
+  if (fromEnv) return fromEnv.replace(/\/+$/, '');
+  const proto = String(req.headers['x-forwarded-proto'] || req.protocol || 'https').split(',')[0].trim();
+  const host = String(req.headers['x-forwarded-host'] || req.headers.host || '').split(',')[0].trim();
+  if (host) return `${proto}://${host}`.replace(/\/+$/, '');
+  return 'https://app.gymactionplus.com';
 }
 
 router.get('/pin-punch', (_req, res) => {
@@ -51,6 +64,7 @@ router.get('/:gymCode/challenge', async (req, res) => {
     const data = await buildPublicChallenge({
       gymCode: req.params.gymCode,
       deviceToken: deviceFromReq(req),
+      publicBase: publicBaseFromReq(req),
     });
     res.setHeader('Cache-Control', 'no-store');
     return res.json(data);
@@ -71,7 +85,11 @@ router.get('/:gymCode/view', async (req, res) => {
     // Validate device before rendering so wall screens fail closed.
     let branchName = '';
     if (deviceToken) {
-      const challenge = await buildPublicChallenge({ gymCode, deviceToken });
+      const challenge = await buildPublicChallenge({
+        gymCode,
+        deviceToken,
+        publicBase: publicBaseFromReq(req),
+      });
       branchName = challenge.branchName || '';
     }
     const html = renderAttendanceKioskHtml({
@@ -89,6 +107,49 @@ router.get('/:gymCode/view', async (req, res) => {
     if (status === 404) return res.status(404).send('Branch not found.');
     return res.status(status).send(String(error?.message || 'Unable to load attendance kiosk.'));
   }
+});
+
+/** Phone-camera landing page — staff login + punch using wall QR payload. */
+router.get('/:gymCode/scan', async (req, res) => {
+  const gymCode = String(req.params?.gymCode || '').trim();
+  if (!gymCode) return res.status(400).send('Gym code is required.');
+  const qrPayload = String(
+    req.query?.p || req.query?.payload || req.query?.qr || '',
+  ).trim();
+  const parsed = parseQrPayload(qrPayload);
+  let branchName = '';
+  try {
+    // Optional: resolve friendly name when payload/branch is valid shape.
+    if (parsed?.branchKey || gymCode) {
+      const { resolveAttendanceBranchId } = await import('../services/attendanceKiosk/attendanceKioskService.js');
+      const { useSupabase } = await import('../db/dataStore.js');
+      if (useSupabase()) {
+        const bid = await resolveAttendanceBranchId(parsed?.branchKey || gymCode);
+        if (bid) {
+          const { getSupabase, gymId } = await import('../db/supabase/client.js');
+          const { T } = await import('../db/tables.js');
+          const { data } = await getSupabase()
+            .from(T.gym_codes)
+            .select('name')
+            .eq('gym_id', gymId())
+            .eq('id', bid)
+            .maybeSingle();
+          branchName = data?.name || '';
+        }
+      }
+    }
+  } catch {
+    // Non-fatal — page still works with gym code only.
+  }
+  const html = renderAttendanceScanHtml({
+    gymCode: parsed?.branchKey || gymCode,
+    branchName,
+    qrPayload,
+    apiBase: '/api/public/attendance-kiosk',
+  });
+  res.setHeader('Content-Type', 'text/html; charset=utf-8');
+  res.setHeader('Cache-Control', 'no-store');
+  return res.status(200).send(html);
 });
 
 router.get('/:gymCode', (req, res) => {

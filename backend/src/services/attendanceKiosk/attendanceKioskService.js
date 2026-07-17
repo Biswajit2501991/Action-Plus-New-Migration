@@ -12,6 +12,7 @@ import { authIsMasterOwner } from '../../auth/tenant/scopedAuth.js';
 import { resolveGymCodeId } from '../gymCodesService.js';
 import {
   attendanceKioskSecret,
+  buildQrScanUrl,
   getCurrentChallenge,
   parseQrPayload,
   validateChallengeCode,
@@ -84,7 +85,12 @@ function staffMayPunchBranch(authOrUser, branchId) {
   return Boolean(home && home === String(branchId));
 }
 
-export async function buildPublicChallenge({ gymCode, deviceToken, nowMs = Date.now() }) {
+export async function buildPublicChallenge({
+  gymCode,
+  deviceToken,
+  publicBase = '',
+  nowMs = Date.now(),
+}) {
   if (!useSupabase()) {
     const err = new Error('kiosk-requires-supabase');
     err.status = 503;
@@ -113,9 +119,17 @@ export async function buildPublicChallenge({ gymCode, deviceToken, nowMs = Date.
     branchCode: meta.code || gymCode,
     nowMs,
   });
-  const qrDataUrl = await qrPayloadToDataUrl(challenge.qrPayload);
+  const branchCode = meta.code || gymCode;
+  const qrScanUrl = buildQrScanUrl({
+    publicBase,
+    gymCode: branchCode,
+    qrPayload: challenge.qrPayload,
+  });
+  // Phone cameras open URLs; encode the scan page (not raw APG1|… text).
+  const qrDataUrl = await qrPayloadToDataUrl(qrScanUrl);
   return {
     ...challenge,
+    qrScanUrl,
     qrDataUrl,
     branchName: meta.name || '',
     deviceLabel: verified.device.label,

@@ -6,6 +6,7 @@ import {
   ATTENDANCE_QR_GRACE_MS,
   ATTENDANCE_QR_ROTATION_MS,
   buildChallengeCode,
+  buildQrScanUrl,
   encodeQrPayload,
   getCurrentChallenge,
   parseQrPayload,
@@ -138,6 +139,27 @@ describe('attendanceChallenge', () => {
       code: 'tokENCODE12',
     });
     expect(parseQrPayload('bareCode99AA')).toMatchObject({ code: 'bareCode99AA' });
+  });
+
+  it('builds HTTPS scan URLs and parses them back', () => {
+    const payload = encodeQrPayload({
+      branchKey: 'AP01',
+      branchId: BRANCH,
+      code: 'tokENCODE12',
+      expiresAt: 999,
+    });
+    const url = buildQrScanUrl({
+      publicBase: 'https://app.gymactionplus.com',
+      gymCode: 'AP01',
+      qrPayload: payload,
+    });
+    expect(url.startsWith('https://app.gymactionplus.com/api/public/attendance-kiosk/AP01/scan?')).toBe(true);
+    expect(url).toContain('p=');
+    expect(parseQrPayload(url)).toMatchObject({
+      branchKey: 'AP01',
+      code: 'tokENCODE12',
+      expiresAt: 999,
+    });
   });
 
   it('windowIndexAt floors by rotation', () => {
