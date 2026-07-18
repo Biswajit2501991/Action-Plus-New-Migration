@@ -101,7 +101,7 @@ import {
   resolveLookupDeleteRequesterForAuth,
   resolveLookupProvenanceForAuth,
 } from './auth/tenant/lookupProvenance.js';
-import { authIsBranchOwner, authIsMasterOwner, authUsesGlobalDataRead, authHasGlobalBranchRead, resolveActiveBranchId, resolveReadBranchIds } from './auth/tenant/scopedAuth.js';
+import { authIsBranchOwner, authIsMasterOwner, authUsesGlobalDataRead, authHasGlobalBranchRead, authCanAccessBranch, resolveActiveBranchId, resolveReadBranchIds } from './auth/tenant/scopedAuth.js';
 import { Access, getStaffAccessForUser } from './auth/accessControl.js';
 import { canReadSettingsScope } from './db/supabase/settingsBranchFilter.js';
 import { normalizeSettingsScope } from './db/supabase/settingsScope.js';
@@ -2303,7 +2303,31 @@ app.get('/api/finance/reconciliation', requireAccess(Access.financeRead), async 
 
 app.post('/api/finance/expenses', requireAccess(Access.financeWrite), async (req, res) => {
   try {
-    const saved = await upsertFinanceExpenseRow(req.body || {});
+    const body = req.body && typeof req.body === 'object' ? { ...req.body } : {};
+    const requested = String(body.gymCodeId || body.gym_code_id || '').trim();
+    const active = resolveActiveBranchId(req.auth);
+    let gymCodeId = '';
+    if (authHasGlobalBranchRead(req.auth)) {
+      gymCodeId = requested || active;
+      if (!gymCodeId) {
+        const { resolveHqGymCodeId } = await import('./services/branchWhatsappTemplates.js');
+        gymCodeId = String(await resolveHqGymCodeId() || '').trim();
+      }
+    } else {
+      gymCodeId = active || String(req.auth?.gymCodeId || '').trim();
+      if (requested && requested !== gymCodeId && !authCanAccessBranch(req.auth, requested)) {
+        return res.status(403).json({ error: 'branch-scope-forbidden' });
+      }
+      if (requested && authCanAccessBranch(req.auth, requested)) gymCodeId = requested;
+    }
+    if (!gymCodeId) {
+      return res.status(400).json({ error: 'gym-code-id-required' });
+    }
+    if (!authCanAccessBranch(req.auth, gymCodeId) && !authHasGlobalBranchRead(req.auth)) {
+      return res.status(403).json({ error: 'branch-scope-forbidden' });
+    }
+    body.gymCodeId = gymCodeId;
+    const saved = await upsertFinanceExpenseRow(body);
     queueDatabaseBackup('finance-expense');
     return res.status(201).json(saved);
   } catch (error) {
@@ -2334,9 +2358,15 @@ app.put('/api/finance/bulk', requireAccess(Access.financeWrite), async (req, res
       incoming = [];
     } else {
       const scope = await loadBranchScope(getSupabase(), req.auth);
-      incoming = incoming.filter((t) => branchScopeAllowsFinanceRow(t, scope));
+      const stampBranch = String(scope.gymCodeId || resolveActiveBranchId(req.auth) || req.auth.gymCodeId || '').trim();
+      incoming = incoming
+        .filter((t) => String(t?.type || '').toLowerCase() === 'expense')
+        .map((t) => ({
+          ...t,
+          gymCodeId: String(t?.gymCodeId || t?.gym_code_id || stampBranch).trim() || stampBranch,
+        }))
+        .filter((t) => branchScopeAllowsFinanceRow(t, scope));
       // Staff bulk sync: expenses only — prevents income orphan delete across branches.
-      incoming = incoming.filter((t) => String(t?.type || '').toLowerCase() === 'expense');
     }
   } else {
     // Owner bulk: income/manual rows only; expenses use POST /api/finance/expenses.

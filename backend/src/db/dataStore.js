@@ -1075,7 +1075,11 @@ export async function readFinanceSummary(branchScope, options = {}) {
   const { calendarMonthPaidAtBounds, paymentInCalendarMonth } = await import('../../src/features/finance/paymentCalendarMonth.js');
 
   const members = await readJsonCollection('apg.members', [], null, branchScope);
-  const financeRows = await kvStore.readJsonCollection('apg.finance', []);
+  const { filterFinanceRowsForBranchScope } = await import('../../src/features/finance/financeRowFilters.js');
+  const financeRows = filterFinanceRowsForBranchScope(
+    await kvStore.readJsonCollection('apg.finance', []),
+    branchScope,
+  );
   const settings = (await kvStore.readJsonValue('apg.settings', {}, null)) || {};
 
   const paymentRecords = [];
@@ -1137,6 +1141,12 @@ export async function upsertFinanceExpenseRow(expenseRow) {
     err.status = 400;
     throw err;
   }
+  const gymCodeId = String(expenseRow?.gymCodeId || expenseRow?.gym_code_id || '').trim();
+  if (!gymCodeId) {
+    const err = new Error('gym-code-id-required');
+    err.status = 400;
+    throw err;
+  }
   const rows = await kvStore.readJsonCollection('apg.finance', []);
   const id = String(expenseRow?.id || crypto.randomUUID());
   const nextRow = {
@@ -1145,6 +1155,7 @@ export async function upsertFinanceExpenseRow(expenseRow) {
     type: 'expense',
     source: expenseRow?.source || 'manual',
     status: expenseRow?.status || 'posted',
+    gymCodeId,
   };
   const kept = rows.filter((r) => String(r?.id || '') !== id);
   await kvStore.writeJsonCollection('apg.finance', [nextRow, ...kept]);

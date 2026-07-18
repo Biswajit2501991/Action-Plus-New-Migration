@@ -2435,7 +2435,10 @@ async function readFinanceSummary(branchScope, options = {}) {
   const sb = getSupabase();
   const gid = gymId();
   const settings = await readSettingsValue(null);
-  const financeRows = await readFinance(null);
+  const { filterFinanceRowsForBranchScope } = await import(
+    '../../../../src/features/finance/financeRowFilters.js'
+  );
+  const financeRows = filterFinanceRowsForBranchScope(await readFinance(null), branchScope);
 
   const memberRows = await fetchAll((from, to) => {
     let q = applyActiveMembersFilter(
@@ -2737,6 +2740,12 @@ function normalizeExpenseAppRow(raw) {
     err.status = 400;
     throw err;
   }
+  const gymCodeId = String(raw?.gymCodeId || raw?.gym_code_id || '').trim();
+  if (!gymCodeId) {
+    const err = new Error('gym-code-id-required');
+    err.status = 400;
+    throw err;
+  }
   return {
     id: raw?.id ? String(raw.id) : undefined,
     type: 'expense',
@@ -2749,6 +2758,7 @@ function normalizeExpenseAppRow(raw) {
     method: raw?.method || 'Cash',
     memberName: raw?.memberName || raw?.category || 'Expense',
     plan: raw?.plan || 'Expense',
+    gymCodeId,
     createdAt: raw?.createdAt,
   };
 }
