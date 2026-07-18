@@ -9,6 +9,15 @@ import {
 
 const PROTECTED_STAFF_IDS = new Set(['bis', 'raja', 'owner']);
 
+function staffBranchIds(u) {
+  const assigned = Array.isArray(u?.assignedBranchIds)
+    ? u.assignedBranchIds.map((id) => String(id || '').trim()).filter(Boolean)
+    : [];
+  const home = String(u?.gymCodeId || '').trim();
+  if (home && !assigned.includes(home)) assigned.unshift(home);
+  return assigned;
+}
+
 export function filterUsersForAuth(users, auth) {
   const list = Array.isArray(users) ? users : [];
   const readIds = resolveReadBranchIds(auth);
@@ -22,8 +31,7 @@ export function filterUsersForAuth(users, auth) {
     if (normalizeStaffRole(u?.staffRole, u?.id) === STAFF_ROLES.MASTER_OWNER) {
       return masterCanSeeProtected;
     }
-    const branch = String(u?.gymCodeId || '').trim();
-    return branch && allowed.has(branch);
+    return staffBranchIds(u).some((id) => allowed.has(id));
   });
 }
 
@@ -63,8 +71,8 @@ export function sanitizeUsersBulkForAuth(users, auth) {
 export function assertBranchAdminManagesUser(auth, targetUser) {
   if (authIsMasterOwner(auth)) return;
   const allowed = new Set(resolveAllowedBranchIds(auth) || []);
-  const branch = String(targetUser?.gymCodeId || '').trim();
-  if (!branch || !allowed.has(branch)) {
+  const touches = staffBranchIds(targetUser).some((id) => allowed.has(id));
+  if (!touches) {
     const err = new Error('cross-branch-staff-forbidden');
     err.status = 403;
     throw err;

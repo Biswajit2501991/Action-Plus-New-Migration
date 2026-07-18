@@ -1131,6 +1131,9 @@ async function writeMembers(members, scope, options = {}) {
     console.warn(`[writeMembers] skipped ${skipped.length} blocked deleted member_code(s)`);
   }
   const incoming = writable;
+  const writtenCodes = incoming
+    .map((m) => String(m?.memberId || '').trim())
+    .filter(Boolean);
 
   const existing = await fetchAll((from, to) => sb
     .from(T.members)
@@ -1248,6 +1251,10 @@ async function writeMembers(members, scope, options = {}) {
   }
 
   notifyCollectionChange('members');
+  return {
+    written: writtenCodes,
+    skipped: skipped.map((c) => String(c || '').trim()).filter(Boolean),
+  };
 }
 
 async function readUsers(scope) {
@@ -1397,7 +1404,9 @@ async function writeUsers(users, scope) {
       row.staff_role = 'staff';
     }
 
-    const found = (existing || []).find((r) => String(r.staff_login_id) === String(u.id));
+    const found = (existing || []).find(
+      (r) => String(r.staff_login_id || '').trim().toLowerCase() === String(u.id || '').trim().toLowerCase(),
+    );
     if (found && memberPhotoStorageEnabled()) {
       const existingPath = String(found.photo_path || '').trim();
       const existingLegacy = String(found.photo_url || '').trim();

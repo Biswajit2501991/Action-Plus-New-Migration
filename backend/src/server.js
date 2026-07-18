@@ -83,6 +83,9 @@ import { syncStaffBranchScope } from './middleware/syncStaffBranchScope.js';
 import {
   resolveReadBranchScope,
   filterRowsForStaffWrite,
+  prepareMembersBulkWrite,
+  assertMembersBulkWriteNonEmpty,
+  assertMembersBulkPersisted,
   assertStaffHasBranchForWrite,
   staffBranchBlocksAllRows,
   filterAttendanceRecordsForBranchScope,
@@ -702,14 +705,29 @@ app.put('/api/members/bulk', requireAccess(Access.membersWrite), async (req, res
       detail: err.detail || null,
     });
   }
-  const incoming = filterRowsForStaffWrite(rawWithoutDeleted, req.auth);
+  // Stamp BEFORE staff filter so untagged creates are not silently dropped
+  // (filter-then-stamp previously returned { ok: true } with zero rows written).
+  let prepared;
+  let droppedIds = [];
+  try {
+    const preparedResult = prepareMembersBulkWrite(rawWithoutDeleted, req.auth);
+    prepared = preparedResult.prepared;
+    droppedIds = preparedResult.droppedIds;
+    assertMembersBulkWriteNonEmpty(rawWithoutDeleted.length, prepared, droppedIds);
+  } catch (err) {
+    return res.status(err.status || 400).json({
+      error: err.message,
+      message: 'No members were saved — check branch assignment and try again.',
+      detail: err.detail || null,
+    });
+  }
   // Defense-in-depth: prevent non-owner callers from quietly stripping payment
   // entries out of the snapshot. Slim bulk sync omits paymentHistory; guard only
   // runs when paymentHistory is present in the payload (pending member sync).
   try {
     if (!authIsOwner(req.auth)) {
       const { assertStaffPaymentDeletesAllowed } = await import('./db/dataStore.js');
-      await assertStaffPaymentDeletesAllowed(incoming, buildBranchScope(req));
+      await assertStaffPaymentDeletesAllowed(prepared, buildBranchScope(req));
     }
   } catch (err) {
     return res.status(err.status || 403).json({
@@ -717,16 +735,45 @@ app.put('/api/members/bulk', requireAccess(Access.membersWrite), async (req, res
       detail: err.detail || null,
     });
   }
-  // Owner without explicit selection => stamped HQ via their JWT gymCodeId;
-  // staff => stamped from their JWT gymCodeId; safe no-op for already-tagged rows.
-  const stamped = stampBranchOnRows(incoming, req.auth);
   const scope = readSandboxScope(req);
   const { writeJsonCollection } = await import('./db/dataStore.js');
-  await writeJsonCollection('apg.members', stamped, scope, {
-    blockedMemberCodes: [...deletedSet],
-  });
+  let writeResult = null;
+  try {
+    writeResult = await writeJsonCollection('apg.members', prepared, scope, {
+      blockedMemberCodes: [...deletedSet],
+    });
+  } catch (err) {
+    return res.status(err?.status || 500).json({
+      error: err?.message || 'members-bulk-failed',
+      detail: err?.detail || null,
+    });
+  }
+  const written = Array.isArray(writeResult?.written)
+    ? writeResult.written
+    : prepared.map((m) => String(m?.memberId || '').trim()).filter(Boolean);
+  const skipped = Array.isArray(writeResult?.skipped) ? writeResult.skipped : [];
+  try {
+    assertMembersBulkPersisted(
+      prepared.map((m) => String(m?.memberId || '').trim()).filter(Boolean),
+      written,
+      skipped,
+    );
+  } catch (err) {
+    return res.status(err.status || 409).json({
+      error: err.message,
+      message: skipped.length
+        ? 'Member code was previously deleted and cannot be reused.'
+        : 'Member save did not persist. Please try again.',
+      detail: err.detail || null,
+    });
+  }
   queueDatabaseBackup('members-bulk');
-  res.json({ ok: true });
+  res.json({
+    ok: true,
+    written,
+    skipped,
+    droppedIds,
+  });
 });
 
 /**

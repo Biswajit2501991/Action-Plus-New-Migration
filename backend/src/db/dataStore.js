@@ -420,8 +420,58 @@ export async function updateMember(memberCode, patch, branchScope = null) {
   return next;
 }
 
+/**
+ * Upsert-only merge for local/KV member (and visitor) collections.
+ * Never deletes rows missing from a partial bulk payload — same contract as Supabase.
+ */
+export function upsertJsonCollectionById(existing, incoming, idKey) {
+  const prev = Array.isArray(existing) ? existing : [];
+  const nextRows = Array.isArray(incoming) ? incoming : [];
+  if (!nextRows.length) {
+    return { rows: prev, written: [], skipped: [] };
+  }
+  const byId = new Map();
+  for (const row of prev) {
+    const id = String(row?.[idKey] || '').trim();
+    if (id) byId.set(id, row);
+  }
+  const written = [];
+  for (const row of nextRows) {
+    const id = String(row?.[idKey] || '').trim();
+    if (!id) continue;
+    const before = byId.get(id);
+    byId.set(id, before && typeof before === 'object' ? { ...before, ...row } : row);
+    written.push(id);
+  }
+  return { rows: [...byId.values()], written, skipped: [] };
+}
+
 export async function writeJsonCollection(key, value, scope = null, options = null) {
   if (useSupabase()) return supabaseStore.writeCollection(key, value, scope, options);
+  // Critical: never replace-all members/visitors from a partial browser upload.
+  if (key === 'apg.members' || key === 'apg.visitors') {
+    const idKey = key === 'apg.members' ? 'memberId' : 'id';
+    const allRows = await kvStore.readJsonCollection(key, []);
+    if (!scope) {
+      const { rows, written, skipped } = upsertJsonCollectionById(allRows, value, idKey);
+      await kvStore.writeJsonCollection(key, rows);
+      return { written, skipped };
+    }
+    const otherSandbox = allRows.filter((row) => String(row?.sandboxId || '') !== scope.sandboxId);
+    const sandboxPrev = allRows.filter((row) => String(row?.sandboxId || '') === scope.sandboxId);
+    const scopedIncoming = (Array.isArray(value) ? value : []).map((row) => ({
+      ...(row && typeof row === 'object' ? row : {}),
+      sandboxId: scope.sandboxId,
+      createdByTestUserId: scope.userId || (row && row.createdByTestUserId) || '',
+    }));
+    const { rows: sandboxNext, written, skipped } = upsertJsonCollectionById(
+      sandboxPrev,
+      scopedIncoming,
+      idKey,
+    );
+    await kvStore.writeJsonCollection(key, [...otherSandbox, ...sandboxNext]);
+    return { written, skipped };
+  }
   if (!scope) return kvStore.writeJsonCollection(key, value);
   const allRows = await kvStore.readJsonCollection(key, []);
   const kept = allRows.filter((row) => String(row?.sandboxId || '') !== scope.sandboxId);

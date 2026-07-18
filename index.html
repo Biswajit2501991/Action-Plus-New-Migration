@@ -6020,15 +6020,15 @@ Phone: +91-7047157510`;
           if (!prev || Object.keys(prev).length === 0) return prev;
           const next = { ...prev };
           let changed = false;
-          const now = Date.now();
           const remById = new Map((remoteMembers || []).map((r) => [String(r?.memberId || '').trim(), r]));
           for (const id of Object.keys(next)) {
             const info = next[id];
             const remote = remById.get(id);
             const remoteTs = remote ? memberSortTimestamp(remote) : 0;
-            const age = now - (info.markedAt || 0);
             const remoteCaughtUp = Boolean(remote) && remoteTs >= (info.localTs - MEMBER_REMOTE_SYNC_SLACK_MS);
-            if (remoteCaughtUp || age > MEMBER_SYNC_PENDING_MAX_MS) {
+            // Only clear when the server list confirms the member. Never age-out
+            // pending creates — that previously dropped newly saved members after ~20s.
+            if (remoteCaughtUp) {
               delete next[id];
               changed = true;
             }
