@@ -6,6 +6,35 @@ import {
 } from '../../auth/branchScope.js';
 import { assertBranchWriteAllowed } from '../../auth/branchFilter.js';
 import { readMember, writeJsonCollection } from '../../db/dataStore.js';
+import { suggestNextBranchFormNumber } from './memberFormNumbers.js';
+
+async function enrichBlockedCreateError(err, preparedMember) {
+  if (err?.message !== 'members-bulk-blocked') return err;
+  try {
+    const branchId = String(preparedMember?.assignedGymCodeId || '').trim();
+    const memberId = String(preparedMember?.memberId || '').trim();
+    const tokenMatch = memberId.match(/APG-\d+\/\d{2}-([A-Z0-9]+)$/i);
+    const yearMatch = memberId.match(/APG-\d+\/(\d{2})-/i);
+    const suggestion = await suggestNextBranchFormNumber({
+      gymCodeId: branchId,
+      branchToken: tokenMatch?.[1] || 'BR',
+      yearSuffix: yearMatch?.[1],
+      startFrom: Number(preparedMember?.formNo) || null,
+    });
+    err.message = 'members-bulk-blocked';
+    err.status = 409;
+    err.detail = {
+      ...(err.detail || {}),
+      skipped: err.detail?.skipped || [memberId],
+      suggestedFormNo: suggestion.formNo,
+      suggestedMemberId: suggestion.memberId,
+      hint: `This member ID was used by a deleted member. Use form number ${suggestion.formNo} (${suggestion.memberId}).`,
+    };
+  } catch {
+    /* keep original error */
+  }
+  return err;
+}
 
 /**
  * Durable single-member create.
@@ -35,11 +64,15 @@ export async function createMemberDurable(member, auth, branchScope = null, scop
     ? writeResult.written
     : prepared.map((m) => String(m?.memberId || '').trim()).filter(Boolean);
   const skipped = Array.isArray(writeResult?.skipped) ? writeResult.skipped : [];
-  assertMembersBulkPersisted(
-    prepared.map((m) => String(m?.memberId || '').trim()).filter(Boolean),
-    written,
-    skipped,
-  );
+  try {
+    assertMembersBulkPersisted(
+      prepared.map((m) => String(m?.memberId || '').trim()).filter(Boolean),
+      written,
+      skipped,
+    );
+  } catch (err) {
+    throw await enrichBlockedCreateError(err, prepared[0]);
+  }
 
   const code = String(written[0] || prepared[0]?.memberId || '').trim();
   const saved = await readMember(code, branchScope);

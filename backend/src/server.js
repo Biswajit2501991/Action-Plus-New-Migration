@@ -638,6 +638,26 @@ app.get('/api/members', requireAccess(Access.membersRead), async (req, res) => {
 });
 
 /**
+ * Next free form number for a branch (skips soft-deleted / audited member codes).
+ * Query: gymCodeId (required), branchToken? (e.g. AP01), yearSuffix? (e.g. 26)
+ */
+app.get('/api/members/next-form-number', requireAccess(Access.membersWrite), async (req, res) => {
+  try {
+    const { suggestNextBranchFormNumber } = await import('./services/members/memberFormNumbers.js');
+    const gymCodeId = String(req.query?.gymCodeId || req.query?.branchId || '').trim();
+    const branchToken = String(req.query?.branchToken || req.query?.code || '').trim();
+    const yearSuffix = String(req.query?.yearSuffix || '').trim() || undefined;
+    const out = await suggestNextBranchFormNumber({ gymCodeId, branchToken, yearSuffix });
+    return res.json({ ok: true, ...out });
+  } catch (err) {
+    return res.status(err?.status || 500).json({
+      error: err?.message || 'next-form-failed',
+      message: err?.message || 'Could not allocate next form number',
+    });
+  }
+});
+
+/**
  * Dedicated create — preferred over PUT /members/bulk for Add Member.
  * Stamps staff branch, persists, and returns the saved row (fail closed).
  */
@@ -659,12 +679,16 @@ app.post('/api/members', requireAccess(Access.membersWrite), async (req, res) =>
     queueDatabaseBackup('members-create');
     return res.status(201).json({ ok: true, member: saved, written: [saved.memberId] });
   } catch (err) {
+    const detail = err?.detail || null;
+    const suggested = detail?.suggestedFormNo
+      ? ` Use form number ${detail.suggestedFormNo}${detail.suggestedMemberId ? ` (${detail.suggestedMemberId})` : ''}.`
+      : '';
     return res.status(err?.status || 500).json({
       error: err?.message || 'member-create-failed',
-      message: err?.status === 409
-        ? 'Member code was previously deleted and cannot be reused.'
-        : (err?.message || 'Member could not be saved. Please try again.'),
-      detail: err?.detail || null,
+      message: err?.message === 'members-bulk-blocked'
+        ? `This member ID was used by a deleted member and cannot be reused.${suggested}`
+        : (detail?.hint || err?.message || 'Member could not be saved. Please try again.'),
+      detail,
     });
   }
 });
