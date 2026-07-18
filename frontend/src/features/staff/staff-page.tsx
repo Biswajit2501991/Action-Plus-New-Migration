@@ -24,8 +24,17 @@ import {
 } from "@/lib/domain/permissions";
 import { StaffSectionsAccessEditor } from "@/features/staff/staff-sections-access";
 import { RoleTemplatesPanel } from "@/features/staff/role-templates-panel";
-import { useAuthStore } from "@/stores";
+import { useAuthStore, useBranchStore } from "@/stores";
 import type { AccessMap, GymCode, StaffUser } from "@/types";
+
+function resolveActiveBranchId() {
+  return String(
+    useBranchStore.getState().activeBranchId
+      || useAuthStore.getState().user?.activeBranchId
+      || useAuthStore.getState().user?.gymCodeId
+      || "",
+  ).trim();
+}
 
 type StaffForm = {
   id: string;
@@ -292,7 +301,7 @@ export function StaffPage() {
       return updatedUser;
     },
     onSuccess: async (saved) => {
-      const active = String(useAuthStore.getState().activeBranchId || "").trim();
+      const active = resolveActiveBranchId();
       const staffBranches = [
         ...(Array.isArray(saved?.assignedBranchIds) ? saved.assignedBranchIds : []),
         saved?.gymCodeId,
