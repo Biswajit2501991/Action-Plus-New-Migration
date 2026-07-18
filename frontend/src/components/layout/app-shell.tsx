@@ -164,24 +164,36 @@ function DesktopShell({ children }: { children: React.ReactNode }) {
                   {visibleNav
                     .filter((i) => i.group === group)
                     .map((item) => {
-                      const active = pathname === item.href || pathname.startsWith(`${item.href}/`);
+                      const active =
+                        !item.external &&
+                        (pathname === item.href || pathname.startsWith(`${item.href}/`));
                       const Icon = item.icon;
+                      const linkClass = cn(
+                        "flex flex-1 items-center gap-3 rounded-xl px-3 py-2 text-sm transition-colors",
+                        active
+                          ? "bg-slate-900 text-white shadow-sm dark:bg-teal-400 dark:text-slate-950"
+                          : "text-muted-foreground hover:bg-accent hover:text-foreground",
+                      );
                       return (
                         <div key={item.href} className="group relative flex items-center">
-                          <Link
-                            href={item.href}
-                            className={cn(
-                              "flex flex-1 items-center gap-3 rounded-xl px-3 py-2 text-sm transition-colors",
-                              active
-                                ? "bg-slate-900 text-white shadow-sm dark:bg-teal-400 dark:text-slate-950"
-                                : "text-muted-foreground hover:bg-accent hover:text-foreground",
-                            )}
-                            title={item.label}
-                          >
-                            <Icon className="h-4 w-4 shrink-0" />
-                            {!sidebarCollapsed ? <span className="truncate">{item.label}</span> : null}
-                          </Link>
-                          {!sidebarCollapsed ? (
+                          {item.external ? (
+                            <a
+                              href={item.href}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className={linkClass}
+                              title={item.label}
+                            >
+                              <Icon className="h-4 w-4 shrink-0" />
+                              {!sidebarCollapsed ? <span className="truncate">{item.label}</span> : null}
+                            </a>
+                          ) : (
+                            <Link href={item.href} className={linkClass} title={item.label}>
+                              <Icon className="h-4 w-4 shrink-0" />
+                              {!sidebarCollapsed ? <span className="truncate">{item.label}</span> : null}
+                            </Link>
+                          )}
+                          {!sidebarCollapsed && !item.external ? (
                             <button
                               type="button"
                               className="absolute right-1 hidden rounded-lg p-1 text-muted-foreground hover:bg-background/60 group-hover:block"

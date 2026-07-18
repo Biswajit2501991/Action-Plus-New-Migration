@@ -39,20 +39,18 @@ export function AppSectionTabs() {
     >
       <div className="flex min-w-0 items-center gap-1 overflow-x-auto whitespace-nowrap [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
         {tabs.map((tab) => {
-          const active = pathname === tab.href || pathname.startsWith(`${tab.href}/`);
+          const active =
+            !tab.external &&
+            (pathname === tab.href || pathname.startsWith(`${tab.href}/`));
           const Icon = tab.icon;
-          return (
-            <Link
-              key={tab.href}
-              href={tab.href}
-              aria-current={active ? "page" : undefined}
-              className={cn(
-                "group relative inline-flex h-9 shrink-0 items-center gap-1.5 rounded-xl px-3 text-[12px] font-medium tracking-tight transition-all duration-200",
-                active
-                  ? "bg-slate-900 text-white shadow-[0_8px_20px_-10px_rgba(15,23,42,0.65)] dark:bg-teal-400 dark:text-slate-950 dark:shadow-[0_10px_24px_-12px_rgba(45,212,191,0.55)]"
-                  : "text-slate-500 hover:bg-black/[0.04] hover:text-slate-900 dark:text-slate-400 dark:hover:bg-white/[0.06] dark:hover:text-slate-100",
-              )}
-            >
+          const className = cn(
+            "group relative inline-flex h-9 shrink-0 items-center gap-1.5 rounded-xl px-3 text-[12px] font-medium tracking-tight transition-all duration-200",
+            active
+              ? "bg-slate-900 text-white shadow-[0_8px_20px_-10px_rgba(15,23,42,0.65)] dark:bg-teal-400 dark:text-slate-950 dark:shadow-[0_10px_24px_-12px_rgba(45,212,191,0.55)]"
+              : "text-slate-500 hover:bg-black/[0.04] hover:text-slate-900 dark:text-slate-400 dark:hover:bg-white/[0.06] dark:hover:text-slate-100",
+          );
+          const content = (
+            <>
               <Icon
                 className={cn(
                   "h-3.5 w-3.5 shrink-0 transition-opacity",
@@ -61,6 +59,29 @@ export function AppSectionTabs() {
                 strokeWidth={active ? 2.25 : 1.75}
               />
               <span>{tab.label}</span>
+            </>
+          );
+          if (tab.external) {
+            return (
+              <a
+                key={tab.href}
+                href={tab.href}
+                target="_blank"
+                rel="noopener noreferrer"
+                className={className}
+              >
+                {content}
+              </a>
+            );
+          }
+          return (
+            <Link
+              key={tab.href}
+              href={tab.href}
+              aria-current={active ? "page" : undefined}
+              className={className}
+            >
+              {content}
             </Link>
           );
         })}

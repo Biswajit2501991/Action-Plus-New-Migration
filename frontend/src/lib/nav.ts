@@ -3,6 +3,7 @@ import {
   ClipboardList,
   Dumbbell,
   FileText,
+  Globe,
   LayoutDashboard,
   MessageSquare,
   Server,
@@ -21,6 +22,8 @@ export type NavItem = {
   section?: string;
   tier?: "A" | "B" | "C";
   group: string;
+  /** Opens in a new tab (external website CMS). */
+  external?: boolean;
 };
 
 /** Production section order used by top tabs + sidebar. */
@@ -31,6 +34,7 @@ export const SECTION_ORDER = [
   "WhatsApp SMS",
   "Finance",
   "Staff",
+  "Website",
   "Attendance",
   "Leave Tracker",
   "Settings",
@@ -48,6 +52,15 @@ export const NAV_ITEMS: NavItem[] = [
   { href: "/whatsapp", label: "WhatsApp SMS", icon: MessageSquare, section: "WhatsApp SMS", tier: "A", group: "COMMUNICATION" },
   { href: "/finance", label: "Finance", icon: Wallet, section: "Finance", tier: "A", group: "FINANCE" },
   { href: "/staff", label: "Staff", icon: UserCog, section: "Staff", tier: "A", group: "STAFF & MANAGEMENT" },
+  {
+    href: "https://www.actionplusgym.com/admin/login",
+    label: "Website",
+    icon: Globe,
+    section: "Website",
+    tier: "A",
+    group: "STAFF & MANAGEMENT",
+    external: true,
+  },
   { href: "/attendance", label: "Attendance", icon: CalendarDays, section: "Attendance", tier: "A", group: "OPERATIONS" },
   { href: "/leave", label: "Leave Tracker", icon: Plane, section: "Leave Tracker", tier: "A", group: "OPERATIONS" },
   { href: "/settings", label: "Settings", icon: Settings, section: "Settings", tier: "A", group: "SYSTEM" },

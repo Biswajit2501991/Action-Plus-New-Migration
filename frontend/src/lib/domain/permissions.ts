@@ -7,6 +7,7 @@ export const ALL_SECTIONS = [
   "WhatsApp SMS",
   "Finance",
   "Staff",
+  "Website",
   "Attendance",
   "Leave Tracker",
   "Settings",
@@ -118,6 +119,10 @@ export const BACKEND_CHILD_PERMISSIONS: AccessChildPermission[] = [
   { key: "controlBackendProcesses", label: "Restart / Turn On / Turn Off Backend" },
 ];
 
+export const WEBSITE_CHILD_PERMISSIONS: AccessChildPermission[] = [
+  { key: "viewWebsite", label: "Web view — sections & access" },
+];
+
 export const PAYMENT_QR_CHILD_PERMISSIONS: AccessChildPermission[] = [
   { key: "viewPaymentQr", label: "View Payment QR (Members toolbar)" },
   { key: "managePaymentSettings", label: "Manage Payment Settings (Owner)" },
@@ -204,6 +209,11 @@ export const SECTION_ACCESS_CONFIG: SectionAccessConfig[] = [
   { section: "WhatsApp SMS", accessGroup: "whatsapp", children: WHATSAPP_CHILD_PERMISSIONS },
   { section: "Finance", accessGroup: "finance", children: FINANCE_CHILD_PERMISSIONS },
   { section: "Staff", accessGroup: null, children: [] },
+  {
+    section: "Website",
+    accessGroup: "website",
+    children: WEBSITE_CHILD_PERMISSIONS,
+  },
   {
     section: "Attendance",
     accessGroup: "attendance",
@@ -423,6 +433,9 @@ export function isAccessChildEnabled(access: AccessMap, group: keyof AccessMap, 
   if (group === "paymentQr" && key === "managePaymentSettings") {
     return normalized.paymentQr?.managePaymentSettings === true;
   }
+  if (group === "website" && key === "viewWebsite") {
+    return normalized.website?.viewWebsite === true;
+  }
   if (group === "settings" && SETTINGS_OPT_IN_KEYS.has(key)) {
     return normalized.settings?.[key] === true;
   }
@@ -510,6 +523,9 @@ export const DEFAULT_ACCESS: AccessMap = {
   backend: {
     viewBackendPage: true,
     controlBackendProcesses: true,
+  },
+  website: {
+    viewWebsite: false,
   },
   paymentQr: {
     viewPaymentQr: true,
@@ -602,6 +618,9 @@ export function normalizeAccess(access?: AccessMap | null): AccessMap {
       viewBackendPage: a.backend?.viewBackendPage !== false,
       controlBackendProcesses: a.backend?.controlBackendProcesses !== false,
     },
+    website: {
+      viewWebsite: a.website?.viewWebsite === true,
+    },
     paymentQr: {
       viewPaymentQr: a.paymentQr?.viewPaymentQr !== false,
       managePaymentSettings: a.paymentQr?.managePaymentSettings === true,
@@ -639,9 +658,28 @@ export function sectionsWithRoleDefaults(user: AuthUser | null | undefined): Aut
   };
 }
 
+function isOwnerLikeRole(user: AuthUser) {
+  const role = String(user.staffRole || user.role || "")
+    .trim()
+    .toLowerCase();
+  return (
+    user.id === "owner" ||
+    role === "owner" ||
+    role === "master_owner" ||
+    role === "branch_owner"
+  );
+}
+
 export function canAccessSection(user: AuthUser | null | undefined, section: string): boolean {
   if (!user) return false;
   if (user.id === "owner") return true;
+
+  if (section === "Website") {
+    if (isOwnerLikeRole(user)) return true;
+    const sections = Array.isArray(user.sections) ? user.sections : [];
+    if (!sections.includes("Website")) return false;
+    return hasAccess(user, "website", "viewWebsite");
+  }
 
   const sections = Array.isArray(user.sections) ? user.sections : [];
   const listed = sections.includes(section) || section === "Support" || section === "Logs";
@@ -674,6 +712,9 @@ export function hasAccess(
   const access = normalizeAccess(user.access);
   if (group === "paymentQr" && key === "managePaymentSettings") {
     return access.paymentQr?.managePaymentSettings === true;
+  }
+  if (group === "website" && key === "viewWebsite") {
+    return access.website?.viewWebsite === true;
   }
   if (group === "settings" && SETTINGS_OPT_IN_KEYS.has(key)) {
     return access.settings?.[key] === true;

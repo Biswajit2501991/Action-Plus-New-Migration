@@ -130,6 +130,7 @@ export type AccessMap = {
   logs?: Record<string, boolean>;
   support?: Record<string, boolean>;
   backend?: Record<string, boolean>;
+  website?: Record<string, boolean>;
   paymentQr?: Record<string, boolean>;
   /** Phone app tabs + subsections — independent of web `sections`. */
   mobile?: Record<string, boolean>;
