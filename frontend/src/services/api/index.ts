@@ -40,6 +40,12 @@ export const membersApi = {
     return sanitizeMembersForDisplay(mergePendingCreatesIntoMembers(remote));
   },
   get: (id: string) => apiFetch<Member>(`/members/${encodeURIComponent(id)}`),
+  /** Dedicated create — stamps branch server-side and returns the saved row. */
+  create: (member: Member) =>
+    apiFetch<{ ok?: boolean; member?: Member; written?: string[] }>("/members", {
+      method: "POST",
+      body: JSON.stringify({ member }),
+    }),
   bulk: (members: Member[], deletedMemberIds?: string[]) =>
     apiFetch<{
       ok?: boolean;

@@ -68,6 +68,55 @@ export async function permanentDeleteWithOfflineFallback(memberId: string): Prom
   }
 }
 
+/**
+ * Create one member via POST /members (preferred).
+ * Falls back to bulk only if create endpoint is missing (older API).
+ */
+export async function createMemberWithOfflineFallback(
+  member: Member,
+): Promise<{ queued: boolean; member?: Member; result?: MembersBulkWriteResult }> {
+  const row = member && typeof member === "object" ? member : null;
+  const id = String(row?.memberId || "").trim();
+  if (!row || !id) throw new Error("Member ID is required");
+
+  if (isBrowserOffline()) {
+    enqueueOfflineMutation({
+      kind: "member.bulk",
+      memberId: id,
+      payload: [row],
+    });
+    return { queued: true };
+  }
+
+  try {
+    const res = await membersApi.create(row);
+    const saved = res.member;
+    if (!saved?.memberId) {
+      throw new Error("Member save was not confirmed by the server.");
+    }
+    return {
+      queued: false,
+      member: saved,
+      result: { ok: true, written: res.written || [saved.memberId] },
+    };
+  } catch (err) {
+    if (isLikelyNetworkError(err)) {
+      enqueueOfflineMutation({
+        kind: "member.bulk",
+        memberId: id,
+        payload: [row],
+      });
+      return { queued: true };
+    }
+    // Older API without POST /members — fall back to verified bulk create.
+    const status = typeof err === "object" && err && "status" in err ? Number((err as { status?: number }).status) : 0;
+    if (status === 404 || status === 405) {
+      return bulkCreateMemberWithOfflineFallback([row]);
+    }
+    throw err;
+  }
+}
+
 /** Create/update via bulk; queue when offline so Add Member stays instant. */
 export async function bulkCreateMemberWithOfflineFallback(
   members: Member[],

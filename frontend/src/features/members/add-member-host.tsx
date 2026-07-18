@@ -11,7 +11,7 @@ import {
   clearPendingMemberCreate,
   markPendingMemberCreate,
 } from "@/lib/domain/member-pending-creates";
-import { bulkCreateMemberWithOfflineFallback } from "@/lib/member-write";
+import { createMemberWithOfflineFallback } from "@/lib/member-write";
 import { useAuthStore, useUiStore } from "@/stores";
 import type { Member, Visitor } from "@/types";
 
@@ -129,97 +129,81 @@ export function AddMemberHost() {
         const id = String(payload.memberId || "").trim();
         if (!id) throw new Error("Member ID is required");
 
-        // Instant UX: show in list + close wizard; sync in background.
+        // Keep optimistic row until confirmed — but do NOT toast success yet.
         markPendingMemberCreate(payload);
         upsertMemberInCache(qc, payload);
-        toast.success(
-          convertVisitor
-            ? `${payload.name || "Member"} saved · visitor converted`
-            : `${payload.name || "Member"} has been saved successfully`,
-        );
 
         const sourceVisitor = convertVisitor;
         const membersSnapshot = members;
         const visitorsSnapshot = visitors;
 
-        void (async () => {
-          try {
-            const { queued, result } = await bulkCreateMemberWithOfflineFallback([payload]);
-            if (queued) {
-              toast.message("Saved offline — will sync when online");
-              // Keep pending create until flush confirms the row on the server.
-              return;
-            }
-
-            if (opts?.familyGroupId && opts?.familyPrimaryMemberId) {
-              await syncFamilyPeers(
-                membersSnapshot,
-                payload.mobile,
-                opts.familyGroupId,
-                opts.familyPrimaryMemberId,
-                payload.memberId,
-              ).catch(() => {
-                toast.message("Member saved, but family link sync needs a retry.");
-              });
-            }
-
-            if (photo) {
-              try {
-                await membersApi.uploadPhoto(payload.memberId, photo);
-              } catch {
-                toast.message("Member saved, but photo upload failed — you can retry from edit.");
-              }
-            }
-
-            if (sourceVisitor?.id) {
-              const now = new Date().toISOString();
-              const next: Visitor = {
-                ...sourceVisitor,
-                status: "Converted",
-                convertedAt: now,
-                convertedMemberId: payload.memberId,
-                updatedAt: now,
-              };
-              const restVisitors = visitorsSnapshot.filter((v) => v.id !== sourceVisitor.id);
-              await visitorsApi.bulk([next, ...restVisitors]).catch(() => {
-                toast.message("Member saved, but visitor could not be marked Converted.");
-              });
-            }
-
-            // Keep optimistic row until list/GET confirms. Clearing here used to
-            // drop members when bulk returned ok but wrote nothing / other branch.
-            const written = new Set(
-              (result?.written || []).map((x) => String(x || "").trim()).filter(Boolean),
-            );
-            if (written.has(id)) {
-              try {
-                await membersApi.get(id);
-                clearPendingMemberCreate(id);
-              } catch {
-                // Saved but not visible in current branch scope — keep pending so UI retains it.
-              }
-            }
-            void qc.invalidateQueries({ queryKey: ["members"] });
-            void qc.invalidateQueries({ queryKey: ["visitors"] });
-          } catch (e) {
-            const status = e instanceof ApiError ? e.status : 0;
-            const definitiveReject = status === 400 || status === 403 || status === 409;
-            if (definitiveReject) {
-              clearPendingMemberCreate(id);
-              removeMemberFromCache(qc, id);
-            }
-            // Network / unknown errors: keep optimistic row + pending so the member
-            // does not disappear; offline flush or retry can still persist it.
-            const msg =
-              e instanceof ApiError
-                ? e.message || e.code || "Failed to save member"
-                : e instanceof Error
-                  ? e.message
-                  : "Failed to save member";
-            toast.error(msg);
-            void qc.invalidateQueries({ queryKey: ["members"] });
+        try {
+          const { queued, member: saved } = await createMemberWithOfflineFallback(payload);
+          if (queued) {
+            toast.message("Saved offline — will sync when online");
+            close();
+            return;
           }
-        })();
+
+          const confirmed = saved || (await membersApi.get(id));
+          upsertMemberInCache(qc, confirmed);
+          clearPendingMemberCreate(id);
+
+          toast.success(
+            convertVisitor
+              ? `${confirmed.name || "Member"} saved · visitor converted`
+              : `${confirmed.name || "Member"} has been saved successfully`,
+          );
+          close();
+
+          if (opts?.familyGroupId && opts?.familyPrimaryMemberId) {
+            void syncFamilyPeers(
+              membersSnapshot,
+              payload.mobile,
+              opts.familyGroupId,
+              opts.familyPrimaryMemberId,
+              payload.memberId,
+            ).catch(() => {
+              toast.message("Member saved, but family link sync needs a retry.");
+            });
+          }
+
+          if (photo) {
+            void membersApi.uploadPhoto(payload.memberId, photo).catch(() => {
+              toast.message("Member saved, but photo upload failed — you can retry from edit.");
+            });
+          }
+
+          if (sourceVisitor?.id) {
+            const now = new Date().toISOString();
+            const next: Visitor = {
+              ...sourceVisitor,
+              status: "Converted",
+              convertedAt: now,
+              convertedMemberId: payload.memberId,
+              updatedAt: now,
+            };
+            const restVisitors = visitorsSnapshot.filter((v) => v.id !== sourceVisitor.id);
+            void visitorsApi.bulk([next, ...restVisitors]).catch(() => {
+              toast.message("Member saved, but visitor could not be marked Converted.");
+            });
+          }
+
+          void qc.invalidateQueries({ queryKey: ["members"] });
+          void qc.invalidateQueries({ queryKey: ["visitors"] });
+        } catch (e) {
+          clearPendingMemberCreate(id);
+          removeMemberFromCache(qc, id);
+          const msg =
+            e instanceof ApiError
+              ? e.message || e.code || "Failed to save member"
+              : e instanceof Error
+                ? e.message
+                : "Failed to save member";
+          toast.error(msg);
+          // Keep wizard open so staff can retry without re-entering everything.
+          throw e;
+        }
       }}
     />
   );

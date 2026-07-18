@@ -28,6 +28,20 @@ async function flushItem(item: OfflineQueueItem) {
   }
   if (item.kind === "member.bulk" && Array.isArray(item.payload)) {
     const list = item.payload as Member[];
+    if (list.length === 1) {
+      try {
+        const res = await membersApi.create(list[0]);
+        const id = String(res.member?.memberId || list[0]?.memberId || "").trim();
+        if (id) clearPendingMemberCreate(id);
+        return;
+      } catch (err) {
+        const status =
+          typeof err === "object" && err && "status" in err
+            ? Number((err as { status?: number }).status)
+            : 0;
+        if (status !== 404 && status !== 405) throw err;
+      }
+    }
     const result = await membersApi.bulk(list);
     assertBulkCreatePersisted(list, result);
     for (const row of list) {

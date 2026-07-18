@@ -358,13 +358,37 @@ export function AddMemberWizard({
       if (!raw) return;
       const parsed = JSON.parse(raw) as { step?: number; form?: Partial<AddMemberFormState> };
       if (parsed?.form) {
-        setForm((f) => ({ ...f, ...parsed.form, staff: staffName || parsed.form?.staff || f.staff }));
+        setForm((f) => {
+          const merged = {
+            ...f,
+            ...parsed.form,
+            staff: staffName || parsed.form?.staff || f.staff,
+          };
+          // Staff branch is locked — never let a stale draft wipe assignedGymCodeId
+          // (that previously caused silent create failures / disappearing members).
+          if (!owner) {
+            const locked = String(
+              currentUser?.gymCodeId || currentUser?.activeBranchId || defaultBranch,
+            ).trim();
+            if (locked) merged.assignedGymCodeId = locked;
+          }
+          return merged;
+        });
         setStep(Math.max(1, Math.min(5, Number(parsed.step) || 1)));
       }
     } catch {
       /* ignore */
     }
-  }, [open, draftKey, staffName, prefillVisitor]);
+  }, [
+    open,
+    draftKey,
+    staffName,
+    prefillVisitor,
+    owner,
+    currentUser?.gymCodeId,
+    currentUser?.activeBranchId,
+    defaultBranch,
+  ]);
 
   useEffect(() => {
     if (!open) return;
