@@ -75,7 +75,9 @@ import {
 } from './paymentIds.js';
 import {
   applySettingsConfigJson,
+  buildSettingsAppConfigWriteFromLive,
   findActiveLookupDuplicate,
+  mergeSettingsBulkPatch,
   preserveNonEmptyLookups,
   shouldSkipLookupCategorySync,
 } from './settingsLookupLogic.js';
@@ -1732,6 +1734,9 @@ function buildSettingsObject({ lookups, templates, configRow, staffDir, roles, l
     financeUseEstimatedExpense: true,
     customTemplatesEnabled: false,
     attendanceNotesEnabled: false,
+    qrVisitorIntakeEnabled: false,
+    qrVisitorAttendanceEnabled: false,
+    attendanceRequirePresenceQr: false,
     paymentQrInReminderEnabled: false,
   };
 
@@ -2019,7 +2024,10 @@ async function writeSettings(settings, scope) {
   const existing = await readSettings(scope);
   const incoming = settings && typeof settings === 'object' ? settings : {};
   const hasRoleTemplates = Object.prototype.hasOwnProperty.call(incoming, 'roleTemplates');
-  let s = { ...incoming };
+  const hasStaff = Object.prototype.hasOwnProperty.call(incoming, 'staff');
+  const hasPtProfiles = Object.prototype.hasOwnProperty.call(incoming, 'ptClientProfiles');
+  // Sparse patches (feature flags, support templates) must not wipe sibling config keys.
+  let s = mergeSettingsBulkPatch(existing, incoming);
   s = preserveNonEmptyLookups(s, existing);
   s = mergeSettingsPreservingRoleTemplates(
     hasRoleTemplates ? s : { ...s, roleTemplates: undefined },
@@ -2032,42 +2040,33 @@ async function writeSettings(settings, scope) {
 
   // Branch-scoped WhatsApp templates are not rewritten via settings bulk (PATCH per branch/key).
 
-  await sb.from(T.settings_staff_directory).delete().eq('gym_id', gid);
-  const staffDir = Array.isArray(s.staff) ? s.staff : [];
-  if (staffDir.length) {
-    await sb.from(T.settings_staff_directory).insert(
-      staffDir.map((row) => ({
-        gym_id: gid,
-        staff_code: String(row.id || row.name || '').trim(),
-        display_name: String(row.name || row.id || '').trim(),
-        email: row.email || null,
-        avatar_url: row.avatar || null,
-      })),
-    );
+  if (hasStaff) {
+    await sb.from(T.settings_staff_directory).delete().eq('gym_id', gid);
+    const staffDir = Array.isArray(s.staff) ? s.staff : [];
+    if (staffDir.length) {
+      await sb.from(T.settings_staff_directory).insert(
+        staffDir.map((row) => ({
+          gym_id: gid,
+          staff_code: String(row.id || row.name || '').trim(),
+          display_name: String(row.name || row.id || '').trim(),
+          email: row.email || null,
+          avatar_url: row.avatar || null,
+        })),
+      );
+    }
   }
 
   if (hasRoleTemplates) {
     await syncRoleTemplatesToDb(sb, gid, s.roleTemplates);
   }
 
-  const configJson = {
-    medicalQuestionnaireTemplate: s.medicalQuestionnaireTemplate || null,
-    acknowledgementTemplate: s.acknowledgementTemplate || null,
-    acknowledgementUnder18Template: s.acknowledgementUnder18Template || null,
-    gmailWelcomeTemplate: s.gmailWelcomeTemplate || null,
-    smsTemplatePresetVersion: s.smsTemplatePresetVersion || null,
-    customTemplatesEnabled: s.customTemplatesEnabled === true,
-    attendanceNotesEnabled: s.attendanceNotesEnabled === true,
-    paymentQrInReminderEnabled: s.paymentQrInReminderEnabled === true,
-  };
+  // Patch-only config write: keys omitted from `incoming` keep live DB values.
+  const liveConfigRow = await fetchAppConfigRow(sb, gid);
+  const appConfig = buildSettingsAppConfigWriteFromLive(liveConfigRow || {}, incoming, existing);
   await sb.from(T.settings_app_config).delete().eq('gym_id', gid);
   await sb.from(T.settings_app_config).insert({
     gym_id: gid,
-    fine_sms_enabled: s.fineSmsEnabled !== false,
-    fine_sms_grace_days: Number(s.fineSmsGraceDays || 0),
-    fine_sms_immediate_roles_json: Array.isArray(s.fineSmsImmediateRoles) ? s.fineSmsImmediateRoles : [],
-    finance_use_estimated_expense: s.financeUseEstimatedExpense !== false,
-    config_json: configJson,
+    ...appConfig,
     updated_at: new Date().toISOString(),
   });
 
@@ -2078,7 +2077,9 @@ async function writeSettings(settings, scope) {
 
   // Attendance persists via /api/attendance/* only — never wipe 17MB+ history from settings bulk.
 
-  await writePtProfiles(s, gid);
+  if (hasPtProfiles) {
+    await writePtProfiles(incoming, gid);
+  }
   notifyCollectionChange('settings');
 }
 
