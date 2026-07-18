@@ -422,6 +422,7 @@ export function toggleAllSectionsAccess(form: StaffAccessFormSlice): StaffAccess
       logs: { viewLogs: false, exportLogs: false, clearLogs: false },
       support: { viewSupportTemplates: false, editSupportTemplates: false },
       backend: { viewBackendPage: false, controlBackendProcesses: false },
+      website: { viewWebsite: false },
       paymentQr: { viewPaymentQr: false, managePaymentSettings: false },
       mobile: currentMobile,
     }),
