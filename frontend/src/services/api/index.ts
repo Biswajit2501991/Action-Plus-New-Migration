@@ -41,7 +41,12 @@ export const membersApi = {
   },
   get: (id: string) => apiFetch<Member>(`/members/${encodeURIComponent(id)}`),
   bulk: (members: Member[], deletedMemberIds?: string[]) =>
-    apiFetch<{ ok?: boolean }>("/members/bulk", {
+    apiFetch<{
+      ok?: boolean;
+      written?: string[];
+      skipped?: string[];
+      droppedIds?: string[];
+    }>("/members/bulk", {
       method: "PUT",
       body: JSON.stringify({
         members,

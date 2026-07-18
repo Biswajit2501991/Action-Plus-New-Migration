@@ -9,6 +9,7 @@ import { MemberAvatar } from "@/components/member-avatar";
 import { Skeleton } from "@/components/ui/misc";
 import { Input } from "@/components/ui/input";
 import { useGymCodes, useMembers, useSettings } from "@/hooks/use-data";
+import { useMemberPhotoHydration } from "@/hooks/use-member-photo-hydration";
 import { EditMemberModal } from "@/features/members/edit-member-modal";
 import { memberSearchHaystack } from "@/lib/domain/members";
 import { isPaymentByPastDue, overdueDaysForMember, paymentByDateKey, inactiveDurationLabel } from "@/lib/domain/billing";
@@ -32,6 +33,7 @@ export function MobileMembers() {
   const { data: members = [], isLoading } = useMembers();
   const { data: settings } = useSettings();
   const { data: gymCodes = [] } = useGymCodes();
+  useMemberPhotoHydration(members);
   const [q, setQ] = useState(params.get("q") || "");
   const initialStatus = params.get("status");
   const [status, setStatus] = useState<string>(

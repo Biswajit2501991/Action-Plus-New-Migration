@@ -144,9 +144,10 @@ export function AddMemberHost() {
 
         void (async () => {
           try {
-            const { queued } = await bulkCreateMemberWithOfflineFallback([payload]);
+            const { queued, result } = await bulkCreateMemberWithOfflineFallback([payload]);
             if (queued) {
               toast.message("Saved offline — will sync when online");
+              // Keep pending create until flush confirms the row on the server.
               return;
             }
 
@@ -185,12 +186,30 @@ export function AddMemberHost() {
               });
             }
 
-            clearPendingMemberCreate(id);
+            // Keep optimistic row until list/GET confirms. Clearing here used to
+            // drop members when bulk returned ok but wrote nothing / other branch.
+            const written = new Set(
+              (result?.written || []).map((x) => String(x || "").trim()).filter(Boolean),
+            );
+            if (written.has(id)) {
+              try {
+                await membersApi.get(id);
+                clearPendingMemberCreate(id);
+              } catch {
+                // Saved but not visible in current branch scope — keep pending so UI retains it.
+              }
+            }
             void qc.invalidateQueries({ queryKey: ["members"] });
             void qc.invalidateQueries({ queryKey: ["visitors"] });
           } catch (e) {
-            clearPendingMemberCreate(id);
-            removeMemberFromCache(qc, id);
+            const status = e instanceof ApiError ? e.status : 0;
+            const definitiveReject = status === 400 || status === 403 || status === 409;
+            if (definitiveReject) {
+              clearPendingMemberCreate(id);
+              removeMemberFromCache(qc, id);
+            }
+            // Network / unknown errors: keep optimistic row + pending so the member
+            // does not disappear; offline flush or retry can still persist it.
             const msg =
               e instanceof ApiError
                 ? e.message || e.code || "Failed to save member"

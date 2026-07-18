@@ -14,6 +14,7 @@ import { formatCurrency, formatMonthKey } from "@/lib/utils";
 import { hasAccess } from "@/lib/domain/permissions";
 import { useAuthStore } from "@/stores";
 import { MemberAvatar } from "@/components/member-avatar";
+import { useMemberPhotoHydration } from "@/hooks/use-member-photo-hydration";
 import { useMobileFeatureAccess } from "@/components/layout/mobile-access-guard";
 
 export function MobileDashboard() {
@@ -23,6 +24,7 @@ export function MobileDashboard() {
   const { data: members = [], isLoading: loadingMembers } = useMembers();
   const { data: finance, isLoading: loadingFinance } = useFinance(month);
   const { data: settings } = useSettings();
+  useMemberPhotoHydration(members);
   const mobile = useMobileFeatureAccess();
 
   const canCore =

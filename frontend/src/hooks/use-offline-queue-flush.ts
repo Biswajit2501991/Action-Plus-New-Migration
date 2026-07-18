@@ -12,6 +12,7 @@ import {
 } from "@/lib/offline-queue";
 import { clearPendingMemberDelete } from "@/lib/domain/member-pending-deletes";
 import { removeMemberDeleteTombstone } from "@/lib/domain/member-delete-tombstones";
+import { assertBulkCreatePersisted } from "@/lib/domain/member-bulk-create";
 import { clearPendingMemberCreate } from "@/lib/domain/member-pending-creates";
 import type { Member } from "@/types";
 
@@ -26,9 +27,18 @@ async function flushItem(item: OfflineQueueItem) {
     return;
   }
   if (item.kind === "member.bulk" && Array.isArray(item.payload)) {
-    await membersApi.bulk(item.payload as Member[]);
-    for (const row of item.payload as Member[]) {
-      clearPendingMemberCreate(String(row?.memberId || ""));
+    const list = item.payload as Member[];
+    const result = await membersApi.bulk(list);
+    assertBulkCreatePersisted(list, result);
+    for (const row of list) {
+      const id = String(row?.memberId || "").trim();
+      if (!id) continue;
+      try {
+        await membersApi.get(id);
+        clearPendingMemberCreate(id);
+      } catch {
+        // Keep pending if not visible in current branch scope.
+      }
     }
   }
 }

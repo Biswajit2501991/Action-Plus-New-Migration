@@ -1,5 +1,9 @@
 import { membersApi } from "@/services/api";
 import {
+  assertBulkCreatePersisted,
+  type MembersBulkWriteResult,
+} from "@/lib/domain/member-bulk-create";
+import {
   enqueueOfflineMutation,
   isBrowserOffline,
   isLikelyNetworkError,
@@ -67,7 +71,7 @@ export async function permanentDeleteWithOfflineFallback(memberId: string): Prom
 /** Create/update via bulk; queue when offline so Add Member stays instant. */
 export async function bulkCreateMemberWithOfflineFallback(
   members: Member[],
-): Promise<{ queued: boolean }> {
+): Promise<{ queued: boolean; result?: MembersBulkWriteResult }> {
   const list = Array.isArray(members) ? members : [];
   if (!list.length) return { queued: false };
   if (isBrowserOffline()) {
@@ -79,8 +83,14 @@ export async function bulkCreateMemberWithOfflineFallback(
     return { queued: true };
   }
   try {
-    await membersApi.bulk(list);
-    return { queued: false };
+    const result = await membersApi.bulk(list);
+    assertBulkCreatePersisted(list, result);
+    // Confirm durable read when API omitted `written` (legacy) or branch list may hide row.
+    const id = String(list[0]?.memberId || "").trim();
+    if (id && (!Array.isArray(result?.written) || !result.written.length)) {
+      await membersApi.get(id);
+    }
+    return { queued: false, result };
   } catch (err) {
     if (isLikelyNetworkError(err)) {
       enqueueOfflineMutation({

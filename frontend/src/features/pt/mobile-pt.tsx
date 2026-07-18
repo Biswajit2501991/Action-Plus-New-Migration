@@ -6,6 +6,7 @@ import { MobileHero, MobilePanel } from "@/components/layout/mobile-ui";
 import { MemberAvatar } from "@/components/member-avatar";
 import { Skeleton } from "@/components/ui/misc";
 import { useMembers, useSettings, useUsers } from "@/hooks/use-data";
+import { useMemberPhotoHydration } from "@/hooks/use-member-photo-hydration";
 import { usePtProfile } from "@/hooks/use-pt-profile";
 import { PtWorkoutTab } from "@/features/pt/pt-workout-tab";
 import { filterPtMembersForViewer } from "@/lib/domain/pt-trainer-scope";
@@ -26,6 +27,7 @@ export function MobilePt() {
   const { data: members = [], isLoading: membersLoading } = useMembers();
   const { data: users = [] } = useUsers();
   const { data: settings, isLoading: settingsLoading } = useSettings();
+  useMemberPhotoHydration(members);
   const { persistProfile, saveProfilePatch, sectionSaving } = usePtProfile(actorName);
 
   const access = normalizeAccess(user?.access);

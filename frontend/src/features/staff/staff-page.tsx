@@ -291,8 +291,29 @@ export function StaffPage() {
       }
       return updatedUser;
     },
-    onSuccess: async () => {
-      toast.success(creating ? "Staff created" : "Staff updated");
+    onSuccess: async (saved) => {
+      const active = String(useAuthStore.getState().activeBranchId || "").trim();
+      const staffBranches = [
+        ...(Array.isArray(saved?.assignedBranchIds) ? saved.assignedBranchIds : []),
+        saved?.gymCodeId,
+      ]
+        .map((x) => String(x || "").trim())
+        .filter(Boolean);
+      const branchSet = new Set(staffBranches);
+      const onOtherBranch =
+        Boolean(active) && branchSet.size > 0 && !branchSet.has(active);
+      if (creating && onOtherBranch) {
+        const labels = staffBranches
+          .map((id) => {
+            const g = gymCodes.find((c) => String(c.id) === id);
+            return g ? gymLabel(g) : null;
+          })
+          .filter(Boolean);
+        const where = labels.length ? labels.join(", ") : "their assigned branch";
+        toast.success(`Staff created — switch the top branch switcher to ${where} to see them in this list.`);
+      } else {
+        toast.success(creating ? "Staff created" : "Staff updated");
+      }
       closeModal();
       await qc.invalidateQueries({ queryKey: ["users"] });
     },
