@@ -26,6 +26,13 @@ import {
   WHATSAPP_TYPE_META,
   type WhatsAppTemplateKey,
 } from "@/lib/domain/whatsapp-templates";
+import { mergeWhatsappTemplates } from "@/lib/domain/whatsapp";
+import {
+  buildSystemTemplatePatchPayload,
+  canSaveSystemWhatsappTemplate,
+  systemTemplateEditorTitle,
+  validateSystemTemplateBody,
+} from "@/lib/domain/whatsapp-system-edit";
 import { hasAccess, isBranchAdminUser, isMasterOwnerUser } from "@/lib/domain/permissions";
 import { cn } from "@/lib/utils";
 import { useAuthStore } from "@/stores";
@@ -39,6 +46,12 @@ type Draft = {
   gymCodeId: string;
 };
 
+type SystemDraft = {
+  key: WhatsAppTemplateKey;
+  title: string;
+  body: string;
+};
+
 const EMPTY_DRAFT: Draft = {
   templateName: "",
   templateType: "promotional",
@@ -47,7 +60,7 @@ const EMPTY_DRAFT: Draft = {
 };
 
 export function WhatsappTemplatesPanel({
-  systemTemplates,
+  systemTemplates: fallbackSystemTemplates,
   onOpenMessagingCenter,
   onPreviewSystem,
 }: {
@@ -72,6 +85,8 @@ export function WhatsappTemplatesPanel({
   const [draft, setDraft] = useState<Draft>(EMPTY_DRAFT);
   const [draftError, setDraftError] = useState("");
   const [deleteTarget, setDeleteTarget] = useState<CustomTemplate | null>(null);
+  const [systemDraft, setSystemDraft] = useState<SystemDraft | null>(null);
+  const [systemDraftError, setSystemDraftError] = useState("");
 
   useEffect(() => {
     if (!canPickBranch && assignedBranch) setBranchId(assignedBranch);
@@ -79,6 +94,22 @@ export function WhatsappTemplatesPanel({
   }, [assignedBranch, canPickBranch, branchId]);
 
   const featureEnabled = isCustomTemplatesEnabled(settings as Record<string, unknown>);
+
+  const systemQuery = useQuery({
+    queryKey: ["whatsapp-templates", branchId || "none"],
+    queryFn: async () => {
+      const res = await whatsappApi.templates(branchId || undefined);
+      const raw =
+        res && typeof res === "object" && "templates" in res
+          ? ((res as { templates?: Record<string, unknown> }).templates || {})
+          : (res as Record<string, unknown>) || {};
+      return mergeWhatsappTemplates(raw);
+    },
+    enabled: Boolean(branchId),
+    placeholderData: () => mergeWhatsappTemplates(fallbackSystemTemplates),
+  });
+
+  const systemTemplates = systemQuery.data || mergeWhatsappTemplates(fallbackSystemTemplates);
 
   const customQuery = useQuery({
     queryKey: ["custom-templates", branchId || "none"],
@@ -185,6 +216,35 @@ export function WhatsappTemplatesPanel({
     onError: (e: Error) => toast.error(friendlyCustomTemplateApiError(e)),
   });
 
+  const saveSystemTemplate = useMutation({
+    mutationFn: async () => {
+      if (!systemDraft) throw new Error("No template selected");
+      if (!canSaveSystemWhatsappTemplate(canEditTemplates, branchId)) {
+        throw new Error("Select a gym branch before saving templates.");
+      }
+      const err = validateSystemTemplateBody(systemDraft.body);
+      if (err) throw new Error(err);
+      return whatsappApi.patchTemplate(
+        systemDraft.key,
+        buildSystemTemplatePatchPayload(systemDraft.body, branchId),
+      );
+    },
+    onSuccess: async () => {
+      toast.success(`${systemDraft?.title || "Template"} saved`);
+      setSystemDraft(null);
+      setSystemDraftError("");
+      await Promise.all([
+        qc.invalidateQueries({ queryKey: ["whatsapp-templates"] }),
+        qc.invalidateQueries({ queryKey: ["whatsapp"] }),
+      ]);
+    },
+    onError: (e: Error) => {
+      const msg = e.message || "Could not save template";
+      setSystemDraftError(msg);
+      toast.error(msg);
+    },
+  });
+
   const openCreate = () => {
     setDraft({ ...EMPTY_DRAFT, gymCodeId: branchId });
     setDraftError("");
@@ -201,6 +261,15 @@ export function WhatsappTemplatesPanel({
     });
     setDraftError("");
     setModalOpen(true);
+  };
+
+  const openSystemEdit = (key: WhatsAppTemplateKey, title: string, body: string) => {
+    if (!canSaveSystemWhatsappTemplate(canEditTemplates, branchId)) {
+      toast.error("Select a gym branch before editing templates.");
+      return;
+    }
+    setSystemDraft({ key, title, body });
+    setSystemDraftError("");
   };
 
   return (
@@ -260,7 +329,7 @@ export function WhatsappTemplatesPanel({
             </Select>
           </div>
           <p className="pb-2 text-xs text-slate-500 dark:text-slate-400">
-            {customQuery.isFetching
+            {systemQuery.isFetching || customQuery.isFetching
               ? "Loading templates…"
               : `Editing templates for ${branchLabel}`}
           </p>
@@ -343,8 +412,8 @@ export function WhatsappTemplatesPanel({
                     size="sm"
                     variant="outline"
                     className="w-full"
-                    disabled={!canEditTemplates}
-                    onClick={() => toast.message("Edit system templates in Support → Templates")}
+                    disabled={!canEditTemplates || !branchId}
+                    onClick={() => openSystemEdit(key, card.title, body)}
                   >
                     Edit
                   </Button>
@@ -461,6 +530,67 @@ export function WhatsappTemplatesPanel({
             })
           : null}
       </div>
+
+      {systemDraft ? (
+        <div className="fixed inset-0 z-[130] flex items-end justify-center bg-black/40 p-0 sm:items-center sm:p-4">
+          <div className="flex max-h-[92vh] w-full max-w-2xl flex-col overflow-hidden rounded-t-2xl border border-border bg-background shadow-2xl sm:rounded-2xl">
+            <div className="flex items-start justify-between gap-2 border-b border-border px-4 py-3">
+              <div>
+                <h2 className="text-lg font-semibold">
+                  {systemTemplateEditorTitle(systemDraft.key, systemDraft.title)}
+                </h2>
+                <p className="text-xs text-muted-foreground">
+                  Saving for {branchLabel}. Placeholders like [CustomerName] are filled when sending.
+                </p>
+              </div>
+              <Button
+                size="sm"
+                variant="ghost"
+                onClick={() => {
+                  setSystemDraft(null);
+                  setSystemDraftError("");
+                }}
+              >
+                Close
+              </Button>
+            </div>
+            <div className="space-y-3 overflow-y-auto px-4 py-3">
+              <div>
+                <Label className="text-xs">Message body</Label>
+                <Textarea
+                  className="mt-1 min-h-[280px] font-mono text-xs leading-relaxed"
+                  value={systemDraft.body}
+                  onChange={(e) =>
+                    setSystemDraft((d) => (d ? { ...d, body: e.target.value } : d))
+                  }
+                />
+              </div>
+              {systemDraftError ? (
+                <p className="rounded-xl border border-rose-300 bg-rose-50 px-3 py-2 text-xs text-rose-700 dark:border-rose-800 dark:bg-rose-950/40 dark:text-rose-200">
+                  {systemDraftError}
+                </p>
+              ) : null}
+            </div>
+            <div className="flex justify-end gap-2 border-t border-border px-4 py-3">
+              <Button
+                variant="outline"
+                onClick={() => {
+                  setSystemDraft(null);
+                  setSystemDraftError("");
+                }}
+              >
+                Cancel
+              </Button>
+              <Button
+                onClick={() => saveSystemTemplate.mutate()}
+                disabled={saveSystemTemplate.isPending || !branchId}
+              >
+                {saveSystemTemplate.isPending ? "Saving…" : "Save template"}
+              </Button>
+            </div>
+          </div>
+        </div>
+      ) : null}
 
       {modalOpen ? (
         <div className="fixed inset-0 z-[130] flex items-end justify-center bg-black/40 p-0 sm:items-center sm:p-4">
