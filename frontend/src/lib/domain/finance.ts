@@ -295,12 +295,14 @@ export function validateExpenseDraft(draft: { amount?: unknown; note?: unknown }
 export function buildExpensePayload(
   draft: { amount?: unknown; category?: string; note?: string; date?: string },
   actor: string,
+  gymCodeId?: string | null,
 ) {
   const noteBase = String(draft.note || "").trim();
   const note = /added by:/i.test(noteBase)
     ? noteBase
     : [noteBase, `Added by: ${actor}`].filter(Boolean).join(" • ");
   const dateRaw = String(draft.date || "").trim();
+  const branch = String(gymCodeId || "").trim();
   return {
     type: "expense",
     amount: Number(draft.amount || 0),
@@ -309,6 +311,7 @@ export function buildExpensePayload(
     date: dateRaw.length >= 10 ? dateRaw.slice(0, 10) : localCalendarDateKey(new Date()),
     status: "posted",
     method: "Cash",
+    ...(branch ? { gymCodeId: branch } : {}),
   };
 }
 

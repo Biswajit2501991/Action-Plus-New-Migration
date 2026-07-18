@@ -73,9 +73,11 @@ export function useSettings(
 }
 
 export function useFinance(month?: string) {
-  const authed = Boolean(useAuthStore((s) => s.user));
+  const user = useAuthStore((s) => s.user);
+  const authed = Boolean(user);
+  const branchId = String(user?.activeBranchId || user?.gymCodeId || "");
   return useQuery({
-    queryKey: ["finance", month || "all"],
+    queryKey: ["finance", month || "all", branchId || "all-branches"],
     queryFn: async () => {
       const [list, summary] = await Promise.all([
         financeApi.list().catch(() => [] as Awaited<ReturnType<typeof financeApi.list>>),
@@ -90,10 +92,12 @@ export function useFinance(month?: string) {
 
 /** Server year summary for revenue trend (payment_transaction_date basis). */
 export function useFinanceYearSummary(year?: number) {
-  const authed = Boolean(useAuthStore((s) => s.user));
+  const user = useAuthStore((s) => s.user);
+  const authed = Boolean(user);
+  const branchId = String(user?.activeBranchId || user?.gymCodeId || "");
   const y = year || new Date().getFullYear();
   return useQuery({
-    queryKey: ["finance-year", y],
+    queryKey: ["finance-year", y, branchId || "all-branches"],
     queryFn: () => financeApi.yearSummary(y),
     enabled: authed,
     staleTime: STALE.finance,

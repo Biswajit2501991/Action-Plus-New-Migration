@@ -8,7 +8,7 @@ import { PageHeader, Skeleton, StatCard } from "@/components/ui/misc";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Input, Label, Select } from "@/components/ui/input";
-import { useFinance, useMembers, useSettings } from "@/hooks/use-data";
+import { useFinance, useFinanceYearSummary, useMembers, useSettings } from "@/hooks/use-data";
 import { financeApi } from "@/services/api";
 import {
   buildClientMonthlyReconciliation,
@@ -29,7 +29,7 @@ import {
 } from "@/lib/utils";
 import { hasAccess, isMasterOwnerUser } from "@/lib/domain/permissions";
 import { localTodayCalendarKey } from "@/lib/domain/billing";
-import { useAuthStore } from "@/stores";
+import { useAuthStore, useBranchStore } from "@/stores";
 import { PaymentQrSettingsPanel } from "@/features/finance/payment-qr-settings-panel";
 
 const PAGE_SIZE = 12;
@@ -38,6 +38,7 @@ type TypeFilter = "all" | "income" | "expense";
 
 export function FinancePage() {
   const user = useAuthStore((s) => s.user);
+  const activeBranchId = useBranchStore((s) => s.activeBranchId);
   const qc = useQueryClient();
   const [month, setMonth] = useState(formatMonthKey());
   const [view, setView] = useState<FinanceView>("transactions");
@@ -52,9 +53,15 @@ export function FinancePage() {
     date: localTodayCalendarKey(),
   });
 
+  const expenseBranchId = String(
+    activeBranchId || user?.activeBranchId || user?.gymCodeId || "",
+  ).trim();
+
   const { data, isLoading } = useFinance(month);
   const { data: members = [] } = useMembers();
   const { data: settings } = useSettings();
+  const yearForRecon = parseFinanceMonthKey(month)?.year || new Date().getFullYear();
+  const { data: yearSummary } = useFinanceYearSummary(yearForRecon);
 
   const canRevenue = hasAccess(user, "finance", "viewRevenueAutoMembers");
   const canExpenseCard = hasAccess(user, "finance", "viewExpenseCard");
@@ -89,14 +96,37 @@ export function FinancePage() {
   const expenseSubtitle =
     String(summary.expenseSubtitle || "") || clientKpis.expenseSubtitle;
 
-  const year = parseFinanceMonthKey(month)?.year || new Date().getFullYear();
-  const reconciliation = useMemo(
+  const year = yearForRecon;
+  const clientReconciliation = useMemo(
     () =>
       buildClientMonthlyReconciliation(ledger, year, {
         useEstimatedExpense: settings?.financeUseEstimatedExpense !== false,
       }),
     [ledger, year, settings?.financeUseEstimatedExpense],
   );
+  const reconciliation = useMemo(() => {
+    const months = Array.isArray(yearSummary?.months) ? yearSummary.months : null;
+    if (!months?.length) return clientReconciliation;
+    const labels = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+    return months.map((m: Record<string, unknown>) => {
+      const monthKey = String(m.monthKey || m.month || "");
+      const monthNum = Number(monthKey.slice(5, 7)) || 0;
+      const incomeCollected = Number(
+        m.incomeCollected ?? m.collectedRevenue ?? m.collected ?? 0,
+      ) || 0;
+      const expenses = Number(m.expenses ?? m.expense ?? 0) || 0;
+      return {
+        monthKey,
+        label:
+          String(m.label || "") ||
+          (monthNum ? `${labels[monthNum - 1]} ${monthKey.slice(0, 4)}` : monthKey),
+        incomeCollected,
+        expenses,
+        actualExpenses: Number(m.actualExpenses ?? expenses) || 0,
+        profit: Number(m.profit ?? incomeCollected - expenses) || 0,
+      };
+    });
+  }, [yearSummary, clientReconciliation]);
 
   const filteredLedger = useMemo(() => {
     const q = search.trim().toLowerCase();
@@ -132,6 +162,7 @@ export function FinancePage() {
           date: expense.date,
         },
         String(user?.name || user?.id || "Staff"),
+        expenseBranchId,
       );
       return financeApi.addExpense(payload);
     },
@@ -144,7 +175,10 @@ export function FinancePage() {
         date: localTodayCalendarKey(),
       });
       setShowExpenseForm(false);
-      await qc.invalidateQueries({ queryKey: ["finance"] });
+      await Promise.all([
+        qc.invalidateQueries({ queryKey: ["finance"] }),
+        qc.invalidateQueries({ queryKey: ["finance-year"] }),
+      ]);
     },
     onError: (e: Error) => toast.error(e.message),
   });
