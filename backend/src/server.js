@@ -637,6 +637,38 @@ app.get('/api/members', requireAccess(Access.membersRead), async (req, res) => {
   res.json(members);
 });
 
+/**
+ * Dedicated create — preferred over PUT /members/bulk for Add Member.
+ * Stamps staff branch, persists, and returns the saved row (fail closed).
+ */
+app.post('/api/members', requireAccess(Access.membersWrite), async (req, res) => {
+  const member = req.body?.member && typeof req.body.member === 'object'
+    ? req.body.member
+    : (req.body && typeof req.body === 'object' && !Array.isArray(req.body) ? req.body : null);
+  if (!member || Array.isArray(member)) {
+    return res.status(400).json({ error: 'member-required', message: 'Request body must include a member object.' });
+  }
+  try {
+    const { createMemberDurable } = await import('./services/members/createMember.js');
+    const saved = await createMemberDurable(
+      member,
+      req.auth,
+      buildBranchScope(req),
+      readSandboxScope(req),
+    );
+    queueDatabaseBackup('members-create');
+    return res.status(201).json({ ok: true, member: saved, written: [saved.memberId] });
+  } catch (err) {
+    return res.status(err?.status || 500).json({
+      error: err?.message || 'member-create-failed',
+      message: err?.status === 409
+        ? 'Member code was previously deleted and cannot be reused.'
+        : (err?.message || 'Member could not be saved. Please try again.'),
+      detail: err?.detail || null,
+    });
+  }
+});
+
 app.use('/api/members', memberPhotosRouter);
 
 app.get('/api/members/:memberId', requireAccess(Access.membersRead), async (req, res) => {
