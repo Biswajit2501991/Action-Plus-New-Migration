@@ -25,6 +25,7 @@ import {
 import { StaffSectionsAccessEditor } from "@/features/staff/staff-sections-access";
 import { RoleTemplatesPanel } from "@/features/staff/role-templates-panel";
 import { useAuthStore, useBranchStore } from "@/stores";
+import { cn } from "@/lib/utils";
 import type { AccessMap, GymCode, StaffUser } from "@/types";
 
 function resolveActiveBranchId() {
@@ -128,6 +129,18 @@ export function StaffPage() {
   const [shownPasswords, setShownPasswords] = useState<Record<string, boolean>>({});
   const [showEditCurrentPassword, setShowEditCurrentPassword] = useState(false);
   const [expandedStaffId, setExpandedStaffId] = useState<string | null>(null);
+  /** Blocked / deactivated staff count as "deleted" for this toggle. */
+  const [showDeletedStaff, setShowDeletedStaff] = useState(false);
+
+  const deletedStaffCount = useMemo(
+    () => users.filter((u) => Boolean(u.blocked)).length,
+    [users],
+  );
+
+  const visibleUsers = useMemo(
+    () => (showDeletedStaff ? users : users.filter((u) => !u.blocked)),
+    [users, showDeletedStaff],
+  );
 
   const editingUser = useMemo(
     () => (editingId ? users.find((u) => u.id === editingId) || null : null),
@@ -385,11 +398,48 @@ export function StaffPage() {
         title="Staff"
         description="Roles, branch assignment, section access, and staff accounts."
         actions={
-          canManage ? (
-            <Button onClick={() => openCreate()}>
-              <Plus className="h-4 w-4" /> Add Staff
-            </Button>
-          ) : null
+          <div className="flex flex-wrap items-center gap-2">
+            {deletedStaffCount > 0 || showDeletedStaff ? (
+              <button
+                type="button"
+                role="switch"
+                aria-checked={showDeletedStaff}
+                aria-label="Show deleted staff"
+                onClick={() => setShowDeletedStaff((v) => !v)}
+                className={cn(
+                  "inline-flex h-9 items-center gap-2 rounded-full border px-3 text-xs font-medium transition-colors",
+                  showDeletedStaff
+                    ? "border-rose-300 bg-rose-50 text-rose-800 dark:border-rose-800 dark:bg-rose-950/40 dark:text-rose-200"
+                    : "border-slate-200 bg-white text-slate-600 dark:border-border dark:bg-background dark:text-slate-300",
+                )}
+              >
+                <span
+                  className={cn(
+                    "relative h-5 w-9 shrink-0 rounded-full transition-colors",
+                    showDeletedStaff ? "bg-rose-500" : "bg-slate-300 dark:bg-slate-600",
+                  )}
+                >
+                  <span
+                    className={cn(
+                      "absolute top-0.5 left-0.5 h-4 w-4 rounded-full bg-white shadow transition-transform",
+                      showDeletedStaff && "translate-x-4",
+                    )}
+                  />
+                </span>
+                Show deleted
+                {deletedStaffCount > 0 ? (
+                  <span className="rounded-md bg-black/5 px-1.5 py-0.5 tabular-nums dark:bg-white/10">
+                    {deletedStaffCount}
+                  </span>
+                ) : null}
+              </button>
+            ) : null}
+            {canManage ? (
+              <Button onClick={() => openCreate()}>
+                <Plus className="h-4 w-4" /> Add Staff
+              </Button>
+            ) : null}
+          </div>
         }
       />
 
@@ -409,7 +459,7 @@ export function StaffPage() {
               </tr>
             </thead>
             <tbody>
-              {users.map((u) => {
+              {visibleUsers.map((u) => {
                 const shown = Boolean(shownPasswords[u.id]);
                 const expanded = expandedStaffId === u.id;
                 const branchesLabel = staffBranchesSummary(u, gymCodes);
@@ -555,11 +605,15 @@ export function StaffPage() {
               })}
             </tbody>
           </table>
-          {!users.length ? (
+          {!visibleUsers.length ? (
             <div className="p-6">
               <EmptyState
-                title="No staff found"
-                description="Create a staff account to get started."
+                title={users.length && !showDeletedStaff ? "No active staff" : "No staff found"}
+                description={
+                  users.length && !showDeletedStaff
+                    ? "Turn on Show deleted to see blocked or deactivated accounts."
+                    : "Create a staff account to get started."
+                }
               />
             </div>
           ) : null}
