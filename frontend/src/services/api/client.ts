@@ -6,11 +6,13 @@ const API_BASE = (process.env.NEXT_PUBLIC_API_BASE_URL || "/api").replace(/\/$/,
 export class ApiError extends Error {
   status: number;
   code?: string;
+  detail?: unknown;
 
-  constructor(status: number, message: string, code?: string) {
+  constructor(status: number, message: string, code?: string, detail?: unknown) {
     super(message);
     this.status = status;
     this.code = code;
+    this.detail = detail;
     this.name = "ApiError";
   }
 }
@@ -28,9 +30,11 @@ const AUTH_ERROR_MESSAGES: Record<string, string> = {
   "auth-requires-supabase": "Authentication requires a connected backend.",
 };
 
-async function readErrorBody(res: Response): Promise<{ error?: string; message?: string } | null> {
+async function readErrorBody(
+  res: Response,
+): Promise<{ error?: string; message?: string; detail?: unknown } | null> {
   try {
-    return (await res.json()) as { error?: string; message?: string };
+    return (await res.json()) as { error?: string; message?: string; detail?: unknown };
   } catch {
     return null;
   }
@@ -73,6 +77,7 @@ export async function apiFetch<T>(
       res.status,
       body?.message || (code && AUTH_ERROR_MESSAGES[code]) || code || `Request failed (${res.status})`,
       code,
+      body?.detail,
     );
   }
 

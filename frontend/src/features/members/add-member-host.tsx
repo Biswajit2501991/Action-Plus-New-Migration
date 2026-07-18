@@ -194,12 +194,17 @@ export function AddMemberHost() {
         } catch (e) {
           clearPendingMemberCreate(id);
           removeMemberFromCache(qc, id);
+          const detail =
+            e instanceof ApiError && e.detail && typeof e.detail === "object"
+              ? (e.detail as { suggestedFormNo?: number; suggestedMemberId?: string; hint?: string })
+              : null;
           const msg =
-            e instanceof ApiError
+            detail?.hint
+            || (e instanceof ApiError
               ? e.message || e.code || "Failed to save member"
               : e instanceof Error
                 ? e.message
-                : "Failed to save member";
+                : "Failed to save member");
           toast.error(msg);
           // Keep wizard open so staff can retry without re-entering everything.
           throw e;

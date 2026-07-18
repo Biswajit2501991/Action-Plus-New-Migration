@@ -40,6 +40,15 @@ export const membersApi = {
     return sanitizeMembersForDisplay(mergePendingCreatesIntoMembers(remote));
   },
   get: (id: string) => apiFetch<Member>(`/members/${encodeURIComponent(id)}`),
+  /** Next free form number (skips soft-deleted / audited member codes). */
+  nextFormNumber: (gymCodeId: string, opts?: { branchToken?: string; yearSuffix?: string }) => {
+    const qs = new URLSearchParams({ gymCodeId });
+    if (opts?.branchToken) qs.set("branchToken", opts.branchToken);
+    if (opts?.yearSuffix) qs.set("yearSuffix", opts.yearSuffix);
+    return apiFetch<{ ok?: boolean; formNo?: number; memberId?: string }>(
+      `/members/next-form-number?${qs.toString()}`,
+    );
+  },
   /** Dedicated create — stamps branch server-side and returns the saved row. */
   create: (member: Member) =>
     apiFetch<{ ok?: boolean; member?: Member; written?: string[] }>("/members", {

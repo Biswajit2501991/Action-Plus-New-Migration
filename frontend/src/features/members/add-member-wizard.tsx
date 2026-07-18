@@ -411,9 +411,12 @@ export function AddMemberWizard({
   useEffect(() => {
     if (!open) return;
     const branchId = String(form.assignedGymCodeId || "").trim();
-    let next = nextBranchFormNumber(members, branchId);
+    if (!branchId) return;
+    let cancelled = false;
     const yearSuffix = String(new Date().getFullYear()).slice(-2);
     const token = branchCodeToken(gymCodes, branchId);
+    // Local fallback first (active members only), then server (skips deleted codes).
+    let next = nextBranchFormNumber(members, branchId);
     for (let i = 0; i < 1000; i += 1) {
       const candidate = buildBranchMemberId(next, yearSuffix, token);
       if (!members.some((m) => String(m.memberId || "").trim() === candidate)) break;
@@ -421,6 +424,25 @@ export function AddMemberWizard({
     }
     const nextStr = String(next);
     setForm((f) => (f.formNo === nextStr ? f : { ...f, formNo: nextStr }));
+
+    void (async () => {
+      try {
+        const { membersApi } = await import("@/services/api");
+        const res = await membersApi.nextFormNumber(branchId, {
+          branchToken: token,
+          yearSuffix,
+        });
+        if (cancelled || !res?.formNo) return;
+        const serverStr = String(res.formNo);
+        setForm((f) => (f.formNo === serverStr ? f : { ...f, formNo: serverStr }));
+      } catch {
+        /* keep local suggestion */
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, members, form.assignedGymCodeId, gymCodes]);
 
@@ -643,6 +665,13 @@ export function AddMemberWizard({
       setStep(1);
       setWarn("");
     } catch (err) {
+      const detail =
+        err && typeof err === "object" && "detail" in err
+          ? (err as { detail?: { suggestedFormNo?: number } }).detail
+          : null;
+      if (detail?.suggestedFormNo) {
+        setForm((f) => ({ ...f, formNo: String(detail.suggestedFormNo) }));
+      }
       const message = err instanceof Error ? err.message : "Failed to save member";
       setWarn(message);
       setFamilyPrompt(null);
