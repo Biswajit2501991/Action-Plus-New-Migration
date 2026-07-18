@@ -2421,6 +2421,7 @@
       if (name === 'logs') return <svg {...common}><path d="M8 6h13M8 12h13M8 18h13" /><path d="M3 6h.01M3 12h.01M3 18h.01" /></svg>;
       if (name === 'server') return <svg {...common}><rect x="3" y="4" width="18" height="6" rx="1.5" /><rect x="3" y="14" width="18" height="6" rx="1.5" /><path d="M7 7h.01M7 17h.01" /></svg>;
       if (name === 'help') return <svg {...common}><circle cx="12" cy="12" r="9" /><path d="M9.5 9a2.5 2.5 0 1 1 4.2 1.8c-.8.7-1.7 1.2-1.7 2.4" /><path d="M12 17h.01" /></svg>;
+      if (name === 'globe') return <svg {...common}><circle cx="12" cy="12" r="9" /><path d="M3 12h18" /><path d="M12 3a15 15 0 0 1 0 18" /><path d="M12 3a15 15 0 0 0 0 18" /></svg>;
       return null;
     }
 
@@ -2429,7 +2430,7 @@
     // allowed sections. If you add new tabs you should also update this
     // list accordingly.
     const extractedPermissions = (window.__APG_MODULES__ && window.__APG_MODULES__.permissions) || null;
-    const INLINE_ALL_SECTIONS = ['Dashboard','Members','PT Clients','WhatsApp SMS','Finance','Staff','Attendance','Leave Tracker','Settings','Logs','Support','Backend'];
+    const INLINE_ALL_SECTIONS = ['Dashboard','Members','PT Clients','WhatsApp SMS','Finance','Staff','Attendance','Leave Tracker','Settings','Logs','Support','Backend','Website'];
     const ALL_SECTIONS = extractedPermissions?.ALL_SECTIONS || INLINE_ALL_SECTIONS;
     const DASHBOARD_CHILD_PERMISSIONS = extractedPermissions?.DASHBOARD_CHILD_PERMISSIONS || [
       { key: 'viewDashboardCore', label: 'Active / Hold / Deactivated / Cancelled + Filter + Add New Member' },
@@ -2496,6 +2497,9 @@
     const BACKEND_CHILD_PERMISSIONS = [
       { key: 'viewBackendPage', label: 'View Backend Section' },
       { key: 'controlBackendProcesses', label: 'Restart / Turn On / Turn Off Backend' },
+    ];
+    const WEBSITE_CHILD_PERMISSIONS = extractedPermissions?.WEBSITE_CHILD_PERMISSIONS || [
+      { key: 'viewWebsite', label: 'Web view — sections & access' },
     ];
     const INLINE_DEFAULT_ACCESS = {
       dashboard: {
@@ -2572,6 +2576,9 @@
       backend: {
         viewBackendPage: true,
         controlBackendProcesses: true,
+      },
+      website: {
+        viewWebsite: false,
       },
     };
     const DEFAULT_ACCESS = extractedPermissions?.DEFAULT_ACCESS || INLINE_DEFAULT_ACCESS;
@@ -2650,6 +2657,9 @@
       backend: {
         viewBackendPage: access?.backend?.viewBackendPage !== false,
         controlBackendProcesses: access?.backend?.controlBackendProcesses !== false,
+      },
+      website: {
+        viewWebsite: access?.website?.viewWebsite === true,
       },
     }));
     const DEFAULT_ROLE_TEMPLATES = [
@@ -12850,19 +12860,32 @@ function Sidebar({ user, active, onSelect, theme, setTheme, layoutMode = 'classi
         { key: 'Leave Tracker', label: 'Leave Tracker', icon: 'calendar', group: 'OPERATIONS' },
         { key: 'Finance', label: 'Finance', icon: 'wallet', group: 'FINANCE' },
         { key: 'Staff', label: 'Staff', icon: 'users', group: 'STAFF & MANAGEMENT' },
+        { key: 'Website', label: 'Website', icon: 'globe', group: 'STAFF & MANAGEMENT' },
         { key: 'Settings', label: 'Settings', icon: 'settings', group: 'SYSTEM' },
         { key: 'Logs', label: 'Logs', icon: 'logs', group: 'SYSTEM' },
         { key: 'Backend', label: 'Backend', icon: 'server', group: 'SYSTEM' },
         { key: 'Support', label: 'Support', icon: 'help', group: 'SYSTEM' },
       ];
       const allowedSections = user && user.sections ? user.sections : ALL_SECTIONS;
+      const isOwnerUser = ['master_owner', 'branch_owner'].includes(String(user?.staffRole || '').toLowerCase())
+        || String(user?.id || '').toLowerCase() === 'owner';
       const canViewSectionByAccess = (sectionKey) => {
         if (sectionKey === 'Attendance') return userAccess?.attendance?.viewAttendance !== false;
         if (sectionKey === 'Logs') return userAccess?.logs?.viewLogs !== false;
         if (sectionKey === 'Support') return userAccess?.support?.viewSupportTemplates !== false;
+        if (sectionKey === 'Website') {
+          if (isOwnerUser) return true;
+          return userAccess?.website?.viewWebsite === true;
+        }
         return true;
       };
-      const navItems = NAV.filter(item => (allowedSections.includes(item.key) || item.key === 'Support' || item.key === 'Logs') && canViewSectionByAccess(item.key));
+      const WEBSITE_ADMIN_URL = 'https://www.actionplusgym.com/admin/login';
+      const navItems = NAV.filter(item => (
+        allowedSections.includes(item.key)
+        || item.key === 'Support'
+        || item.key === 'Logs'
+        || (item.key === 'Website' && isOwnerUser)
+      ) && canViewSectionByAccess(item.key));
       const [membersExpanded, setMembersExpanded] = React.useState(true);
       const [financeExpanded, setFinanceExpanded] = React.useState(true);
       React.useEffect(() => {
@@ -13152,6 +13175,23 @@ function Sidebar({ user, active, onSelect, theme, setTheme, layoutMode = 'classi
                               </div>
                             )}
                           </div>
+                        );
+                      }
+                      if (item.key === 'Website') {
+                        return (
+                          <button
+                            key={item.key}
+                            type="button"
+                            onClick={() => {
+                              window.open(WEBSITE_ADMIN_URL, '_blank', 'noopener,noreferrer');
+                              onCloseMobile && onCloseMobile();
+                            }}
+                            className={navButtonClass(false)}
+                            title={collapsed ? 'Open Website admin' : undefined}
+                          >
+                            <AppIcon name={item.icon} className="h-4 w-4 shrink-0" />
+                            {!collapsed && <span>{item.label}</span>}
+                          </button>
                         );
                       }
                       return (
@@ -26274,6 +26314,7 @@ function PTClientsPage({ members, users, settings, updateSetting, currentUser, a
       const [attendanceAccessOpen, setAttendanceAccessOpen] = React.useState(false);
       const [logsAccessOpen, setLogsAccessOpen] = React.useState(false);
       const [supportAccessOpen, setSupportAccessOpen] = React.useState(false);
+      const [websiteAccessOpen, setWebsiteAccessOpen] = React.useState(false);
       const [backendAccessOpen, setBackendAccessOpen] = React.useState(false);
       const isOwner = typeof window.__APG_MODULES?.authIsMasterOwnerUser === 'function'
         ? window.__APG_MODULES.authIsMasterOwnerUser(currentUser)
@@ -26430,6 +26471,7 @@ function PTClientsPage({ members, users, settings, updateSetting, currentUser, a
         setAttendanceAccessOpen(false);
         setLogsAccessOpen(false);
         setSupportAccessOpen(false);
+        setWebsiteAccessOpen(false);
         setBackendAccessOpen(false);
       };
       const roleTemplates = React.useMemo(() => {
@@ -26478,6 +26520,7 @@ function PTClientsPage({ members, users, settings, updateSetting, currentUser, a
         setAttendanceAccessOpen(false);
         setLogsAccessOpen(false);
         setSupportAccessOpen(false);
+        setWebsiteAccessOpen(false);
         setBackendAccessOpen(false);
         setModalOpen(true);
       };
@@ -26526,6 +26569,7 @@ function PTClientsPage({ members, users, settings, updateSetting, currentUser, a
         setAttendanceAccessOpen(true);
         setLogsAccessOpen(true);
         setSupportAccessOpen(true);
+        setWebsiteAccessOpen(true);
         setBackendAccessOpen(true);
         setModalOpen(true);
       };
@@ -26903,6 +26947,28 @@ function PTClientsPage({ members, users, settings, updateSetting, currentUser, a
           return { ...f, sections: nextSections, access: next };
         });
       };
+      const toggleWebsiteParent = () => {
+        setForm(f => {
+          const hasSection = f.sections.includes('Website');
+          const nextSections = hasSection ? f.sections.filter(s => s !== 'Website') : [...f.sections, 'Website'];
+          const nextAccess = {
+            ...normalizeAccess(f.access),
+            website: WEBSITE_CHILD_PERMISSIONS.reduce((acc, p) => ({ ...acc, [p.key]: hasSection ? false : true }), {}),
+          };
+          return { ...f, sections: nextSections, access: nextAccess };
+        });
+      };
+      const toggleWebsiteChild = (key) => {
+        setForm(f => {
+          const normalized = normalizeAccess(f.access);
+          const nextVal = !(normalized.website?.[key] === true);
+          const next = { ...normalized, website: { ...normalized.website, [key]: nextVal } };
+          const shouldEnable = Object.values(next.website || {}).some(Boolean);
+          const hasSection = f.sections.includes('Website');
+          const nextSections = shouldEnable ? (hasSection ? f.sections : [...f.sections, 'Website']) : f.sections.filter(s => s !== 'Website');
+          return { ...f, sections: nextSections, access: next };
+        });
+      };
       const toggleAllSections = () => {
         setForm(f => {
           const allSelected = ALL_SECTIONS.every(sec => f.sections.includes(sec));
@@ -26922,6 +26988,7 @@ function PTClientsPage({ members, users, settings, updateSetting, currentUser, a
                 logs: { viewLogs: false, exportLogs: false, clearLogs: false },
                 support: { viewSupportTemplates: false, editSupportTemplates: false },
                 backend: { viewBackendPage: false, controlBackendProcesses: false },
+                website: { viewWebsite: false },
               })
               : normalizeAccess(f.access),
           };
@@ -27939,6 +28006,41 @@ function PTClientsPage({ members, users, settings, updateSetting, currentUser, a
                                   type="checkbox"
                                   checked={normalizeAccess(form.access).support[perm.key] !== false}
                                   onChange={() => toggleSupportChild(perm.key)}
+                                  className="rounded"
+                                />
+                                {perm.label}
+                              </label>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                      <div className="sm:col-span-2 rounded-xl border border-slate-200 bg-slate-50 p-2">
+                        <div className="flex items-center justify-between gap-2">
+                          <label className="inline-flex items-center gap-2 text-sm text-slate-800">
+                            <input
+                              type="checkbox"
+                              checked={form.sections.includes('Website')}
+                              onChange={toggleWebsiteParent}
+                              className="rounded"
+                            />
+                            Website
+                          </label>
+                          <button
+                            type="button"
+                            onClick={() => setWebsiteAccessOpen(v => !v)}
+                            className="rounded-lg border border-slate-300 bg-white px-2 py-1 text-[11px] font-medium text-slate-700 hover:bg-slate-100"
+                          >
+                            {websiteAccessOpen ? 'Hide Access' : 'Expand Access'}
+                          </button>
+                        </div>
+                        {websiteAccessOpen && (
+                          <div className="mt-2 grid grid-cols-1 sm:grid-cols-2 gap-2 pl-2">
+                            {WEBSITE_CHILD_PERMISSIONS.map((perm) => (
+                              <label key={perm.key} className="inline-flex items-center gap-2 text-xs text-slate-700">
+                                <input
+                                  type="checkbox"
+                                  checked={normalizeAccess(form.access).website?.[perm.key] === true}
+                                  onChange={() => toggleWebsiteChild(perm.key)}
                                   className="rounded"
                                 />
                                 {perm.label}

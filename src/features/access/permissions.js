@@ -11,6 +11,7 @@ export const ALL_SECTIONS = [
   'Logs',
   'Support',
   'Backend',
+  'Website',
 ];
 
 export const DASHBOARD_CHILD_PERMISSIONS = [
@@ -97,6 +98,10 @@ export const BACKEND_CHILD_PERMISSIONS = [
   { key: 'controlBackendProcesses', label: 'Restart / Turn On / Turn Off Backend' },
 ];
 
+export const WEBSITE_CHILD_PERMISSIONS = [
+  { key: 'viewWebsite', label: 'Web view — sections & access' },
+];
+
 export const PAYMENT_QR_CHILD_PERMISSIONS = [
   { key: 'viewPaymentQr', label: 'View Payment QR (Members toolbar)' },
   { key: 'managePaymentSettings', label: 'Manage Payment Settings (Owner)' },
@@ -178,6 +183,9 @@ export const DEFAULT_ACCESS = {
   backend: {
     viewBackendPage: true,
     controlBackendProcesses: true,
+  },
+  website: {
+    viewWebsite: false,
   },
   paymentQr: {
     viewPaymentQr: true,
@@ -296,6 +304,10 @@ export function normalizeAccess(access) {
     backend: {
       viewBackendPage: access?.backend?.viewBackendPage !== false,
       controlBackendProcesses: access?.backend?.controlBackendProcesses !== false,
+    },
+    website: {
+      // Opt-in: staff only see Website when explicitly granted
+      viewWebsite: access?.website?.viewWebsite === true,
     },
     paymentQr: {
       viewPaymentQr: access?.paymentQr?.viewPaymentQr !== false,

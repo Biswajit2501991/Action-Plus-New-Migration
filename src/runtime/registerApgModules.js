@@ -594,6 +594,7 @@ window.__APG_MODULES.canSubmitOwnLateNote = permissions.canSubmitOwnLateNote;
 window.__APG_MODULES.ATTENDANCE_SECTION_PERMISSION_KEYS = permissions.ATTENDANCE_SECTION_PERMISSION_KEYS;
 window.__APG_MODULES.sectionsWithRoleDefaults = permissions.sectionsWithRoleDefaults;
 window.__APG_MODULES.PAYMENT_QR_CHILD_PERMISSIONS = permissions.PAYMENT_QR_CHILD_PERMISSIONS;
+window.__APG_MODULES.WEBSITE_CHILD_PERMISSIONS = permissions.WEBSITE_CHILD_PERMISSIONS;
 window.__APG_MODULES.reminderSentForCurrentBilling = reminderSentForCurrentBilling;
 window.__APG_MODULES.shouldShowSmsSentBadge = shouldShowSmsSentBadge;
 window.__APG_MODULES.pickMemberBillingSource = pickMemberBillingSource;
