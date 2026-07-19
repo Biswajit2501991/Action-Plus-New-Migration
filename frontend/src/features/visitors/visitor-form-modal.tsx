@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Input, Label, Select } from "@/components/ui/input";
 import { ClassicalModal } from "@/components/ui/classical-modal";
+import { websiteVisitorDetail } from "@/features/visitors/website-intake";
 import type { Visitor } from "@/types";
 
 const GENDERS = ["Male", "Female", "Other"];
@@ -127,6 +128,12 @@ export function VisitorFormModal({
       }
     >
       <div className="grid gap-3 md:grid-cols-2">
+        {websiteVisitorDetail(visitor?.intakeSource) ? (
+          <div className="md:col-span-2 rounded-xl border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-sm text-amber-800 dark:text-amber-100">
+            <span className="font-semibold">Website customer · </span>
+            {websiteVisitorDetail(visitor?.intakeSource)}
+          </div>
+        ) : null}
         <div className="md:col-span-2">
           <Label>Full name*</Label>
           <Input

@@ -12,6 +12,10 @@ import {
   type VisitorFormValues,
 } from "@/features/visitors/visitor-form-modal";
 import { VisitorIntakeQrCard } from "@/features/visitors/visitor-intake-qr-card";
+import {
+  websiteVisitorBadge,
+  websiteVisitorDetail,
+} from "@/features/visitors/website-intake";
 import { hasAccess } from "@/lib/domain/permissions";
 import { isRecordNewWithinHours } from "@/lib/domain/new-record";
 import { isQrVisitorIntakeEnabled } from "@/lib/domain/attendance";
@@ -89,6 +93,11 @@ export function VisitorsPanel({ visitors }: Props) {
         updatedAt: now,
         lastCalledAt: editing?.lastCalledAt,
         lastCalledBy: editing?.lastCalledBy,
+        // Keep website / QR source so the Website customer tag is not wiped on edit.
+        intakeSource: editing?.intakeSource,
+        notes: editing?.notes,
+        interestPlan: editing?.interestPlan,
+        goal: editing?.goal,
       };
       const rest = visitors.filter((v) => v.id !== id);
       return visitorsApi.bulk([next, ...rest]);
@@ -169,6 +178,8 @@ export function VisitorsPanel({ visitors }: Props) {
                 const expanded = expandedId === v.id;
                 const converted = String(v.status || "") === "Converted";
                 const isNew = isRecordNewWithinHours(String(v.addedAt || v.visitDate || ""), 48);
+                const websiteBadge = websiteVisitorBadge(v.intakeSource);
+                const websiteDetail = websiteVisitorDetail(v.intakeSource);
                 return (
                   <div
                     key={v.id}
@@ -202,13 +213,9 @@ export function VisitorsPanel({ visitors }: Props) {
                             {displayName(v)}
                           </p>
                           <NewVisitorBadge timestamp={String(v.addedAt || v.visitDate || "")} />
-                          {String(v.intakeSource || "").startsWith("website") ? (
-                            <Badge className="border-amber-500/40 bg-amber-500/10 text-amber-200">
-                              {String(v.intakeSource) === "website_trial"
-                                ? "Website trial"
-                                : String(v.intakeSource) === "website_contact"
-                                  ? "Website contact"
-                                  : "Website"}
+                          {websiteBadge ? (
+                            <Badge className="border-amber-500/40 bg-amber-500/15 text-amber-700 dark:text-amber-200">
+                              {websiteBadge}
                             </Badge>
                           ) : null}
                           {String(v.intakeSource || "") === "qr_public" ? (
@@ -236,6 +243,12 @@ export function VisitorsPanel({ visitors }: Props) {
                     {expanded ? (
                       <div className="space-y-3 border-t border-slate-100 px-4 py-3 dark:border-white/10">
                         <div className="grid gap-2 text-xs text-slate-600 sm:grid-cols-2 dark:text-slate-300">
+                          {websiteDetail ? (
+                            <p className="sm:col-span-2 rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-amber-800 dark:text-amber-100">
+                              <span className="font-semibold">Source · </span>
+                              {websiteDetail}
+                            </p>
+                          ) : null}
                           <p>
                             <span className="text-slate-400">Gender · </span>
                             {v.gender || "—"}
