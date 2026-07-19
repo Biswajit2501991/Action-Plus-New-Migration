@@ -435,6 +435,8 @@ export function visitorRowToApp(row) {
     tentativeJoiningDate: row.tentative_joining_date,
     lastCalledAt: row.last_called_at,
     lastCalledBy: row.last_called_by,
+    staffSeenAt: row.staff_seen_at || null,
+    staffSeenBy: row.staff_seen_by || null,
     assignedGymCodeId: row.assigned_gym_code_id || null,
     addedAt: row.added_at,
     visitDate: row.added_at,
@@ -469,6 +471,10 @@ export function appVisitorToRow(v, gymId) {
     tentative_joining_date: toDate(v.tentativeJoiningDate),
     last_called_at: toTs(v.lastCalledAt),
     last_called_by: lastCalledBy,
+    staff_seen_at: toTs(v.staffSeenAt),
+    staff_seen_by: v.staffSeenBy != null && String(v.staffSeenBy).trim()
+      ? String(v.staffSeenBy).trim()
+      : null,
     assigned_gym_code_id: v.assignedGymCodeId ? String(v.assignedGymCodeId).trim() : null,
     added_at: toTs(v.addedAt),
     created_at: toTs(v.addedAt) || new Date().toISOString(),

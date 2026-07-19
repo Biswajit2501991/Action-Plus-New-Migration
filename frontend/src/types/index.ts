@@ -75,6 +75,9 @@ export type Visitor = {
   tentativeJoiningDate?: string;
   lastCalledAt?: string;
   lastCalledBy?: string;
+  /** Shared ack: any staff/owner who opens the new-visitor alert clears it for everyone. */
+  staffSeenAt?: string | null;
+  staffSeenBy?: string | null;
   assignedGymCodeId?: string;
   updatedAt?: string;
   convertedAt?: string;

@@ -93,6 +93,8 @@ export function VisitorsPanel({ visitors }: Props) {
         updatedAt: now,
         lastCalledAt: editing?.lastCalledAt,
         lastCalledBy: editing?.lastCalledBy,
+        staffSeenAt: editing?.staffSeenAt,
+        staffSeenBy: editing?.staffSeenBy,
         // Keep website / QR source so the Website customer tag is not wiped on edit.
         intakeSource: editing?.intakeSource,
         notes: editing?.notes,

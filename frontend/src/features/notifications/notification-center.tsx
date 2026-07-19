@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useRouter } from "next/navigation";
-import { Bell, KeyRound, Phone, Plane } from "lucide-react";
+import { Bell, KeyRound, Phone, Plane, UserRoundPlus } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Input, Label } from "@/components/ui/input";
@@ -22,10 +22,15 @@ import {
   pendingPasswordResets,
 } from "@/lib/domain/password-reset";
 import {
+  pendingNewVisitorAlerts,
+  withStaffSeenAck,
+} from "@/lib/domain/new-visitors";
+import {
   hasAccess,
   isBranchAdminUser,
   isMasterOwnerUser,
 } from "@/lib/domain/permissions";
+import { websiteVisitorBadge } from "@/features/visitors/website-intake";
 import { cn, formatDate } from "@/lib/utils";
 import { attendanceApi, leaveApi, visitorsApi } from "@/services/api";
 import { adminSetPassword, rejectPasswordReset } from "@/services/api/auth";
@@ -111,8 +116,17 @@ export function NotificationCenter() {
       .slice(0, 20);
   }, [canVisitors, visitors]);
 
+  // Shared across all staff: any one acknowledgement clears the alert for everyone.
+  const newVisitorPending = useMemo(
+    () => (canVisitors ? pendingNewVisitorAlerts(visitors) : ([] as Visitor[])),
+    [canVisitors, visitors],
+  );
+
   const total =
-    leavePending.length + passwordPending.length + callbackPending.length;
+    leavePending.length +
+    passwordPending.length +
+    callbackPending.length +
+    newVisitorPending.length;
 
   useEffect(() => {
     if (!open) return;
@@ -222,6 +236,34 @@ export function NotificationCenter() {
     onError: (e: Error) => toast.error(e.message),
     onSettled: () => setBusyVisitorId(""),
   });
+
+  const markVisitorSeen = useMutation({
+    mutationFn: async (visitor: Visitor) => {
+      setBusyVisitorId(visitor.id);
+      const next = withStaffSeenAck(
+        visitor,
+        String(user?.name || user?.id || ""),
+      );
+      const rest = visitors.filter((v) => v.id !== visitor.id);
+      return visitorsApi.bulk([next, ...rest]);
+    },
+    onSuccess: async () => {
+      toast.success("Visitor alert cleared for all staff");
+      await qc.invalidateQueries({ queryKey: ["visitors"] });
+    },
+    onError: (e: Error) => toast.error(e.message),
+    onSettled: () => setBusyVisitorId(""),
+  });
+
+  const openAndAckVisitor = async (visitor: Visitor) => {
+    setOpen(false);
+    try {
+      await markVisitorSeen.mutateAsync(visitor);
+    } catch {
+      // Navigation still helps staff review the visitor list.
+    }
+    router.push("/members?tab=visitors");
+  };
 
   if (!user || (!canLeave && !canResets && !canVisitors)) return null;
 
@@ -396,6 +438,69 @@ export function NotificationCenter() {
                               }
                             >
                               Reject
+                            </Button>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </section>
+            ) : null}
+
+            {canVisitors ? (
+              <section>
+                <div className="mb-1.5 flex items-center gap-1.5 px-1 text-[11px] font-semibold uppercase tracking-wide text-slate-500">
+                  <UserRoundPlus className="h-3.5 w-3.5" />
+                  New visitors
+                </div>
+                {!newVisitorPending.length ? (
+                  <p className="px-1 text-xs text-slate-400">No new visitors.</p>
+                ) : (
+                  <div className="space-y-1.5">
+                    {newVisitorPending.map((v) => {
+                      const website = websiteVisitorBadge(v.intakeSource);
+                      return (
+                        <div
+                          key={`new-${v.id}`}
+                          className="rounded-xl border border-teal-200/80 bg-teal-50/80 p-2.5 dark:border-teal-500/20 dark:bg-teal-950/30"
+                          data-testid={`new-visitor-notification-${v.id}`}
+                        >
+                          <button
+                            type="button"
+                            className="w-full text-left"
+                            onClick={() => void openAndAckVisitor(v)}
+                          >
+                            <p className="text-xs font-semibold text-teal-950 dark:text-teal-100">
+                              New visitor · {visitorDisplayName(v)}
+                            </p>
+                            <p className="text-[11px] text-teal-800/80 dark:text-teal-200/70">
+                              {v.mobile || "—"}
+                              {website ? ` · ${website}` : ""}
+                              {" · "}
+                              {formatDate(String(v.addedAt || v.visitDate || ""))}
+                            </p>
+                            <p className="mt-1 text-[10px] text-teal-700/70 dark:text-teal-200/60">
+                              Open to review — clears this alert for all staff
+                            </p>
+                          </button>
+                          <div className="mt-2 flex gap-1.5">
+                            <Button
+                              size="sm"
+                              className="h-7 flex-1 bg-slate-900 text-white hover:bg-slate-800 dark:bg-teal-400 dark:text-slate-950"
+                              disabled={busyVisitorId === v.id}
+                              onClick={() => void openAndAckVisitor(v)}
+                            >
+                              {busyVisitorId === v.id ? "…" : "Open & clear"}
+                            </Button>
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              className="h-7 flex-1"
+                              disabled={busyVisitorId === v.id}
+                              onClick={() => markVisitorSeen.mutate(v)}
+                            >
+                              Got it
                             </Button>
                           </div>
                         </div>
