@@ -422,7 +422,8 @@ export function appSmsToRow(e, gymId) {
 
 export function visitorRowToApp(row) {
   return {
-    id: row.external_visitor_id,
+    // Website leads may only have the bigint id until external_visitor_id is backfilled.
+    id: row.external_visitor_id || (row.id != null ? `W-${row.id}` : null),
     fullName: row.full_name,
     name: row.full_name,
     email: row.email,
