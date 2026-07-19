@@ -2234,7 +2234,10 @@ async function readVisitors(scope, branchScope = null) {
   const rows = await fetchAll((from, to) => {
     let q = sb.from(T.visitors).select('*').eq('gym_id', gid);
     if (branchFilter) {
-      q = q.eq('assigned_gym_code_id', branchScope.gymCodeId);
+      // Include website leads with no branch yet, plus this branch's visitors.
+      q = q.or(
+        `assigned_gym_code_id.eq.${branchScope.gymCodeId},assigned_gym_code_id.is.null`,
+      );
     }
     return q.range(from, to);
   });

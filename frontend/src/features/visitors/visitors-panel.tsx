@@ -202,6 +202,15 @@ export function VisitorsPanel({ visitors }: Props) {
                             {displayName(v)}
                           </p>
                           <NewVisitorBadge timestamp={String(v.addedAt || v.visitDate || "")} />
+                          {String(v.intakeSource || "").startsWith("website") ? (
+                            <Badge className="border-amber-500/40 bg-amber-500/10 text-amber-200">
+                              {String(v.intakeSource) === "website_trial"
+                                ? "Website trial"
+                                : String(v.intakeSource) === "website_contact"
+                                  ? "Website contact"
+                                  : "Website"}
+                            </Badge>
+                          ) : null}
                           {String(v.intakeSource || "") === "qr_public" ? (
                             <Badge variant="muted">QR</Badge>
                           ) : null}
