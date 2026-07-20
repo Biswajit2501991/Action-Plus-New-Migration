@@ -192,10 +192,12 @@ export function composeWhatsAppMessage(
   member: Member,
   templateKey: string,
   templates: Record<string, string>,
-  opts: { now?: Date; timeZone?: string } = {},
+  opts: { now?: Date; timeZone?: string; customBody?: string } = {},
 ): WhatsAppComposeResult {
   const key = String(templateKey || "reminder").trim() || "reminder";
-  const body = resolveWhatsappTemplateBody(key, templates);
+  const body = String(opts.customBody || "").trim()
+    ? String(opts.customBody)
+    : resolveWhatsappTemplateBody(key, templates);
   const message = renderWhatsappTemplate(body, member, {
     templateKey: key,
     now: opts.now,
@@ -279,6 +281,10 @@ export function buildWhatsAppMissingPhonePatch(
 
 export function whatsappSendAuditAction(templateKey: string) {
   const raw = String(templateKey || "unknown").trim() || "unknown";
+  if (raw.startsWith("custom:")) {
+    const code = raw.slice("custom:".length).replace(/[^a-zA-Z0-9_-]/g, "_") || "unknown";
+    return `custom_template.sent.${code}`;
+  }
   const safe = raw.replace(/[^a-zA-Z0-9_-]/g, "_");
   return `sms.${safe}.opened`;
 }
@@ -294,7 +300,18 @@ export function smsTypeLabel(key: string) {
     welcome: "Welcome SMS",
     birthday: "Birthday SMS",
   };
-  return map[key] || key;
+  if (map[key]) return map[key];
+  if (key.startsWith("custom:")) {
+    const code = key.slice("custom:".length).trim();
+    return code
+      ? code
+          .split("_")
+          .filter(Boolean)
+          .map((w) => w.charAt(0).toUpperCase() + w.slice(1))
+          .join(" ")
+      : "Custom Template";
+  }
+  return key;
 }
 
 /** Members eligible for each Messaging Center tab (prod parity). */

@@ -1,10 +1,10 @@
 "use client";
 
 import { useCallback, useMemo, useState } from "react";
-import { useQueryClient } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
-import { useWhatsapp } from "@/hooks/use-data";
-import { membersApi, logsApi } from "@/services/api";
+import { useSettings, useWhatsapp } from "@/hooks/use-data";
+import { membersApi, logsApi, whatsappApi } from "@/services/api";
 import { useAuthStore } from "@/stores";
 import {
   buildWhatsAppMissingPhonePatch,
@@ -13,6 +13,12 @@ import {
   mergeWhatsappTemplates,
   whatsappSendAuditAction,
 } from "@/lib/domain/whatsapp";
+import {
+  type CustomTemplate,
+  isCustomTemplateHistoryKey,
+  isCustomTemplatesEnabled,
+  resolveCustomTemplateBody,
+} from "@/lib/domain/custom-templates";
 import type { Member } from "@/types";
 import type { WhatsAppPreviewState } from "@/features/whatsapp/message-preview-modal";
 
@@ -27,8 +33,28 @@ export function useWhatsappSend() {
   const user = useAuthStore((s) => s.user);
   const qc = useQueryClient();
   const { data: whatsappData } = useWhatsapp();
+  const { data: settings } = useSettings();
   const [preview, setPreview] = useState<WhatsAppPreviewState>(EMPTY_PREVIEW);
   const [sending, setSending] = useState(false);
+
+  const branchId = String(user?.activeBranchId || user?.gymCodeId || "").trim();
+  const featureEnabled = isCustomTemplatesEnabled(
+    settings as Record<string, unknown> | null | undefined,
+  );
+
+  const customQuery = useQuery({
+    queryKey: ["custom-templates", branchId || "none"],
+    queryFn: () => whatsappApi.customTemplates(branchId || undefined),
+    enabled: Boolean(branchId) && featureEnabled,
+    staleTime: 30_000,
+  });
+
+  const customTemplates = useMemo(() => {
+    const list = Array.isArray(customQuery.data?.templates)
+      ? (customQuery.data!.templates as CustomTemplate[])
+      : [];
+    return list.filter((t) => t && t.isActive !== false && t.status !== "archived");
+  }, [customQuery.data]);
 
   const templates = useMemo(
     () => mergeWhatsappTemplates(whatsappData?.templates as Record<string, unknown> | undefined),
@@ -37,10 +63,39 @@ export function useWhatsappSend() {
 
   const closePreview = useCallback(() => setPreview(EMPTY_PREVIEW), []);
 
+  const resolveBodyOpts = useCallback(
+    (templateKey: string) => {
+      if (!isCustomTemplateHistoryKey(templateKey)) return {};
+      const customBody = resolveCustomTemplateBody(customTemplates, templateKey);
+      return { customBody };
+    },
+    [customTemplates],
+  );
+
   const openPreview = useCallback(
     (member: Member, templateKey = "reminder") => {
       if (!member) return;
-      const composed = composeWhatsAppMessage(member, templateKey, templates);
+      const key = String(templateKey || "reminder").trim() || "reminder";
+      if (isCustomTemplateHistoryKey(key)) {
+        if (!featureEnabled) {
+          toast.error("Custom WhatsApp templates are disabled in Settings.");
+          return;
+        }
+        const customBody = resolveCustomTemplateBody(customTemplates, key);
+        if (!customBody.trim()) {
+          toast.error("This custom template was removed or is inactive.");
+          return;
+        }
+        const composed = composeWhatsAppMessage(member, key, templates, { customBody });
+        setPreview({
+          open: true,
+          member,
+          templateKey: composed.templateKey,
+          message: composed.message,
+        });
+        return;
+      }
+      const composed = composeWhatsAppMessage(member, key, templates);
       setPreview({
         open: true,
         member,
@@ -48,7 +103,7 @@ export function useWhatsappSend() {
         message: composed.message,
       });
     },
-    [templates],
+    [templates, customTemplates, featureEnabled],
   );
 
   const confirmSend = useCallback(async () => {
@@ -68,7 +123,13 @@ export function useWhatsappSend() {
 
     setSending(true);
     try {
-      const composed = composeWhatsAppMessage(member, templateKey, templates);
+      const bodyOpts = resolveBodyOpts(templateKey);
+      if (isCustomTemplateHistoryKey(templateKey) && !String(bodyOpts.customBody || "").trim()) {
+        toast.error("This custom template was removed or is inactive.");
+        closePreview();
+        return;
+      }
+      const composed = composeWhatsAppMessage(member, templateKey, templates, bodyOpts);
       if (!composed.url || !composed.phone) {
         toast.error("Mobile number is missing.");
         closePreview();
@@ -109,10 +170,12 @@ export function useWhatsappSend() {
     } finally {
       setSending(false);
     }
-  }, [preview, templates, user, qc, closePreview]);
+  }, [preview, templates, user, qc, closePreview, resolveBodyOpts]);
 
   return {
     templates,
+    customTemplates,
+    customTemplatesFeatureEnabled: featureEnabled,
     preview,
     sending,
     openPreview,

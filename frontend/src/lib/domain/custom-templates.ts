@@ -116,3 +116,73 @@ export function friendlyCustomTemplateApiError(err: unknown) {
   };
   return map[raw] || raw || "Could not save custom template.";
 }
+
+/** Namespace used in member lastSmsSent / messageHistory for custom sends. */
+export function customTemplateHistoryKey(templateCode: string) {
+  const safe = String(templateCode || "").trim();
+  return safe ? `custom:${safe}` : "";
+}
+
+export function isCustomTemplateHistoryKey(templateKey: string) {
+  return String(templateKey || "").startsWith("custom:");
+}
+
+export function parseCustomTemplateHistoryKey(templateKey: string) {
+  const raw = String(templateKey || "").trim();
+  if (!raw.startsWith("custom:")) return null;
+  const code = raw.slice("custom:".length).trim();
+  return code || null;
+}
+
+function activeCustomTemplates(list: CustomTemplate[] | null | undefined) {
+  return (Array.isArray(list) ? list : []).filter(
+    (t) => t && t.isActive !== false && t.status !== "archived",
+  );
+}
+
+/**
+ * Member Profile → WhatsApp Message Types rows derived from active custom templates.
+ * No per-member storage — create/delete template updates buttons on next render.
+ */
+export function memberProfileCustomTemplateActions(templates: CustomTemplate[] | null | undefined) {
+  return activeCustomTemplates(templates).map((t) => {
+    const templateCode = String(t.templateCode || "").trim();
+    return {
+      key: customTemplateHistoryKey(templateCode),
+      label: String(t.templateName || templateCode || "Custom Template"),
+      isCustom: true as const,
+      templateCode,
+    };
+  });
+}
+
+export function resolveCustomTemplateBody(
+  templates: CustomTemplate[] | null | undefined,
+  historyKey: string,
+) {
+  if (!isCustomTemplateHistoryKey(historyKey)) return "";
+  const code = parseCustomTemplateHistoryKey(historyKey);
+  if (!code) return "";
+  const hit = activeCustomTemplates(templates).find(
+    (t) => String(t.templateCode || "").trim() === code,
+  );
+  return String(hit?.messageBody || "");
+}
+
+/** Prefer member branch list; fall back to HQ / active branch list. */
+export function resolveMemberCustomTemplates(
+  byBranch: Record<string, CustomTemplate[]>,
+  memberBranchId: string | null | undefined,
+  fallbackBranchId: string | null | undefined,
+) {
+  const assigned = String(memberBranchId || "").trim();
+  if (assigned) {
+    const hit = activeCustomTemplates(byBranch[assigned]);
+    if (hit.length) return hit;
+  }
+  const fallback = String(fallbackBranchId || "").trim();
+  if (fallback && fallback !== assigned) {
+    return activeCustomTemplates(byBranch[fallback]);
+  }
+  return assigned ? activeCustomTemplates(byBranch[assigned]) : [];
+}

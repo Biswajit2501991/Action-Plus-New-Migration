@@ -1,6 +1,7 @@
 "use client";
 
 import { useMemo, useState, type ReactNode } from "react";
+import { useQuery } from "@tanstack/react-query";
 import { MessageCircle, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Select } from "@/components/ui/input";
@@ -12,17 +13,18 @@ import { SmsSentChip } from "@/features/members/sms-sent-chip";
 import { formatMemberBirthday, isMemberBirthdayToday } from "@/lib/domain/members";
 import { cn, formatCurrency, formatDate } from "@/lib/utils";
 import type { Member, Payment } from "@/types";
+import { useSettings } from "@/hooks/use-data";
+import { useAuthStore } from "@/stores";
+import { whatsappApi } from "@/services/api";
+import {
+  type CustomTemplate,
+  isCustomTemplatesEnabled,
+  memberProfileCustomTemplateActions,
+} from "@/lib/domain/custom-templates";
 
 type DetailsViewMode = "full" | "compact";
-type WhatsAppKind =
-  | "reminder"
-  | "monthReminder"
-  | "welcome"
-  | "fine"
-  | "hold"
-  | "deactivate"
-  | "success"
-  | "birthday";
+/** Built-in keys plus `custom:{code}` for WhatsApp Template buttons. */
+export type WhatsAppKind = string;
 
 type DetailField = {
   key: string;
@@ -274,7 +276,28 @@ function CommunicationDocumentsBlock({
   const showBirthday = isMemberBirthdayToday(m.dob);
   const suggested = primaryMessageActionForMember(m, messageOpts);
 
-  const types: { key: WhatsAppKind; label: string }[] = [
+  const user = useAuthStore((s) => s.user);
+  const { data: settings } = useSettings();
+  // Templates are branch-scoped where staff create them (active branch) — show for all members.
+  const branchId = String(user?.activeBranchId || user?.gymCodeId || "").trim();
+  const featureEnabled = isCustomTemplatesEnabled(
+    settings as Record<string, unknown> | null | undefined,
+  );
+  const customQuery = useQuery({
+    queryKey: ["custom-templates", branchId || "none"],
+    queryFn: () => whatsappApi.customTemplates(branchId || undefined),
+    enabled: featureEnabled && Boolean(branchId),
+    staleTime: 30_000,
+  });
+  const customTypes = useMemo(() => {
+    if (!featureEnabled) return [];
+    const list = Array.isArray(customQuery.data?.templates)
+      ? (customQuery.data!.templates as CustomTemplate[])
+      : [];
+    return memberProfileCustomTemplateActions(list);
+  }, [featureEnabled, customQuery.data]);
+
+  const types: { key: WhatsAppKind; label: string; isCustom?: boolean }[] = [
     { key: "reminder", label: "Reminder" },
     { key: "monthReminder", label: "Month Reminder" },
     { key: "fine", label: "Fine SMS" },
@@ -283,6 +306,11 @@ function CommunicationDocumentsBlock({
     ...(showWelcome ? [{ key: "welcome" as const, label: "Welcome SMS" }] : []),
     { key: "success", label: "Success SMS" },
     ...(showBirthday ? [{ key: "birthday" as const, label: "Birthday SMS" }] : []),
+    ...customTypes.map((t) => ({
+      key: t.key,
+      label: t.label,
+      isCustom: true,
+    })),
   ];
 
   return (
@@ -304,7 +332,9 @@ function CommunicationDocumentsBlock({
                     "h-7 px-2.5 text-[10px] font-semibold",
                     highlighted
                       ? "border-sky-300 bg-sky-50 text-sky-700 hover:bg-sky-100"
-                      : "border-slate-200 bg-white text-slate-700 hover:bg-slate-50 dark:bg-background",
+                      : t.isCustom
+                        ? "border-violet-200 bg-violet-50 text-violet-800 hover:bg-violet-100 dark:border-violet-500/30 dark:bg-violet-950/40 dark:text-violet-100"
+                        : "border-slate-200 bg-white text-slate-700 hover:bg-slate-50 dark:bg-background",
                   )}
                   onClick={() => onWhatsApp(t.key)}
                 >

@@ -699,15 +699,7 @@ export function MembersPage() {
 
   const openWhatsApp = (
     m: Member,
-    kind:
-      | "reminder"
-      | "monthReminder"
-      | "welcome"
-      | "fine"
-      | "hold"
-      | "deactivate"
-      | "success"
-      | "birthday" = "reminder",
+    kind: string = "reminder",
   ) => {
     openWhatsAppPreview(m, kind);
   };
