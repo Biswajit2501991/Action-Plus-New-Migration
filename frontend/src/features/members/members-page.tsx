@@ -43,7 +43,13 @@ import {
   MemberMetricModal,
   type MetricModalKey,
 } from "@/features/members/member-metric-modal";
-import { memberSearchHaystack, isMemberBirthdayThisMonth, birthdayDayOfMonthSortKey, normalizePhone } from "@/lib/domain/members";
+import {
+  memberSearchHaystack,
+  isMemberBirthdayThisMonth,
+  isMemberBirthdayToday,
+  birthdayDayOfMonthSortKey,
+  normalizePhone,
+} from "@/lib/domain/members";
 import {
   daysBetweenCalendarDates,
   getReactivationFeeRule,
@@ -382,7 +388,7 @@ export function MembersPage() {
     };
   }, [members, applyFilters, sortMembers]);
 
-  /** Active / Hold / Deactivated with birthday this month — earliest day of month first. */
+  /** Active / Hold / Deactivated with birthday this month — today's birthdays first, then by day. */
   const birthdayMembers = useMemo(() => {
     const base = applyFilters(members).filter(
       (m) =>
@@ -390,6 +396,9 @@ export function MembersPage() {
         isMemberBirthdayThisMonth(m.dob),
     );
     return [...base].sort((a, b) => {
+      const aToday = isMemberBirthdayToday(a.dob) ? 0 : 1;
+      const bToday = isMemberBirthdayToday(b.dob) ? 0 : 1;
+      if (aToday !== bToday) return aToday - bToday;
       const byDay = birthdayDayOfMonthSortKey(a.dob) - birthdayDayOfMonthSortKey(b.dob);
       if (byDay !== 0) return byDay;
       return String(a.name || "").localeCompare(String(b.name || ""));
