@@ -42,6 +42,7 @@ import { NotificationCenter } from "@/features/notifications/notification-center
 import { LateArrivalNoteHost } from "@/features/attendance/late-arrival-note-host";
 import { AppSectionTabs } from "@/components/layout/section-tabs";
 import { MobileShell } from "@/components/layout/mobile-shell";
+import { MembersTodayVisitorBadge } from "@/components/layout/members-today-visitor-badge";
 import { Skeleton } from "@/components/ui/misc";
 
 function DesktopShell({ children }: { children: React.ReactNode }) {
@@ -185,12 +186,26 @@ function DesktopShell({ children }: { children: React.ReactNode }) {
                               title={item.label}
                             >
                               <Icon className="h-4 w-4 shrink-0" />
-                              {!sidebarCollapsed ? <span className="truncate">{item.label}</span> : null}
+                              {!sidebarCollapsed ? (
+                                <span className="flex min-w-0 items-center gap-1 truncate">
+                                  <span className="truncate">{item.label}</span>
+                                  {item.href === "/members" ? (
+                                    <MembersTodayVisitorBadge />
+                                  ) : null}
+                                </span>
+                              ) : null}
                             </a>
                           ) : (
                             <Link href={item.href} className={linkClass} title={item.label}>
                               <Icon className="h-4 w-4 shrink-0" />
-                              {!sidebarCollapsed ? <span className="truncate">{item.label}</span> : null}
+                              {!sidebarCollapsed ? (
+                                <span className="flex min-w-0 items-center gap-1 truncate">
+                                  <span className="truncate">{item.label}</span>
+                                  {item.href === "/members" ? (
+                                    <MembersTodayVisitorBadge />
+                                  ) : null}
+                                </span>
+                              ) : null}
                             </Link>
                           )}
                           {!sidebarCollapsed && !item.external ? (
@@ -253,7 +268,10 @@ function DesktopShell({ children }: { children: React.ReactNode }) {
                     )}
                   >
                     <item.icon className="h-4 w-4" />
-                    {item.label}
+                    <span className="flex items-center gap-1">
+                      {item.label}
+                      {item.href === "/members" ? <MembersTodayVisitorBadge /> : null}
+                    </span>
                   </Link>
                 ))}
               </div>

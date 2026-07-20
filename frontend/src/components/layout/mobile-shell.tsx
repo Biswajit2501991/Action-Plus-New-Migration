@@ -36,6 +36,7 @@ import { HistoryControls } from "@/components/layout/history-controls";
 import { NotificationCenter } from "@/features/notifications/notification-center";
 import { LateArrivalNoteHost } from "@/features/attendance/late-arrival-note-host";
 import { MobileAccessGuard } from "@/components/layout/mobile-access-guard";
+import { MembersTodayVisitorBadge } from "@/components/layout/members-today-visitor-badge";
 
 const MOBILE_TABS = [
   { href: "/dashboard", label: "Home", mobileKey: "viewHome", icon: LayoutDashboard },
@@ -170,7 +171,12 @@ export function MobileShell({ children }: { children: React.ReactNode }) {
                 )}
               >
                 <Icon className="h-4 w-4" strokeWidth={active ? 2.25 : 1.75} />
-                <span className="truncate">{tab.label}</span>
+                <span className="inline-flex max-w-full items-center justify-center gap-0.5 truncate">
+                  <span className="truncate">{tab.label}</span>
+                  {tab.href === "/members" ? (
+                    <MembersTodayVisitorBadge compact className="max-w-[2.5rem] truncate" />
+                  ) : null}
+                </span>
               </Link>
             );
           })}

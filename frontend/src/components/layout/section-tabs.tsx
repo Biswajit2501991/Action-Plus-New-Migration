@@ -10,6 +10,7 @@ import { cn } from "@/lib/utils";
 import type { AuthUser } from "@/types";
 import { isAttendanceNotesEnabled } from "@/lib/domain/attendance";
 import { useSettings } from "@/hooks/use-data";
+import { MembersTodayVisitorBadge } from "@/components/layout/members-today-visitor-badge";
 
 function visibleSectionTabs(user: AuthUser | null | undefined) {
   return SECTION_ORDER.filter((section) => canAccessSection(user, section)).map((section) => {
@@ -58,7 +59,18 @@ export function AppSectionTabs() {
                 )}
                 strokeWidth={active ? 2.25 : 1.75}
               />
-              <span>{tab.label}</span>
+              <span className="inline-flex items-center gap-1">
+                {tab.label}
+                {tab.href === "/members" ? (
+                  <MembersTodayVisitorBadge
+                    className={
+                      active
+                        ? "text-sky-200 dark:text-slate-800"
+                        : undefined
+                    }
+                  />
+                ) : null}
+              </span>
             </>
           );
           if (tab.external) {
