@@ -48,11 +48,7 @@ export function PortalVerifyPage() {
         e instanceof Error
           ? e.message
           : "Could not load requests";
-      setError(
-        msg.includes("404")
-          ? "API not reachable (404). Redeploy may still be finishing — click Refresh."
-          : msg,
-      );
+      setError(msg);
       setItems([]);
     } finally {
       setLoading(false);

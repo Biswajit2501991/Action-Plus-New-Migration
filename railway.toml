@@ -1,0 +1,10 @@
+# API/Express service on Railway (Action-Plus-Gym-Test).
+# Root Directory must be "/" (repository root) — backend imports shared modules from src/.
+[build]
+builder = "RAILPACK"
+buildCommand = "npm ci --prefix backend"
+
+[deploy]
+startCommand = "npm --prefix backend start"
+healthcheckPath = "/api/health"
+restartPolicyType = "ON_FAILURE"

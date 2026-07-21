@@ -1,4 +1,5 @@
-# Railway: API/Express service — set Root Directory to "backend".
+# Prefer the repo-root railway.toml for the API Railway service.
+# Root Directory must be "/" because backend imports ../../src/*.
 [build]
 builder = "RAILPACK"
 buildCommand = "npm ci"
