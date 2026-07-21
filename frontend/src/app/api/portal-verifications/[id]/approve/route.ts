@@ -1,9 +1,9 @@
 import { NextResponse } from "next/server";
 import {
-  bearerFromRequest,
+  authenticateViaBackend,
   createServiceSupabase,
   gymIdFromClaims,
-  verifyStaffJwt,
+  proxyToBackend,
 } from "@/lib/portal-verify/server";
 
 export const dynamic = "force-dynamic";
@@ -12,27 +12,27 @@ export async function POST(
   req: Request,
   ctx: { params: Promise<{ id: string }> },
 ) {
-  const token = bearerFromRequest(req);
-  const claims = verifyStaffJwt(token);
-  if (!claims) {
-    return NextResponse.json(
-      { error: "unauthorized", message: "Valid login required." },
-      { status: 401 },
-    );
-  }
-
   const { id } = await ctx.params;
   if (!id) {
     return NextResponse.json({ error: "id-required" }, { status: 400 });
   }
+
+  const proxied = await proxyToBackend(
+    req,
+    `/api/portal-verifications/${encodeURIComponent(id)}/approve`,
+  );
+  if (proxied.status !== 404) return proxied;
+
+  const auth = await authenticateViaBackend(req);
+  if (!auth.ok) return auth.response;
 
   const sb = createServiceSupabase();
   if (!sb.ok) {
     return NextResponse.json({ error: sb.error }, { status: 500 });
   }
 
-  const gymId = gymIdFromClaims(claims);
-  const actor = claims.userId || "staff";
+  const gymId = gymIdFromClaims(auth.claims);
+  const actor = auth.claims.name || auth.claims.userId || "staff";
   const now = new Date().toISOString();
 
   const { data, error } = await sb.client

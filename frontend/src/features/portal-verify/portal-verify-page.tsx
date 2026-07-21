@@ -50,7 +50,7 @@ export function PortalVerifyPage() {
           : "Could not load requests";
       setError(
         msg.includes("404")
-          ? "API not reachable (404). Redeploy may still be finishing — click Refresh. If it persists, add JWT_SECRET + SUPABASE_SERVICE_ROLE_KEY on the Railway frontend service."
+          ? "API not reachable (404). Redeploy may still be finishing — click Refresh."
           : msg,
       );
       setItems([]);

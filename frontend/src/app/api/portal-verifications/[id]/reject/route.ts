@@ -1,9 +1,9 @@
 import { NextResponse } from "next/server";
 import {
-  bearerFromRequest,
+  authenticateViaBackend,
   createServiceSupabase,
   gymIdFromClaims,
-  verifyStaffJwt,
+  proxyToBackend,
 } from "@/lib/portal-verify/server";
 
 export const dynamic = "force-dynamic";
@@ -12,19 +12,32 @@ export async function POST(
   req: Request,
   ctx: { params: Promise<{ id: string }> },
 ) {
-  const token = bearerFromRequest(req);
-  const claims = verifyStaffJwt(token);
-  if (!claims) {
-    return NextResponse.json(
-      { error: "unauthorized", message: "Valid login required." },
-      { status: 401 },
-    );
-  }
-
   const { id } = await ctx.params;
   if (!id) {
     return NextResponse.json({ error: "id-required" }, { status: 400 });
   }
+
+  // Clone body for possible fallback after proxy consumes the request stream.
+  const rawBody = await req.text();
+  const proxyReq = new Request(req.url, {
+    method: "POST",
+    headers: req.headers,
+    body: rawBody || undefined,
+  });
+
+  const proxied = await proxyToBackend(
+    proxyReq,
+    `/api/portal-verifications/${encodeURIComponent(id)}/reject`,
+  );
+  if (proxied.status !== 404) return proxied;
+
+  const authReq = new Request(req.url, {
+    method: "POST",
+    headers: req.headers,
+    body: rawBody || undefined,
+  });
+  const auth = await authenticateViaBackend(authReq);
+  if (!auth.ok) return auth.response;
 
   const sb = createServiceSupabase();
   if (!sb.ok) {
@@ -33,14 +46,15 @@ export async function POST(
 
   let note = "";
   try {
-    const body = (await req.json()) as { note?: string };
-    note = String(body?.note || "").trim().slice(0, 200);
+    note = String((JSON.parse(rawBody || "{}") as { note?: string }).note || "")
+      .trim()
+      .slice(0, 200);
   } catch {
     note = "";
   }
 
-  const gymId = gymIdFromClaims(claims);
-  const actor = claims.userId || "staff";
+  const gymId = gymIdFromClaims(auth.claims);
+  const actor = auth.claims.name || auth.claims.userId || "staff";
   const now = new Date().toISOString();
 
   const { data, error } = await sb.client

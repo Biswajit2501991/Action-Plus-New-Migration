@@ -1,36 +1,32 @@
 import { NextResponse } from "next/server";
 import {
-  bearerFromRequest,
+  authenticateViaBackend,
   createServiceSupabase,
   gymIdFromClaims,
-  isOwnerClaims,
-  verifyStaffJwt,
+  proxyToBackend,
 } from "@/lib/portal-verify/server";
 
 export const dynamic = "force-dynamic";
 
-/** List pending Member Portal WhatsApp verifications (served by Next so frontend-only deploys work). */
+/** Prefer Express (correct JWT). Fall back to local Supabase if backend route is missing. */
 export async function GET(req: Request) {
-  const token = bearerFromRequest(req);
-  const claims = verifyStaffJwt(token);
-  if (!claims) {
-    return NextResponse.json(
-      { error: "unauthorized", message: "Valid login required." },
-      { status: 401 },
-    );
-  }
-  if (!isOwnerClaims(claims)) {
-    // Non-owners: allow if they have a valid staff token (same as members write intent).
-    // Granular access is enforced in UI; owners always pass.
-  }
+  const url = new URL(req.url);
+  const proxied = await proxyToBackend(
+    req,
+    `/api/portal-verifications${url.search}`,
+  );
+  if (proxied.status !== 404) return proxied;
+
+  const auth = await authenticateViaBackend(req);
+  if (!auth.ok) return auth.response;
 
   const sb = createServiceSupabase();
   if (!sb.ok) {
     return NextResponse.json({ error: sb.error }, { status: 500 });
   }
 
-  const gymId = gymIdFromClaims(claims);
-  const status = new URL(req.url).searchParams.get("status") || "pending";
+  const gymId = gymIdFromClaims(auth.claims);
+  const status = url.searchParams.get("status") || "pending";
 
   let q = sb.client
     .from("member_portal_otp_challenges")
