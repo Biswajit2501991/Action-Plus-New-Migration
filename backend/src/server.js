@@ -116,6 +116,7 @@ import publicVisitorsRouter from './routes/publicVisitors.js';
 import publicMemberStatusRouter from './routes/publicMemberStatus.js';
 import publicAttendancePresenceRouter from './routes/publicAttendancePresence.js';
 import attendancePresenceRouter from './routes/attendancePresence.js';
+import { registerMemberPortalPhase2Routes } from './routes/memberPortalPhase2.js';
 import {
   authIsOwner,
   stampBranchOnRows,
@@ -530,6 +531,9 @@ app.use('/api', bindGymContext);
 
 // Authenticated presence QR (rotate/settings) must sit after requireApiAuth so req.auth is set.
 app.use('/api/attendance/presence', attendancePresenceRouter);
+
+// Member Portal Phase 2: member QR check-in, portal chat, billing push settings
+registerMemberPortalPhase2Routes(app, { appendAuditLog });
 
 // Phase 2 gym-codes feature: list is authenticated-only, write is owner-only (inside the router).
 app.use('/api/gym-codes', gymCodesRouter);
