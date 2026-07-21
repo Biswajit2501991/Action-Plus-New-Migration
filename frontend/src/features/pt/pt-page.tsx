@@ -222,15 +222,17 @@ export function PtPage() {
                     const nextMap = { ...savedFocusByDate };
                     if (!focus) delete nextMap[workoutDateKey];
                     else nextMap[workoutDateKey] = focus;
-                    return saveProfilePatch(
-                      memberId,
-                      {
-                        focusByDate: nextMap,
-                        focusArea: nextMap[workoutDateKey] || profile.focusArea || "",
-                      },
-                      "workout",
-                      "focusSchedule",
-                      "Workout schedule saved successfully",
+                    return Boolean(
+                      await saveProfilePatch(
+                        memberId,
+                        {
+                          focusByDate: nextMap,
+                          focusArea: nextMap[workoutDateKey] || profile.focusArea || "",
+                        },
+                        "workout",
+                        "focusSchedule",
+                        "Workout schedule saved successfully",
+                      ),
                     );
                   }}
                   workoutNotesDraft={workoutNotesDraft}
@@ -335,12 +337,14 @@ export function PtPage() {
                       },
                       ...(profile.chat || []),
                     ].slice(0, 100);
-                    return saveProfilePatch(
-                      memberId,
-                      { chat: next, lastChatAt: new Date().toISOString() },
-                      "workout",
-                      "chat",
-                      "Trainer note saved successfully",
+                    return Boolean(
+                      await saveProfilePatch(
+                        memberId,
+                        { chat: next, lastChatAt: new Date().toISOString() },
+                        "workout",
+                        "chat",
+                        "Trainer note saved successfully",
+                      ),
                     );
                   }}
                 />
@@ -360,12 +364,14 @@ export function PtPage() {
                       },
                       ...(profile.sessions || []),
                     ].slice(0, 120);
-                    return saveProfilePatch(
-                      memberId,
-                      { sessions: next },
-                      "workout",
-                      "session",
-                      "Session saved successfully",
+                    return Boolean(
+                      await saveProfilePatch(
+                        memberId,
+                        { sessions: next },
+                        "workout",
+                        "session",
+                        "Session saved successfully",
+                      ),
                     );
                   }}
                 />
@@ -388,12 +394,14 @@ export function PtPage() {
                     ]
                       .sort((a, b) => String(b.date || "").localeCompare(String(a.date || "")))
                       .slice(0, 200);
-                    return saveProfilePatch(
-                      memberId,
-                      { weightLogs: next },
-                      "workout",
-                      "weight",
-                      "Weight saved successfully",
+                    return Boolean(
+                      await saveProfilePatch(
+                        memberId,
+                        { weightLogs: next },
+                        "workout",
+                        "weight",
+                        "Weight saved successfully",
+                      ),
                     );
                   }}
                 />

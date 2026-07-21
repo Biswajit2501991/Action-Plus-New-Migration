@@ -193,15 +193,17 @@ export function MobilePt() {
                 const nextMap = { ...savedFocusByDate };
                 if (!focus) delete nextMap[workoutDateKey];
                 else nextMap[workoutDateKey] = focus;
-                return saveProfilePatch(
-                  selected.memberId,
-                  {
-                    focusByDate: nextMap,
-                    focusArea: nextMap[workoutDateKey] || profile.focusArea || "",
-                  },
-                  "workout",
-                  "focusSchedule",
-                  "Workout schedule saved successfully",
+                return Boolean(
+                  await saveProfilePatch(
+                    selected.memberId,
+                    {
+                      focusByDate: nextMap,
+                      focusArea: nextMap[workoutDateKey] || profile.focusArea || "",
+                    },
+                    "workout",
+                    "focusSchedule",
+                    "Workout schedule saved successfully",
+                  ),
                 );
               }}
               workoutNotesDraft={workoutNotesDraft}
