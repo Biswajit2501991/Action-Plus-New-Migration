@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { Check, RefreshCw, X } from "lucide-react";
+import { Check, RefreshCw, ShieldOff, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { apiFetch } from "@/services/api/client";
 import { formatDate } from "@/lib/utils";
@@ -30,7 +30,8 @@ export function PortalVerifyPage() {
     canAccessSection(user, "Members");
   const canApprove = hasAccess(user, "members", "editMembers");
 
-  const [items, setItems] = useState<PortalVerifyItem[]>([]);
+  const [pending, setPending] = useState<PortalVerifyItem[]>([]);
+  const [approved, setApproved] = useState<PortalVerifyItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [busyId, setBusyId] = useState<string | null>(null);
@@ -39,17 +40,29 @@ export function PortalVerifyPage() {
     setLoading(true);
     setError(null);
     try {
-      const data = await apiFetch<{ ok?: boolean; items?: PortalVerifyItem[] }>(
-        "/portal-verifications?status=pending",
-      );
-      setItems(Array.isArray(data.items) ? data.items : []);
+      const [pendingRes, approvedRes] = await Promise.all([
+        apiFetch<{ ok?: boolean; items?: PortalVerifyItem[] }>(
+          "/portal-verifications?status=pending",
+        ),
+        apiFetch<{ ok?: boolean; items?: PortalVerifyItem[] }>(
+          "/portal-verifications?status=approved",
+        ),
+      ]);
+      setPending(Array.isArray(pendingRes.items) ? pendingRes.items : []);
+      // One row per member (latest approval first — API already orders desc).
+      const seen = new Set<string>();
+      const approvedDeduped: PortalVerifyItem[] = [];
+      for (const row of Array.isArray(approvedRes.items) ? approvedRes.items : []) {
+        const key = row.memberUuid || row.id;
+        if (seen.has(key)) continue;
+        seen.add(key);
+        approvedDeduped.push(row);
+      }
+      setApproved(approvedDeduped);
     } catch (e) {
-      const msg =
-        e instanceof Error
-          ? e.message
-          : "Could not load requests";
-      setError(msg);
-      setItems([]);
+      setError(e instanceof Error ? e.message : "Could not load requests");
+      setPending([]);
+      setApproved([]);
     } finally {
       setLoading(false);
     }
@@ -104,8 +117,30 @@ export function PortalVerifyPage() {
     }
   }
 
+  async function revoke(id: string, name: string | null) {
+    if (
+      !window.confirm(
+        `Revoke portal access for ${name || "this member"}? They will be logged out and must verify via WhatsApp again.`,
+      )
+    ) {
+      return;
+    }
+    setBusyId(id);
+    try {
+      await apiFetch(`/portal-verifications/${encodeURIComponent(id)}/revoke`, {
+        method: "POST",
+        body: "{}",
+      });
+      await load();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Revoke failed");
+    } finally {
+      setBusyId(null);
+    }
+  }
+
   return (
-    <div className="mx-auto max-w-4xl space-y-4 p-4 md:p-6">
+    <div className="mx-auto max-w-4xl space-y-6 p-4 md:p-6">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
           <h1 className="text-xl font-semibold tracking-tight">WhatsApp Verification</h1>
@@ -129,20 +164,99 @@ export function PortalVerifyPage() {
         </p>
       ) : null}
 
-      {loading && !items.length ? (
+      {loading && !pending.length && !approved.length ? (
         <p className="text-sm text-muted-foreground">Loading…</p>
       ) : null}
 
-      {!loading && items.length === 0 ? (
-        <div className="rounded-xl border border-dashed border-border px-4 py-10 text-center text-sm text-muted-foreground">
-          No pending verification requests.
+      <section className="space-y-3">
+        <div className="flex items-baseline justify-between gap-2">
+          <h2 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">
+            Pending
+          </h2>
+          <span className="text-xs text-muted-foreground">{pending.length}</span>
         </div>
-      ) : null}
+        {!loading && pending.length === 0 ? (
+          <div className="rounded-xl border border-dashed border-border px-4 py-8 text-center text-sm text-muted-foreground">
+            No pending verification requests.
+          </div>
+        ) : null}
+        <ul className="space-y-3">
+          {pending.map((item) => {
+            const expired = new Date(item.expiresAt).getTime() < Date.now();
+            return (
+              <li
+                key={item.id}
+                className="rounded-xl border border-border bg-card px-4 py-3 shadow-sm"
+              >
+                <div className="flex flex-wrap items-start justify-between gap-3">
+                  <div className="min-w-0 space-y-1">
+                    <p className="font-semibold">
+                      {item.fullName || "Unknown member"}{" "}
+                      <span className="text-xs font-normal text-muted-foreground">
+                        {item.memberCode || ""}
+                      </span>
+                    </p>
+                    <p className="text-sm">
+                      Mobile: <span className="font-mono">{item.mobile || "—"}</span>
+                    </p>
+                    <p className="text-xs text-muted-foreground">
+                      Status: {item.membershipStatus || "—"} · Requested{" "}
+                      {formatDate(item.createdAt)}
+                      {expired ? " · Expired" : ""}
+                    </p>
+                    {item.otpForStaff ? (
+                      <p className="text-xs">
+                        Staff OTP ref:{" "}
+                        <span className="font-mono font-semibold tracking-wider">
+                          {item.otpForStaff}
+                        </span>
+                      </p>
+                    ) : null}
+                  </div>
+                  {canApprove && !expired ? (
+                    <div className="flex gap-2">
+                      <Button
+                        type="button"
+                        size="sm"
+                        disabled={busyId === item.id}
+                        onClick={() => void approve(item.id)}
+                      >
+                        <Check className="mr-1 h-3.5 w-3.5" />
+                        Approve
+                      </Button>
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="outline"
+                        disabled={busyId === item.id}
+                        onClick={() => void reject(item.id)}
+                      >
+                        <X className="mr-1 h-3.5 w-3.5" />
+                        Reject
+                      </Button>
+                    </div>
+                  ) : null}
+                </div>
+              </li>
+            );
+          })}
+        </ul>
+      </section>
 
-      <ul className="space-y-3">
-        {items.map((item) => {
-          const expired = new Date(item.expiresAt).getTime() < Date.now();
-          return (
+      <section className="space-y-3">
+        <div className="flex items-baseline justify-between gap-2">
+          <h2 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">
+            Approved
+          </h2>
+          <span className="text-xs text-muted-foreground">{approved.length}</span>
+        </div>
+        {!loading && approved.length === 0 ? (
+          <div className="rounded-xl border border-dashed border-border px-4 py-8 text-center text-sm text-muted-foreground">
+            No approved members yet.
+          </div>
+        ) : null}
+        <ul className="space-y-3">
+          {approved.map((item) => (
             <li
               key={item.id}
               className="rounded-xl border border-border bg-card px-4 py-3 shadow-sm"
@@ -159,47 +273,27 @@ export function PortalVerifyPage() {
                     Mobile: <span className="font-mono">{item.mobile || "—"}</span>
                   </p>
                   <p className="text-xs text-muted-foreground">
-                    Status: {item.membershipStatus || "—"} · Requested{" "}
-                    {formatDate(item.createdAt)}
-                    {expired ? " · Expired" : ""}
+                    Approved {item.approvedAt ? formatDate(item.approvedAt) : formatDate(item.createdAt)}
+                    {item.approvedBy ? ` · by ${item.approvedBy}` : ""}
                   </p>
-                  {item.otpForStaff ? (
-                    <p className="text-xs">
-                      Staff OTP ref:{" "}
-                      <span className="font-mono font-semibold tracking-wider">
-                        {item.otpForStaff}
-                      </span>
-                    </p>
-                  ) : null}
                 </div>
-                {canApprove && !expired ? (
-                  <div className="flex gap-2">
-                    <Button
-                      type="button"
-                      size="sm"
-                      disabled={busyId === item.id}
-                      onClick={() => void approve(item.id)}
-                    >
-                      <Check className="mr-1 h-3.5 w-3.5" />
-                      Approve
-                    </Button>
-                    <Button
-                      type="button"
-                      size="sm"
-                      variant="outline"
-                      disabled={busyId === item.id}
-                      onClick={() => void reject(item.id)}
-                    >
-                      <X className="mr-1 h-3.5 w-3.5" />
-                      Reject
-                    </Button>
-                  </div>
+                {canApprove ? (
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="outline"
+                    disabled={busyId === item.id}
+                    onClick={() => void revoke(item.id, item.fullName)}
+                  >
+                    <ShieldOff className="mr-1 h-3.5 w-3.5" />
+                    Revoke
+                  </Button>
                 ) : null}
               </div>
             </li>
-          );
-        })}
-      </ul>
+          ))}
+        </ul>
+      </section>
     </div>
   );
 }

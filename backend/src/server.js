@@ -982,6 +982,79 @@ app.post('/api/portal-verifications/:id/reject', requireAccess(Access.membersWri
   }
 });
 
+/** Revoke portal access after WhatsApp approval: logout devices, clear PIN, require re-verify. */
+app.post('/api/portal-verifications/:id/revoke', requireAccess(Access.membersWrite), async (req, res) => {
+  const id = String(req.params.id || '').trim();
+  if (!id) return res.status(400).json({ error: 'id-required' });
+  try {
+    const { getSupabase, gymId } = await import('./db/supabase/client.js');
+    const sb = getSupabase();
+    const gid = gymId() || req.auth?.gymId;
+    if (!sb || !gid) return res.status(500).json({ error: 'supabase-unavailable' });
+    const actor = req.auth?.name || req.auth?.userId || 'staff';
+    const now = new Date().toISOString();
+
+    const { data: challenge, error: findErr } = await sb
+      .from('member_portal_otp_challenges')
+      .select('id, member_uuid, mobile_normalized, staff_status')
+      .eq('id', id)
+      .eq('gym_id', gid)
+      .eq('verification_channel', 'whatsapp_staff')
+      .maybeSingle();
+    if (findErr) return res.status(500).json({ error: findErr.message });
+    if (!challenge) return res.status(404).json({ error: 'not-found' });
+    if (challenge.staff_status !== 'approved') {
+      return res.status(400).json({ error: 'not-approved', message: 'Only approved verifications can be revoked.' });
+    }
+
+    const memberUuid = challenge.member_uuid;
+    await sb
+      .from('member_portal_devices')
+      .update({ revoked_at: now })
+      .eq('member_uuid', memberUuid)
+      .is('revoked_at', null);
+    await sb
+      .from('member_portal_sessions')
+      .update({ revoked_at: now })
+      .eq('member_uuid', memberUuid)
+      .is('revoked_at', null);
+
+    await sb
+      .from('members')
+      .update({
+        pin_hash: null,
+        portal_status: 'revoked',
+        portal_activated_at: null,
+        updated_at: now,
+      })
+      .eq('gym_id', gid)
+      .eq('member_uuid', memberUuid)
+      .is('deleted_at', null);
+
+    const { error: chErr } = await sb
+      .from('member_portal_otp_challenges')
+      .update({
+        staff_status: 'rejected',
+        staff_rejected_at: now,
+        staff_rejected_by: actor,
+        staff_note: 'access revoked by staff — member must re-verify',
+      })
+      .eq('id', id)
+      .eq('gym_id', gid);
+    if (chErr) return res.status(500).json({ error: chErr.message });
+
+    await appendAuditLog(req, {
+      action: 'member.portal.whatsapp_revoked',
+      entityType: 'member_portal_otp',
+      entityId: id,
+      after: { memberUuid, mobile: challenge.mobile_normalized },
+    });
+    return res.json({ ok: true });
+  } catch (err) {
+    return res.status(500).json({ error: err?.message || 'revoke-failed' });
+  }
+});
+
 /**
  * Owner-only surgical payment delete. Persists to member_payment_history immediately
  * (no debounced full-members bulk). Returns 404 when the row is not found after DB sync.
