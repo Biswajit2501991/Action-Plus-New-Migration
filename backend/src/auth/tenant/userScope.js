@@ -9,21 +9,37 @@ import {
 
 const PROTECTED_STAFF_IDS = new Set(['bis', 'raja', 'owner']);
 
+/** Primary gymCodeId plus assignedBranchIds — any match counts for list scope. */
+function userMatchesReadBranches(user, allowed) {
+  const ids = new Set();
+  const primary = String(user?.gymCodeId || '').trim();
+  if (primary) ids.add(primary);
+  for (const id of Array.isArray(user?.assignedBranchIds) ? user.assignedBranchIds : []) {
+    const s = String(id || '').trim();
+    if (s) ids.add(s);
+  }
+  for (const id of ids) {
+    if (allowed.has(id)) return true;
+  }
+  return false;
+}
+
+/**
+ * Staff list scope for the active branch.
+ * Seed logins (bis/raja/owner) stay Master-only so Branch Owners cannot manage them,
+ * but Masters only see them when assigned to the selected branch.
+ */
 export function filterUsersForAuth(users, auth) {
   const list = Array.isArray(users) ? users : [];
   const readIds = resolveReadBranchIds(auth);
   if (readIds === null) return list;
   const allowed = new Set(readIds);
   if (!allowed.size) return [];
-  const masterCanSeeProtected = authHasGlobalBranchRead(auth);
+  const isMasterViewer = authHasGlobalBranchRead(auth);
   return list.filter((u) => {
     const login = String(u?.id || '').trim().toLowerCase();
-    if (PROTECTED_STAFF_IDS.has(login)) return masterCanSeeProtected;
-    if (normalizeStaffRole(u?.staffRole, u?.id) === STAFF_ROLES.MASTER_OWNER) {
-      return masterCanSeeProtected;
-    }
-    const branch = String(u?.gymCodeId || '').trim();
-    return branch && allowed.has(branch);
+    if (PROTECTED_STAFF_IDS.has(login) && !isMasterViewer) return false;
+    return userMatchesReadBranches(u, allowed);
   });
 }
 

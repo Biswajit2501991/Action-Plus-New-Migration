@@ -58,5 +58,8 @@
     "axe-core": "^4.11.4",
     "jsdom": "^29.1.1",
     "vitest": "^2.1.9"
+  },
+  "dependencies": {
+    "dotenv": "^17.4.2"
   }
 }
