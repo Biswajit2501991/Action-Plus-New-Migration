@@ -44,18 +44,35 @@ export async function proxyToBackend(req: Request, backendPath: string) {
     cache: "no-store",
   };
   if (req.method !== "GET" && req.method !== "HEAD") {
-    const body = await req.text();
-    if (body) init.body = body;
+    try {
+      const body = await req.text();
+      if (body) init.body = body;
+    } catch {
+      // no body
+    }
   }
 
-  const res = await fetch(target, init);
-  const text = await res.text();
-  return new NextResponse(text || null, {
-    status: res.status,
-    headers: {
-      "content-type": res.headers.get("content-type") || "application/json",
-    },
-  });
+  try {
+    const res = await fetch(target, init);
+    const text = await res.text();
+    return new NextResponse(text || null, {
+      status: res.status,
+      headers: {
+        "content-type": res.headers.get("content-type") || "application/json",
+      },
+    });
+  } catch (err) {
+    return NextResponse.json(
+      {
+        error: "backend-unreachable",
+        message:
+          err instanceof Error
+            ? `API_PROXY_TARGET unreachable: ${err.message}`
+            : "API_PROXY_TARGET unreachable",
+      },
+      { status: 502 },
+    );
+  }
 }
 
 /**
@@ -95,7 +112,6 @@ export async function authenticateViaBackend(
       };
     }
     if (!res.ok) {
-      // Do NOT return 401 — that clears the browser session via apiFetch.
       return {
         ok: false,
         response: NextResponse.json(
@@ -174,7 +190,7 @@ export function createServiceSupabase():
     return {
       ok: false,
       error:
-        "Missing SUPABASE_URL / SUPABASE_SERVICE_ROLE_KEY on the frontend Railway service.",
+        "Add SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY on the Railway frontend service (copy the same values from your API/backend service Variables), then Redeploy.",
     };
   }
   return {

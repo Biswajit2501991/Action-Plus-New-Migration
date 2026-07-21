@@ -8,7 +8,7 @@ import {
 
 export const dynamic = "force-dynamic";
 
-/** Prefer Express (correct JWT). Fall back to local Supabase if backend route is missing. */
+/** Prefer Express. If the API service is missing this route, use Supabase on Next. */
 export async function GET(req: Request) {
   const url = new URL(req.url);
   const proxied = await proxyToBackend(
@@ -22,7 +22,7 @@ export async function GET(req: Request) {
 
   const sb = createServiceSupabase();
   if (!sb.ok) {
-    return NextResponse.json({ error: sb.error }, { status: 500 });
+    return NextResponse.json({ error: sb.error, message: sb.error }, { status: 500 });
   }
 
   const gymId = gymIdFromClaims(auth.claims);

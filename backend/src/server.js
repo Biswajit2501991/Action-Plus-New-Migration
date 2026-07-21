@@ -851,6 +851,7 @@ app.post('/api/members/:memberId/portal/revoke-devices', requireAccess(Access.me
 });
 
 /** Pending Member Portal WhatsApp verifications for staff approval. */
+/** Member Portal WhatsApp staff approval queue (also exposed in /api/health features.portalVerifications). */
 app.get('/api/portal-verifications', requireAccess(Access.membersWrite), async (req, res) => {
   try {
     const { getSupabase, gymId } = await import('./db/supabase/client.js');

@@ -28,7 +28,7 @@ export async function POST(
 
   const sb = createServiceSupabase();
   if (!sb.ok) {
-    return NextResponse.json({ error: sb.error }, { status: 500 });
+    return NextResponse.json({ error: sb.error, message: sb.error }, { status: 500 });
   }
 
   const gymId = gymIdFromClaims(auth.claims);

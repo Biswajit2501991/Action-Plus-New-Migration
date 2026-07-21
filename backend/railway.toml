@@ -1,0 +1,9 @@
+# Railway: API/Express service — set Root Directory to "backend".
+[build]
+builder = "RAILPACK"
+buildCommand = "npm ci"
+
+[deploy]
+startCommand = "npm start"
+healthcheckPath = "/api/health"
+restartPolicyType = "ON_FAILURE"
