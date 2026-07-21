@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useRef, useState } from "react";
-import { useQueryClient } from "@tanstack/react-query";
+import { useQueryClient, type QueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { buildPtProfilePatch } from "@/lib/domain/pt-drafts";
 import { ptApi } from "@/services/api";
@@ -9,6 +9,9 @@ import type { AppSettings } from "@/types";
 import type { PtClientProfile, PtSaveMode } from "@/types/pt";
 
 const BACKEND_DEBOUNCE_MS = 2500;
+
+/** Must match useSettings() keys like ["settings", "default"] — never write only ["settings"]. */
+const SETTINGS_QUERY_PREFIX = ["settings"] as const;
 
 function mergePtProfileResponse(
   local: PtClientProfile,
@@ -41,6 +44,39 @@ function ptSaveErrorMessage(err: unknown) {
   return "Could not save PT client changes. Try again or contact owner.";
 }
 
+function readCachedPtProfile(qc: QueryClient, memberId: string): PtClientProfile {
+  const entries = qc.getQueriesData<AppSettings>({ queryKey: SETTINGS_QUERY_PREFIX });
+  for (const [, data] of entries) {
+    const map = data?.ptClientProfiles;
+    if (map && typeof map === "object" && memberId in (map as object)) {
+      return ((map as Record<string, PtClientProfile>)[memberId] || {}) as PtClientProfile;
+    }
+  }
+  for (const [, data] of entries) {
+    if (data) return {} as PtClientProfile;
+  }
+  return {} as PtClientProfile;
+}
+
+/** Update every settings-* cache entry (default/pt/leave/…) without wiping other keys. */
+function writeCachedPtProfile(
+  qc: QueryClient,
+  memberId: string,
+  nextProfile: PtClientProfile,
+) {
+  qc.setQueriesData<AppSettings>({ queryKey: SETTINGS_QUERY_PREFIX }, (prev) => {
+    if (!prev) return prev;
+    const base =
+      prev.ptClientProfiles && typeof prev.ptClientProfiles === "object"
+        ? (prev.ptClientProfiles as Record<string, PtClientProfile>)
+        : {};
+    return {
+      ...prev,
+      ptClientProfiles: { ...base, [memberId]: nextProfile },
+    };
+  });
+}
+
 export function usePtProfile(actorName = "") {
   const qc = useQueryClient();
   const saveTimersRef = useRef<Record<string, ReturnType<typeof setTimeout>>>({});
@@ -48,85 +84,60 @@ export function usePtProfile(actorName = "") {
 
   const updateLocalProfile = useCallback(
     (memberId: string, nextProfile: PtClientProfile) => {
-      qc.setQueryData<AppSettings>(["settings"], (prev) => {
-        if (!prev) return prev;
-        const base = prev.ptClientProfiles && typeof prev.ptClientProfiles === "object"
-          ? (prev.ptClientProfiles as Record<string, PtClientProfile>)
-          : {};
-        return {
-          ...prev,
-          ptClientProfiles: { ...base, [memberId]: nextProfile },
-        };
-      });
+      writeCachedPtProfile(qc, memberId, nextProfile);
     },
     [qc],
   );
 
   const scheduleBackendSave = useCallback(
-  (
-    memberId: string,
-    profile: PtClientProfile,
-    mode: PtSaveMode,
-    opts: { immediate?: boolean; waitForBackend?: boolean; silentErrors?: boolean } = {},
-  ) => {
-    const runSave = async () => {
-      const resp = await ptApi.patchProfile(memberId, profile, mode);
-      const saved = (resp?.profile || null) as PtClientProfile | null;
-      if (!saved) throw new Error("empty_profile_response");
-      qc.setQueryData<AppSettings>(["settings"], (prev) => {
-        if (!prev) return prev;
-        const base = prev.ptClientProfiles && typeof prev.ptClientProfiles === "object"
-          ? (prev.ptClientProfiles as Record<string, PtClientProfile>)
-          : {};
-        const local = base[memberId] || {};
-        return {
-          ...prev,
-          ptClientProfiles: { ...base, [memberId]: mergePtProfileResponse(local, saved) },
-        };
-      });
-      return saved;
-    };
+    (
+      memberId: string,
+      profile: PtClientProfile,
+      mode: PtSaveMode,
+      opts: { immediate?: boolean; waitForBackend?: boolean; silentErrors?: boolean } = {},
+    ) => {
+      const runSave = async () => {
+        const resp = await ptApi.patchProfile(memberId, profile, mode);
+        const saved = (resp?.profile || null) as PtClientProfile | null;
+        if (!saved) throw new Error("empty_profile_response");
+        const local = readCachedPtProfile(qc, memberId);
+        writeCachedPtProfile(qc, memberId, mergePtProfileResponse(local, saved));
+        return saved;
+      };
 
-    if (saveTimersRef.current[memberId]) clearTimeout(saveTimersRef.current[memberId]);
+      if (saveTimersRef.current[memberId]) clearTimeout(saveTimersRef.current[memberId]);
 
-    const delay = opts.immediate ? 0 : BACKEND_DEBOUNCE_MS;
+      const delay = opts.immediate ? 0 : BACKEND_DEBOUNCE_MS;
 
-    if (opts.waitForBackend) {
-      if (delay <= 0) return runSave();
-      return new Promise<PtClientProfile | void>((resolve, reject) => {
-        saveTimersRef.current[memberId] = setTimeout(() => {
-          runSave().then(resolve).catch(reject);
-        }, delay);
-      });
-    }
+      if (opts.waitForBackend) {
+        if (delay <= 0) return runSave();
+        return new Promise<PtClientProfile | void>((resolve, reject) => {
+          saveTimersRef.current[memberId] = setTimeout(() => {
+            runSave().then(resolve).catch(reject);
+          }, delay);
+        });
+      }
 
-    const fire = () => {
-      runSave().catch((err) => {
-        if (!opts.silentErrors) toast.error(ptSaveErrorMessage(err));
-      });
-    };
+      const fire = () => {
+        runSave().catch((err) => {
+          if (!opts.silentErrors) toast.error(ptSaveErrorMessage(err));
+        });
+      };
 
-    if (delay <= 0) fire();
-    else saveTimersRef.current[memberId] = setTimeout(fire, delay);
-    return Promise.resolve();
-  },
-  [qc],
-);
+      if (delay <= 0) fire();
+      else saveTimersRef.current[memberId] = setTimeout(fire, delay);
+      return Promise.resolve();
+    },
+    [qc],
+  );
 
   const persistProfile = useCallback(
     (memberId: string, patch: Partial<PtClientProfile>, mode: PtSaveMode = "workout") => {
       if (!memberId) return;
-      let nextProfile: PtClientProfile | null = null;
-      qc.setQueryData<AppSettings>(["settings"], (prev) => {
-        if (!prev) return prev;
-        const base = prev.ptClientProfiles && typeof prev.ptClientProfiles === "object"
-          ? (prev.ptClientProfiles as Record<string, PtClientProfile>)
-          : {};
-        const prevProfile = base[memberId] || {};
-        nextProfile = buildPtProfilePatch(prevProfile, patch, actorName);
-        return { ...prev, ptClientProfiles: { ...base, [memberId]: nextProfile } };
-      });
-      if (nextProfile) scheduleBackendSave(memberId, nextProfile, mode);
+      const prevProfile = readCachedPtProfile(qc, memberId);
+      const nextProfile = buildPtProfilePatch(prevProfile, patch, actorName);
+      writeCachedPtProfile(qc, memberId, nextProfile);
+      scheduleBackendSave(memberId, nextProfile, mode);
     },
     [actorName, qc, scheduleBackendSave],
   );
@@ -141,24 +152,15 @@ export function usePtProfile(actorName = "") {
     ) => {
       if (!memberId || !sectionKey || sectionSaving[sectionKey]) return false;
       setSectionSaving((prev) => ({ ...prev, [sectionKey]: true }));
-      let nextProfile: PtClientProfile | null = null;
       try {
-        qc.setQueryData<AppSettings>(["settings"], (prev) => {
-          if (!prev) return prev;
-          const base = prev.ptClientProfiles && typeof prev.ptClientProfiles === "object"
-            ? (prev.ptClientProfiles as Record<string, PtClientProfile>)
-            : {};
-          const prevProfile = base[memberId] || {};
-          nextProfile = buildPtProfilePatch(prevProfile, patch, actorName);
-          return { ...prev, ptClientProfiles: { ...base, [memberId]: nextProfile } };
+        const prevProfile = readCachedPtProfile(qc, memberId);
+        const nextProfile = buildPtProfilePatch(prevProfile, patch, actorName);
+        writeCachedPtProfile(qc, memberId, nextProfile);
+        await scheduleBackendSave(memberId, nextProfile, mode, {
+          immediate: true,
+          waitForBackend: true,
+          silentErrors: true,
         });
-        if (nextProfile) {
-          await scheduleBackendSave(memberId, nextProfile, mode, {
-            immediate: true,
-            waitForBackend: true,
-            silentErrors: true,
-          });
-        }
         toast.success(successMessage);
         return true;
       } catch (err) {
