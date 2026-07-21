@@ -19,6 +19,7 @@
     "@dnd-kit/sortable": "^10.0.0",
     "@dnd-kit/utilities": "^3.2.2",
     "@hookform/resolvers": "^5.4.0",
+    "@supabase/supabase-js": "^2.110.7",
     "@tanstack/query-sync-storage-persister": "^5.101.2",
     "@tanstack/react-query": "^5.101.2",
     "@tanstack/react-query-persist-client": "^5.101.2",

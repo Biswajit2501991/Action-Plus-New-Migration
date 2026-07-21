@@ -44,7 +44,15 @@ export function PortalVerifyPage() {
       );
       setItems(Array.isArray(data.items) ? data.items : []);
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Could not load requests");
+      const msg =
+        e instanceof Error
+          ? e.message
+          : "Could not load requests";
+      setError(
+        msg.includes("404")
+          ? "API not reachable (404). Redeploy may still be finishing — click Refresh. If it persists, add JWT_SECRET + SUPABASE_SERVICE_ROLE_KEY on the Railway frontend service."
+          : msg,
+      );
       setItems([]);
     } finally {
       setLoading(false);
