@@ -776,6 +776,80 @@ app.patch('/api/members/:memberId', requireAccess(Access.membersWrite), async (r
   }
 });
 
+/** Rotate membership QR token used by Member Portal digital card. */
+app.post('/api/members/:memberId/portal/rotate-qr', requireAccess(Access.membersWrite), async (req, res) => {
+  const memberCode = decodeURIComponent(String(req.params.memberId || '').trim());
+  if (!memberCode) return res.status(400).json({ error: 'member-code-required' });
+  try {
+    const { getSupabase, gymId } = await import('./db/supabase/client.js');
+    const crypto = await import('node:crypto');
+    const sb = getSupabase();
+    const gid = gymId() || req.auth?.gymId;
+    if (!sb || !gid) return res.status(500).json({ error: 'supabase-unavailable' });
+    const qrToken = crypto.randomBytes(32).toString('hex');
+    const { data, error } = await sb
+      .from('members')
+      .update({ qr_token: qrToken, updated_at: new Date().toISOString() })
+      .eq('gym_id', gid)
+      .eq('member_code', memberCode)
+      .is('deleted_at', null)
+      .select('member_code, member_uuid, qr_token')
+      .maybeSingle();
+    if (error) return res.status(500).json({ error: error.message });
+    if (!data) return res.status(404).json({ error: 'member-not-found' });
+    await appendAuditLog(req, {
+      action: 'member.portal.qr_rotated',
+      entityType: 'member',
+      entityId: memberCode,
+      after: { memberId: memberCode },
+    });
+    return res.json({ ok: true, memberCode, memberUuid: data.member_uuid });
+  } catch (err) {
+    return res.status(500).json({ error: err?.message || 'rotate-qr-failed' });
+  }
+});
+
+/** Revoke all Member Portal devices + sessions for a member. */
+app.post('/api/members/:memberId/portal/revoke-devices', requireAccess(Access.membersWrite), async (req, res) => {
+  const memberCode = decodeURIComponent(String(req.params.memberId || '').trim());
+  if (!memberCode) return res.status(400).json({ error: 'member-code-required' });
+  try {
+    const { getSupabase, gymId } = await import('./db/supabase/client.js');
+    const sb = getSupabase();
+    const gid = gymId() || req.auth?.gymId;
+    if (!sb || !gid) return res.status(500).json({ error: 'supabase-unavailable' });
+    const { data: member, error: findErr } = await sb
+      .from('members')
+      .select('member_uuid, member_code')
+      .eq('gym_id', gid)
+      .eq('member_code', memberCode)
+      .is('deleted_at', null)
+      .maybeSingle();
+    if (findErr) return res.status(500).json({ error: findErr.message });
+    if (!member?.member_uuid) return res.status(404).json({ error: 'member-not-found' });
+    const now = new Date().toISOString();
+    await sb
+      .from('member_portal_devices')
+      .update({ revoked_at: now })
+      .eq('member_uuid', member.member_uuid)
+      .is('revoked_at', null);
+    await sb
+      .from('member_portal_sessions')
+      .update({ revoked_at: now })
+      .eq('member_uuid', member.member_uuid)
+      .is('revoked_at', null);
+    await appendAuditLog(req, {
+      action: 'member.portal.devices_revoked',
+      entityType: 'member',
+      entityId: memberCode,
+      after: { memberId: memberCode },
+    });
+    return res.json({ ok: true });
+  } catch (err) {
+    return res.status(500).json({ error: err?.message || 'revoke-devices-failed' });
+  }
+});
+
 /**
  * Owner-only surgical payment delete. Persists to member_payment_history immediately
  * (no debounced full-members bulk). Returns 404 when the row is not found after DB sync.

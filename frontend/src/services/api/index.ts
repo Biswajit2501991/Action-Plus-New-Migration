@@ -73,6 +73,16 @@ export const membersApi = {
       method: "PATCH",
       body: JSON.stringify({ patch }),
     }),
+  rotatePortalQr: (id: string) =>
+    apiFetch<{ ok?: boolean }>(`/members/${encodeURIComponent(id)}/portal/rotate-qr`, {
+      method: "POST",
+      body: "{}",
+    }),
+  revokePortalDevices: (id: string) =>
+    apiFetch<{ ok?: boolean }>(`/members/${encodeURIComponent(id)}/portal/revoke-devices`, {
+      method: "POST",
+      body: "{}",
+    }),
   remove: (id: string) =>
     apiFetch<{ ok?: boolean }>(`/members/${encodeURIComponent(id)}`, { method: "DELETE" }),
   /** Prefer POST — member codes can contain `/` and break path DELETE. */

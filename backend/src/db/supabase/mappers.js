@@ -14,6 +14,8 @@ export const MEMBER_LIST_COLUMNS = [
   'parent_guardian_dob', 'family_group_id', 'family_primary_member_id', 'last_sms_sent_json',
   'updated_by', 'assigned_gym_code_id', 'created_at', 'updated_at',
   'photo_version', 'photo_path', 'photo_url',
+  'member_uuid', 'portal_enabled', 'portal_status', 'qr_token', 'pin_hash',
+  'portal_activated_at', 'last_portal_login_at',
 ].join(',');
 
 /** Audit log columns for list pulls — excludes before/after JSON blobs. */
@@ -66,6 +68,12 @@ export function memberRowToApp(row, children = {}, options = {}) {
     updatedAt: row.updated_at,
     photoVersion: Number(row.photo_version || 0),
     hasPhoto: Boolean(String(row.photo_path || '').trim() || String(row.photo_url || '').trim()),
+    memberUuid: row.member_uuid || null,
+    portalEnabled: row.portal_enabled !== false,
+    portalStatus: row.portal_status || 'pending',
+    portalActivatedAt: row.portal_activated_at || null,
+    lastPortalLoginAt: row.last_portal_login_at || null,
+    hasPortalPin: Boolean(row.pin_hash),
   };
   if (slim) {
     return {
@@ -160,6 +168,13 @@ export function appMemberToRow(m, gymId, options = {}) {
     created_at: createdAt,
     updated_at: updatedAt,
   };
+  if (Object.prototype.hasOwnProperty.call(m, 'portalEnabled')) {
+    row.portal_enabled = Boolean(m.portalEnabled);
+  }
+  if (Object.prototype.hasOwnProperty.call(m, 'portalStatus')) {
+    const st = String(m.portalStatus || 'pending').trim().toLowerCase();
+    row.portal_status = ['pending', 'active', 'disabled'].includes(st) ? st : 'pending';
+  }
   if (options.partialBulkSync) {
     if (!Object.prototype.hasOwnProperty.call(m, 'payMonth')) delete row.pay_month;
     if (!Object.prototype.hasOwnProperty.call(m, 'ackSignature')) delete row.ack_signature;

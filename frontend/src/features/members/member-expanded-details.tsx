@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo, useState, type ReactNode } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { MessageCircle, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Select } from "@/components/ui/input";
@@ -15,7 +15,7 @@ import { cn, formatCurrency, formatDate } from "@/lib/utils";
 import type { Member, Payment } from "@/types";
 import { useSettings } from "@/hooks/use-data";
 import { useAuthStore } from "@/stores";
-import { whatsappApi } from "@/services/api";
+import { membersApi, whatsappApi } from "@/services/api";
 import {
   type CustomTemplate,
   isCustomTemplatesEnabled,
@@ -533,9 +533,13 @@ export function MemberExpandedDetails({
     summary: true,
     profile: false,
     membership: false,
+    portal: false,
     payments: false,
     communication: false,
   });
+  const queryClient = useQueryClient();
+  const [portalBusy, setPortalBusy] = useState(false);
+  const [portalMsg, setPortalMsg] = useState<string | null>(null);
   const [holdSel, setHoldSel] = useState(holdOptions[0] || "1 Month");
   const [monthFilter, setMonthFilter] = useState("");
 
@@ -946,6 +950,105 @@ export function MemberExpandedDetails({
             </span>
           </div>
         ) : null}
+      </SectionCard>
+
+      <SectionCard
+        title="Member Portal"
+        open={openSections.portal}
+        onToggle={() => toggle("portal")}
+      >
+        <div className="space-y-3 text-[11px]">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <div>
+              <div className="font-semibold">Website portal access</div>
+              <div className="text-muted-foreground">
+                Status: {String(m.portalStatus || "pending")}
+                {m.hasPortalPin ? " · PIN set" : " · PIN not set"}
+                {m.lastPortalLoginAt
+                  ? ` · Last login ${formatDate(String(m.lastPortalLoginAt))}`
+                  : ""}
+              </div>
+            </div>
+            {canEdit ? (
+              <label className="flex items-center gap-2">
+                <span>Enabled</span>
+                <input
+                  type="checkbox"
+                  checked={m.portalEnabled !== false}
+                  disabled={portalBusy}
+                  onChange={async (e) => {
+                    setPortalBusy(true);
+                    setPortalMsg(null);
+                    try {
+                      const enabled = e.target.checked;
+                      await membersApi.patch(String(m.memberId), {
+                        portalEnabled: enabled,
+                        portalStatus: enabled ? "active" : "disabled",
+                      });
+                      await queryClient.invalidateQueries({ queryKey: ["members"] });
+                      setPortalMsg(enabled ? "Portal enabled" : "Portal disabled");
+                    } catch (err) {
+                      setPortalMsg(err instanceof Error ? err.message : "Update failed");
+                    } finally {
+                      setPortalBusy(false);
+                    }
+                  }}
+                />
+              </label>
+            ) : null}
+          </div>
+          {canEdit ? (
+            <div className="flex flex-wrap gap-2">
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
+                disabled={portalBusy}
+                onClick={async () => {
+                  setPortalBusy(true);
+                  setPortalMsg(null);
+                  try {
+                    await membersApi.rotatePortalQr(String(m.memberId));
+                    setPortalMsg("QR token rotated");
+                  } catch (err) {
+                    setPortalMsg(err instanceof Error ? err.message : "Rotate failed");
+                  } finally {
+                    setPortalBusy(false);
+                  }
+                }}
+              >
+                Rotate QR
+              </Button>
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
+                disabled={portalBusy}
+                onClick={async () => {
+                  if (!window.confirm("Log out this member from all portal devices?")) return;
+                  setPortalBusy(true);
+                  setPortalMsg(null);
+                  try {
+                    await membersApi.revokePortalDevices(String(m.memberId));
+                    setPortalMsg("All portal devices revoked");
+                  } catch (err) {
+                    setPortalMsg(err instanceof Error ? err.message : "Revoke failed");
+                  } finally {
+                    setPortalBusy(false);
+                  }
+                }}
+              >
+                Revoke devices
+              </Button>
+            </div>
+          ) : null}
+          {portalMsg ? (
+            <p className="text-[10px] text-muted-foreground">{portalMsg}</p>
+          ) : null}
+          <p className="text-[10px] text-muted-foreground">
+            Members sign in at www.actionplusgym.com/members with SMS OTP + PIN.
+          </p>
+        </div>
       </SectionCard>
 
       <SectionCard

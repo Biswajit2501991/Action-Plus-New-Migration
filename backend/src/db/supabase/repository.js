@@ -1011,6 +1011,8 @@ const MEMBER_PATCH_KEY_MAP = {
   familyPrimaryMemberId: 'family_primary_member_id',
   lastSmsSent: 'last_sms_sent_json',
   assignedGymCodeId: 'assigned_gym_code_id',
+  portalEnabled: 'portal_enabled',
+  portalStatus: 'portal_status',
 };
 
 async function safeDeleteByMemberIds(sb, table, memberIds) {

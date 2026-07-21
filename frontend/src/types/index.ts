@@ -38,6 +38,12 @@ export type Member = {
   photo?: string;
   photoVersion?: number;
   hasPhoto?: boolean;
+  memberUuid?: string | null;
+  portalEnabled?: boolean;
+  portalStatus?: string;
+  portalActivatedAt?: string | null;
+  lastPortalLoginAt?: string | null;
+  hasPortalPin?: boolean;
   paymentHistory?: Payment[];
   lastSmsSent?: Record<string, { sentAt?: string; sentBy?: string; ts?: string; by?: string }>;
   messageHistory?: Array<Record<string, unknown>>;
