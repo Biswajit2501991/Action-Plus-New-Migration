@@ -12,8 +12,10 @@ import {
   visitorsApi,
   whatsappApi,
 } from "@/services/api";
+import { mergeSettingsPreserveNewerPt } from "@/lib/domain/pt-profile-cache";
 import { STALE } from "@/lib/query-cache";
 import { useAuthStore } from "@/stores";
+import type { AppSettings } from "@/types";
 
 export function useMembers() {
   const user = useAuthStore((s) => s.user);
@@ -69,6 +71,12 @@ export function useSettings(
     refetchOnMount: true,
     refetchInterval: options?.refetchInterval,
     placeholderData: (prev) => prev,
+    // Stale in-flight GET /settings must not wipe a newer PT diet/workout save.
+    structuralSharing: (oldData, newData) =>
+      mergeSettingsPreserveNewerPt(
+        oldData as AppSettings | undefined,
+        newData as AppSettings | undefined,
+      ) as typeof newData,
   });
 }
 

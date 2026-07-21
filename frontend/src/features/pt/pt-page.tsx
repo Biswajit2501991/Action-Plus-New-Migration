@@ -251,13 +251,18 @@ export function PtPage() {
                   workoutPlanDraft={workoutPlanDraft}
                   onWorkoutPlanChange={setWorkoutPlanDraft}
                   onSave={() =>
-                    void saveProfilePatch(
-                      memberId,
-                      { workoutPlan: workoutPlanDraft },
-                      "plan",
-                      "workoutPlan",
-                      "Weekly Workout Plan saved successfully",
-                    )
+                    void (async () => {
+                      const saved = await saveProfilePatch(
+                        memberId,
+                        { workoutPlan: workoutPlanDraft },
+                        "plan",
+                        "workoutPlan",
+                        "Weekly Workout Plan saved successfully",
+                      );
+                      if (saved) {
+                        setWorkoutPlanDraft(ptWorkoutPlanDraftFromProfile(saved));
+                      }
+                    })()
                   }
                 />
               ) : null}
@@ -271,18 +276,21 @@ export function PtPage() {
                   dietDraft={dietDraft}
                   onDietDraftChange={setDietDraft}
                   onSaveDiet={() =>
-                    void saveProfilePatch(
-                      memberId,
-                      {
-                        calories: dietDraft.calories,
-                        protein: dietDraft.protein,
-                        water: dietDraft.water,
-                        dietPlan: dietDraft.dietPlan,
-                      },
-                      "plan",
-                      "dietPlan",
-                      "Diet Plan saved successfully",
-                    )
+                    void (async () => {
+                      const saved = await saveProfilePatch(
+                        memberId,
+                        {
+                          calories: dietDraft.calories,
+                          protein: dietDraft.protein,
+                          water: dietDraft.water,
+                          dietPlan: dietDraft.dietPlan,
+                        },
+                        "plan",
+                        "dietPlan",
+                        "Diet Plan saved successfully",
+                      );
+                      if (saved) setDietDraft(ptDietDraftFromProfile(saved));
+                    })()
                   }
                   onAddAttachments={async (files) => {
                     if (!canUploadDietDocuments || sectionSaving.dietDocs) return;

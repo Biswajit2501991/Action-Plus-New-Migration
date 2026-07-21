@@ -21,11 +21,21 @@ function mergePtProfileResponse(
   const savedTs = Date.parse(saved.updatedAt || "") || 0;
   const winner = savedTs >= localTs ? { ...local, ...saved } : { ...saved, ...local };
   const focusByDate =
-    savedTs >= localTs ? { ...(saved.focusByDate || {}) } : { ...(local.focusByDate || {}) };
+    savedTs >= localTs
+      ? { ...(local.focusByDate || {}), ...(saved.focusByDate || {}) }
+      : { ...(saved.focusByDate || {}), ...(local.focusByDate || {}) };
   return {
     ...winner,
     focusByDate,
-    updatedAt: savedTs >= localTs ? saved.updatedAt || local.updatedAt : local.updatedAt || saved.updatedAt,
+    // Never drop plan text fields if one side briefly omits them during a race.
+    dietPlan: winner.dietPlan ?? local.dietPlan ?? saved.dietPlan,
+    calories: winner.calories ?? local.calories ?? saved.calories,
+    protein: winner.protein ?? local.protein ?? saved.protein,
+    water: winner.water ?? local.water ?? saved.water,
+    workoutPlan: winner.workoutPlan ?? local.workoutPlan ?? saved.workoutPlan,
+    ptWorkoutNotes: winner.ptWorkoutNotes ?? local.ptWorkoutNotes ?? saved.ptWorkoutNotes,
+    updatedAt:
+      savedTs >= localTs ? saved.updatedAt || local.updatedAt : local.updatedAt || saved.updatedAt,
   };
 }
 
@@ -51,9 +61,6 @@ function readCachedPtProfile(qc: QueryClient, memberId: string): PtClientProfile
     if (map && typeof map === "object" && memberId in (map as object)) {
       return ((map as Record<string, PtClientProfile>)[memberId] || {}) as PtClientProfile;
     }
-  }
-  for (const [, data] of entries) {
-    if (data) return {} as PtClientProfile;
   }
   return {} as PtClientProfile;
 }
@@ -100,6 +107,8 @@ export function usePtProfile(actorName = "") {
         const resp = await ptApi.patchProfile(memberId, profile, mode);
         const saved = (resp?.profile || null) as PtClientProfile | null;
         if (!saved) throw new Error("empty_profile_response");
+        // Drop in-flight settings GETs that may still carry pre-save PT profiles.
+        await qc.cancelQueries({ queryKey: SETTINGS_QUERY_PREFIX });
         const local = readCachedPtProfile(qc, memberId);
         writeCachedPtProfile(qc, memberId, mergePtProfileResponse(local, saved));
         return saved;
@@ -149,20 +158,20 @@ export function usePtProfile(actorName = "") {
       mode: PtSaveMode,
       sectionKey: string,
       successMessage: string,
-    ) => {
+    ): Promise<PtClientProfile | false> => {
       if (!memberId || !sectionKey || sectionSaving[sectionKey]) return false;
       setSectionSaving((prev) => ({ ...prev, [sectionKey]: true }));
       try {
         const prevProfile = readCachedPtProfile(qc, memberId);
         const nextProfile = buildPtProfilePatch(prevProfile, patch, actorName);
         writeCachedPtProfile(qc, memberId, nextProfile);
-        await scheduleBackendSave(memberId, nextProfile, mode, {
+        const saved = await scheduleBackendSave(memberId, nextProfile, mode, {
           immediate: true,
           waitForBackend: true,
           silentErrors: true,
         });
         toast.success(successMessage);
-        return true;
+        return (saved as PtClientProfile) || nextProfile;
       } catch (err) {
         toast.error(ptSaveErrorMessage(err));
         return false;
