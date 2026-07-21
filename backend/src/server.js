@@ -850,6 +850,137 @@ app.post('/api/members/:memberId/portal/revoke-devices', requireAccess(Access.me
   }
 });
 
+/** Pending Member Portal WhatsApp verifications for staff approval. */
+app.get('/api/portal-verifications', requireAccess(Access.membersWrite), async (req, res) => {
+  try {
+    const { getSupabase, gymId } = await import('./db/supabase/client.js');
+    const sb = getSupabase();
+    const gid = gymId() || req.auth?.gymId;
+    if (!sb || !gid) return res.status(500).json({ error: 'supabase-unavailable' });
+    const status = String(req.query.status || 'pending').trim().toLowerCase();
+    let q = sb
+      .from('member_portal_otp_challenges')
+      .select(
+        'id, member_uuid, mobile_normalized, expires_at, created_at, staff_status, otp_plain_for_staff, verification_channel, staff_approved_at, staff_approved_by',
+      )
+      .eq('gym_id', gid)
+      .eq('verification_channel', 'whatsapp_staff')
+      .order('created_at', { ascending: false })
+      .limit(100);
+    if (status === 'pending') q = q.eq('staff_status', 'pending');
+    else if (status === 'approved') q = q.eq('staff_status', 'approved');
+    else if (status === 'rejected') q = q.eq('staff_status', 'rejected');
+    const { data: rows, error } = await q;
+    if (error) return res.status(500).json({ error: error.message });
+    const uuids = [...new Set((rows || []).map((r) => r.member_uuid).filter(Boolean))];
+    let membersByUuid = {};
+    if (uuids.length) {
+      const { data: members } = await sb
+        .from('members')
+        .select('member_uuid, member_code, full_name, mobile, status, assigned_gym_code_id')
+        .eq('gym_id', gid)
+        .in('member_uuid', uuids);
+      for (const m of members || []) membersByUuid[m.member_uuid] = m;
+    }
+    const items = (rows || []).map((r) => {
+      const m = membersByUuid[r.member_uuid] || {};
+      return {
+        id: r.id,
+        memberUuid: r.member_uuid,
+        memberCode: m.member_code || null,
+        fullName: m.full_name || null,
+        mobile: r.mobile_normalized || m.mobile || null,
+        membershipStatus: m.status || null,
+        assignedGymCodeId: m.assigned_gym_code_id || null,
+        staffStatus: r.staff_status,
+        otpForStaff: r.otp_plain_for_staff || null,
+        createdAt: r.created_at,
+        expiresAt: r.expires_at,
+        approvedAt: r.staff_approved_at || null,
+        approvedBy: r.staff_approved_by || null,
+      };
+    });
+    return res.json({ ok: true, items });
+  } catch (err) {
+    return res.status(500).json({ error: err?.message || 'list-failed' });
+  }
+});
+
+app.post('/api/portal-verifications/:id/approve', requireAccess(Access.membersWrite), async (req, res) => {
+  const id = String(req.params.id || '').trim();
+  if (!id) return res.status(400).json({ error: 'id-required' });
+  try {
+    const { getSupabase, gymId } = await import('./db/supabase/client.js');
+    const sb = getSupabase();
+    const gid = gymId() || req.auth?.gymId;
+    if (!sb || !gid) return res.status(500).json({ error: 'supabase-unavailable' });
+    const actor = req.auth?.name || req.auth?.userId || 'staff';
+    const now = new Date().toISOString();
+    const { data, error } = await sb
+      .from('member_portal_otp_challenges')
+      .update({
+        staff_status: 'approved',
+        staff_approved_at: now,
+        staff_approved_by: actor,
+        consumed_at: now,
+      })
+      .eq('id', id)
+      .eq('gym_id', gid)
+      .eq('staff_status', 'pending')
+      .select('id, member_uuid, mobile_normalized')
+      .maybeSingle();
+    if (error) return res.status(500).json({ error: error.message });
+    if (!data) return res.status(404).json({ error: 'not-found-or-already-handled' });
+    await appendAuditLog(req, {
+      action: 'member.portal.whatsapp_approved',
+      entityType: 'member_portal_otp',
+      entityId: id,
+      after: { memberUuid: data.member_uuid, mobile: data.mobile_normalized },
+    });
+    return res.json({ ok: true });
+  } catch (err) {
+    return res.status(500).json({ error: err?.message || 'approve-failed' });
+  }
+});
+
+app.post('/api/portal-verifications/:id/reject', requireAccess(Access.membersWrite), async (req, res) => {
+  const id = String(req.params.id || '').trim();
+  if (!id) return res.status(400).json({ error: 'id-required' });
+  try {
+    const { getSupabase, gymId } = await import('./db/supabase/client.js');
+    const sb = getSupabase();
+    const gid = gymId() || req.auth?.gymId;
+    if (!sb || !gid) return res.status(500).json({ error: 'supabase-unavailable' });
+    const actor = req.auth?.name || req.auth?.userId || 'staff';
+    const note = String(req.body?.note || '').trim().slice(0, 200);
+    const now = new Date().toISOString();
+    const { data, error } = await sb
+      .from('member_portal_otp_challenges')
+      .update({
+        staff_status: 'rejected',
+        staff_rejected_at: now,
+        staff_rejected_by: actor,
+        staff_note: note || null,
+      })
+      .eq('id', id)
+      .eq('gym_id', gid)
+      .eq('staff_status', 'pending')
+      .select('id, member_uuid')
+      .maybeSingle();
+    if (error) return res.status(500).json({ error: error.message });
+    if (!data) return res.status(404).json({ error: 'not-found-or-already-handled' });
+    await appendAuditLog(req, {
+      action: 'member.portal.whatsapp_rejected',
+      entityType: 'member_portal_otp',
+      entityId: id,
+      after: { memberUuid: data.member_uuid, note },
+    });
+    return res.json({ ok: true });
+  } catch (err) {
+    return res.status(500).json({ error: err?.message || 'reject-failed' });
+  }
+});
+
 /**
  * Owner-only surgical payment delete. Persists to member_payment_history immediately
  * (no debounced full-members bulk). Returns 404 when the row is not found after DB sync.

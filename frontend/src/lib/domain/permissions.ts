@@ -5,6 +5,7 @@ export const ALL_SECTIONS = [
   "Members",
   "PT Clients",
   "WhatsApp SMS",
+  "WhatsApp Verification",
   "Finance",
   "Staff",
   "Website",
@@ -680,6 +681,18 @@ export function canAccessSection(user: AuthUser | null | undefined, section: str
     const sections = Array.isArray(user.sections) ? user.sections : [];
     if (!sections.includes("Website")) return false;
     return hasAccess(user, "website", "viewWebsite");
+  }
+
+  if (section === "WhatsApp Verification") {
+    if (isOwnerLikeRole(user)) return true;
+    const sections = Array.isArray(user.sections) ? user.sections : [];
+    if (
+      !sections.includes("WhatsApp Verification") &&
+      !sections.includes("Members")
+    ) {
+      return false;
+    }
+    return hasAccess(user, "members", "editMembers") || hasAccess(user, "members", "viewMembers");
   }
 
   const sections = Array.isArray(user.sections) ? user.sections : [];
