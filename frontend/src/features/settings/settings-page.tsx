@@ -19,6 +19,7 @@ import {
   Trash2,
   Upload,
   Users,
+  KeyRound,
 } from "lucide-react";
 import { PageHeader, Skeleton } from "@/components/ui/misc";
 import { Button } from "@/components/ui/button";
@@ -27,6 +28,7 @@ import { Input, Label } from "@/components/ui/input";
 import { BranchLogo } from "@/components/branding/branch-logo";
 import { useGymCodes, useSettings } from "@/hooks/use-data";
 import { attendanceKioskApi, gymCodesApi, settingsApi } from "@/services/api";
+import { apiFetch } from "@/services/api/client";
 import { resolveClientBranchBranding } from "@/lib/domain/branch-branding";
 import { hasAccess, isMasterOwnerUser } from "@/lib/domain/permissions";
 import { cn, downloadTextFile } from "@/lib/utils";
@@ -399,6 +401,7 @@ export function SettingsPage() {
     branches: false,
     fine: false,
     features: false,
+    portalAuth: false,
     business: false,
     member: false,
     recovery: false,
@@ -410,14 +413,70 @@ export function SettingsPage() {
   const [expandedGymId, setExpandedGymId] = useState<string | null>(null);
   const settingsImportRef = useRef<HTMLInputElement | null>(null);
   const [punchKioskBusy, setPunchKioskBusy] = useState(false);
+  const [portalAuthMethod, setPortalAuthMethod] = useState<"whatsapp_staff" | "auto_identity">(
+    "whatsapp_staff",
+  );
+  const [portalAuthBusy, setPortalAuthBusy] = useState(false);
 
   const canFine = hasAccess(user, "settings", "manageFineRule");
   const canAppearance = hasAccess(user, "settings", "viewAppearance");
   const canBranches = isOwner || hasAccess(user, "settings", "manageGymBranches");
   const canSystemFeatures = isOwner || hasAccess(user, "settings", "manageSystemFeatures");
   const canSettingsBackup = isOwner || hasAccess(user, "settings", "manageSettingsBackup");
+  const canPortalAuth = isOwner || canSystemFeatures;
   const followSystemTheme = themeReady && theme === "system";
   const activeAppearance = themeReady && resolvedTheme === "dark" ? "Night" : "Day";
+
+  useEffect(() => {
+    if (!canPortalAuth) return;
+    let cancelled = false;
+    void (async () => {
+      try {
+        const data = await apiFetch<{
+          ok?: boolean;
+          settings?: { auth_method?: string };
+        }>("/portal-settings");
+        if (cancelled) return;
+        setPortalAuthMethod(
+          data.settings?.auth_method === "auto_identity"
+            ? "auto_identity"
+            : "whatsapp_staff",
+        );
+      } catch {
+        /* keep default */
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [canPortalAuth]);
+
+  async function savePortalAuthMethod(next: "whatsapp_staff" | "auto_identity") {
+    setPortalAuthBusy(true);
+    try {
+      const data = await apiFetch<{
+        ok?: boolean;
+        settings?: { auth_method?: string };
+      }>("/portal-settings", {
+        method: "PUT",
+        body: JSON.stringify({ auth_method: next }),
+      });
+      const saved =
+        data.settings?.auth_method === "auto_identity"
+          ? "auto_identity"
+          : "whatsapp_staff";
+      setPortalAuthMethod(saved);
+      toast.success(
+        saved === "auto_identity"
+          ? "Member portal: Auto identity auth enabled"
+          : "Member portal: WhatsApp verification enabled",
+      );
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Could not save auth method");
+    } finally {
+      setPortalAuthBusy(false);
+    }
+  }
 
   const visibleBusinessLookups = BUSINESS_LOOKUPS.filter((cat) =>
     hasAccess(user, "settings", cat.permission),
@@ -1100,6 +1159,42 @@ export function SettingsPage() {
               label="Finance 26% expense estimate"
               description="Use estimated expense when no expense rows exist."
               onChange={(next) => setFeatureFlags({ financeUseEstimatedExpense: next })}
+            />
+          </div>
+        </SettingsSectionShell>
+      ) : null}
+
+      {canPortalAuth ? (
+        <SettingsSectionShell
+          title="Member Portal Auth"
+          description="Choose how members verify before setting a PIN"
+          open={Boolean(openCat.portalAuth)}
+          onToggle={() => toggleCat("portalAuth")}
+          accent={SECTION_ACCENTS.features}
+          icon={<KeyRound className="h-4 w-4" />}
+        >
+          <div className="space-y-3 rounded-2xl border border-sky-200/70 bg-gradient-to-b from-sky-50/50 to-white p-4 dark:border-sky-900/40 dark:from-sky-950/25 dark:to-card">
+            <p className="text-xs text-muted-foreground">
+              Toggle anytime. Existing member PINs and sessions stay intact — only the first-time
+              / re-verify path changes.
+            </p>
+            <SettingsToggle
+              checked={portalAuthMethod === "whatsapp_staff"}
+              disabled={portalAuthBusy}
+              label="WhatsApp verification (current)"
+              description="Member sends WhatsApp OTP to gym; staff approves in WhatsApp Verification, then member sets PIN."
+              onChange={(next) => {
+                if (next) void savePortalAuthMethod("whatsapp_staff");
+              }}
+            />
+            <SettingsToggle
+              checked={portalAuthMethod === "auto_identity"}
+              disabled={portalAuthBusy}
+              label="Auto identity (mobile + name + DOB or Gmail)"
+              description="Member enters mobile, name, and either DOB or Gmail. Values are compared to gym records (lowercase / no spaces for match only). On match, member sets a 6-digit PIN."
+              onChange={(next) => {
+                if (next) void savePortalAuthMethod("auto_identity");
+              }}
             />
           </div>
         </SettingsSectionShell>

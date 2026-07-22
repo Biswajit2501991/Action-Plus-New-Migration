@@ -162,12 +162,215 @@ export function registerMemberPortalPhase2Routes(app, { appendAuditLog }) {
     }
   });
 
+  async function getChatRetentionDays(sb, gid) {
+    const { data } = await sb
+      .from("member_portal_settings")
+      .select("chat_retention_days")
+      .eq("gym_id", gid)
+      .maybeSingle();
+    const days = Number(data?.chat_retention_days);
+    if (Number.isFinite(days) && days >= 1 && days <= 365) return Math.floor(days);
+    return 7;
+  }
+
+  /** Delete portal chat messages older than retention; does not touch other tables. */
+  async function purgeExpiredPortalChat(sb, gid) {
+    const days = await getChatRetentionDays(sb, gid);
+    const cutoff = new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString();
+    const { error, count } = await sb
+      .from("member_portal_chat_messages")
+      .delete({ count: "exact" })
+      .eq("gym_id", gid)
+      .lt("created_at", cutoff);
+    if (error) throw new Error(error.message);
+    return { days, deleted: count || 0, cutoff };
+  }
+
+  async function resolveCanonicalThread(sb, gid, memberUuid) {
+    const { data: existing } = await sb
+      .from("member_portal_chat_threads")
+      .select("id, member_uuid, status, subject, updated_at, created_at")
+      .eq("gym_id", gid)
+      .eq("member_uuid", memberUuid)
+      .order("updated_at", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    if (existing) return existing;
+    const { data: created, error } = await sb
+      .from("member_portal_chat_threads")
+      .insert({
+        gym_id: gid,
+        member_uuid: memberUuid,
+        subject: "Member portal chat",
+        status: "open",
+      })
+      .select("id, member_uuid, status, subject, updated_at, created_at")
+      .maybeSingle();
+    if (error || !created) throw new Error(error?.message || "create-thread-failed");
+    return created;
+  }
+
+  async function loadMessagesForMember(sb, gid, memberUuid) {
+    const { data: threads, error: tErr } = await sb
+      .from("member_portal_chat_threads")
+      .select("id")
+      .eq("gym_id", gid)
+      .eq("member_uuid", memberUuid);
+    if (tErr) throw new Error(tErr.message);
+    const ids = (threads || []).map((t) => t.id);
+    if (!ids.length) return [];
+    const { data, error } = await sb
+      .from("member_portal_chat_messages")
+      .select("id, sender, body, staff_name, created_at, thread_id")
+      .eq("gym_id", gid)
+      .in("thread_id", ids)
+      .order("created_at", { ascending: true })
+      .limit(500);
+    if (error) throw new Error(error.message);
+    return data || [];
+  }
+
+  /** Member-centric list: one row per member with chat history (not one card per thread). */
+  app.get("/api/portal-chat/members", requireAccess(Access.membersWrite), async (req, res) => {
+    try {
+      const { getSupabase, gymId } = await import("../db/supabase/client.js");
+      const sb = getSupabase();
+      const gid = gymId() || req.auth?.gymId;
+      if (!sb || !gid) return res.status(500).json({ error: "supabase-unavailable" });
+
+      let retentionDays = 7;
+      try {
+        const purged = await purgeExpiredPortalChat(sb, gid);
+        retentionDays = purged.days;
+      } catch {
+        retentionDays = await getChatRetentionDays(sb, gid);
+      }
+
+      const { data: threads, error } = await sb
+        .from("member_portal_chat_threads")
+        .select("id, member_uuid, status, subject, updated_at, created_at")
+        .eq("gym_id", gid)
+        .order("updated_at", { ascending: false })
+        .limit(500);
+      if (error) return res.status(500).json({ error: error.message });
+
+      const byMember = new Map();
+      for (const t of threads || []) {
+        const prev = byMember.get(t.member_uuid);
+        if (!prev) {
+          byMember.set(t.member_uuid, {
+            member_uuid: t.member_uuid,
+            thread_id: t.id,
+            status: t.status,
+            updated_at: t.updated_at,
+            created_at: t.created_at,
+            thread_count: 1,
+            has_open: t.status === "open",
+          });
+        } else {
+          prev.thread_count += 1;
+          if (t.status === "open") prev.has_open = true;
+          if (String(t.updated_at) > String(prev.updated_at)) {
+            prev.thread_id = t.id;
+            prev.status = t.status;
+            prev.updated_at = t.updated_at;
+          }
+        }
+      }
+
+      const uuids = [...byMember.keys()];
+      const names = {};
+      if (uuids.length) {
+        const { data: members } = await sb
+          .from("members")
+          .select("member_uuid, full_name, member_code, mobile, status")
+          .eq("gym_id", gid)
+          .in("member_uuid", uuids);
+        for (const m of members || []) names[m.member_uuid] = m;
+      }
+
+      const items = [...byMember.values()]
+        .map((row) => ({
+          ...row,
+          status: row.has_open ? "open" : row.status,
+          member: names[row.member_uuid] || null,
+        }))
+        .sort((a, b) => String(b.updated_at).localeCompare(String(a.updated_at)));
+
+      return res.json({ ok: true, items, retentionDays });
+    } catch (err) {
+      return res.status(500).json({ error: err?.message || "list-failed" });
+    }
+  });
+
+  app.get(
+    "/api/portal-chat/members/:memberUuid/messages",
+    requireAccess(Access.membersWrite),
+    async (req, res) => {
+      try {
+        const { getSupabase, gymId } = await import("../db/supabase/client.js");
+        const sb = getSupabase();
+        const gid = gymId() || req.auth?.gymId;
+        const memberUuid = String(req.params.memberUuid || "").trim();
+        if (!sb || !gid || !memberUuid) return res.status(400).json({ error: "bad-request" });
+        const items = await loadMessagesForMember(sb, gid, memberUuid);
+        const retentionDays = await getChatRetentionDays(sb, gid);
+        return res.json({ ok: true, items, retentionDays });
+      } catch (err) {
+        return res.status(500).json({ error: err?.message || "list-failed" });
+      }
+    },
+  );
+
+  app.post(
+    "/api/portal-chat/members/:memberUuid/messages",
+    requireAccess(Access.membersWrite),
+    async (req, res) => {
+      try {
+        const { getSupabase, gymId } = await import("../db/supabase/client.js");
+        const sb = getSupabase();
+        const gid = gymId() || req.auth?.gymId;
+        const memberUuid = String(req.params.memberUuid || "").trim();
+        const body = String(req.body?.body || "").trim().slice(0, 2000);
+        if (!sb || !gid || !memberUuid || !body) return res.status(400).json({ error: "bad-request" });
+        const thread = await resolveCanonicalThread(sb, gid, memberUuid);
+        const actor = req.auth?.name || req.auth?.userId || "staff";
+        const { data, error } = await sb
+          .from("member_portal_chat_messages")
+          .insert({
+            gym_id: gid,
+            thread_id: thread.id,
+            sender: "staff",
+            body,
+            staff_name: actor,
+          })
+          .select("id, sender, body, staff_name, created_at")
+          .maybeSingle();
+        if (error) return res.status(500).json({ error: error.message });
+        await sb
+          .from("member_portal_chat_threads")
+          .update({ updated_at: new Date().toISOString(), status: "answered" })
+          .eq("id", thread.id)
+          .eq("gym_id", gid);
+        return res.json({ ok: true, message: data, threadId: thread.id });
+      } catch (err) {
+        return res.status(500).json({ error: err?.message || "send-failed" });
+      }
+    },
+  );
+
+  // Legacy thread endpoints kept for compatibility; messages now span all threads when using member APIs.
   app.get("/api/portal-chat/threads", requireAccess(Access.membersWrite), async (req, res) => {
     try {
       const { getSupabase, gymId } = await import("../db/supabase/client.js");
       const sb = getSupabase();
       const gid = gymId() || req.auth?.gymId;
       if (!sb || !gid) return res.status(500).json({ error: "supabase-unavailable" });
+      try {
+        await purgeExpiredPortalChat(sb, gid);
+      } catch {
+        /* non-fatal */
+      }
       const { data, error } = await sb
         .from("member_portal_chat_threads")
         .select("id, member_uuid, status, subject, updated_at, created_at")
@@ -204,6 +407,16 @@ export function registerMemberPortalPhase2Routes(app, { appendAuditLog }) {
       const gid = gymId() || req.auth?.gymId;
       const id = String(req.params.id || "").trim();
       if (!sb || !gid || !id) return res.status(400).json({ error: "bad-request" });
+      const { data: thread } = await sb
+        .from("member_portal_chat_threads")
+        .select("member_uuid")
+        .eq("gym_id", gid)
+        .eq("id", id)
+        .maybeSingle();
+      if (thread?.member_uuid) {
+        const items = await loadMessagesForMember(sb, gid, thread.member_uuid);
+        return res.json({ ok: true, items });
+      }
       const { data, error } = await sb
         .from("member_portal_chat_messages")
         .select("id, sender, body, staff_name, created_at")
@@ -226,12 +439,20 @@ export function registerMemberPortalPhase2Routes(app, { appendAuditLog }) {
       const id = String(req.params.id || "").trim();
       const body = String(req.body?.body || "").trim().slice(0, 2000);
       if (!sb || !gid || !id || !body) return res.status(400).json({ error: "bad-request" });
+      const { data: thread } = await sb
+        .from("member_portal_chat_threads")
+        .select("id, member_uuid")
+        .eq("gym_id", gid)
+        .eq("id", id)
+        .maybeSingle();
+      if (!thread) return res.status(404).json({ error: "thread-not-found" });
+      const canonical = await resolveCanonicalThread(sb, gid, thread.member_uuid);
       const actor = req.auth?.name || req.auth?.userId || "staff";
       const { data, error } = await sb
         .from("member_portal_chat_messages")
         .insert({
           gym_id: gid,
-          thread_id: id,
+          thread_id: canonical.id,
           sender: "staff",
           body,
           staff_name: actor,
@@ -242,11 +463,30 @@ export function registerMemberPortalPhase2Routes(app, { appendAuditLog }) {
       await sb
         .from("member_portal_chat_threads")
         .update({ updated_at: new Date().toISOString(), status: "answered" })
-        .eq("id", id)
+        .eq("id", canonical.id)
         .eq("gym_id", gid);
       return res.json({ ok: true, message: data });
     } catch (err) {
       return res.status(500).json({ error: err?.message || "send-failed" });
+    }
+  });
+
+  app.post("/api/portal-chat/purge", requireAccess(Access.membersWrite), async (req, res) => {
+    try {
+      const { getSupabase, gymId } = await import("../db/supabase/client.js");
+      const sb = getSupabase();
+      const gid = gymId() || req.auth?.gymId;
+      if (!sb || !gid) return res.status(500).json({ error: "supabase-unavailable" });
+      const result = await purgeExpiredPortalChat(sb, gid);
+      await appendAuditLog(req, {
+        action: "portal.chat.purge",
+        entityType: "member_portal_chat",
+        entityId: gid,
+        after: result,
+      });
+      return res.json({ ok: true, ...result });
+    } catch (err) {
+      return res.status(500).json({ error: err?.message || "purge-failed" });
     }
   });
 
@@ -270,6 +510,8 @@ export function registerMemberPortalPhase2Routes(app, { appendAuditLog }) {
           billing_push_body:
             "Your membership billing date is today. Please renew at the gym.",
           billing_match_field: "next_payment_date",
+          chat_retention_days: 7,
+          auth_method: "whatsapp_staff",
         },
       });
     } catch (err) {
@@ -283,18 +525,47 @@ export function registerMemberPortalPhase2Routes(app, { appendAuditLog }) {
       const sb = getSupabase();
       const gid = gymId() || req.auth?.gymId;
       if (!sb || !gid) return res.status(500).json({ error: "supabase-unavailable" });
+
+      const { data: existing } = await sb
+        .from("member_portal_settings")
+        .select("*")
+        .eq("gym_id", gid)
+        .maybeSingle();
+
+      const retentionRaw =
+        req.body?.chat_retention_days !== undefined
+          ? Number(req.body.chat_retention_days)
+          : Number(existing?.chat_retention_days ?? 7);
+      const chatRetentionDays =
+        Number.isFinite(retentionRaw) && retentionRaw >= 1 && retentionRaw <= 365
+          ? Math.floor(retentionRaw)
+          : 7;
+
+      const authMethodRaw = String(
+        req.body?.auth_method ?? existing?.auth_method ?? "whatsapp_staff",
+      ).trim();
+      const authMethod =
+        authMethodRaw === "auto_identity" ? "auto_identity" : "whatsapp_staff";
+
       const row = {
         gym_id: gid,
-        billing_push_enabled: Boolean(req.body?.billing_push_enabled ?? true),
-        billing_push_title: String(req.body?.billing_push_title || "Billing reminder").slice(0, 120),
+        billing_push_enabled: Boolean(
+          req.body?.billing_push_enabled ?? existing?.billing_push_enabled ?? true,
+        ),
+        billing_push_title: String(
+          req.body?.billing_push_title || existing?.billing_push_title || "Billing reminder",
+        ).slice(0, 120),
         billing_push_body: String(
           req.body?.billing_push_body ||
+            existing?.billing_push_body ||
             "Your membership billing date is today. Please renew at the gym.",
         ).slice(0, 500),
         billing_match_field:
-          req.body?.billing_match_field === "billing_date"
+          (req.body?.billing_match_field || existing?.billing_match_field) === "billing_date"
             ? "billing_date"
             : "next_payment_date",
+        chat_retention_days: chatRetentionDays,
+        auth_method: authMethod,
         updated_at: new Date().toISOString(),
       };
       const { data, error } = await sb
