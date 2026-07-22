@@ -83,6 +83,7 @@ export function memberRowToApp(row, children = {}, options = {}) {
       paymentHistory: children.payments || [],
       messageHistory: [],
       attachments: [],
+      latestInjuryNote: children.latestInjuryNote || null,
     };
   }
   return {
@@ -94,7 +95,30 @@ export function memberRowToApp(row, children = {}, options = {}) {
     paymentHistory: children.payments || [],
     messageHistory: children.messages || [],
     attachments: children.attachments || [],
+    latestInjuryNote: pickLatestInjuryNote(children.injuryNotes),
   };
+}
+
+function pickLatestInjuryNote(notes) {
+  if (!Array.isArray(notes) || !notes.length) return null;
+  let best = null;
+  let bestMs = -1;
+  for (const n of notes) {
+    const text = String(n?.text || n?.note || '').trim();
+    if (!text) continue;
+    const at = String(n?.at || n?.createdAt || n?.ts || '').trim();
+    const ms = at ? new Date(at).getTime() : 0;
+    if (!best || (Number.isFinite(ms) && ms >= bestMs)) {
+      best = {
+        id: String(n?.id || '').trim(),
+        text,
+        by: String(n?.by || n?.createdBy || '').trim(),
+        at: at || new Date().toISOString(),
+      };
+      bestMs = Number.isFinite(ms) ? ms : 0;
+    }
+  }
+  return best;
 }
 
 /** Strip heavy nested fields from an app-shaped member for sqlite list parity. */

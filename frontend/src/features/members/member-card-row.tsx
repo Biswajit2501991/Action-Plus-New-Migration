@@ -4,6 +4,8 @@ import { ChevronDown, ChevronUp, Cake, MessageCircle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { MemberAvatar } from "@/components/member-avatar";
 import {
+  getInjuryNoteInfoText,
+  getMemberHighlightChipText,
   getSmsSentInfoText,
   isBillingToday,
   isNewMember,
@@ -106,7 +108,10 @@ export function MemberCardRow({
     settings: messageOpts?.settings,
     actorRole: messageOpts?.actorRole,
   });
-  const statusSentText = msg.key !== "none" ? getSmsSentInfoText(m, msg.key) : "";
+  const highlightChipText =
+    msg.key !== "none"
+      ? getMemberHighlightChipText(m, msg.key)
+      : getInjuryNoteInfoText(m);
   const inactiveDuration = inactiveDurationLabel(m);
   const paymentBy = paymentByDateKey(m) || m.billingDate || "";
   const memberBirthday = formatMemberBirthday(m.dob);
@@ -300,8 +305,8 @@ export function MemberCardRow({
             </Button>
           ) : null}
 
-          {statusSentText ? (
-            <SmsSentChip text={statusSentText} maxWidthClass="max-w-[210px]" />
+          {highlightChipText ? (
+            <SmsSentChip text={highlightChipText} maxWidthClass="max-w-[210px]" />
           ) : null}
 
           <span className="ml-auto inline-flex text-slate-400" aria-hidden="true">

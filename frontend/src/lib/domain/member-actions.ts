@@ -247,3 +247,90 @@ export function getSmsSentInfoText(
   if (!when) return "";
   return meta.sentBy ? `Sent ${when} (${tz}) by ${meta.sentBy}` : `Sent ${when} (${tz})`;
 }
+
+export type LatestInjuryNote = {
+  id?: string;
+  text?: string;
+  by?: string;
+  at?: string;
+};
+
+/** Newest staff/owner injury note for list chips (from list API or medicalAnswers). */
+export function getLatestInjuryNote(
+  member: Member | null | undefined,
+): LatestInjuryNote | null {
+  if (!member) return null;
+  const direct = member.latestInjuryNote;
+  if (direct && typeof direct === "object" && String(direct.text || "").trim()) {
+    return {
+      id: String(direct.id || "").trim(),
+      text: String(direct.text || "").trim(),
+      by: String(direct.by || "").trim(),
+      at: String(direct.at || "").trim(),
+    };
+  }
+  const med = member.medicalAnswers;
+  const raw =
+    med && typeof med === "object"
+      ? (med as { injuryNotesLog?: Array<Record<string, unknown>> }).injuryNotesLog
+      : null;
+  if (!Array.isArray(raw) || !raw.length) return null;
+  let best: LatestInjuryNote | null = null;
+  let bestMs = -1;
+  for (const e of raw) {
+    if (!e || typeof e !== "object") continue;
+    const text = String(e.text || e.note || "").trim();
+    if (!text) continue;
+    const at = String(e.at || e.createdAt || e.ts || "").trim();
+    const ms = at ? new Date(at).getTime() : 0;
+    if (!best || (Number.isFinite(ms) && ms >= bestMs)) {
+      best = {
+        id: String(e.id || "").trim(),
+        text,
+        by: String(e.by || "").trim(),
+        at: at || new Date().toISOString(),
+      };
+      bestMs = Number.isFinite(ms) ? ms : 0;
+    }
+  }
+  return best;
+}
+
+export function getInjuryNoteInfoText(
+  member: Member | null | undefined,
+  tz = "IST",
+) {
+  const note = getLatestInjuryNote(member);
+  if (!note?.text) return "";
+  const when = formatDateTimeTz(note.at || "", tz);
+  const by = String(note.by || "").trim();
+  if (when && by) return `Note ${when} (${tz}) by ${by}: ${note.text}`;
+  if (when) return `Note ${when} (${tz}): ${note.text}`;
+  if (by) return `Note by ${by}: ${note.text}`;
+  return `Note: ${note.text}`;
+}
+
+/**
+ * Amber highlight chip: latest of (SMS Sent for current message action) vs (injury note).
+ * SMS still wins when it is newer; notes always remain saved separately.
+ */
+export function getMemberHighlightChipText(
+  member: Member | null | undefined,
+  templateKey?: string | null,
+  tz = "IST",
+) {
+  const smsText = getSmsSentInfoText(member, templateKey, tz);
+  const noteText = getInjuryNoteInfoText(member, tz);
+  if (!smsText) return noteText;
+  if (!noteText) return smsText;
+
+  const smsMeta =
+    templateKey && templateKey !== "none"
+      ? getLastWhatsAppSendMeta(member, templateKey)
+      : null;
+  const note = getLatestInjuryNote(member);
+  const smsMs = smsMeta?.sentAt ? new Date(smsMeta.sentAt).getTime() : 0;
+  const noteMs = note?.at ? new Date(note.at).getTime() : 0;
+  if (Number.isFinite(noteMs) && noteMs >= smsMs) return noteText;
+  return smsText;
+}

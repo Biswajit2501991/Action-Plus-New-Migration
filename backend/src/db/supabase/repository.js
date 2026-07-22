@@ -160,6 +160,37 @@ async function loadMemberChildren(sb, gid, memberIds) {
   return { paymentsByMember, messagesByMember, attachmentsByMember, injuryByMember };
 }
 
+/** Latest injury note per member for slim list chips (text + timestamp only). */
+async function loadLatestInjuryNotesForList(sb, gid, memberIds) {
+  const latestByMember = new Map();
+  if (!memberIds.length) return latestByMember;
+  for (const idChunk of chunk(memberIds, 100)) {
+    const { data, error } = await sb
+      .from(T.member_injury_notes)
+      .select('member_id, external_note_id, note_text, created_by, created_at')
+      .eq('gym_id', gid)
+      .in('member_id', idChunk);
+    if (error) throw error;
+    for (const row of data || []) {
+      const text = String(row.note_text || '').trim();
+      if (!text) continue;
+      const at = String(row.created_at || '').trim();
+      const ms = at ? new Date(at).getTime() : 0;
+      const prev = latestByMember.get(row.member_id);
+      const prevMs = prev?.at ? new Date(prev.at).getTime() : 0;
+      if (!prev || (Number.isFinite(ms) && ms >= prevMs)) {
+        latestByMember.set(row.member_id, {
+          id: row.external_note_id || String(row.id || ''),
+          text,
+          by: String(row.created_by || '').trim(),
+          at: at || new Date().toISOString(),
+        });
+      }
+    }
+  }
+  return latestByMember;
+}
+
 /** Payment rows for list hydrate — bounded by APG_PAYMENT_HISTORY_LIST_MONTHS_BACK (default 84). */
 async function loadMemberPaymentsForList(sb, gid, memberIds, monthsBack) {
   const paymentsByMember = new Map();
@@ -689,9 +720,13 @@ async function readMembers(scope, branchScope = null, options = {}) {
   });
   if (slim) {
     const memberIds = memberRows.map((r) => r.id);
-    const paymentsByMember = await loadMemberPaymentsForList(sb, gid, memberIds);
+    const [paymentsByMember, latestInjuryByMember] = await Promise.all([
+      loadMemberPaymentsForList(sb, gid, memberIds),
+      loadLatestInjuryNotesForList(sb, gid, memberIds),
+    ]);
     return sandboxFilter(memberRows.map((row) => memberRowToApp(row, {
       payments: paymentsByMember.get(row.id) || [],
+      latestInjuryNote: latestInjuryByMember.get(row.id) || null,
     }, { slim: true })), scope);
   }
   const memberIds = memberRows.map((r) => r.id);
@@ -933,12 +968,16 @@ async function updateMemberFields(memberCode, patch, branchScope = null) {
       gid,
       refreshed.id,
     );
+    // Default: upsert-only so a slim Edit form cannot wipe existing notes.
+    // Owner delete / intentional replace must pass replaceInjuryNotesLog: true.
+    const replaceNotes = patch.replaceInjuryNotesLog === true;
     await syncMemberChildRows(sb, T.member_injury_notes, {
       gymId: gid,
       memberId: refreshed.id,
       externalIdColumn: 'external_note_id',
       rows: injuryRows,
       onConflict: 'gym_id,member_id,external_note_id',
+      deleteOrphans: replaceNotes,
     });
     children = await loadMemberChildren(sb, gid, [refreshed.id]);
   }
@@ -1267,12 +1306,14 @@ async function writeMembers(members, scope, options = {}) {
     const hasInjuryLog = Object.prototype.hasOwnProperty.call(m, 'medicalAnswers')
       && Array.isArray(m.medicalAnswers?.injuryNotesLog);
     if (hasInjuryLog) {
+      // Bulk sync never orphan-deletes notes (legacy strips injuryNotesLog for the same reason).
       await syncMemberChildRows(sb, T.member_injury_notes, {
         gymId: gid,
         memberId: memberPk,
         externalIdColumn: 'external_note_id',
         rows: injuryRows,
         onConflict: 'gym_id,member_id,external_note_id',
+        deleteOrphans: false,
       });
     }
   }

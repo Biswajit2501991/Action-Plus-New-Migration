@@ -687,6 +687,19 @@ export function MembersPage() {
 
   const openEdit = (m: Member) => {
     setEditing(m);
+    const id = String(m.memberId || "").trim();
+    if (!id) return;
+    void membersApi
+      .get(id)
+      .then((full) => {
+        if (!full?.memberId) return;
+        setEditing((prev) =>
+          prev && String(prev.memberId) === String(full.memberId) ? { ...prev, ...full } : prev,
+        );
+      })
+      .catch(() => {
+        /* edit modal also hydrates; keep list row */
+      });
   };
 
   const gymLabelFor = (gymCodeId?: string | null) => {

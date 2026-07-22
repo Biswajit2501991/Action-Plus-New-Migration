@@ -264,8 +264,24 @@ export function EditMemberModal({
   >(undefined);
 
   useEffect(() => {
+    let cancelled = false;
     setEdit(buildEditDraft(member));
     setInjuryDraft("");
+    const id = String(member.memberId || "").trim();
+    if (!id) return;
+    // Slim list rows omit notes — hydrate full member so the log is accurate.
+    void membersApi
+      .get(id)
+      .then((full) => {
+        if (cancelled || !full) return;
+        setEdit(buildEditDraft(full));
+      })
+      .catch(() => {
+        /* keep slim draft; note save still merges from server */
+      });
+    return () => {
+      cancelled = true;
+    };
   }, [member.memberId]);
 
   useEffect(() => {
@@ -432,10 +448,18 @@ export function EditMemberModal({
     }
   };
 
-  const persistMedicalAnswers = async (nextMedical: MedicalAnswers) => {
+  const persistMedicalAnswers = async (
+    nextMedical: MedicalAnswers,
+    opts?: { replaceInjuryNotesLog?: boolean },
+  ) => {
     const id = String(edit.memberId || member.memberId || "").trim();
     if (!id) return;
-    await membersApi.patch(id, { medicalAnswers: nextMedical } as Partial<Member>);
+    const patch: Partial<Member> & { replaceInjuryNotesLog?: boolean } = {
+      medicalAnswers: nextMedical as Member["medicalAnswers"],
+    };
+    if (opts?.replaceInjuryNotesLog) patch.replaceInjuryNotesLog = true;
+    const res = await membersApi.patch(id, patch as Partial<Member>);
+    return res.member;
   };
 
   const addInjuryNote = async () => {
@@ -448,22 +472,74 @@ export function EditMemberModal({
       by: String(currentUser?.name || currentUser?.id || "Staff").trim() || "Staff",
       byId: String(currentUser?.id || "").trim(),
     };
-    const prior = parseInjuryNotesLog(edit.medicalAnswers);
-    const nextMedical: MedicalAnswers = {
-      ...(edit.medicalAnswers || {}),
-      injuryNotesLog: [...prior, entry],
-    };
-    setEdit((prev) => ({ ...prev, medicalAnswers: nextMedical }));
-    setInjuryDraft("");
     setInjuryBusy(true);
+    let priorForRollback = parseInjuryNotesLog(edit.medicalAnswers);
+    const draftBefore = injuryDraft;
     try {
-      await persistMedicalAnswers(nextMedical);
+      // Always merge against server log so slim list rows cannot wipe prior notes.
+      let prior = priorForRollback;
+      try {
+        const full = await membersApi.get(String(edit.memberId || member.memberId || "").trim());
+        const serverLog = parseInjuryNotesLog(
+          full?.medicalAnswers as MedicalAnswers | undefined,
+        );
+        if (serverLog.length) prior = serverLog;
+      } catch {
+        /* keep local prior if detail fetch fails */
+      }
+      priorForRollback = prior;
+      const nextMedical: MedicalAnswers = {
+        ...(edit.medicalAnswers || {}),
+        injuryNotesLog: [...prior, entry],
+      };
+      setEdit((prev) => ({ ...prev, medicalAnswers: nextMedical }));
+      setInjuryDraft("");
+      // Upsert-only on server (no orphan delete) — existing notes stay.
+      const updated = await persistMedicalAnswers(nextMedical, {
+        replaceInjuryNotesLog: false,
+      });
+      if (updated) {
+        const log = parseInjuryNotesLog(
+          updated.medicalAnswers as MedicalAnswers | undefined,
+        );
+        setEdit((prev) => ({
+          ...prev,
+          medicalAnswers: {
+            ...(prev.medicalAnswers || {}),
+            injuryNotesLog: log.length ? log : nextMedical.injuryNotesLog,
+          },
+        }));
+        qc.setQueriesData<Member[]>({ queryKey: ["members"] }, (old) =>
+          Array.isArray(old)
+            ? old.map((row) =>
+                String(row.memberId) === String(updated.memberId)
+                  ? {
+                      ...row,
+                      ...updated,
+                      latestInjuryNote:
+                        updated.latestInjuryNote ??
+                        {
+                          id: entry.id,
+                          text: entry.text,
+                          by: entry.by,
+                          at: entry.at,
+                        },
+                    }
+                  : row,
+              )
+            : old,
+        );
+      }
       toast.success("Note saved");
     } catch (err) {
       setEdit((prev) => ({
         ...prev,
-        medicalAnswers: { ...(prev.medicalAnswers || {}), injuryNotesLog: prior },
+        medicalAnswers: {
+          ...(prev.medicalAnswers || {}),
+          injuryNotesLog: priorForRollback,
+        },
       }));
+      setInjuryDraft(draftBefore);
       toast.error(err instanceof Error ? err.message : "Could not save note");
     } finally {
       setInjuryBusy(false);
@@ -472,21 +548,50 @@ export function EditMemberModal({
 
   const deleteInjuryNote = async (noteId: string) => {
     if (!isOwner || injuryBusy) return;
-    const prior = parseInjuryNotesLog(edit.medicalAnswers);
-    const nextMedical: MedicalAnswers = {
-      ...(edit.medicalAnswers || {}),
-      injuryNotesLog: prior.filter((n) => n.id !== noteId),
-    };
-    setEdit((prev) => ({ ...prev, medicalAnswers: nextMedical }));
     setInjuryBusy(true);
     try {
-      await persistMedicalAnswers(nextMedical);
+      let prior = parseInjuryNotesLog(edit.medicalAnswers);
+      try {
+        const full = await membersApi.get(String(edit.memberId || member.memberId || "").trim());
+        const serverLog = parseInjuryNotesLog(
+          full?.medicalAnswers as MedicalAnswers | undefined,
+        );
+        if (serverLog.length) prior = serverLog;
+      } catch {
+        /* keep local prior */
+      }
+      const nextLog = prior.filter((n) => n.id !== noteId);
+      const nextMedical: MedicalAnswers = {
+        ...(edit.medicalAnswers || {}),
+        injuryNotesLog: nextLog,
+      };
+      setEdit((prev) => ({ ...prev, medicalAnswers: nextMedical }));
+      const updated = await persistMedicalAnswers(nextMedical, {
+        replaceInjuryNotesLog: true,
+      });
+      if (updated) {
+        const log = parseInjuryNotesLog(
+          updated.medicalAnswers as MedicalAnswers | undefined,
+        );
+        setEdit((prev) => ({
+          ...prev,
+          medicalAnswers: {
+            ...(prev.medicalAnswers || {}),
+            injuryNotesLog: log,
+          },
+        }));
+        qc.setQueriesData<Member[]>({ queryKey: ["members"] }, (old) =>
+          Array.isArray(old)
+            ? old.map((row) =>
+                String(row.memberId) === String(updated.memberId)
+                  ? { ...row, ...updated }
+                  : row,
+              )
+            : old,
+        );
+      }
       toast.success("Note deleted");
     } catch (err) {
-      setEdit((prev) => ({
-        ...prev,
-        medicalAnswers: { ...(prev.medicalAnswers || {}), injuryNotesLog: prior },
-      }));
       toast.error(err instanceof Error ? err.message : "Could not delete note");
     } finally {
       setInjuryBusy(false);
@@ -498,6 +603,10 @@ export function EditMemberModal({
   ): Partial<Member> => {
     const billing = isoDate(edit.billingDate);
     const dob = isoDate(edit.dob);
+    // Never send injuryNotesLog on full Save — notes are persisted via Save note / Delete only.
+    // Including an empty/partial log from a slim open would wipe DB notes.
+    const medicalForSave = { ...(edit.medicalAnswers || {}) } as MedicalAnswers;
+    delete medicalForSave.injuryNotesLog;
     const payload: Partial<Member> = {
       formNo: edit.formNo,
       memberId: edit.memberId,
@@ -516,7 +625,7 @@ export function EditMemberModal({
       assignedGymCodeId: isOwner
         ? String(edit.assignedGymCodeId || "").trim() || undefined
         : member.assignedGymCodeId || member.assigned_gym_code_id,
-      medicalAnswers: edit.medicalAnswers,
+      medicalAnswers: medicalForSave as Member["medicalAnswers"],
       updatedAt: new Date().toISOString(),
       ...(family
         ? {

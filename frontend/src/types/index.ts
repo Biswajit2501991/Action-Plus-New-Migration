@@ -54,6 +54,13 @@ export type Member = {
   emergencyContact?: string;
   medicalConditions?: string;
   medicalAnswers?: Record<string, unknown>;
+  /** Slim-list summary of newest injury note (for Status/Messages chip). */
+  latestInjuryNote?: {
+    id?: string;
+    text?: string;
+    by?: string;
+    at?: string;
+  } | null;
   familyGroupId?: string;
   family_group_id?: string;
   familyPrimaryMemberId?: string;
