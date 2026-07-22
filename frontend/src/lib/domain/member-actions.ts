@@ -239,10 +239,6 @@ export function getSmsSentInfoText(
   const meta = getLastWhatsAppSendMeta(member, templateKey);
   if (!meta?.sentAt) return "";
   if (!shouldShowSmsSentBadge(member, templateKey, meta.sentAt)) return "";
-  const sentByNorm = String(meta.sentBy || "")
-    .trim()
-    .toLowerCase();
-  if (sentByNorm === "owner") return "";
   const when = formatDateTimeTz(meta.sentAt, tz);
   if (!when) return "";
   return meta.sentBy ? `Sent ${when} (${tz}) by ${meta.sentBy}` : `Sent ${when} (${tz})`;
@@ -310,27 +306,55 @@ export function getInjuryNoteInfoText(
   return `Note: ${note.text}`;
 }
 
+const HIGHLIGHT_SMS_KEYS = [
+  "fine",
+  "reminder",
+  "monthReminder",
+  "welcome",
+  "hold",
+  "deactivate",
+  "success",
+  "birthday",
+] as const;
+
 /**
- * Amber highlight chip: latest of (SMS Sent for current message action) vs (injury note).
- * SMS still wins when it is newer; notes always remain saved separately.
+ * Amber highlight chip:
+ * 1) SMS “Sent …” for the current primary action, else
+ * 2) newest Sent across fine/reminder/welcome/etc., else
+ * 3) latest injury note.
+ * Notes always stay saved; SMS display takes priority when a send exists.
  */
 export function getMemberHighlightChipText(
   member: Member | null | undefined,
   templateKey?: string | null,
   tz = "IST",
 ) {
-  const smsText = getSmsSentInfoText(member, templateKey, tz);
-  const noteText = getInjuryNoteInfoText(member, tz);
-  if (!smsText) return noteText;
-  if (!noteText) return smsText;
+  const primaryKey =
+    templateKey && templateKey !== "none" ? String(templateKey).trim() : "";
+  if (primaryKey) {
+    const primarySms = getSmsSentInfoText(member, primaryKey, tz);
+    if (primarySms) return primarySms;
+  }
 
-  const smsMeta =
-    templateKey && templateKey !== "none"
-      ? getLastWhatsAppSendMeta(member, templateKey)
-      : null;
-  const note = getLatestInjuryNote(member);
-  const smsMs = smsMeta?.sentAt ? new Date(smsMeta.sentAt).getTime() : 0;
-  const noteMs = note?.at ? new Date(note.at).getTime() : 0;
-  if (Number.isFinite(noteMs) && noteMs >= smsMs) return noteText;
-  return smsText;
+  let bestSms = "";
+  let bestMs = -1;
+  const keys = new Set<string>(HIGHLIGHT_SMS_KEYS);
+  if (member?.lastSmsSent && typeof member.lastSmsSent === "object") {
+    for (const k of Object.keys(member.lastSmsSent)) {
+      if (k) keys.add(k);
+    }
+  }
+  for (const key of keys) {
+    if (key === primaryKey) continue;
+    const text = getSmsSentInfoText(member, key, tz);
+    if (!text) continue;
+    const meta = getLastWhatsAppSendMeta(member, key);
+    const ms = meta?.sentAt ? new Date(meta.sentAt).getTime() : 0;
+    if (!Number.isFinite(ms) || ms < bestMs) continue;
+    bestMs = ms;
+    bestSms = text;
+  }
+  if (bestSms) return bestSms;
+
+  return getInjuryNoteInfoText(member, tz);
 }

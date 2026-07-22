@@ -1,41 +1,30 @@
 import { describe, it, expect } from 'vitest';
 
 /**
- * Mirrors frontend getMemberHighlightChipText / getInjuryNoteInfoText selection.
- * Keeps SMS chip when newer; otherwise shows latest note.
+ * Mirrors getMemberHighlightChipText priority:
+ * SMS for primary action → newest other SMS → note.
  */
-function pickHighlight({ smsAt, noteAt }) {
-  const smsMs = smsAt ? new Date(smsAt).getTime() : 0;
-  const noteMs = noteAt ? new Date(noteAt).getTime() : 0;
-  if (!smsMs) return 'note';
-  if (!noteMs) return 'sms';
-  return noteMs >= smsMs ? 'note' : 'sms';
+function pickHighlight({ primarySms, otherSms, note }) {
+  if (primarySms) return 'primarySms';
+  if (otherSms) return 'otherSms';
+  if (note) return 'note';
+  return '';
 }
 
 describe('member highlight chip (SMS vs note)', () => {
-  it('shows note when no SMS', () => {
-    expect(pickHighlight({ noteAt: '2026-07-22T10:00:00.000Z' })).toBe('note');
+  it('prefers primary SMS over note', () => {
+    expect(pickHighlight({ primarySms: true, note: true })).toBe('primarySms');
   });
 
-  it('shows SMS when no note', () => {
-    expect(pickHighlight({ smsAt: '2026-07-22T10:00:00.000Z' })).toBe('sms');
+  it('uses other SMS (e.g. fine) when primary has none', () => {
+    expect(pickHighlight({ otherSms: true, note: true })).toBe('otherSms');
   });
 
-  it('prefers newer note over older SMS', () => {
-    expect(
-      pickHighlight({
-        smsAt: '2026-07-22T10:00:00.000Z',
-        noteAt: '2026-07-22T12:00:00.000Z',
-      }),
-    ).toBe('note');
+  it('falls back to note when no SMS', () => {
+    expect(pickHighlight({ note: true })).toBe('note');
   });
 
-  it('prefers newer SMS over older note', () => {
-    expect(
-      pickHighlight({
-        smsAt: '2026-07-22T14:00:00.000Z',
-        noteAt: '2026-07-22T12:00:00.000Z',
-      }),
-    ).toBe('sms');
+  it('shows nothing when empty', () => {
+    expect(pickHighlight({})).toBe('');
   });
 });
