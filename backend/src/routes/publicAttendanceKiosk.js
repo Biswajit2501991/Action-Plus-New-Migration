@@ -109,7 +109,11 @@ router.get('/:gymCode/view', rateLimit, async (req, res) => {
     p { color:#94a3b8; max-width:28rem; line-height:1.5; font-size:14px; }
     .card { margin-top:28px; background:#fff; border-radius:24px; padding:16px; box-shadow:0 25px 50px rgba(0,0,0,.45); }
     img { width:min(80vw,320px); height:min(80vw,320px); display:block; }
-    .meta { margin-top:16px; font-size:12px; color:#64748b; }
+    .timer-wrap { margin-top:20px; }
+    .timer-label { letter-spacing:.2em; text-transform:uppercase; font-size:10px; color:#5eead4; font-weight:600; margin:0; }
+    .timer { margin:6px 0 0; font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+      font-size:clamp(2.4rem,8vw,3.2rem); font-weight:600; color:#fff; letter-spacing:-0.02em; }
+    .meta { margin-top:10px; font-size:12px; color:#64748b; }
     .err { color:#fda4af; margin-top:16px; }
     button { margin-top:20px; border:1px solid rgba(255,255,255,.2); background:transparent; color:#e2e8f0;
       border-radius:12px; padding:10px 16px; cursor:pointer; font-size:14px; }
@@ -120,6 +124,10 @@ router.get('/:gymCode/view', rateLimit, async (req, res) => {
   <h1>Staff: scan to enable today&rsquo;s Time In</h1>
   <p>This tablet stays signed out. The code refreshes automatically.</p>
   <div class="card"><img id="qr" alt="Punch QR" width="320" height="320"/></div>
+  <div class="timer-wrap">
+    <p class="timer-label">Code valid for</p>
+    <p class="timer" id="countdown">—:—</p>
+  </div>
   <p class="meta" id="meta">Loading…</p>
   <p class="err" id="err" hidden></p>
   <button type="button" id="refresh">Refresh now</button>
@@ -129,10 +137,24 @@ router.get('/:gymCode/view', rateLimit, async (req, res) => {
     const qrEl = document.getElementById('qr');
     const metaEl = document.getElementById('meta');
     const errEl = document.getElementById('err');
+    const countdownEl = document.getElementById('countdown');
     let timer = null;
+    let tick = null;
+    let expiresAtMs = 0;
 
     function qrUrl(data) {
       return 'https://api.qrserver.com/v1/create-qr-code/?size=320x320&data=' + encodeURIComponent(data);
+    }
+
+    function renderCountdown() {
+      if (!expiresAtMs) {
+        countdownEl.textContent = '—:—';
+        return;
+      }
+      const left = Math.max(0, Math.ceil((expiresAtMs - Date.now()) / 1000));
+      const m = Math.floor(left / 60);
+      const s = left % 60;
+      countdownEl.textContent = m + ':' + String(s).padStart(2, '0');
     }
 
     async function rotate() {
@@ -146,8 +168,11 @@ router.get('/:gymCode/view', rateLimit, async (req, res) => {
         if (!res.ok) throw new Error(data.message || data.error || ('HTTP ' + res.status));
         const claimUrl = location.origin + (data.claimPath || ('/attendance/claim?t=' + encodeURIComponent(data.token)));
         qrEl.src = qrUrl(claimUrl);
+        expiresAtMs = data.expiresAt ? new Date(data.expiresAt).getTime() : 0;
+        renderCountdown();
         const until = data.expiresAt ? new Date(data.expiresAt).toLocaleTimeString() : '';
-        metaEl.textContent = 'Rotates automatically' + (until ? ' · valid until ' + until : '');
+        const every = Math.max(15, Math.floor((Number(data.expiresInSec) || 90) * 0.55));
+        metaEl.textContent = 'Auto-refreshes about every ' + every + 's' + (until ? ' · until ' + until : '');
         const waitMs = Math.max(15000, Math.floor((Number(data.expiresInSec) || 90) * 1000 * 0.55));
         clearTimeout(timer);
         timer = setTimeout(rotate, waitMs);
@@ -159,6 +184,8 @@ router.get('/:gymCode/view', rateLimit, async (req, res) => {
       }
     }
 
+    clearInterval(tick);
+    tick = setInterval(renderCountdown, 1000);
     document.getElementById('refresh').addEventListener('click', () => { void rotate(); });
     void rotate();
   </script>

@@ -21,6 +21,7 @@ function PublicAttendanceKioskInner() {
   const [state, setState] = useState<RotateState | null>(null);
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
+  const [nowMs, setNowMs] = useState(() => Date.now());
 
   const rotateUrl = useMemo(() => {
     if (!gymCode || !device) return "";
@@ -56,6 +57,7 @@ function PublicAttendanceKioskInner() {
         claimUrl: attendanceClaimUrl(token),
         label: data.label,
       });
+      setNowMs(Date.now());
       setError("");
     } catch (e) {
       setError(e instanceof Error ? e.message : "Could not refresh punch QR");
@@ -76,6 +78,25 @@ function PublicAttendanceKioskInner() {
     }, waitMs);
     return () => window.clearTimeout(t);
   }, [state?.token, state?.expiresInSec, refresh]);
+
+  useEffect(() => {
+    const t = window.setInterval(() => setNowMs(Date.now()), 1000);
+    return () => window.clearInterval(t);
+  }, []);
+
+  const secondsLeft = useMemo(() => {
+    if (!state?.expiresAt) return null;
+    const end = new Date(state.expiresAt).getTime();
+    if (!Number.isFinite(end)) return null;
+    return Math.max(0, Math.ceil((end - nowMs) / 1000));
+  }, [state?.expiresAt, nowMs]);
+
+  const timerLabel = useMemo(() => {
+    if (secondsLeft == null) return null;
+    const m = Math.floor(secondsLeft / 60);
+    const s = secondsLeft % 60;
+    return `${m}:${String(s).padStart(2, "0")}`;
+  }, [secondsLeft]);
 
   return (
     <div className="fixed inset-0 z-50 flex flex-col items-center justify-center bg-slate-950 px-4 text-slate-100">
@@ -113,12 +134,25 @@ function PublicAttendanceKioskInner() {
       {error ? (
         <p className="mt-4 max-w-md text-center text-sm text-rose-300">{error}</p>
       ) : (
-        <p className="mt-4 text-xs text-slate-500">
-          Rotates about every {Math.max(15, Math.floor((state?.expiresInSec || 90) * 0.55))}s
-          {state?.expiresAt
-            ? ` · valid until ${new Date(state.expiresAt).toLocaleTimeString()}`
-            : ""}
-        </p>
+        <div className="mt-5 text-center">
+          {timerLabel ? (
+            <>
+              <p className="text-[10px] font-semibold uppercase tracking-[0.2em] text-teal-300/80">
+                Code valid for
+              </p>
+              <p className="mt-1 font-mono text-4xl font-semibold tracking-tight text-white tabular-nums sm:text-5xl">
+                {timerLabel}
+              </p>
+            </>
+          ) : null}
+          <p className="mt-2 text-xs text-slate-500">
+            Auto-refreshes about every{" "}
+            {Math.max(15, Math.floor((state?.expiresInSec || 90) * 0.55))}s
+            {state?.expiresAt
+              ? ` · until ${new Date(state.expiresAt).toLocaleTimeString()}`
+              : ""}
+          </p>
+        </div>
       )}
 
       <button
