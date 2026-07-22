@@ -115,7 +115,9 @@ import publicPaymentQrRouter from './routes/publicPaymentQr.js';
 import publicVisitorsRouter from './routes/publicVisitors.js';
 import publicMemberStatusRouter from './routes/publicMemberStatus.js';
 import publicAttendancePresenceRouter from './routes/publicAttendancePresence.js';
+import publicAttendanceKioskRouter from './routes/publicAttendanceKiosk.js';
 import attendancePresenceRouter from './routes/attendancePresence.js';
+import attendanceKioskRouter from './routes/attendanceKiosk.js';
 import { registerMemberPortalPhase2Routes } from './routes/memberPortalPhase2.js';
 import { registerMemberDailyWorkoutRoutes } from './routes/memberDailyWorkouts.js';
 import {
@@ -523,6 +525,7 @@ app.use('/api/public/payment-qr', publicPaymentQrRouter);
 app.use('/api/public/visitors', publicVisitorsRouter);
 app.use('/api/public/member-status', publicMemberStatusRouter);
 app.use('/api/public/attendance/presence', publicAttendancePresenceRouter);
+app.use('/api/public/attendance-kiosk', publicAttendanceKioskRouter);
 
 app.use('/api/auth', authRouter);
 
@@ -532,6 +535,7 @@ app.use('/api', bindGymContext);
 
 // Authenticated presence QR (rotate/settings) must sit after requireApiAuth so req.auth is set.
 app.use('/api/attendance/presence', attendancePresenceRouter);
+app.use('/api/attendance-kiosk', attendanceKioskRouter);
 
 // Member Portal Phase 2: member QR check-in, portal chat, billing push settings
 registerMemberPortalPhase2Routes(app, { appendAuditLog });

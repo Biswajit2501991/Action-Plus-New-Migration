@@ -1126,7 +1126,7 @@ export function SettingsPage() {
                       const path = String(created.kioskUrl || "").trim();
                       const token = String(created.token || "").trim();
                       const fallback =
-                        `/api/public/attendance-kiosk/${encodeURIComponent(gymCode)}/view?device=${encodeURIComponent(token)}`;
+                        `/public/attendance-kiosk/${encodeURIComponent(gymCode)}?device=${encodeURIComponent(token)}`;
                       const relative = path.startsWith("http") ? "" : (path || fallback);
                       const url = path.startsWith("http")
                         ? path
