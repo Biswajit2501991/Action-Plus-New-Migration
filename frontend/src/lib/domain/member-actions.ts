@@ -328,11 +328,13 @@ export function getMemberHighlightChipText(
   templateKey?: string | null,
   tz = "IST",
 ) {
-  type Cand = { ms: number; text: string };
-  let best: Cand | null = null;
+  let bestMs = Number.NEGATIVE_INFINITY;
+  let bestText = "";
   const consider = (ms: number, text: string) => {
     if (!text || !Number.isFinite(ms)) return;
-    if (!best || ms >= best.ms) best = { ms, text };
+    if (ms < bestMs) return;
+    bestMs = ms;
+    bestText = text;
   };
 
   const keys = new Set<string>(HIGHLIGHT_SMS_KEYS);
@@ -359,5 +361,5 @@ export function getMemberHighlightChipText(
     consider(new Date(note.at).getTime(), noteText);
   }
 
-  return best?.text || "";
+  return bestText;
 }
