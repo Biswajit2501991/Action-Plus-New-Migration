@@ -1,30 +1,39 @@
 import { describe, it, expect } from 'vitest';
 
-/**
- * Mirrors getMemberHighlightChipText priority:
- * SMS for primary action → newest other SMS → note.
- */
-function pickHighlight({ primarySms, otherSms, note }) {
-  if (primarySms) return 'primarySms';
-  if (otherSms) return 'otherSms';
-  if (note) return 'note';
-  return '';
+/** Latest timestamp wins between SMS and note. */
+function pickHighlight({ smsAt, noteAt }) {
+  const smsMs = smsAt ? new Date(smsAt).getTime() : 0;
+  const noteMs = noteAt ? new Date(noteAt).getTime() : 0;
+  if (!smsMs && !noteMs) return '';
+  if (!smsMs) return 'note';
+  if (!noteMs) return 'sms';
+  return noteMs >= smsMs ? 'note' : 'sms';
 }
 
-describe('member highlight chip (SMS vs note)', () => {
-  it('prefers primary SMS over note', () => {
-    expect(pickHighlight({ primarySms: true, note: true })).toBe('primarySms');
+describe('member highlight chip (latest action)', () => {
+  it('shows SMS when only SMS exists', () => {
+    expect(pickHighlight({ smsAt: '2026-07-22T14:00:00.000Z' })).toBe('sms');
   });
 
-  it('uses other SMS (e.g. fine) when primary has none', () => {
-    expect(pickHighlight({ otherSms: true, note: true })).toBe('otherSms');
+  it('shows note when only note exists', () => {
+    expect(pickHighlight({ noteAt: '2026-07-22T14:00:00.000Z' })).toBe('note');
   });
 
-  it('falls back to note when no SMS', () => {
-    expect(pickHighlight({ note: true })).toBe('note');
+  it('shows newer note after an older SMS', () => {
+    expect(
+      pickHighlight({
+        smsAt: '2026-07-22T13:00:00.000Z',
+        noteAt: '2026-07-22T15:00:00.000Z',
+      }),
+    ).toBe('note');
   });
 
-  it('shows nothing when empty', () => {
-    expect(pickHighlight({})).toBe('');
+  it('shows newer SMS after an older note', () => {
+    expect(
+      pickHighlight({
+        smsAt: '2026-07-22T16:00:00.000Z',
+        noteAt: '2026-07-22T15:00:00.000Z',
+      }),
+    ).toBe('sms');
   });
 });

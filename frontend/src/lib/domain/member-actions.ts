@@ -318,43 +318,46 @@ const HIGHLIGHT_SMS_KEYS = [
 ] as const;
 
 /**
- * Amber highlight chip:
- * 1) SMS “Sent …” for the current primary action, else
- * 2) newest Sent across fine/reminder/welcome/etc., else
- * 3) latest injury note.
- * Notes always stay saved; SMS display takes priority when a send exists.
+ * Amber highlight chip shows the latest action:
+ * - newest SMS “Sent …” (fine/reminder/welcome/etc., including Owner sends), or
+ * - newest injury note,
+ * whichever has the later timestamp. Notes always remain saved either way.
  */
 export function getMemberHighlightChipText(
   member: Member | null | undefined,
   templateKey?: string | null,
   tz = "IST",
 ) {
+  type Cand = { ms: number; text: string };
+  let best: Cand | null = null;
+  const consider = (ms: number, text: string) => {
+    if (!text || !Number.isFinite(ms)) return;
+    if (!best || ms >= best.ms) best = { ms, text };
+  };
+
+  const keys = new Set<string>(HIGHLIGHT_SMS_KEYS);
   const primaryKey =
     templateKey && templateKey !== "none" ? String(templateKey).trim() : "";
-  if (primaryKey) {
-    const primarySms = getSmsSentInfoText(member, primaryKey, tz);
-    if (primarySms) return primarySms;
-  }
-
-  let bestSms = "";
-  let bestMs = -1;
-  const keys = new Set<string>(HIGHLIGHT_SMS_KEYS);
+  if (primaryKey) keys.add(primaryKey);
   if (member?.lastSmsSent && typeof member.lastSmsSent === "object") {
     for (const k of Object.keys(member.lastSmsSent)) {
       if (k) keys.add(k);
     }
   }
+
   for (const key of keys) {
-    if (key === primaryKey) continue;
     const text = getSmsSentInfoText(member, key, tz);
     if (!text) continue;
     const meta = getLastWhatsAppSendMeta(member, key);
-    const ms = meta?.sentAt ? new Date(meta.sentAt).getTime() : 0;
-    if (!Number.isFinite(ms) || ms < bestMs) continue;
-    bestMs = ms;
-    bestSms = text;
+    const ms = meta?.sentAt ? new Date(meta.sentAt).getTime() : NaN;
+    consider(ms, text);
   }
-  if (bestSms) return bestSms;
 
-  return getInjuryNoteInfoText(member, tz);
+  const note = getLatestInjuryNote(member);
+  const noteText = getInjuryNoteInfoText(member, tz);
+  if (noteText && note?.at) {
+    consider(new Date(note.at).getTime(), noteText);
+  }
+
+  return best?.text || "";
 }
