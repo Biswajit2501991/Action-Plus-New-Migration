@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useRouter } from "next/navigation";
-import { Bell, KeyRound, Phone, Plane, UserRoundPlus } from "lucide-react";
+import { Bell, KeyRound, MessageCircle, Phone, Plane, UserRoundPlus } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Input, Label } from "@/components/ui/input";
@@ -26,6 +26,7 @@ import {
   withStaffSeenAck,
 } from "@/lib/domain/new-visitors";
 import {
+  canAccessSection,
   hasAccess,
   isBranchAdminUser,
   isMasterOwnerUser,
@@ -33,6 +34,7 @@ import {
 import { websiteVisitorBadge } from "@/features/visitors/website-intake";
 import { cn, formatDate } from "@/lib/utils";
 import { attendanceApi, leaveApi, visitorsApi } from "@/services/api";
+import { apiFetch } from "@/services/api/client";
 import { adminSetPassword, rejectPasswordReset } from "@/services/api/auth";
 import { useAuthStore } from "@/stores";
 import type { LeaveRequest, StaffUser, Visitor } from "@/types";
@@ -61,7 +63,12 @@ export function NotificationCenter() {
   const canLeave = canDecideLeave(user);
   const canResets = canViewPasswordResetNotifications(user);
   const canVisitors = hasAccess(user, "members", "viewVisitors");
+  const canPortalChat =
+    canAccessSection(user, "WhatsApp Verification") ||
+    canAccessSection(user, "Members") ||
+    hasAccess(user, "members", "editMembers");
   const realtimeConnected = useRealtimeConnected();
+  const [portalChatUnread, setPortalChatUnread] = useState(0);
 
   // Dedicated leave scope + poll so owner bell updates without a hard refresh
   // even when the Next.js SSE proxy drops realtime frames.
@@ -122,11 +129,38 @@ export function NotificationCenter() {
     [canVisitors, visitors],
   );
 
+  useEffect(() => {
+    if (!canPortalChat) {
+      setPortalChatUnread(0);
+      return;
+    }
+    let cancelled = false;
+    const pull = async () => {
+      try {
+        const data = await apiFetch<{ ok?: boolean; count?: number }>(
+          "/portal-chat/unread-count",
+        );
+        if (!cancelled) setPortalChatUnread(Number(data.count) || 0);
+      } catch {
+        if (!cancelled) setPortalChatUnread(0);
+      }
+    };
+    void pull();
+    const id = window.setInterval(() => {
+      if (document.visibilityState === "visible") void pull();
+    }, 15_000);
+    return () => {
+      cancelled = true;
+      window.clearInterval(id);
+    };
+  }, [canPortalChat]);
+
   const total =
     leavePending.length +
     passwordPending.length +
     callbackPending.length +
-    newVisitorPending.length;
+    newVisitorPending.length +
+    (portalChatUnread > 0 ? 1 : 0);
 
   useEffect(() => {
     if (!open) return;
@@ -265,7 +299,7 @@ export function NotificationCenter() {
     router.push("/members?tab=visitors");
   };
 
-  if (!user || (!canLeave && !canResets && !canVisitors)) return null;
+  if (!user || (!canLeave && !canResets && !canVisitors && !canPortalChat)) return null;
 
   return (
     <div className="relative" ref={rootRef}>
@@ -311,6 +345,30 @@ export function NotificationCenter() {
           </div>
 
           <div className="max-h-[min(70vh,28rem)] space-y-3 overflow-y-auto p-3">
+            {canPortalChat && portalChatUnread > 0 ? (
+              <section>
+                <div className="mb-1.5 flex items-center gap-1.5 px-1 text-[11px] font-semibold uppercase tracking-wide text-slate-500">
+                  <MessageCircle className="h-3.5 w-3.5" />
+                  Member portal chat
+                </div>
+                <button
+                  type="button"
+                  className="w-full rounded-xl border border-teal-200/80 bg-teal-50/70 p-2.5 text-left dark:border-teal-500/20 dark:bg-teal-950/30"
+                  onClick={() => {
+                    setOpen(false);
+                    router.push("/portal-chat");
+                  }}
+                >
+                  <p className="text-xs font-semibold text-teal-950 dark:text-teal-100">
+                    {portalChatUnread} member chat
+                    {portalChatUnread === 1 ? "" : "s"} awaiting reply
+                  </p>
+                  <p className="text-[11px] text-teal-800/80 dark:text-teal-200/70">
+                    Open Portal Chat to respond
+                  </p>
+                </button>
+              </section>
+            ) : null}
             {canResets ? (
               <section>
                 <div className="mb-1.5 flex items-center gap-1.5 px-1 text-[11px] font-semibold uppercase tracking-wide text-slate-500">

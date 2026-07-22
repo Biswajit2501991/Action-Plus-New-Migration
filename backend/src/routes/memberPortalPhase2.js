@@ -297,9 +297,34 @@ export function registerMemberPortalPhase2Routes(app, { appendAuditLog }) {
         }))
         .sort((a, b) => String(b.updated_at).localeCompare(String(a.updated_at)));
 
-      return res.json({ ok: true, items, retentionDays });
+      return res.json({
+        ok: true,
+        items,
+        retentionDays,
+        unreadCount: items.filter((row) => row.has_open || row.status === "open").length,
+      });
     } catch (err) {
       return res.status(500).json({ error: err?.message || "list-failed" });
+    }
+  });
+
+  app.get("/api/portal-chat/unread-count", requireAccess(Access.membersWrite), async (req, res) => {
+    try {
+      const { getSupabase, gymId } = await import("../db/supabase/client.js");
+      const sb = getSupabase();
+      const gid = gymId() || req.auth?.gymId;
+      if (!sb || !gid) return res.status(500).json({ error: "supabase-unavailable" });
+      const { data, error } = await sb
+        .from("member_portal_chat_threads")
+        .select("member_uuid")
+        .eq("gym_id", gid)
+        .eq("status", "open")
+        .limit(500);
+      if (error) return res.status(500).json({ error: error.message });
+      const count = new Set((data || []).map((t) => t.member_uuid)).size;
+      return res.json({ ok: true, count });
+    } catch (err) {
+      return res.status(500).json({ error: err?.message || "count-failed" });
     }
   });
 

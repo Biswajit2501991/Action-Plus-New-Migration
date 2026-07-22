@@ -64,6 +64,7 @@ export function PortalChatPage() {
       ok?: boolean;
       items?: MemberRow[];
       retentionDays?: number;
+      unreadCount?: number;
     }>("/portal-chat/members");
     setMembers(Array.isArray(data.items) ? data.items : []);
     if (typeof data.retentionDays === "number" && data.retentionDays > 0) {
@@ -73,12 +74,30 @@ export function PortalChatPage() {
   }, []);
 
   const loadMessages = useCallback(async (memberUuid: string) => {
+    const cacheKey = `apg_gm_chat_${memberUuid}`;
+    try {
+      const cached = sessionStorage.getItem(cacheKey);
+      if (cached) {
+        const parsed = JSON.parse(cached) as { items?: ChatMessage[] };
+        if (Array.isArray(parsed.items) && parsed.items.length) {
+          setMessages(parsed.items);
+        }
+      }
+    } catch {
+      /* ignore */
+    }
     const data = await apiFetch<{
       ok?: boolean;
       items?: ChatMessage[];
       retentionDays?: number;
     }>(`/portal-chat/members/${encodeURIComponent(memberUuid)}/messages`);
-    setMessages(Array.isArray(data.items) ? data.items : []);
+    const items = Array.isArray(data.items) ? data.items : [];
+    setMessages(items);
+    try {
+      sessionStorage.setItem(cacheKey, JSON.stringify({ items }));
+    } catch {
+      /* ignore */
+    }
     if (typeof data.retentionDays === "number" && data.retentionDays > 0) {
       setRetentionDays(data.retentionDays);
     }
@@ -89,15 +108,21 @@ export function PortalChatPage() {
     void loadMembers().catch((e) =>
       setError(e instanceof Error ? e.message : "Load failed"),
     );
+    const id = window.setInterval(() => {
+      if (document.visibilityState === "visible") {
+        void loadMembers().catch(() => null);
+      }
+    }, 15_000);
+    return () => window.clearInterval(id);
   }, [canUse, loadMembers]);
 
   useEffect(() => {
     if (!activeMember) return;
     void loadMessages(activeMember).catch(() => null);
-    const id = window.setInterval(
-      () => void loadMessages(activeMember).catch(() => null),
-      8000,
-    );
+    const id = window.setInterval(() => {
+      if (document.visibilityState === "hidden") return;
+      void loadMessages(activeMember).catch(() => null);
+    }, 8000);
     return () => window.clearInterval(id);
   }, [activeMember, loadMessages]);
 
@@ -250,6 +275,7 @@ export function PortalChatPage() {
               <tbody>
                 {filtered.map((m) => {
                   const selected = activeMember === m.member_uuid;
+                  const awaiting = m.status === "open";
                   return (
                     <tr
                       key={m.member_uuid}
@@ -259,7 +285,14 @@ export function PortalChatPage() {
                       onClick={() => setActiveMember(m.member_uuid)}
                     >
                       <td className="px-3 py-2">
-                        <p className="font-medium leading-tight">
+                        <p className="flex items-center gap-2 font-medium leading-tight">
+                          {awaiting ? (
+                            <span
+                              className="inline-block h-2 w-2 shrink-0 rounded-full bg-teal-500"
+                              title="New member message"
+                              aria-label="New member message"
+                            />
+                          ) : null}
                           {m.member?.full_name || "Member"}
                         </p>
                         <p className="text-[11px] text-muted-foreground">

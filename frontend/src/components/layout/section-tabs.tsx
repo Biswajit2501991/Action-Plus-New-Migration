@@ -11,6 +11,7 @@ import type { AuthUser } from "@/types";
 import { isAttendanceNotesEnabled } from "@/lib/domain/attendance";
 import { useSettings } from "@/hooks/use-data";
 import { MembersTodayVisitorBadge } from "@/components/layout/members-today-visitor-badge";
+import { PortalChatUnreadBadge } from "@/components/layout/portal-chat-unread-badge";
 
 function visibleSectionTabs(user: AuthUser | null | undefined) {
   return SECTION_ORDER.filter((section) => canAccessSection(user, section)).map((section) => {
@@ -69,6 +70,9 @@ export function AppSectionTabs() {
                         : undefined
                     }
                   />
+                ) : null}
+                {tab.href === "/portal-chat" ? (
+                  <PortalChatUnreadBadge compact />
                 ) : null}
               </span>
             </>

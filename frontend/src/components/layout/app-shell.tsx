@@ -43,6 +43,7 @@ import { LateArrivalNoteHost } from "@/features/attendance/late-arrival-note-hos
 import { AppSectionTabs } from "@/components/layout/section-tabs";
 import { MobileShell } from "@/components/layout/mobile-shell";
 import { MembersTodayVisitorBadge } from "@/components/layout/members-today-visitor-badge";
+import { PortalChatUnreadBadge } from "@/components/layout/portal-chat-unread-badge";
 import { Skeleton } from "@/components/ui/misc";
 
 function DesktopShell({ children }: { children: React.ReactNode }) {
@@ -192,6 +193,9 @@ function DesktopShell({ children }: { children: React.ReactNode }) {
                                   {item.href === "/members" ? (
                                     <MembersTodayVisitorBadge />
                                   ) : null}
+                                  {item.href === "/portal-chat" ? (
+                                    <PortalChatUnreadBadge />
+                                  ) : null}
                                 </span>
                               ) : null}
                             </a>
@@ -203,6 +207,9 @@ function DesktopShell({ children }: { children: React.ReactNode }) {
                                   <span className="truncate">{item.label}</span>
                                   {item.href === "/members" ? (
                                     <MembersTodayVisitorBadge />
+                                  ) : null}
+                                  {item.href === "/portal-chat" ? (
+                                    <PortalChatUnreadBadge />
                                   ) : null}
                                 </span>
                               ) : null}
@@ -271,6 +278,7 @@ function DesktopShell({ children }: { children: React.ReactNode }) {
                     <span className="flex items-center gap-1">
                       {item.label}
                       {item.href === "/members" ? <MembersTodayVisitorBadge /> : null}
+                      {item.href === "/portal-chat" ? <PortalChatUnreadBadge /> : null}
                     </span>
                   </Link>
                 ))}
