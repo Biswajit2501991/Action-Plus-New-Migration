@@ -768,7 +768,7 @@ app.put('/api/members/bulk', requireAccess(Access.membersWrite), async (req, res
  * Body: { patch: { ...partial app-member fields }, expectedAssignedGymCodeId?: string }
  */
 app.patch('/api/members/:memberId', requireAccess(Access.membersWrite), async (req, res) => {
-  const memberCode = String(req.params.memberId || '').trim();
+  const memberCode = decodeURIComponent(String(req.params.memberId || '').trim());
   const patch = req.body?.patch && typeof req.body.patch === 'object' ? req.body.patch : null;
   if (!memberCode) return res.status(400).json({ error: 'member-code-required' });
   if (!patch) return res.status(400).json({ error: 'patch-required' });

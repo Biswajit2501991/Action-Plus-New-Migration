@@ -713,6 +713,35 @@ export function EditMemberModal({
 
     setSaving(true);
     try {
+      // If a note draft is typed but not yet saved via the note Save button, persist it first.
+      const pendingNote = injuryDraft.trim();
+      if (pendingNote) {
+        const entry: InjuryNote = {
+          id: crypto.randomUUID(),
+          text: pendingNote,
+          at: new Date().toISOString(),
+          by: String(currentUser?.name || currentUser?.id || "Staff").trim() || "Staff",
+          byId: String(currentUser?.id || "").trim(),
+        };
+        let prior = parseInjuryNotesLog(edit.medicalAnswers);
+        try {
+          const full = await membersApi.get(id);
+          const serverLog = parseInjuryNotesLog(
+            full?.medicalAnswers as MedicalAnswers | undefined,
+          );
+          if (serverLog.length) prior = serverLog;
+        } catch {
+          /* keep local prior */
+        }
+        const nextMedical: MedicalAnswers = {
+          ...(edit.medicalAnswers || {}),
+          injuryNotesLog: [...prior, entry],
+        };
+        setEdit((prev) => ({ ...prev, medicalAnswers: nextMedical }));
+        setInjuryDraft("");
+        await persistMedicalAnswers(nextMedical, { replaceInjuryNotesLog: false });
+      }
+
       const res = await membersApi.patch(id, payload);
       const updated = res.member;
       if (updated?.memberId) {
