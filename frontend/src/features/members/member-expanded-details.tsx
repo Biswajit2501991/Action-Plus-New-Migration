@@ -477,6 +477,7 @@ export function MemberExpandedDetails({
   onWelcomeMail,
   onUploadDocument,
   onDelete,
+  onWorkout,
   onStatusChange,
   onNavigateMember,
   onUnlinkFamilyGroup,
@@ -509,6 +510,7 @@ export function MemberExpandedDetails({
   onWelcomeMail: () => void;
   onUploadDocument: (file: File) => void;
   onDelete: () => void;
+  onWorkout?: () => void;
   onStatusChange: (status: string, holdDuration?: string) => void;
   onNavigateMember?: (member: Member) => void;
   onUnlinkFamilyGroup?: (groupId: string) => void;
@@ -846,6 +848,17 @@ export function MemberExpandedDetails({
             title="Open WhatsApp chat for call"
           >
             Call / Chat
+          </Button>
+        ) : null}
+        {onWorkout ? (
+          <Button
+            size="sm"
+            variant="outline"
+            className="h-7 border-teal-300 text-[10px] text-teal-800 hover:bg-teal-50 dark:border-teal-700 dark:text-teal-200"
+            onClick={onWorkout}
+            title="Log or view daily workouts"
+          >
+            Workout
           </Button>
         ) : null}
         {canDelete ? (

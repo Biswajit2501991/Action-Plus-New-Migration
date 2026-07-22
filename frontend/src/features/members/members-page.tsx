@@ -38,6 +38,7 @@ import {
   type QuickFieldEditState,
 } from "@/features/members/quick-field-edit-modal";
 import { MemberPhotoPreviewModal } from "@/features/members/member-photo-modals";
+import { MemberWorkoutDialog } from "@/features/members/member-workout-dialog";
 import { EditMemberModal } from "@/features/members/edit-member-modal";
 import {
   MemberMetricModal,
@@ -226,6 +227,7 @@ export function MembersPage() {
   const [quickFieldEdit, setQuickFieldEdit] = useState<QuickFieldEditState | null>(null);
   const [quickFieldSaving, setQuickFieldSaving] = useState(false);
   const [deleteConfirmMember, setDeleteConfirmMember] = useState<Member | null>(null);
+  const [workoutMember, setWorkoutMember] = useState<Member | null>(null);
 
   const { pendingCount: offlinePendingCount } = useOfflineQueueFlush(Boolean(user));
 
@@ -1453,6 +1455,7 @@ export function MembersPage() {
                                       onDelete={() => {
                                         setDeleteConfirmMember(m);
                                       }}
+                                      onWorkout={() => setWorkoutMember(m)}
                                       onStatusChange={(status, holdDuration) => {
                                         requestStatusChange([m.memberId], status, holdDuration);
                                       }}
@@ -1831,6 +1834,14 @@ export function MembersPage() {
         gymLabel={gymLabelFor(
           photoPreviewMember?.assignedGymCodeId || photoPreviewMember?.assigned_gym_code_id,
         )}
+      />
+
+      <MemberWorkoutDialog
+        open={Boolean(workoutMember)}
+        member={workoutMember}
+        exerciseTypes={settings?.exerciseTypes}
+        canEdit={hasAccess(user, "members", "editMembers")}
+        onClose={() => setWorkoutMember(null)}
       />
 
       <input
