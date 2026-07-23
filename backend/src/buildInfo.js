@@ -31,6 +31,8 @@ export const apiFeatures = {
   financeReconciliation: true,
   memberPaidForMonthLedger: true,
   portalVerifications: true,
+  portalUiConfig: true,
+  portalUiConfigVersion: 2,
 };
 
 export const buildInfo = {

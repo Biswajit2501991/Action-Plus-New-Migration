@@ -37,6 +37,63 @@ export const DEFAULT_PORTAL_SECTIONS = {
   ptWorkoutDetails: false,
 };
 
+/** Sentinel labels stored inside basic_workout_options so home-tile toggles
+ *  survive older API builds that strip unknown portal_sections keys. */
+export const HOME_TILE_OPTION_PREFIX = "__tile__:";
+
+export const HOME_TILE_KEYS = [
+  "homeProfile",
+  "homeQrCard",
+  "homeDevices",
+  "homePayments",
+  "homeAttendance",
+  "homeAlerts",
+  "homeChat",
+  "homeTraining",
+  "homeWeightTracker",
+  "homeBook",
+  "homePerks",
+  "homeBiometric",
+];
+
+export function isHomeTileOptionLabel(label) {
+  return String(label || "").startsWith(HOME_TILE_OPTION_PREFIX);
+}
+
+export function homeTileOptionLabel(key) {
+  return `${HOME_TILE_OPTION_PREFIX}${key}`;
+}
+
+/** Split workout chips from __tile__: sentinels used to persist home visibility. */
+export function splitWorkoutOptionsAndHomeTiles(input) {
+  const normalized = normalizeBasicWorkoutOptions(input);
+  const workoutOptions = [];
+  const homeFromOptions = {};
+  for (const row of normalized) {
+    if (isHomeTileOptionLabel(row.label)) {
+      const key = row.label.slice(HOME_TILE_OPTION_PREFIX.length);
+      if (HOME_TILE_KEYS.includes(key)) homeFromOptions[key] = row.visible;
+      continue;
+    }
+    workoutOptions.push(row);
+  }
+  return { workoutOptions, homeFromOptions };
+}
+
+/** Persist home-tile booleans as sentinel options alongside real workout chips. */
+export function encodeHomeTilesIntoWorkoutOptions(workoutOptions, sections) {
+  const { workoutOptions: clean } = splitWorkoutOptionsAndHomeTiles(workoutOptions);
+  const src =
+    sections && typeof sections === "object" && !Array.isArray(sections)
+      ? sections
+      : DEFAULT_PORTAL_SECTIONS;
+  const tiles = HOME_TILE_KEYS.map((key) => ({
+    label: homeTileOptionLabel(key),
+    visible: key in src ? Boolean(src[key]) : true,
+  }));
+  return [...clean, ...tiles];
+}
+
 /**
  * Normalize Basic workout options from settings / request body.
  * Keeps labels unique (case-insensitive); max 40 options.
@@ -60,7 +117,7 @@ export function normalizeBasicWorkoutOptions(input) {
         ? Boolean(raw.visible)
         : true;
     out.push({ label, visible });
-    if (out.length >= 40) break;
+    if (out.length >= 60) break;
   }
   return out.length ? out : DEFAULT_BASIC_WORKOUT_OPTIONS.map((o) => ({ ...o }));
 }
@@ -98,5 +155,6 @@ export function mergePortalSections(saved, fallback) {
 export function visibleBasicWorkoutLabels(options) {
   return normalizeBasicWorkoutOptions(options)
     .filter((o) => o.visible)
+    .filter((o) => !isHomeTileOptionLabel(o.label))
     .map((o) => o.label);
 }

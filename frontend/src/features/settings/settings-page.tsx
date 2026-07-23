@@ -452,7 +452,7 @@ function normalizeBasicWorkoutOptions(input: unknown): BasicWorkoutOption[] {
         ? Boolean((raw as { visible?: boolean }).visible)
         : true;
     out.push({ label, visible });
-    if (out.length >= 40) break;
+    if (out.length >= 60) break;
   }
   return out.length ? out : DEFAULT_BASIC_WORKOUT_OPTIONS.map((o) => ({ ...o }));
 }
@@ -478,6 +478,69 @@ function mergePortalSections(saved: unknown, fallback: PortalSections): PortalSe
     if (key in src) base[key] = Boolean(src[key]);
   }
   return base;
+}
+
+const HOME_TILE_OPTION_PREFIX = "__tile__:";
+
+const HOME_TILE_KEYS: (keyof PortalSections)[] = [
+  "homeProfile",
+  "homeQrCard",
+  "homeDevices",
+  "homePayments",
+  "homeAttendance",
+  "homeAlerts",
+  "homeChat",
+  "homeTraining",
+  "homeWeightTracker",
+  "homeBook",
+  "homePerks",
+  "homeBiometric",
+];
+
+function isHomeTileOptionLabel(label: string) {
+  return label.startsWith(HOME_TILE_OPTION_PREFIX);
+}
+
+function splitWorkoutOptionsAndHomeTiles(input: unknown): {
+  workoutOptions: BasicWorkoutOption[];
+  homeFromOptions: Partial<PortalSections>;
+} {
+  const normalized = normalizeBasicWorkoutOptions(input);
+  const workoutOptions: BasicWorkoutOption[] = [];
+  const homeFromOptions: Partial<PortalSections> = {};
+  for (const row of normalized) {
+    if (isHomeTileOptionLabel(row.label)) {
+      const key = row.label.slice(HOME_TILE_OPTION_PREFIX.length) as keyof PortalSections;
+      if (HOME_TILE_KEYS.includes(key)) homeFromOptions[key] = row.visible;
+      continue;
+    }
+    workoutOptions.push(row);
+  }
+  return { workoutOptions, homeFromOptions };
+}
+
+function encodeHomeTilesIntoWorkoutOptions(
+  workoutOptions: BasicWorkoutOption[],
+  sections: PortalSections,
+): BasicWorkoutOption[] {
+  const { workoutOptions: clean } = splitWorkoutOptionsAndHomeTiles(workoutOptions);
+  const tiles = HOME_TILE_KEYS.map((key) => ({
+    label: `${HOME_TILE_OPTION_PREFIX}${key}`,
+    visible: Boolean(sections[key]),
+  }));
+  return [...clean, ...tiles];
+}
+
+function hydratePortalSettingsFromApi(settings?: {
+  basic_workout_options?: BasicWorkoutOption[];
+  portal_sections?: PortalSections;
+}): { workoutOptions: BasicWorkoutOption[]; portalSections: PortalSections } {
+  const split = splitWorkoutOptionsAndHomeTiles(settings?.basic_workout_options);
+  const portalSections = mergePortalSections(
+    settings?.portal_sections,
+    mergePortalSections(split.homeFromOptions, DEFAULT_PORTAL_SECTIONS),
+  );
+  return { workoutOptions: split.workoutOptions, portalSections };
 }
 
 function AppearanceCard({
@@ -656,10 +719,9 @@ export function SettingsPage() {
           // Never clobber in-progress edits if the user already toggled something.
           setPortalUiDirty((dirty) => {
             if (dirty) return dirty;
-            setBasicWorkoutOptions(
-              normalizeBasicWorkoutOptions(data.settings?.basic_workout_options),
-            );
-            setPortalSections(normalizePortalSections(data.settings?.portal_sections));
+            const hydrated = hydratePortalSettingsFromApi(data.settings);
+            setBasicWorkoutOptions(hydrated.workoutOptions);
+            setPortalSections(hydrated.portalSections);
             return false;
           });
         }
@@ -702,8 +764,13 @@ export function SettingsPage() {
   async function savePortalUiConfig() {
     setPortalUiBusy(true);
     try {
-      const payloadOptions = normalizeBasicWorkoutOptions(basicWorkoutOptions);
       const payloadSections = normalizePortalSections(portalSections);
+      // Dual-write home tiles into basic_workout_options sentinels so older API
+      // builds (that strip unknown portal_sections keys) still persist toggles.
+      const payloadOptions = encodeHomeTilesIntoWorkoutOptions(
+        basicWorkoutOptions,
+        payloadSections,
+      );
       const data = await apiFetch<{
         ok?: boolean;
         settings?: {
@@ -717,16 +784,16 @@ export function SettingsPage() {
           portal_sections: payloadSections,
         }),
       });
-      // Prefer what we sent; only overlay keys actually returned by the API.
-      // Partial/old API responses must not reset home-tile toggles to defaults.
-      setBasicWorkoutOptions(
-        normalizeBasicWorkoutOptions(
+      const hydrated = hydratePortalSettingsFromApi({
+        basic_workout_options:
           data.settings?.basic_workout_options ?? payloadOptions,
+        portal_sections: mergePortalSections(
+          data.settings?.portal_sections,
+          payloadSections,
         ),
-      );
-      setPortalSections(
-        mergePortalSections(data.settings?.portal_sections, payloadSections),
-      );
+      });
+      setBasicWorkoutOptions(hydrated.workoutOptions);
+      setPortalSections(hydrated.portalSections);
       setPortalUiDirty(false);
       toast.success("Member Portal settings saved");
     } catch (e) {

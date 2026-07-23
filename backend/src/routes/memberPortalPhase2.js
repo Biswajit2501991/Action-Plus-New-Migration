@@ -5,9 +5,11 @@ import { requireAccess } from "../middleware/permissions.js";
 import {
   DEFAULT_BASIC_WORKOUT_OPTIONS,
   DEFAULT_PORTAL_SECTIONS,
+  encodeHomeTilesIntoWorkoutOptions,
   mergePortalSections,
   normalizeBasicWorkoutOptions,
   normalizePortalSections,
+  splitWorkoutOptionsAndHomeTiles,
 } from "../lib/memberPortalUiConfig.js";
 
 function b64urlDecode(input) {
@@ -545,14 +547,17 @@ export function registerMemberPortalPhase2Routes(app, { appendAuditLog }) {
         basic_workout_options: DEFAULT_BASIC_WORKOUT_OPTIONS,
         portal_sections: DEFAULT_PORTAL_SECTIONS,
       };
+      const split = splitWorkoutOptionsAndHomeTiles(settings.basic_workout_options);
+      const portalSections = mergePortalSections(
+        settings.portal_sections,
+        mergePortalSections(split.homeFromOptions, DEFAULT_PORTAL_SECTIONS),
+      );
       return res.json({
         ok: true,
         settings: {
           ...settings,
-          basic_workout_options: normalizeBasicWorkoutOptions(
-            settings.basic_workout_options,
-          ),
-          portal_sections: normalizePortalSections(settings.portal_sections),
+          basic_workout_options: split.workoutOptions,
+          portal_sections: portalSections,
         },
       });
     } catch (err) {
@@ -588,17 +593,21 @@ export function registerMemberPortalPhase2Routes(app, { appendAuditLog }) {
       const authMethod =
         authMethodRaw === "auto_identity" ? "auto_identity" : "whatsapp_staff";
 
-      const basicWorkoutOptions = normalizeBasicWorkoutOptions(
+      const basicWorkoutOptions = encodeHomeTilesIntoWorkoutOptions(
         req.body?.basic_workout_options !== undefined
           ? req.body.basic_workout_options
-          : existing?.basic_workout_options,
+          : splitWorkoutOptionsAndHomeTiles(existing?.basic_workout_options)
+              .workoutOptions,
+        req.body?.portal_sections !== undefined
+          ? req.body.portal_sections
+          : mergePortalSections(existing?.portal_sections, DEFAULT_PORTAL_SECTIONS),
       );
       // Always persist the full section map (defaults ∪ existing ∪ request) so
       // partial PUTs (auth/chat) never drop home-tile keys, and false stays false.
       const portalSections = mergePortalSections(
         req.body?.portal_sections !== undefined
           ? req.body.portal_sections
-          : null,
+          : splitWorkoutOptionsAndHomeTiles(basicWorkoutOptions).homeFromOptions,
         mergePortalSections(existing?.portal_sections, DEFAULT_PORTAL_SECTIONS),
       );
 
@@ -631,14 +640,17 @@ export function registerMemberPortalPhase2Routes(app, { appendAuditLog }) {
         .select("*")
         .maybeSingle();
       if (error) return res.status(500).json({ error: error.message });
+      const splitSaved = splitWorkoutOptionsAndHomeTiles(data?.basic_workout_options);
+      const sectionsSaved = mergePortalSections(
+        data?.portal_sections,
+        mergePortalSections(splitSaved.homeFromOptions, portalSections),
+      );
       return res.json({
         ok: true,
         settings: {
           ...data,
-          basic_workout_options: normalizeBasicWorkoutOptions(
-            data?.basic_workout_options,
-          ),
-          portal_sections: normalizePortalSections(data?.portal_sections),
+          basic_workout_options: splitSaved.workoutOptions,
+          portal_sections: sectionsSaved,
         },
       });
     } catch (err) {
