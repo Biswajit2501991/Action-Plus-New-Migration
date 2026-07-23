@@ -21,6 +21,14 @@ type DayLog = {
   source?: string;
 };
 
+type WeightLog = {
+  id: string;
+  date: string;
+  weightKg: number | null;
+  notes?: string;
+  recordedBy?: string;
+};
+
 const WEEKDAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 const MONTHS = [
   "January",
@@ -69,6 +77,12 @@ export function MemberWorkoutDialog({
   const [notes, setNotes] = useState("");
   const [busy, setBusy] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [weightLogs, setWeightLogs] = useState<WeightLog[]>([]);
+  const [weightKg, setWeightKg] = useState("");
+  const [weightDate, setWeightDate] = useState(todayKeyLocal());
+  const [weightBusy, setWeightBusy] = useState(false);
+  const [currentKg, setCurrentKg] = useState<number | null>(null);
+  const [changeKg, setChangeKg] = useState<number | null>(null);
 
   const todayParts = parsePtDateKey(workoutDate) || {
     year: new Date().getFullYear(),
@@ -96,11 +110,26 @@ export function MemberWorkoutDialog({
     setLoading(true);
     try {
       const key = encodeURIComponent(member.memberId || member.memberUuid || "");
-      const data = await apiFetch<{
-        ok?: boolean;
-        byDate?: Record<string, DayLog>;
-      }>(`/member-daily-workouts/${key}`);
-      setByDate(data.byDate || {});
+      const [workoutData, weightData] = await Promise.all([
+        apiFetch<{
+          ok?: boolean;
+          byDate?: Record<string, DayLog>;
+        }>(`/member-daily-workouts/${key}`),
+        apiFetch<{
+          ok?: boolean;
+          logs?: WeightLog[];
+          currentKg?: number | null;
+          changeKg?: number | null;
+        }>(`/member-weight-logs/${key}`).catch(() => ({
+          logs: [] as WeightLog[],
+          currentKg: null,
+          changeKg: null,
+        })),
+      ]);
+      setByDate(workoutData.byDate || {});
+      setWeightLogs(Array.isArray(weightData.logs) ? weightData.logs : []);
+      setCurrentKg(weightData.currentKg ?? null);
+      setChangeKg(weightData.changeKg ?? null);
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Could not load workouts");
       setByDate({});
@@ -113,6 +142,8 @@ export function MemberWorkoutDialog({
     if (!open || !member) return;
     const today = todayKeyLocal();
     setWorkoutDate(today);
+    setWeightDate(today);
+    setWeightKg("");
     const parts = parsePtDateKey(today);
     if (parts) {
       setViewYear(parts.year);
@@ -166,6 +197,30 @@ export function MemberWorkoutDialog({
       toast.error(e instanceof Error ? e.message : "Save failed");
     } finally {
       setBusy(false);
+    }
+  }
+
+  async function saveWeight() {
+    if (!member || !canEdit) return;
+    const kg = Number(String(weightKg).trim());
+    if (!Number.isFinite(kg) || kg <= 0) {
+      toast.error("Enter a valid weight in kg.");
+      return;
+    }
+    setWeightBusy(true);
+    try {
+      const key = encodeURIComponent(member.memberId || member.memberUuid || "");
+      await apiFetch(`/member-weight-logs/${key}`, {
+        method: "POST",
+        body: JSON.stringify({ date: weightDate, weightKg: kg }),
+      });
+      toast.success(`Saved weight ${kg} kg for ${weightDate}`);
+      setWeightKg("");
+      await load();
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Could not save weight");
+    } finally {
+      setWeightBusy(false);
     }
   }
 
@@ -303,6 +358,95 @@ export function MemberWorkoutDialog({
               placeholder="Sets, reps, or how the session went"
             />
           </div>
+        </div>
+
+        <div className="rounded-xl border border-amber-200/80 bg-amber-50/50 p-3 dark:border-amber-900 dark:bg-amber-950/20">
+          <div className="mb-2 flex flex-wrap items-end justify-between gap-2">
+            <div>
+              <p className="text-sm font-semibold text-foreground">Weight Tracker</p>
+              <p className="text-[11px] text-muted-foreground">
+                Current:{" "}
+                <span className="font-medium text-foreground">
+                  {currentKg != null ? `${currentKg} kg` : "NA"}
+                </span>
+                {" · "}
+                Change:{" "}
+                <span className="font-medium text-foreground">
+                  {changeKg == null
+                    ? "NA"
+                    : changeKg === 0
+                      ? "0 kg"
+                      : `${changeKg > 0 ? "+" : ""}${changeKg} kg`}
+                </span>
+              </p>
+            </div>
+          </div>
+
+          {canEdit ? (
+            <div className="mb-3 grid gap-2 sm:grid-cols-[1fr_1fr_auto]">
+              <div className="space-y-1">
+                <Label htmlFor="member-weight-date">Date</Label>
+                <Input
+                  id="member-weight-date"
+                  type="date"
+                  value={weightDate}
+                  onChange={(e) => setWeightDate(e.target.value)}
+                  disabled={weightBusy}
+                />
+              </div>
+              <div className="space-y-1">
+                <Label htmlFor="member-weight-kg">Weight (kg)</Label>
+                <Input
+                  id="member-weight-kg"
+                  type="number"
+                  inputMode="decimal"
+                  step="0.1"
+                  min="1"
+                  max="400"
+                  placeholder="e.g. 72.5"
+                  value={weightKg}
+                  onChange={(e) => setWeightKg(e.target.value)}
+                  disabled={weightBusy}
+                />
+              </div>
+              <div className="flex items-end">
+                <Button
+                  type="button"
+                  size="sm"
+                  className="h-9 w-full sm:w-auto"
+                  disabled={weightBusy || !weightKg.trim()}
+                  onClick={() => void saveWeight()}
+                >
+                  {weightBusy ? "Saving…" : "Add Weight"}
+                </Button>
+              </div>
+            </div>
+          ) : null}
+
+          {!weightLogs.length ? (
+            <p className="rounded-lg border border-dashed border-amber-300/70 px-3 py-4 text-center text-xs text-muted-foreground dark:border-amber-800">
+              No weight logs yet.
+            </p>
+          ) : (
+            <ul className="max-h-40 space-y-1.5 overflow-y-auto">
+              {weightLogs.map((log) => (
+                <li
+                  key={log.id}
+                  className="flex items-center justify-between gap-2 rounded-md border border-border/70 bg-background/80 px-2.5 py-1.5 text-xs"
+                >
+                  <span className="text-muted-foreground">{log.date}</span>
+                  <span className="font-medium">
+                    {log.weightKg != null ? `${log.weightKg} kg` : "—"}
+                    {log.recordedBy ? (
+                      <span className="ml-1.5 font-normal text-muted-foreground">
+                        · {log.recordedBy}
+                      </span>
+                    ) : null}
+                  </span>
+                </li>
+              ))}
+            </ul>
+          )}
         </div>
 
         <div className="flex flex-wrap justify-end gap-2">
