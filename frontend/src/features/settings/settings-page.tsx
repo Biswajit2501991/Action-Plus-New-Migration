@@ -171,7 +171,11 @@ const MEMBER_LOOKUPS: {
 
 function lookupValues(settings: AppSettings | undefined, key: LookupKey) {
   const raw = settings?.[key];
-  return Array.isArray(raw) ? (raw as string[]) : [];
+  const list = Array.isArray(raw) ? (raw as string[]) : [];
+  // Hide internal Member Portal persistence markers from the Exercise types editor.
+  return list.filter(
+    (v) => !String(v).startsWith("__pht__:") && !String(v).startsWith("__tile__:"),
+  );
 }
 
 function SettingsSectionShell({
@@ -534,13 +538,38 @@ function encodeHomeTilesIntoWorkoutOptions(
 function hydratePortalSettingsFromApi(settings?: {
   basic_workout_options?: BasicWorkoutOption[];
   portal_sections?: PortalSections;
+  exerciseTypes?: unknown;
 }): { workoutOptions: BasicWorkoutOption[]; portalSections: PortalSections } {
   const split = splitWorkoutOptionsAndHomeTiles(settings?.basic_workout_options);
+  const fromMarkers = homeTilesFromExerciseTypeMarkers(settings?.exerciseTypes);
   const portalSections = mergePortalSections(
     settings?.portal_sections,
-    mergePortalSections(split.homeFromOptions, DEFAULT_PORTAL_SECTIONS),
+    mergePortalSections(
+      split.homeFromOptions,
+      mergePortalSections(fromMarkers, DEFAULT_PORTAL_SECTIONS),
+    ),
   );
   return { workoutOptions: split.workoutOptions, portalSections };
+}
+
+function homeTilesBitToken(sections: PortalSections): string {
+  const bits = HOME_TILE_KEYS.map((k) => (sections[k] ? "1" : "0")).join("");
+  return `__pht__:v1:${bits}`;
+}
+
+function homeTilesFromExerciseTypeMarkers(
+  exerciseTypes: unknown,
+): Partial<PortalSections> {
+  const list = Array.isArray(exerciseTypes) ? exerciseTypes.map(String) : [];
+  const token = list.find((v) => v.startsWith("__pht__:v1:"));
+  if (!token) return {};
+  const bits = token.slice("__pht__:v1:".length);
+  const out: Partial<PortalSections> = {};
+  HOME_TILE_KEYS.forEach((key, i) => {
+    if (bits[i] === "0") out[key] = false;
+    else if (bits[i] === "1") out[key] = true;
+  });
+  return out;
 }
 
 function AppearanceCard({
@@ -706,7 +735,7 @@ export function SettingsPage() {
             basic_workout_options?: BasicWorkoutOption[];
             portal_sections?: PortalSections;
           };
-        }>("/portal-settings");
+        }>("/portal-ui-settings");
         if (cancelled) return;
         if (canPortalAuth) {
           setPortalAuthMethod(
@@ -719,20 +748,33 @@ export function SettingsPage() {
           // Never clobber in-progress edits if the user already toggled something.
           setPortalUiDirty((dirty) => {
             if (dirty) return dirty;
-            const hydrated = hydratePortalSettingsFromApi(data.settings);
+            const hydrated = hydratePortalSettingsFromApi({
+              ...data.settings,
+              exerciseTypes: settings?.exerciseTypes,
+            });
             setBasicWorkoutOptions(hydrated.workoutOptions);
             setPortalSections(hydrated.portalSections);
             return false;
           });
         }
       } catch {
-        /* keep default */
+        /* keep default — still try marker-only hydrate from settings lookups */
+        if (!cancelled && canPortalUi) {
+          setPortalUiDirty((dirty) => {
+            if (dirty) return dirty;
+            const fromMarkers = homeTilesFromExerciseTypeMarkers(settings?.exerciseTypes);
+            if (Object.keys(fromMarkers).length) {
+              setPortalSections((prev) => mergePortalSections(fromMarkers, prev));
+            }
+            return dirty;
+          });
+        }
       }
     })();
     return () => {
       cancelled = true;
     };
-  }, [canPortalAuth, canPortalUi]);
+  }, [canPortalAuth, canPortalUi, settings?.exerciseTypes]);
 
   async function savePortalAuthMethod(next: "whatsapp_staff" | "auto_identity") {
     setPortalAuthBusy(true);
@@ -771,30 +813,73 @@ export function SettingsPage() {
         basicWorkoutOptions,
         payloadSections,
       );
-      const data = await apiFetch<{
+      const token = homeTilesBitToken(payloadSections);
+
+      // Prefer Next/Supabase (writes portal_sections + __pht__ marker when configured).
+      let data: {
         ok?: boolean;
         settings?: {
           basic_workout_options?: BasicWorkoutOption[];
           portal_sections?: PortalSections;
         };
-      }>("/portal-settings", {
-        method: "PUT",
-        body: JSON.stringify({
-          basic_workout_options: payloadOptions,
-          portal_sections: payloadSections,
-        }),
-      });
+      } | null = null;
+      let savedViaNext = false;
+      try {
+        data = await apiFetch<{
+          ok?: boolean;
+          settings?: {
+            basic_workout_options?: BasicWorkoutOption[];
+            portal_sections?: PortalSections;
+          };
+        }>("/portal-ui-settings", {
+          method: "PUT",
+          body: JSON.stringify({
+            basic_workout_options: payloadOptions,
+            portal_sections: payloadSections,
+          }),
+        });
+        savedViaNext = Boolean(data?.ok !== false && data?.settings);
+      } catch {
+        data = null;
+      }
+
+      // Durable fallback on current production: exerciseTypes marker lookup.
+      const current = Array.isArray(settings?.exerciseTypes)
+        ? settings.exerciseTypes.map(String)
+        : [];
+      const stale = current.filter((v) => v.startsWith("__pht__:"));
+      try {
+        for (const v of stale) {
+          if (v === token) continue;
+          try {
+            await settingsApi.deleteLookup("exerciseTypes", v);
+          } catch {
+            /* ignore */
+          }
+        }
+        if (!current.includes(token)) {
+          await settingsApi.addLookup("exerciseTypes", token);
+        }
+      } catch (markerErr) {
+        if (!savedViaNext) throw markerErr;
+      }
+
       const hydrated = hydratePortalSettingsFromApi({
         basic_workout_options:
-          data.settings?.basic_workout_options ?? payloadOptions,
+          data?.settings?.basic_workout_options ?? payloadOptions,
         portal_sections: mergePortalSections(
-          data.settings?.portal_sections,
+          data?.settings?.portal_sections,
           payloadSections,
         ),
+        exerciseTypes: [
+          ...(Array.isArray(settings?.exerciseTypes) ? settings.exerciseTypes : []),
+          token,
+        ],
       });
       setBasicWorkoutOptions(hydrated.workoutOptions);
       setPortalSections(hydrated.portalSections);
       setPortalUiDirty(false);
+      await qc.invalidateQueries({ queryKey: ["settings"] });
       toast.success("Member Portal settings saved");
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Could not save portal settings");

@@ -68,7 +68,18 @@ export function MemberWorkoutDialog({
       Array.isArray(exerciseTypes) && exerciseTypes.length
         ? exerciseTypes
         : [...DEFAULT_EXERCISE_TYPES];
-    return [...new Set(list.map((x) => String(x).trim()).filter(Boolean))];
+    return [
+      ...new Set(
+        list
+          .map((x) => String(x).trim())
+          .filter(
+            (x) =>
+              Boolean(x) &&
+              !x.startsWith("__pht__:") &&
+              !x.startsWith("__tile__:"),
+          ),
+      ),
+    ];
   }, [exerciseTypes]);
 
   const [byDate, setByDate] = useState<Record<string, DayLog>>({});

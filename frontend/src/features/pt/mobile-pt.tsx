@@ -45,7 +45,9 @@ export function MobilePt() {
 
   const focusOptions = useMemo(() => {
     const fromSettings = Array.isArray(settings?.exerciseTypes)
-      ? (settings.exerciseTypes as string[])
+      ? (settings.exerciseTypes as string[]).filter(
+          (v) => !String(v).startsWith("__pht__:") && !String(v).startsWith("__tile__:"),
+        )
       : [];
     return fromSettings.length ? fromSettings : [...DEFAULT_EXERCISE_TYPES];
   }, [settings?.exerciseTypes]);
