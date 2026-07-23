@@ -662,6 +662,24 @@ app.get('/api/members', requireAccess(Access.membersRead), async (req, res) => {
   res.json(members);
 });
 
+/** Must be registered before /api/members/:memberId or "next-form-number" is treated as an id. */
+app.get('/api/members/next-form-number', requireAccess(Access.membersRead), async (req, res) => {
+  try {
+    const { resolveNextMemberFormNumber } = await import('./services/members/nextFormNumber.js');
+    const result = await resolveNextMemberFormNumber({
+      gymCodeId: req.query?.gymCodeId,
+      branchToken: req.query?.branchToken,
+      yearSuffix: req.query?.yearSuffix,
+    });
+    return res.json(result);
+  } catch (err) {
+    return res.status(err?.status || 500).json({
+      ok: false,
+      error: err?.message || 'next-form-number-failed',
+    });
+  }
+});
+
 app.use('/api/members', memberPhotosRouter);
 
 app.get('/api/members/:memberId', requireAccess(Access.membersRead), async (req, res) => {
