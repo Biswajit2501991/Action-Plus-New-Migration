@@ -1006,12 +1006,13 @@ export function AddMemberWizard({
                         setReferralOk(false);
                         setReferralHint("");
                         setReferralReferrerLabel("");
+                        const msg = String(e?.message || "");
                         setReferralError(
-                          e?.message === "referral-code-not-found"
-                            ? "Referral code not found"
-                            : e?.message === "referrer-not-eligible"
+                          msg === "referral-code-not-found" || msg.includes("404")
+                            ? "Referral code not found (or referral API not deployed yet). Try again after deploy, or check the code."
+                            : msg === "referrer-not-eligible"
                               ? "Referrer must be Active or Hold"
-                              : e?.message || "Invalid referral code",
+                              : msg || "Invalid referral code",
                         );
                       })
                       .finally(() => setReferralLooking(false));

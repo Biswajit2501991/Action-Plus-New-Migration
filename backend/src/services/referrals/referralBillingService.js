@@ -60,13 +60,27 @@ export async function lookupReferralCode(rawCode) {
     .eq("code", code)
     .maybeSingle();
   if (error) throw err(`referral-lookup-failed: ${error.message}`, 500);
-  if (!row?.member_uuid) throw err("referral-code-not-found", 404);
+  let resolved = row;
+  if (!resolved?.member_uuid) {
+    // Case-insensitive fallback (older rows / pasted whitespace variants).
+    const { data: fuzzy, error: fuzzyErr } = await sb
+      .from("member_referral_codes")
+      .select("code, points, member_uuid")
+      .eq("gym_id", gid)
+      .ilike("code", code)
+      .limit(5);
+    if (fuzzyErr) throw err(`referral-lookup-failed: ${fuzzyErr.message}`, 500);
+    resolved = (Array.isArray(fuzzy) ? fuzzy : []).find(
+      (r) => normalizeReferralCode(r.code) === code,
+    ) || null;
+  }
+  if (!resolved?.member_uuid) throw err("referral-code-not-found", 404);
 
   const { data: member, error: mErr } = await sb
     .from("members")
     .select("member_uuid, member_code, full_name, status, deleted_at")
     .eq("gym_id", gid)
-    .eq("member_uuid", row.member_uuid)
+    .eq("member_uuid", resolved.member_uuid)
     .is("deleted_at", null)
     .maybeSingle();
   if (mErr) throw err(`referral-lookup-failed: ${mErr.message}`, 500);
@@ -79,8 +93,8 @@ export async function lookupReferralCode(rawCode) {
 
   return {
     ok: true,
-    code: String(row.code || code).toUpperCase(),
-    points: Number(row.points || 0) || 0,
+    code: String(resolved.code || code).toUpperCase(),
+    points: Number(resolved.points || 0) || 0,
     referrer: {
       memberUuid: member.member_uuid,
       memberCode: member.member_code,
