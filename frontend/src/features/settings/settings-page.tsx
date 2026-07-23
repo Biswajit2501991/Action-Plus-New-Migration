@@ -303,6 +303,18 @@ const SECTION_ACCENTS = {
 type BasicWorkoutOption = { label: string; visible: boolean };
 
 type PortalSections = {
+  homeProfile: boolean;
+  homeQrCard: boolean;
+  homeDevices: boolean;
+  homePayments: boolean;
+  homeAttendance: boolean;
+  homeAlerts: boolean;
+  homeChat: boolean;
+  homeTraining: boolean;
+  homeWeightTracker: boolean;
+  homeBook: boolean;
+  homePerks: boolean;
+  homeBiometric: boolean;
   basicDailyWorkouts: boolean;
   basicNotes: boolean;
   measurements: boolean;
@@ -325,6 +337,18 @@ const DEFAULT_BASIC_WORKOUT_OPTIONS: BasicWorkoutOption[] = [
 ];
 
 const DEFAULT_PORTAL_SECTIONS: PortalSections = {
+  homeProfile: true,
+  homeQrCard: true,
+  homeDevices: true,
+  homePayments: true,
+  homeAttendance: true,
+  homeAlerts: true,
+  homeChat: true,
+  homeTraining: true,
+  homeWeightTracker: true,
+  homeBook: true,
+  homePerks: true,
+  homeBiometric: true,
   basicDailyWorkouts: true,
   basicNotes: true,
   measurements: true,
@@ -335,7 +359,30 @@ const DEFAULT_PORTAL_SECTIONS: PortalSections = {
   ptWorkoutDetails: false,
 };
 
-const PORTAL_SECTION_META: {
+const HOME_TILE_META: {
+  key: keyof PortalSections;
+  label: string;
+  description: string;
+}[] = [
+  { key: "homeProfile", label: "Profile", description: "Member profile details tile." },
+  { key: "homeQrCard", label: "QR Card", description: "Digital membership QR card." },
+  { key: "homeDevices", label: "Devices", description: "Trusted devices management." },
+  { key: "homePayments", label: "Payments", description: "Recent payments and receipts." },
+  { key: "homeAttendance", label: "Attendance", description: "Check-in history and gym QR check-in." },
+  { key: "homeAlerts", label: "Alerts", description: "Billing-day push reminders." },
+  { key: "homeChat", label: "Chat", description: "Chat with the gym." },
+  { key: "homeTraining", label: "Training", description: "Workouts, PT days, and notes." },
+  {
+    key: "homeWeightTracker",
+    label: "Weight Tracker",
+    description: "Basic-member weight log (hidden for PT plans regardless).",
+  },
+  { key: "homeBook", label: "Book", description: "Class / slot bookings." },
+  { key: "homePerks", label: "Perks", description: "Member perks and offers." },
+  { key: "homeBiometric", label: "Biometric", description: "Face ID / fingerprint login setup." },
+];
+
+const TRAINING_SECTION_META: {
   key: keyof PortalSections;
   label: string;
   description: string;
@@ -353,12 +400,12 @@ const PORTAL_SECTION_META: {
   {
     key: "measurements",
     label: "Measurements",
-    description: "Show Measurements for Basic and PT clients.",
+    description: "Show Measurements inside Training for Basic and PT clients.",
   },
   {
     key: "ptSchedule",
     label: "PT · Schedule days",
-    description: "Show calendar of days the client has with their PT (no workout focus labels).",
+    description: "Show calendar of days the client has with their PT.",
   },
   {
     key: "ptMemberNotes",
@@ -1511,16 +1558,41 @@ export function SettingsPage() {
               </div>
             </div>
 
-            <div className="space-y-3 rounded-2xl border border-cyan-200/70 bg-gradient-to-b from-cyan-50/40 to-white p-4 dark:border-cyan-900/40 dark:from-cyan-950/20 dark:to-card">
+            <div className="space-y-3 rounded-2xl border border-teal-200/70 bg-gradient-to-b from-teal-50/40 to-white p-4 dark:border-teal-900/40 dark:from-teal-950/20 dark:to-card">
               <div>
-                <p className="text-sm font-medium text-foreground">Portal sections</p>
+                <p className="text-sm font-medium text-foreground">Home tiles</p>
                 <p className="mt-0.5 text-[11px] leading-relaxed text-muted-foreground">
-                  Control what Basic and PT members see in Training. Existing workout and measurement
-                  history is never deleted when you hide a section.
+                  Toggle which tiles members see on the Member Portal home screen. Hiding a tile only
+                  hides it in the app — no member data is deleted.
                 </p>
               </div>
               <div className="grid gap-2 lg:grid-cols-2">
-                {PORTAL_SECTION_META.map((meta) => (
+                {HOME_TILE_META.map((meta) => (
+                  <SettingsToggle
+                    key={meta.key}
+                    checked={portalSections[meta.key]}
+                    disabled={portalUiBusy}
+                    label={meta.label}
+                    description={meta.description}
+                    onChange={(next) => {
+                      setPortalSections((prev) => ({ ...prev, [meta.key]: next }));
+                      setPortalUiDirty(true);
+                    }}
+                  />
+                ))}
+              </div>
+            </div>
+
+            <div className="space-y-3 rounded-2xl border border-cyan-200/70 bg-gradient-to-b from-cyan-50/40 to-white p-4 dark:border-cyan-900/40 dark:from-cyan-950/20 dark:to-card">
+              <div>
+                <p className="text-sm font-medium text-foreground">Training sections</p>
+                <p className="mt-0.5 text-[11px] leading-relaxed text-muted-foreground">
+                  Control what Basic and PT members see inside Training. Existing workout and
+                  measurement history is never deleted when you hide a section.
+                </p>
+              </div>
+              <div className="grid gap-2 lg:grid-cols-2">
+                {TRAINING_SECTION_META.map((meta) => (
                   <SettingsToggle
                     key={meta.key}
                     checked={portalSections[meta.key]}

@@ -11,7 +11,22 @@ export const DEFAULT_BASIC_WORKOUT_OPTIONS = [
   { label: "Triceps", visible: true },
 ];
 
+/** Home tiles + Training internals. Missing keys default on (safe for existing rows). */
 export const DEFAULT_PORTAL_SECTIONS = {
+  // Home tiles (Member Portal home grid)
+  homeProfile: true,
+  homeQrCard: true,
+  homeDevices: true,
+  homePayments: true,
+  homeAttendance: true,
+  homeAlerts: true,
+  homeChat: true,
+  homeTraining: true,
+  homeWeightTracker: true,
+  homeBook: true,
+  homePerks: true,
+  homeBiometric: true,
+  // Training internals
   basicDailyWorkouts: true,
   basicNotes: true,
   measurements: true,
