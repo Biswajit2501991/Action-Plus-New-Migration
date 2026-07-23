@@ -76,6 +76,24 @@ export function normalizePortalSections(input) {
   return out;
 }
 
+/**
+ * Apply saved/partial sections onto a fallback (e.g. what the client just sent).
+ * Keys missing from `saved` keep the fallback value — prevents old API responses
+ * from resetting newer home-tile flags back to defaults.
+ */
+export function mergePortalSections(saved, fallback) {
+  const base = normalizePortalSections(
+    fallback && typeof fallback === "object" ? fallback : DEFAULT_PORTAL_SECTIONS,
+  );
+  const src =
+    saved && typeof saved === "object" && !Array.isArray(saved) ? saved : null;
+  if (!src) return base;
+  for (const key of Object.keys(DEFAULT_PORTAL_SECTIONS)) {
+    if (key in src) base[key] = Boolean(src[key]);
+  }
+  return base;
+}
+
 /** Visible labels only — what Basic members see as chips. */
 export function visibleBasicWorkoutLabels(options) {
   return normalizeBasicWorkoutOptions(options)

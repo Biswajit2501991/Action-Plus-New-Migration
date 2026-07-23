@@ -469,6 +469,17 @@ function normalizePortalSections(input: unknown): PortalSections {
   return out;
 }
 
+/** Overlay saved keys onto fallback; missing saved keys keep fallback (do not snap to defaults). */
+function mergePortalSections(saved: unknown, fallback: PortalSections): PortalSections {
+  const base = normalizePortalSections(fallback);
+  if (!saved || typeof saved !== "object" || Array.isArray(saved)) return base;
+  const src = saved as Record<string, unknown>;
+  for (const key of Object.keys(DEFAULT_PORTAL_SECTIONS) as (keyof PortalSections)[]) {
+    if (key in src) base[key] = Boolean(src[key]);
+  }
+  return base;
+}
+
 function AppearanceCard({
   followSystemTheme,
   activeAppearance,
@@ -642,11 +653,15 @@ export function SettingsPage() {
           );
         }
         if (canPortalUi) {
-          setBasicWorkoutOptions(
-            normalizeBasicWorkoutOptions(data.settings?.basic_workout_options),
-          );
-          setPortalSections(normalizePortalSections(data.settings?.portal_sections));
-          setPortalUiDirty(false);
+          // Never clobber in-progress edits if the user already toggled something.
+          setPortalUiDirty((dirty) => {
+            if (dirty) return dirty;
+            setBasicWorkoutOptions(
+              normalizeBasicWorkoutOptions(data.settings?.basic_workout_options),
+            );
+            setPortalSections(normalizePortalSections(data.settings?.portal_sections));
+            return false;
+          });
         }
       } catch {
         /* keep default */
@@ -702,11 +717,15 @@ export function SettingsPage() {
           portal_sections: payloadSections,
         }),
       });
+      // Prefer what we sent; only overlay keys actually returned by the API.
+      // Partial/old API responses must not reset home-tile toggles to defaults.
       setBasicWorkoutOptions(
-        normalizeBasicWorkoutOptions(data.settings?.basic_workout_options ?? payloadOptions),
+        normalizeBasicWorkoutOptions(
+          data.settings?.basic_workout_options ?? payloadOptions,
+        ),
       );
       setPortalSections(
-        normalizePortalSections(data.settings?.portal_sections ?? payloadSections),
+        mergePortalSections(data.settings?.portal_sections, payloadSections),
       );
       setPortalUiDirty(false);
       toast.success("Member Portal settings saved");

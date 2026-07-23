@@ -5,6 +5,7 @@ import { requireAccess } from "../middleware/permissions.js";
 import {
   DEFAULT_BASIC_WORKOUT_OPTIONS,
   DEFAULT_PORTAL_SECTIONS,
+  mergePortalSections,
   normalizeBasicWorkoutOptions,
   normalizePortalSections,
 } from "../lib/memberPortalUiConfig.js";
@@ -592,10 +593,13 @@ export function registerMemberPortalPhase2Routes(app, { appendAuditLog }) {
           ? req.body.basic_workout_options
           : existing?.basic_workout_options,
       );
-      const portalSections = normalizePortalSections(
+      // Always persist the full section map (defaults ∪ existing ∪ request) so
+      // partial PUTs (auth/chat) never drop home-tile keys, and false stays false.
+      const portalSections = mergePortalSections(
         req.body?.portal_sections !== undefined
           ? req.body.portal_sections
-          : existing?.portal_sections,
+          : null,
+        mergePortalSections(existing?.portal_sections, DEFAULT_PORTAL_SECTIONS),
       );
 
       const row = {
