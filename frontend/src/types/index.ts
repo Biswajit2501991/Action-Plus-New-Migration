@@ -45,7 +45,18 @@ export type Member = {
   lastPortalLoginAt?: string | null;
   hasPortalPin?: boolean;
   paymentHistory?: Payment[];
-  lastSmsSent?: Record<string, { sentAt?: string; sentBy?: string; ts?: string; by?: string }>;
+  lastSmsSent?: Record<
+    string,
+    {
+      sentAt?: string;
+      sentBy?: string;
+      ts?: string;
+      by?: string;
+      referralCreditAppliedInr?: number;
+      planAmountInr?: number;
+      billedAmountInr?: number;
+    }
+  >;
   messageHistory?: Array<Record<string, unknown>>;
   smsHistory?: Array<Record<string, unknown>>;
   payMonth?: string;

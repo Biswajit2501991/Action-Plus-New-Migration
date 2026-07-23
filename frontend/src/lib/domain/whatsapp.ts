@@ -12,6 +12,11 @@ import {
   WHATSAPP_TEMPLATE_KEYS,
   type WhatsAppTemplateKey,
 } from "@/lib/domain/whatsapp-templates";
+import {
+  formatReminderAmountWithReferralCredit,
+  paymentAmountWithReferralCredit,
+  templateUsesReferralCreditInAmount,
+} from "@/lib/domain/referral-billing";
 
 const MESSAGE_HISTORY_LIMIT = 50;
 
@@ -75,7 +80,12 @@ export function resolveWhatsappTemplateBody(
 export function renderWhatsappTemplate(
   template: string,
   member: Member | null | undefined,
-  opts: { templateKey?: string; now?: Date; timeZone?: string } = {},
+  opts: {
+    templateKey?: string;
+    now?: Date;
+    timeZone?: string;
+    pendingReferralCreditInr?: number;
+  } = {},
 ): string {
   if (!template) return "";
   const m = member || ({} as Member);
@@ -85,14 +95,20 @@ export function renderWhatsappTemplate(
   const nextPay =
     localCalendarDateKey(m.nextPaymentDate) ||
     nextPaymentDateFromBillingDate(m.billingDate);
-  const totalAmountWithFine = Number(m.amount || 0) + 100;
+  const planAmount = Number(m.amount || 0);
+  const pendingCredit = Math.max(0, Number(opts.pendingReferralCreditInr) || 0);
+  const amountText =
+    templateUsesReferralCreditInAmount(opts.templateKey) && pendingCredit > 0
+      ? formatReminderAmountWithReferralCredit(planAmount, pendingCredit)
+      : `${planAmount}`;
+  const totalAmountWithFine = planAmount + 100;
   const replacements: Record<string, string> = {
     "[Name]": m.name || "",
     "[CustomerName]": m.name || "",
     "[BirthdayDate]": formatMemberBirthday(m.dob),
     "[PLAN]": m.plan || "",
     "[CurrentPlan]": m.plan || "",
-    "[Amount]": `${Number(m.amount || 0)}`,
+    "[Amount]": amountText,
     "[BillingDate]": displayDate(billingKey || m.billingDate),
     "[DATE]": displayDate(billingKey || m.billingDate),
     "[GymStartdate]": displayDate(m.joiningDate),
@@ -192,7 +208,12 @@ export function composeWhatsAppMessage(
   member: Member,
   templateKey: string,
   templates: Record<string, string>,
-  opts: { now?: Date; timeZone?: string; customBody?: string } = {},
+  opts: {
+    now?: Date;
+    timeZone?: string;
+    customBody?: string;
+    pendingReferralCreditInr?: number;
+  } = {},
 ): WhatsAppComposeResult {
   const key = String(templateKey || "reminder").trim() || "reminder";
   const body = String(opts.customBody || "").trim()
@@ -202,6 +223,7 @@ export function composeWhatsAppMessage(
     templateKey: key,
     now: opts.now,
     timeZone: opts.timeZone,
+    pendingReferralCreditInr: opts.pendingReferralCreditInr,
   });
   const phone = formatWhatsAppPhone(member.mobile);
   const url = buildWhatsAppSendUrl(member.mobile, message);
@@ -236,18 +258,41 @@ function buildHistoryEntry(
 export function buildWhatsAppSendMemberPatch(
   member: Member,
   templateKey: string,
-  meta: { sentAt?: string; sentBy?: string } = {},
+  meta: {
+    sentAt?: string;
+    sentBy?: string;
+    referralCreditAppliedInr?: number;
+    planAmountInr?: number;
+    billedAmountInr?: number;
+  } = {},
 ): Partial<Member> {
   const sentAt = String(meta.sentAt || new Date().toISOString());
   const sentBy = String(meta.sentBy || "").trim() || "Staff";
   const history = Array.isArray(member.messageHistory) ? member.messageHistory : [];
   const prevLast =
     member.lastSmsSent && typeof member.lastSmsSent === "object" ? member.lastSmsSent : {};
+  const credit = Math.max(0, Number(meta.referralCreditAppliedInr) || 0);
+  const planAmount =
+    meta.planAmountInr != null
+      ? Math.max(0, Number(meta.planAmountInr) || 0)
+      : Math.max(0, Number(member.amount) || 0);
+  const billedAmount =
+    meta.billedAmountInr != null
+      ? Math.max(0, Number(meta.billedAmountInr) || 0)
+      : credit > 0
+        ? paymentAmountWithReferralCredit(planAmount, credit)
+        : planAmount;
+  const lastEntry: Record<string, unknown> = { sentAt, sentBy };
+  if (credit > 0 && templateUsesReferralCreditInAmount(templateKey)) {
+    lastEntry.referralCreditAppliedInr = credit;
+    lastEntry.planAmountInr = planAmount;
+    lastEntry.billedAmountInr = billedAmount;
+  }
   const patch: Partial<Member> & { reminderSentAt?: string } = {
     updatedAt: sentAt,
     lastSmsSent: {
       ...prevLast,
-      [templateKey]: { sentAt, sentBy },
+      [templateKey]: lastEntry,
     },
     messageHistory: [
       buildHistoryEntry(templateKey, { sentAt, sentBy }),
@@ -258,6 +303,49 @@ export function buildWhatsAppSendMemberPatch(
     patch.reminderSentAt = sentAt;
   }
   return patch;
+}
+
+/**
+ * After a reminder applied referral credit, Payment Entry should still default
+ * to the net amount shown in the SMS until a newer payment is recorded.
+ */
+export function reminderReferralCollectAmount(member: Member | null | undefined): number {
+  if (!member) return 0;
+  const lastSms =
+    member.lastSmsSent && typeof member.lastSmsSent === "object" ? member.lastSmsSent : null;
+  if (!lastSms) return 0;
+
+  const candidates = [lastSms.reminder, lastSms.monthReminder].filter(
+    (entry): entry is Record<string, unknown> => Boolean(entry && typeof entry === "object"),
+  );
+  let best: { sentMs: number; credit: number; billed: number; plan: number } | null = null;
+  for (const last of candidates) {
+    const credit = Math.max(0, Number(last.referralCreditAppliedInr) || 0);
+    if (credit <= 0) continue;
+    const sentAt = String(last.sentAt || "").trim();
+    if (!sentAt) continue;
+    const sentMs = new Date(sentAt).getTime();
+    if (!Number.isFinite(sentMs)) continue;
+    const billedRaw = Number(last.billedAmountInr);
+    const plan = Math.max(0, Number(last.planAmountInr ?? member.amount) || 0);
+    const billed =
+      Number.isFinite(billedRaw) && billedRaw > 0
+        ? billedRaw
+        : paymentAmountWithReferralCredit(plan, credit);
+    if (!best || sentMs > best.sentMs) {
+      best = { sentMs, credit, billed, plan };
+    }
+  }
+  if (!best) return 0;
+
+  const history = Array.isArray(member.paymentHistory) ? member.paymentHistory : [];
+  for (const p of history) {
+    const payRaw = String(p?.paidAt || p?.paid_at || "").trim();
+    if (!payRaw) continue;
+    const payMs = new Date(payRaw).getTime();
+    if (Number.isFinite(payMs) && payMs >= best.sentMs) return 0;
+  }
+  return best.billed;
 }
 
 export function buildWhatsAppMissingPhonePatch(

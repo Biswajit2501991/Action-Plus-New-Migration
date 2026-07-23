@@ -311,3 +311,67 @@ export async function applyPendingReferralCreditsOnPayment({
   }
   return { appliedCreditInr, appliedEventIds: ids };
 }
+
+/**
+ * Mark pending referrer credits applied when a billing reminder SMS is sent
+ * with the credit already deducted in the message amount.
+ * Does not change members.amount. Idempotent if nothing pending.
+ * Rows stay for audit (status → applied); pending balance becomes 0.
+ */
+export async function applyPendingReferralCreditsOnReminder({
+  memberIdOrUuid,
+  templateKey,
+}) {
+  const sb = getSupabase();
+  const gid = gymId();
+  const member = await loadMemberByCodeOrUuid(sb, gid, memberIdOrUuid);
+  if (!member?.member_uuid) {
+    throw err("member-not-found", 404);
+  }
+
+  const { data: pending, error } = await sb
+    .from("member_referral_events")
+    .select("id, referrer_credit_inr")
+    .eq("gym_id", gid)
+    .eq("referrer_uuid", member.member_uuid)
+    .eq("referrer_credit_status", "pending");
+  if (error) throw err(`referral-credits-apply-failed: ${error.message}`, 500);
+  if (!Array.isArray(pending) || !pending.length) {
+    return {
+      ok: true,
+      appliedCreditInr: 0,
+      appliedEventIds: [],
+      memberUuid: member.member_uuid,
+      memberCode: member.member_code,
+    };
+  }
+
+  const ids = pending.map((e) => e.id).filter(Boolean);
+  const appliedCreditInr = pending.reduce(
+    (sum, e) => sum + (Number(e.referrer_credit_inr) || 0),
+    0,
+  );
+  const now = new Date().toISOString();
+  const tpl = String(templateKey || "reminder").trim() || "reminder";
+  const { error: updErr } = await sb
+    .from("member_referral_events")
+    .update({
+      referrer_credit_status: "applied",
+      applied_at: now,
+      note: `Referral credit ₹${appliedCreditInr} applied via billing reminder (${tpl})${member.member_code ? ` (${member.member_code})` : ""}`,
+    })
+    .eq("gym_id", gid)
+    .eq("referrer_uuid", member.member_uuid)
+    .eq("referrer_credit_status", "pending")
+    .in("id", ids);
+  if (updErr) {
+    throw err(`referral-credits-apply-failed: ${updErr.message}`, 500);
+  }
+  return {
+    ok: true,
+    appliedCreditInr,
+    appliedEventIds: ids,
+    memberUuid: member.member_uuid,
+    memberCode: member.member_code,
+  };
+}

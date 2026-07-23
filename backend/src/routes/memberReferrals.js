@@ -4,6 +4,7 @@ import {
   lookupReferralCode,
   applyMemberReferral,
   getPendingReferralCredits,
+  applyPendingReferralCreditsOnReminder,
 } from "../services/referrals/referralBillingService.js";
 import {
   NEW_MEMBER_JOIN_DISCOUNT_INR,
@@ -45,6 +46,41 @@ export function registerMemberReferralRoutes(app, { appendAuditLog }) {
         return res.status(status).json({
           ok: false,
           error: String(error?.message || "referral-credits-failed"),
+        });
+      }
+    },
+  );
+
+  app.post(
+    "/api/members/:memberId/referral-credits/apply-on-reminder",
+    requireAccess(Access.membersWrite),
+    async (req, res) => {
+      try {
+        const memberId = String(req.params.memberId || "").trim();
+        const templateKey = String(req.body?.templateKey || "reminder").trim() || "reminder";
+        const result = await applyPendingReferralCreditsOnReminder({
+          memberIdOrUuid: memberId,
+          templateKey,
+        });
+        if (result.appliedCreditInr > 0) {
+          await appendAuditLog(req, {
+            action: "member.referral.credit_applied_reminder",
+            entityType: "member",
+            entityId: memberId,
+            after: {
+              templateKey,
+              appliedCreditInr: result.appliedCreditInr,
+              appliedEventIds: result.appliedEventIds,
+              memberCode: result.memberCode,
+            },
+          });
+        }
+        return res.json(result);
+      } catch (error) {
+        const status = Number(error?.status) || 500;
+        return res.status(status).json({
+          ok: false,
+          error: String(error?.message || "referral-credits-apply-failed"),
         });
       }
     },
