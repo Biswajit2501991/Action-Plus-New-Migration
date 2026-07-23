@@ -17,6 +17,7 @@ import { logsApi, usersApi } from "@/services/api";
 import { adminSetPassword } from "@/services/api/auth";
 import {
   DEFAULT_ACCESS,
+  hasAccess,
   isBranchAdminUser,
   isMasterOwnerUser,
   normalizeAccess,
@@ -119,7 +120,8 @@ export function StaffPage() {
   useStaffPhotoHydration(users);
 
   const isOwner = isMasterOwnerUser(user);
-  const canManage = isBranchAdminUser(user);
+  const canManage =
+    isBranchAdminUser(user) || hasAccess(user, "staff", "manageStaff");
 
   const [editingId, setEditingId] = useState<string | null>(null);
   const [creating, setCreating] = useState(false);

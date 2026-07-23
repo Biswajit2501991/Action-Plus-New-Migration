@@ -9,7 +9,7 @@ import { useAuthStore, useUiStore } from "@/stores";
 import { useGymCodes, useMembers, useSettings } from "@/hooks/use-data";
 import { NAV_ITEMS } from "@/lib/nav";
 import { memberSearchHaystack } from "@/lib/domain/members";
-import { canAccessSection, hasAccess } from "@/lib/domain/permissions";
+import { canAccessNavItem, hasAccess } from "@/lib/domain/permissions";
 import { EditMemberModal } from "@/features/members/edit-member-modal";
 import type { Member } from "@/types";
 
@@ -39,11 +39,7 @@ export function CommandPalette() {
   }, [commandOpen]);
 
   const nav = useMemo(
-    () =>
-      NAV_ITEMS.filter((item) => {
-        if (!item.section) return true;
-        return canAccessSection(user, item.section);
-      }),
+    () => NAV_ITEMS.filter((item) => canAccessNavItem(user, item)),
     [user],
   );
 

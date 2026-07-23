@@ -17,7 +17,7 @@ import {
 import { useTheme } from "next-themes";
 import { cn } from "@/lib/utils";
 import { NAV_ITEMS, NAV_GROUP_ORDER } from "@/lib/nav";
-import { canAccessSection, hasAccess } from "@/lib/domain/permissions";
+import { canAccessNavItem, canAccessSection, hasAccess } from "@/lib/domain/permissions";
 import { brandingForActiveBranch } from "@/lib/domain/branch-branding";
 import {
   shouldShowBranchSwitcher,
@@ -95,10 +95,7 @@ function DesktopShell({ children }: { children: React.ReactNode }) {
     return () => window.removeEventListener("keydown", onKey);
   }, [setCommandOpen]);
 
-  const visibleNav = NAV_ITEMS.filter((item) => {
-    if (!item.section) return true;
-    return canAccessSection(user, item.section);
-  });
+  const visibleNav = NAV_ITEMS.filter((item) => canAccessNavItem(user, item));
 
   const groups = NAV_GROUP_ORDER.filter((group) =>
     visibleNav.some((n) => n.group === group),

@@ -5,7 +5,7 @@ import { LogOut } from "lucide-react";
 import { MobileHero, MobilePanel } from "@/components/layout/mobile-ui";
 import { NAV_ITEMS } from "@/lib/nav";
 import {
-  canAccessSection,
+  canAccessNavItem,
   hasAccess,
   mobileAccessKeyForPath,
 } from "@/lib/domain/permissions";
@@ -22,6 +22,7 @@ export default function MorePage() {
 
   if (isMobile) {
     const items = NAV_ITEMS.filter((item) => {
+      if (!canAccessNavItem(user, item)) return false;
       const key = mobileAccessKeyForPath(item.href);
       if (!key) return hasAccess(user, "mobile", "viewMore");
       if (key === "viewMore") return false;
@@ -66,7 +67,7 @@ export default function MorePage() {
     );
   }
 
-  const items = NAV_ITEMS.filter((item) => !item.section || canAccessSection(user, item.section));
+  const items = NAV_ITEMS.filter((item) => canAccessNavItem(user, item));
   return (
     <div>
       <PageHeader title="More" description="All modules" />

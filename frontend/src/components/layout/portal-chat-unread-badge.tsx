@@ -19,7 +19,8 @@ export function PortalChatUnreadBadge({
   const user = useAuthStore((s) => s.user);
   const canSee =
     Boolean(user) &&
-    (canAccessSection(user, "WhatsApp Verification") ||
+    (hasAccess(user, "whatsappVerification", "viewPortalChat") ||
+      canAccessSection(user, "WhatsApp Verification") ||
       canAccessSection(user, "Members") ||
       hasAccess(user, "members", "editMembers"));
   const [count, setCount] = useState(0);

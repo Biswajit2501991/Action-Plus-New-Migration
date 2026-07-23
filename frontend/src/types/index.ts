@@ -139,9 +139,11 @@ export type AccessMap = {
   finance?: Record<string, boolean>;
   settings?: Record<string, boolean>;
   whatsapp?: Record<string, boolean>;
+  whatsappVerification?: Record<string, boolean>;
   leave?: Record<string, boolean>;
   members?: Record<string, boolean>;
   ptClients?: Record<string, boolean>;
+  staff?: Record<string, boolean>;
   attendance?: Record<string, boolean>;
   logs?: Record<string, boolean>;
   support?: Record<string, boolean>;

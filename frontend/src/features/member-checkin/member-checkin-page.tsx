@@ -10,8 +10,12 @@ import { MemberQrCameraScanner } from "@/features/member-checkin/member-qr-camer
 export function MemberCheckinPage() {
   const user = useAuthStore((s) => s.user);
   const canUse =
-    canAccessSection(user, "Attendance") || canAccessSection(user, "Members");
-  const canWrite = hasAccess(user, "members", "editMembers");
+    hasAccess(user, "attendance", "viewMemberQrCheckin") ||
+    canAccessSection(user, "Attendance") ||
+    canAccessSection(user, "Members");
+  const canWrite =
+    hasAccess(user, "attendance", "viewMemberQrCheckin") ||
+    hasAccess(user, "members", "editMembers");
 
   const [payload, setPayload] = useState("");
   const [result, setResult] = useState<string | null>(null);

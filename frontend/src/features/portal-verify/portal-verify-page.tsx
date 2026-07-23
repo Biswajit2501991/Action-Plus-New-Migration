@@ -26,6 +26,7 @@ type PortalVerifyItem = {
 export function PortalVerifyPage() {
   const user = useAuthStore((s) => s.user);
   const canUse =
+    hasAccess(user, "whatsappVerification", "viewPortalVerify") ||
     canAccessSection(user, "WhatsApp Verification") ||
     canAccessSection(user, "Members");
   const canApprove = hasAccess(user, "members", "editMembers");

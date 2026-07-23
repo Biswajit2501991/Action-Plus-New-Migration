@@ -44,9 +44,12 @@ function formatMsgTime(iso: string) {
 export function PortalChatPage() {
   const user = useAuthStore((s) => s.user);
   const canUse =
+    hasAccess(user, "whatsappVerification", "viewPortalChat") ||
     canAccessSection(user, "WhatsApp Verification") ||
     canAccessSection(user, "Members");
-  const canReply = hasAccess(user, "members", "editMembers");
+  const canReply =
+    hasAccess(user, "whatsappVerification", "replyPortalChat") ||
+    hasAccess(user, "members", "editMembers");
 
   const [members, setMembers] = useState<MemberRow[]>([]);
   const [activeMember, setActiveMember] = useState<string | null>(null);

@@ -99,9 +99,21 @@ export const PT_CLIENTS_CHILD_PERMISSIONS: AccessChildPermission[] = [
 
 export const ATTENDANCE_CHILD_PERMISSIONS: AccessChildPermission[] = [
   { key: "viewAttendance", label: "View Attendance Dashboard" },
+  { key: "viewMemberQrCheckin", label: "Member QR Check-in" },
   { key: "markAllPresent", label: "Mark All Present" },
   { key: "editAttendance", label: "Edit Status / Notes" },
   { key: "submitOwnLateNote", label: "Submit own late-arrival note (no Attendance tab required)" },
+];
+
+export const WHATSAPP_VERIFICATION_CHILD_PERMISSIONS: AccessChildPermission[] = [
+  { key: "viewPortalVerify", label: "WhatsApp Verification (member portal OTP)" },
+  { key: "viewPortalChat", label: "Portal Chat" },
+  { key: "replyPortalChat", label: "Reply in Portal Chat" },
+];
+
+export const STAFF_CHILD_PERMISSIONS: AccessChildPermission[] = [
+  { key: "viewStaff", label: "View Staff page" },
+  { key: "manageStaff", label: "Add / Edit Staff & access" },
 ];
 
 export const LOGS_CHILD_PERMISSIONS: AccessChildPermission[] = [
@@ -121,7 +133,7 @@ export const BACKEND_CHILD_PERMISSIONS: AccessChildPermission[] = [
 ];
 
 export const WEBSITE_CHILD_PERMISSIONS: AccessChildPermission[] = [
-  { key: "viewWebsite", label: "Web view — sections & access" },
+  { key: "viewWebsite", label: "Open Website CMS / Admin" },
 ];
 
 export const PAYMENT_QR_CHILD_PERMISSIONS: AccessChildPermission[] = [
@@ -158,11 +170,15 @@ export const MOBILE_FEATURE_PERMISSIONS: AccessChildPermission[] = [
 export const MOBILE_MORE_PERMISSIONS: AccessChildPermission[] = [
   { key: "moreFinance", label: "More — Finance" },
   { key: "moreWhatsapp", label: "More — WhatsApp SMS" },
+  { key: "morePortalVerify", label: "More — WhatsApp Verification" },
+  { key: "morePortalChat", label: "More — Portal Chat" },
   { key: "moreAttendance", label: "More — Attendance" },
+  { key: "moreMemberCheckin", label: "More — Member QR Check-in" },
   { key: "moreSettings", label: "More — Settings" },
   { key: "moreLogs", label: "More — Logs" },
   { key: "moreSupport", label: "More — Support" },
   { key: "moreBackend", label: "More — Backend" },
+  { key: "moreWebsite", label: "More — Website" },
 ];
 
 export const ALL_MOBILE_PERMISSIONS: AccessChildPermission[] = [
@@ -182,8 +198,15 @@ const DENIED_MOBILE_ACCESS: Record<string, boolean> = Object.fromEntries(
 /** Attendance tab visibility — late-note self-submit does not require the tab. */
 export const ATTENDANCE_SECTION_PERMISSION_KEYS = [
   "viewAttendance",
+  "viewMemberQrCheckin",
   "markAllPresent",
   "editAttendance",
+] as const;
+
+/** WhatsApp Verification section stays listed while verify and/or chat is on. */
+export const WHATSAPP_VERIFICATION_SECTION_PERMISSION_KEYS = [
+  "viewPortalVerify",
+  "viewPortalChat",
 ] as const;
 
 export type SectionAccessConfig = {
@@ -208,8 +231,14 @@ export const SECTION_ACCESS_CONFIG: SectionAccessConfig[] = [
   },
   { section: "PT Clients", accessGroup: "ptClients", children: PT_CLIENTS_CHILD_PERMISSIONS },
   { section: "WhatsApp SMS", accessGroup: "whatsapp", children: WHATSAPP_CHILD_PERMISSIONS },
+  {
+    section: "WhatsApp Verification",
+    accessGroup: "whatsappVerification",
+    children: WHATSAPP_VERIFICATION_CHILD_PERMISSIONS,
+    sectionKeys: WHATSAPP_VERIFICATION_SECTION_PERMISSION_KEYS,
+  },
   { section: "Finance", accessGroup: "finance", children: FINANCE_CHILD_PERMISSIONS },
-  { section: "Staff", accessGroup: null, children: [] },
+  { section: "Staff", accessGroup: "staff", children: STAFF_CHILD_PERMISSIONS },
   {
     section: "Website",
     accessGroup: "website",
@@ -311,10 +340,7 @@ export function toggleAccessChild(
   const cfg = SECTION_ACCESS_CONFIG.find((c) => c.section === section);
   const normalized = normalizeAccess(form.access);
   const currentGroup = { ...(normalized[group] as Record<string, boolean>) };
-  const currentlyOn =
-    group === "paymentQr" && key === "managePaymentSettings"
-      ? currentGroup[key] === true
-      : currentGroup[key] !== false;
+  const currentlyOn = isAccessChildEnabled(normalized, group, key);
   currentGroup[key] = !currentlyOn;
 
   const nextAccess: AccessMap = { ...normalized, [group]: currentGroup };
@@ -395,6 +421,11 @@ export function toggleAllSectionsAccess(form: StaffAccessFormSlice): StaffAccess
         viewWelcome: false,
         viewTemplates: false,
       },
+      whatsappVerification: {
+        viewPortalVerify: false,
+        viewPortalChat: false,
+        replyPortalChat: false,
+      },
       leave: {
         viewCreateLeaveRequest: false,
         viewLeaveRequests: false,
@@ -414,8 +445,13 @@ export function toggleAllSectionsAccess(form: StaffAccessFormSlice): StaffAccess
         editPtWorkout: false,
         uploadDietDocuments: false,
       },
+      staff: {
+        viewStaff: false,
+        manageStaff: false,
+      },
       attendance: {
         viewAttendance: false,
+        viewMemberQrCheckin: false,
         markAllPresent: false,
         editAttendance: false,
         submitOwnLateNote: true,
@@ -437,6 +473,9 @@ export function isAccessChildEnabled(access: AccessMap, group: keyof AccessMap, 
   }
   if (group === "website" && key === "viewWebsite") {
     return normalized.website?.viewWebsite === true;
+  }
+  if (group === "staff" && key === "manageStaff") {
+    return normalized.staff?.manageStaff === true;
   }
   if (group === "settings" && SETTINGS_OPT_IN_KEYS.has(key)) {
     return normalized.settings?.[key] === true;
@@ -488,6 +527,11 @@ export const DEFAULT_ACCESS: AccessMap = {
     viewWelcome: true,
     viewTemplates: true,
   },
+  whatsappVerification: {
+    viewPortalVerify: true,
+    viewPortalChat: true,
+    replyPortalChat: true,
+  },
   leave: {
     viewCreateLeaveRequest: true,
     viewLeaveRequests: true,
@@ -507,8 +551,14 @@ export const DEFAULT_ACCESS: AccessMap = {
     editPtWorkout: true,
     uploadDietDocuments: true,
   },
+  staff: {
+    viewStaff: true,
+    /** Opt-in — branch admins still manage via role even when this is off. */
+    manageStaff: false,
+  },
   attendance: {
     viewAttendance: true,
+    viewMemberQrCheckin: true,
     markAllPresent: true,
     editAttendance: true,
     submitOwnLateNote: true,
@@ -582,6 +632,11 @@ export function normalizeAccess(access?: AccessMap | null): AccessMap {
       viewWelcome: a.whatsapp?.viewWelcome !== false,
       viewTemplates: a.whatsapp?.viewTemplates !== false,
     },
+    whatsappVerification: {
+      viewPortalVerify: a.whatsappVerification?.viewPortalVerify !== false,
+      viewPortalChat: a.whatsappVerification?.viewPortalChat !== false,
+      replyPortalChat: a.whatsappVerification?.replyPortalChat !== false,
+    },
     leave: {
       viewCreateLeaveRequest: a.leave?.viewCreateLeaveRequest !== false,
       viewLeaveRequests: a.leave?.viewLeaveRequests !== false,
@@ -601,8 +656,13 @@ export function normalizeAccess(access?: AccessMap | null): AccessMap {
       editPtWorkout: a.ptClients?.editPtWorkout !== false,
       uploadDietDocuments: a.ptClients?.uploadDietDocuments !== false,
     },
+    staff: {
+      viewStaff: a.staff?.viewStaff !== false,
+      manageStaff: a.staff?.manageStaff === true,
+    },
     attendance: {
       viewAttendance: a.attendance?.viewAttendance !== false,
+      viewMemberQrCheckin: a.attendance?.viewMemberQrCheckin !== false,
       markAllPresent: a.attendance?.markAllPresent !== false,
       editAttendance: a.attendance?.editAttendance !== false,
       submitOwnLateNote: a.attendance?.submitOwnLateNote !== false,
@@ -686,20 +746,28 @@ export function canAccessSection(user: AuthUser | null | undefined, section: str
   if (section === "WhatsApp Verification") {
     if (isOwnerLikeRole(user)) return true;
     const sections = Array.isArray(user.sections) ? user.sections : [];
-    if (
-      !sections.includes("WhatsApp Verification") &&
-      !sections.includes("Members")
-    ) {
-      return false;
-    }
-    return hasAccess(user, "members", "editMembers") || hasAccess(user, "members", "viewMembers");
+    const listed =
+      sections.includes("WhatsApp Verification") || sections.includes("Members");
+    if (!listed) return false;
+    return (
+      hasAccess(user, "whatsappVerification", "viewPortalVerify") ||
+      hasAccess(user, "whatsappVerification", "viewPortalChat") ||
+      hasAccess(user, "members", "editMembers") ||
+      hasAccess(user, "members", "viewMembers")
+    );
   }
 
   const sections = Array.isArray(user.sections) ? user.sections : [];
   const listed = sections.includes(section) || section === "Support" || section === "Logs";
   if (!listed) return false;
 
-  if (section === "Attendance") return hasAccess(user, "attendance", "viewAttendance");
+  if (section === "Attendance") {
+    return (
+      hasAccess(user, "attendance", "viewAttendance") ||
+      hasAccess(user, "attendance", "viewMemberQrCheckin")
+    );
+  }
+  if (section === "Staff") return hasAccess(user, "staff", "viewStaff");
   if (section === "Logs") return hasAccess(user, "logs", "viewLogs");
   if (section === "Support") return hasAccess(user, "support", "viewSupportTemplates");
   if (section === "Backend") return hasAccess(user, "backend", "viewBackendPage");
@@ -730,10 +798,45 @@ export function hasAccess(
   if (group === "website" && key === "viewWebsite") {
     return access.website?.viewWebsite === true;
   }
+  if (group === "staff" && key === "manageStaff") {
+    return access.staff?.manageStaff === true;
+  }
   if (group === "settings" && SETTINGS_OPT_IN_KEYS.has(key)) {
     return access.settings?.[key] === true;
   }
   return (access[group] as Record<string, boolean> | undefined)?.[key] !== false;
+}
+
+/** Sidebar / More / command palette — section plus subsection child keys. */
+export function canAccessNavItem(
+  user: AuthUser | null | undefined,
+  item: { href: string; section?: string },
+): boolean {
+  if (!item.section) return true;
+  if (!canAccessSection(user, item.section)) return false;
+  if (!user || user.id === "owner" || isOwnerLikeRole(user)) return true;
+
+  if (item.href === "/portal-verify") {
+    return (
+      hasAccess(user, "whatsappVerification", "viewPortalVerify") ||
+      hasAccess(user, "members", "editMembers") ||
+      hasAccess(user, "members", "viewMembers")
+    );
+  }
+  if (item.href === "/portal-chat") {
+    return (
+      hasAccess(user, "whatsappVerification", "viewPortalChat") ||
+      hasAccess(user, "members", "editMembers") ||
+      hasAccess(user, "members", "viewMembers")
+    );
+  }
+  if (item.href === "/member-checkin") {
+    return hasAccess(user, "attendance", "viewMemberQrCheckin");
+  }
+  if (item.href === "/attendance") {
+    return hasAccess(user, "attendance", "viewAttendance");
+  }
+  return true;
 }
 
 /** Toggle a single mobile access key without touching web `sections`. */
@@ -772,12 +875,16 @@ const MOBILE_PATH_ACCESS: Array<{ prefix: string; key: string }> = [
   { prefix: "/leave", key: "viewLeave" },
   { prefix: "/more", key: "viewMore" },
   { prefix: "/finance", key: "moreFinance" },
+  { prefix: "/portal-verify", key: "morePortalVerify" },
+  { prefix: "/portal-chat", key: "morePortalChat" },
   { prefix: "/whatsapp", key: "moreWhatsapp" },
+  { prefix: "/member-checkin", key: "moreMemberCheckin" },
   { prefix: "/attendance", key: "moreAttendance" },
   { prefix: "/settings", key: "moreSettings" },
   { prefix: "/logs", key: "moreLogs" },
   { prefix: "/support", key: "moreSupport" },
   { prefix: "/backend", key: "moreBackend" },
+  { prefix: "https://www.actionplusgym.com", key: "moreWebsite" },
 ];
 
 export function mobileAccessKeyForPath(pathname: string): string | null {
