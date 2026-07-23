@@ -2,6 +2,12 @@ import { createHmac, timingSafeEqual } from "crypto";
 import { env } from "../config/env.js";
 import { Access } from "../auth/accessControl.js";
 import { requireAccess } from "../middleware/permissions.js";
+import {
+  DEFAULT_BASIC_WORKOUT_OPTIONS,
+  DEFAULT_PORTAL_SECTIONS,
+  normalizeBasicWorkoutOptions,
+  normalizePortalSections,
+} from "../lib/memberPortalUiConfig.js";
 
 function b64urlDecode(input) {
   const pad = input.length % 4 === 0 ? "" : "=".repeat(4 - (input.length % 4));
@@ -526,17 +532,26 @@ export function registerMemberPortalPhase2Routes(app, { appendAuditLog }) {
         .select("*")
         .eq("gym_id", gid)
         .maybeSingle();
+      const settings = data || {
+        gym_id: gid,
+        billing_push_enabled: true,
+        billing_push_title: "Billing reminder",
+        billing_push_body:
+          "Your membership billing date is today. Please renew at the gym.",
+        billing_match_field: "next_payment_date",
+        chat_retention_days: 7,
+        auth_method: "whatsapp_staff",
+        basic_workout_options: DEFAULT_BASIC_WORKOUT_OPTIONS,
+        portal_sections: DEFAULT_PORTAL_SECTIONS,
+      };
       return res.json({
         ok: true,
-        settings: data || {
-          gym_id: gid,
-          billing_push_enabled: true,
-          billing_push_title: "Billing reminder",
-          billing_push_body:
-            "Your membership billing date is today. Please renew at the gym.",
-          billing_match_field: "next_payment_date",
-          chat_retention_days: 7,
-          auth_method: "whatsapp_staff",
+        settings: {
+          ...settings,
+          basic_workout_options: normalizeBasicWorkoutOptions(
+            settings.basic_workout_options,
+          ),
+          portal_sections: normalizePortalSections(settings.portal_sections),
         },
       });
     } catch (err) {
@@ -572,6 +587,17 @@ export function registerMemberPortalPhase2Routes(app, { appendAuditLog }) {
       const authMethod =
         authMethodRaw === "auto_identity" ? "auto_identity" : "whatsapp_staff";
 
+      const basicWorkoutOptions = normalizeBasicWorkoutOptions(
+        req.body?.basic_workout_options !== undefined
+          ? req.body.basic_workout_options
+          : existing?.basic_workout_options,
+      );
+      const portalSections = normalizePortalSections(
+        req.body?.portal_sections !== undefined
+          ? req.body.portal_sections
+          : existing?.portal_sections,
+      );
+
       const row = {
         gym_id: gid,
         billing_push_enabled: Boolean(
@@ -591,6 +617,8 @@ export function registerMemberPortalPhase2Routes(app, { appendAuditLog }) {
             : "next_payment_date",
         chat_retention_days: chatRetentionDays,
         auth_method: authMethod,
+        basic_workout_options: basicWorkoutOptions,
+        portal_sections: portalSections,
         updated_at: new Date().toISOString(),
       };
       const { data, error } = await sb
@@ -599,7 +627,16 @@ export function registerMemberPortalPhase2Routes(app, { appendAuditLog }) {
         .select("*")
         .maybeSingle();
       if (error) return res.status(500).json({ error: error.message });
-      return res.json({ ok: true, settings: data });
+      return res.json({
+        ok: true,
+        settings: {
+          ...data,
+          basic_workout_options: normalizeBasicWorkoutOptions(
+            data?.basic_workout_options,
+          ),
+          portal_sections: normalizePortalSections(data?.portal_sections),
+        },
+      });
     } catch (err) {
       return res.status(500).json({ error: err?.message || "save-failed" });
     }

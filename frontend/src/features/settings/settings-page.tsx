@@ -20,6 +20,8 @@ import {
   Upload,
   Users,
   KeyRound,
+  LayoutDashboard,
+  Plus,
 } from "lucide-react";
 import { PageHeader, Skeleton } from "@/components/ui/misc";
 import { Button } from "@/components/ui/button";
@@ -264,6 +266,14 @@ const SECTION_ACCENTS = {
     icon: "text-violet-700 dark:text-violet-300",
     border: "border-violet-200/80 dark:border-violet-900/40",
   },
+  portal: {
+    bar: "bg-gradient-to-r from-teal-400 to-cyan-500",
+    header:
+      "border-teal-100/80 bg-gradient-to-r from-teal-50 via-cyan-50/30 to-white dark:border-teal-900/40 dark:from-teal-950/30 dark:via-cyan-950/15 dark:to-card",
+    iconWrap: "bg-teal-100 dark:bg-teal-950/60",
+    icon: "text-teal-700 dark:text-teal-300",
+    border: "border-teal-200/80 dark:border-teal-900/40",
+  },
   business: {
     bar: "bg-gradient-to-r from-emerald-400 to-teal-500",
     header:
@@ -289,6 +299,128 @@ const SECTION_ACCENTS = {
     border: "border-indigo-200/80 dark:border-indigo-900/40",
   },
 } as const;
+
+type BasicWorkoutOption = { label: string; visible: boolean };
+
+type PortalSections = {
+  basicDailyWorkouts: boolean;
+  basicNotes: boolean;
+  measurements: boolean;
+  ptSchedule: boolean;
+  ptMemberNotes: boolean;
+  ptAssignment: boolean;
+  ptDiet: boolean;
+  ptWorkoutDetails: boolean;
+};
+
+const DEFAULT_BASIC_WORKOUT_OPTIONS: BasicWorkoutOption[] = [
+  { label: "Back", visible: true },
+  { label: "Chest", visible: true },
+  { label: "Leg", visible: true },
+  { label: "Shoulder", visible: true },
+  { label: "Full Body", visible: true },
+  { label: "Cardio", visible: true },
+  { label: "Biceps", visible: true },
+  { label: "Triceps", visible: true },
+];
+
+const DEFAULT_PORTAL_SECTIONS: PortalSections = {
+  basicDailyWorkouts: true,
+  basicNotes: true,
+  measurements: true,
+  ptSchedule: true,
+  ptMemberNotes: true,
+  ptAssignment: true,
+  ptDiet: false,
+  ptWorkoutDetails: false,
+};
+
+const PORTAL_SECTION_META: {
+  key: keyof PortalSections;
+  label: string;
+  description: string;
+}[] = [
+  {
+    key: "basicDailyWorkouts",
+    label: "Basic · Daily workout chips",
+    description: "Show workout options (Back, Chest, …) for Basic members.",
+  },
+  {
+    key: "basicNotes",
+    label: "Basic · Notes",
+    description: "Allow Basic members to add + Notes with their workout log.",
+  },
+  {
+    key: "measurements",
+    label: "Measurements",
+    description: "Show Measurements for Basic and PT clients.",
+  },
+  {
+    key: "ptSchedule",
+    label: "PT · Schedule days",
+    description: "Show calendar of days the client has with their PT (no workout focus labels).",
+  },
+  {
+    key: "ptMemberNotes",
+    label: "PT · Member notes",
+    description: "Allow PT clients to add and keep their own + Notes on scheduled days.",
+  },
+  {
+    key: "ptAssignment",
+    label: "PT · Trainer assignment",
+    description: "Show trainer / plan summary for PT clients.",
+  },
+  {
+    key: "ptDiet",
+    label: "PT · Diet plan",
+    description: "Show diet plan text assigned by the trainer.",
+  },
+  {
+    key: "ptWorkoutDetails",
+    label: "PT · Workout focus / plan details",
+    description: "Show what workout was assigned for a day (off by default — days only).",
+  },
+];
+
+function normalizeBasicWorkoutOptions(input: unknown): BasicWorkoutOption[] {
+  const source = Array.isArray(input) ? input : DEFAULT_BASIC_WORKOUT_OPTIONS;
+  const out: BasicWorkoutOption[] = [];
+  const seen = new Set<string>();
+  for (const raw of source) {
+    const label = String(
+      raw && typeof raw === "object"
+        ? (raw as { label?: string; value?: string }).label ??
+            (raw as { value?: string }).value ??
+            ""
+        : raw || "",
+    )
+      .trim()
+      .slice(0, 80);
+    if (!label) continue;
+    const key = label.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    const visible =
+      raw && typeof raw === "object" && "visible" in (raw as object)
+        ? Boolean((raw as { visible?: boolean }).visible)
+        : true;
+    out.push({ label, visible });
+    if (out.length >= 40) break;
+  }
+  return out.length ? out : DEFAULT_BASIC_WORKOUT_OPTIONS.map((o) => ({ ...o }));
+}
+
+function normalizePortalSections(input: unknown): PortalSections {
+  const src =
+    input && typeof input === "object" && !Array.isArray(input)
+      ? (input as Record<string, unknown>)
+      : {};
+  const out = { ...DEFAULT_PORTAL_SECTIONS };
+  for (const key of Object.keys(DEFAULT_PORTAL_SECTIONS) as (keyof PortalSections)[]) {
+    if (key in src) out[key] = Boolean(src[key]);
+  }
+  return out;
+}
 
 function AppearanceCard({
   followSystemTheme,
@@ -402,6 +534,7 @@ export function SettingsPage() {
     fine: false,
     features: false,
     portalAuth: false,
+    portalUi: false,
     business: false,
     member: false,
     recovery: false,
@@ -417,6 +550,15 @@ export function SettingsPage() {
     "whatsapp_staff",
   );
   const [portalAuthBusy, setPortalAuthBusy] = useState(false);
+  const [basicWorkoutOptions, setBasicWorkoutOptions] = useState<BasicWorkoutOption[]>(
+    () => DEFAULT_BASIC_WORKOUT_OPTIONS.map((o) => ({ ...o })),
+  );
+  const [portalSections, setPortalSections] = useState<PortalSections>(() => ({
+    ...DEFAULT_PORTAL_SECTIONS,
+  }));
+  const [newBasicOption, setNewBasicOption] = useState("");
+  const [portalUiBusy, setPortalUiBusy] = useState(false);
+  const [portalUiDirty, setPortalUiDirty] = useState(false);
 
   const canFine = hasAccess(user, "settings", "manageFineRule");
   const canAppearance = hasAccess(user, "settings", "viewAppearance");
@@ -424,24 +566,41 @@ export function SettingsPage() {
   const canSystemFeatures = isOwner || hasAccess(user, "settings", "manageSystemFeatures");
   const canSettingsBackup = isOwner || hasAccess(user, "settings", "manageSettingsBackup");
   const canPortalAuth = isOwner || canSystemFeatures;
+  const canPortalUi =
+    canPortalAuth ||
+    hasAccess(user, "members", "editMembers") ||
+    hasAccess(user, "members", "addMembers");
   const followSystemTheme = themeReady && theme === "system";
   const activeAppearance = themeReady && resolvedTheme === "dark" ? "Night" : "Day";
 
   useEffect(() => {
-    if (!canPortalAuth) return;
+    if (!canPortalAuth && !canPortalUi) return;
     let cancelled = false;
     void (async () => {
       try {
         const data = await apiFetch<{
           ok?: boolean;
-          settings?: { auth_method?: string };
+          settings?: {
+            auth_method?: string;
+            basic_workout_options?: BasicWorkoutOption[];
+            portal_sections?: PortalSections;
+          };
         }>("/portal-settings");
         if (cancelled) return;
-        setPortalAuthMethod(
-          data.settings?.auth_method === "auto_identity"
-            ? "auto_identity"
-            : "whatsapp_staff",
-        );
+        if (canPortalAuth) {
+          setPortalAuthMethod(
+            data.settings?.auth_method === "auto_identity"
+              ? "auto_identity"
+              : "whatsapp_staff",
+          );
+        }
+        if (canPortalUi) {
+          setBasicWorkoutOptions(
+            normalizeBasicWorkoutOptions(data.settings?.basic_workout_options),
+          );
+          setPortalSections(normalizePortalSections(data.settings?.portal_sections));
+          setPortalUiDirty(false);
+        }
       } catch {
         /* keep default */
       }
@@ -449,7 +608,7 @@ export function SettingsPage() {
     return () => {
       cancelled = true;
     };
-  }, [canPortalAuth]);
+  }, [canPortalAuth, canPortalUi]);
 
   async function savePortalAuthMethod(next: "whatsapp_staff" | "auto_identity") {
     setPortalAuthBusy(true);
@@ -476,6 +635,54 @@ export function SettingsPage() {
     } finally {
       setPortalAuthBusy(false);
     }
+  }
+
+  async function savePortalUiConfig() {
+    setPortalUiBusy(true);
+    try {
+      const payloadOptions = normalizeBasicWorkoutOptions(basicWorkoutOptions);
+      const payloadSections = normalizePortalSections(portalSections);
+      const data = await apiFetch<{
+        ok?: boolean;
+        settings?: {
+          basic_workout_options?: BasicWorkoutOption[];
+          portal_sections?: PortalSections;
+        };
+      }>("/portal-settings", {
+        method: "PUT",
+        body: JSON.stringify({
+          basic_workout_options: payloadOptions,
+          portal_sections: payloadSections,
+        }),
+      });
+      setBasicWorkoutOptions(
+        normalizeBasicWorkoutOptions(data.settings?.basic_workout_options ?? payloadOptions),
+      );
+      setPortalSections(
+        normalizePortalSections(data.settings?.portal_sections ?? payloadSections),
+      );
+      setPortalUiDirty(false);
+      toast.success("Member Portal settings saved");
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Could not save portal settings");
+    } finally {
+      setPortalUiBusy(false);
+    }
+  }
+
+  function addBasicWorkoutOption() {
+    const label = newBasicOption.trim().slice(0, 80);
+    if (!label) {
+      toast.error("Enter a workout option name");
+      return;
+    }
+    if (basicWorkoutOptions.some((o) => o.label.toLowerCase() === label.toLowerCase())) {
+      toast.error("That option already exists");
+      return;
+    }
+    setBasicWorkoutOptions((prev) => [...prev, { label, visible: true }]);
+    setNewBasicOption("");
+    setPortalUiDirty(true);
   }
 
   const visibleBusinessLookups = BUSINESS_LOOKUPS.filter((cat) =>
@@ -1196,6 +1403,154 @@ export function SettingsPage() {
                 if (next) void savePortalAuthMethod("auto_identity");
               }}
             />
+          </div>
+        </SettingsSectionShell>
+      ) : null}
+
+      {canPortalUi ? (
+        <SettingsSectionShell
+          title="Member Portal"
+          description="Basic workout options, visibility toggles, and PT client portal sections"
+          open={Boolean(openCat.portalUi)}
+          onToggle={() => toggleCat("portalUi")}
+          accent={SECTION_ACCENTS.portal}
+          icon={<LayoutDashboard className="h-4 w-4" />}
+        >
+          <div className="space-y-5">
+            <div className="space-y-3 rounded-2xl border border-teal-200/70 bg-gradient-to-b from-teal-50/50 to-white p-4 dark:border-teal-900/40 dark:from-teal-950/25 dark:to-card">
+              <div>
+                <p className="text-sm font-medium text-foreground">Basic workout options</p>
+                <p className="mt-0.5 text-[11px] leading-relaxed text-muted-foreground">
+                  Only options toggled on appear for Basic members in the Member Portal (with + Notes).
+                  PT Clients use the trainer schedule — these chips are Basic-only. Does not change PT
+                  exercise types under Member &amp; PT.
+                </p>
+              </div>
+              <div className="space-y-2">
+                {basicWorkoutOptions.map((opt, idx) => (
+                  <div
+                    key={`${opt.label}-${idx}`}
+                    className="flex items-center justify-between gap-3 rounded-xl border border-black/[0.06] bg-white/80 px-3.5 py-2.5 dark:border-white/10 dark:bg-white/[0.03]"
+                  >
+                    <p className="min-w-0 truncate text-sm font-medium text-foreground">
+                      {opt.label}
+                    </p>
+                    <div className="flex shrink-0 items-center gap-1.5">
+                      <button
+                        type="button"
+                        role="switch"
+                        aria-checked={opt.visible}
+                        aria-label={`Show ${opt.label} to Basic members`}
+                        disabled={portalUiBusy}
+                        onClick={() => {
+                          setBasicWorkoutOptions((prev) =>
+                            prev.map((row, i) =>
+                              i === idx ? { ...row, visible: !row.visible } : row,
+                            ),
+                          );
+                          setPortalUiDirty(true);
+                        }}
+                        className={cn(
+                          "relative h-7 w-12 rounded-full transition-colors",
+                          opt.visible
+                            ? "bg-slate-900 dark:bg-teal-600"
+                            : "bg-slate-300 dark:bg-slate-600",
+                          portalUiBusy && "opacity-50",
+                        )}
+                      >
+                        <span
+                          className={cn(
+                            "absolute top-0.5 left-0.5 h-6 w-6 rounded-full bg-white shadow-sm transition-transform",
+                            opt.visible && "translate-x-5",
+                          )}
+                        />
+                      </button>
+                      <button
+                        type="button"
+                        disabled={portalUiBusy || basicWorkoutOptions.length <= 1}
+                        aria-label={`Remove ${opt.label}`}
+                        className="rounded-lg p-2 text-muted-foreground hover:bg-rose-50 hover:text-rose-600 disabled:opacity-40 dark:hover:bg-rose-950/40"
+                        onClick={() => {
+                          setBasicWorkoutOptions((prev) => prev.filter((_, i) => i !== idx));
+                          setPortalUiDirty(true);
+                        }}
+                      >
+                        <Trash2 className="h-3.5 w-3.5" />
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+              <div className="flex flex-wrap items-end gap-2">
+                <div className="min-w-[10rem] flex-1 space-y-1">
+                  <Label htmlFor="new-basic-workout">Add option</Label>
+                  <Input
+                    id="new-basic-workout"
+                    value={newBasicOption}
+                    disabled={portalUiBusy}
+                    placeholder="e.g. Abs"
+                    onChange={(e) => setNewBasicOption(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") {
+                        e.preventDefault();
+                        addBasicWorkoutOption();
+                      }
+                    }}
+                  />
+                </div>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  className="gap-1.5"
+                  disabled={portalUiBusy}
+                  onClick={() => addBasicWorkoutOption()}
+                >
+                  <Plus className="h-3.5 w-3.5" /> Add
+                </Button>
+              </div>
+            </div>
+
+            <div className="space-y-3 rounded-2xl border border-cyan-200/70 bg-gradient-to-b from-cyan-50/40 to-white p-4 dark:border-cyan-900/40 dark:from-cyan-950/20 dark:to-card">
+              <div>
+                <p className="text-sm font-medium text-foreground">Portal sections</p>
+                <p className="mt-0.5 text-[11px] leading-relaxed text-muted-foreground">
+                  Control what Basic and PT members see in Training. Existing workout and measurement
+                  history is never deleted when you hide a section.
+                </p>
+              </div>
+              <div className="grid gap-2 lg:grid-cols-2">
+                {PORTAL_SECTION_META.map((meta) => (
+                  <SettingsToggle
+                    key={meta.key}
+                    checked={portalSections[meta.key]}
+                    disabled={portalUiBusy}
+                    label={meta.label}
+                    description={meta.description}
+                    onChange={(next) => {
+                      setPortalSections((prev) => ({ ...prev, [meta.key]: next }));
+                      setPortalUiDirty(true);
+                    }}
+                  />
+                ))}
+              </div>
+            </div>
+
+            <div className="flex flex-wrap items-center gap-2">
+              <Button
+                type="button"
+                size="sm"
+                disabled={portalUiBusy || !portalUiDirty}
+                onClick={() => void savePortalUiConfig()}
+              >
+                {portalUiBusy ? "Saving…" : "Save Member Portal settings"}
+              </Button>
+              {portalUiDirty ? (
+                <span className="text-[11px] text-amber-700 dark:text-amber-300">
+                  Unsaved changes
+                </span>
+              ) : null}
+            </div>
           </div>
         </SettingsSectionShell>
       ) : null}
