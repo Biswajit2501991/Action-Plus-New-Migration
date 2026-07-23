@@ -27,12 +27,16 @@ const nextConfig: NextConfig = {
     ];
   },
   async rewrites() {
-    return [
-      {
-        source: "/api/:path*",
-        destination: `${backendTarget}/api/:path*`,
-      },
-    ];
+    // Use fallback so App Router handlers (portal-ui-settings, referrals,
+    // next-form-number, etc.) win; everything else proxies to Express.
+    return {
+      fallback: [
+        {
+          source: "/api/:path*",
+          destination: `${backendTarget}/api/:path*`,
+        },
+      ],
+    };
   },
   images: {
     remotePatterns: [
