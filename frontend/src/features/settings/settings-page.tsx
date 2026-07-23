@@ -534,7 +534,7 @@ export function SettingsPage() {
     fine: false,
     features: false,
     portalAuth: false,
-    portalUi: false,
+    portalUi: true,
     business: false,
     member: false,
     recovery: false,
@@ -900,7 +900,7 @@ export function SettingsPage() {
       <div className="space-y-5">
         <PageHeader
           title="Settings"
-          description="Appearance, gym branches, Fine SMS rules, system features, and lookups."
+          description="Appearance, gym branches, Fine SMS rules, Member Portal, system features, and lookups."
         />
         <AppearanceCard
           followSystemTheme={followSystemTheme}
@@ -924,7 +924,7 @@ export function SettingsPage() {
     <div className="space-y-5">
       <PageHeader
         title="Settings"
-        description="Appearance, gym branches, Fine SMS rules, system features, and lookups."
+        description="Appearance, gym branches, Fine SMS rules, Member Portal, system features, and lookups."
       />
 
       {canAppearance ? (
