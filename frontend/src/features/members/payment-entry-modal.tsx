@@ -5,6 +5,8 @@ import { Button } from "@/components/ui/button";
 import { Input, Label, Select } from "@/components/ui/input";
 import { ClassicalModal } from "@/components/ui/classical-modal";
 import { formatMonthKey } from "@/lib/utils";
+import { paymentAmountWithReferralCredit } from "@/lib/domain/referral-billing";
+import { membersApi } from "@/services/api";
 import type { Member, Payment } from "@/types";
 
 export type PaymentFormValues = {
@@ -42,18 +44,57 @@ export function PaymentEntryModal({
   onSave,
 }: Props) {
   const editing = Boolean(payment?.id);
+  const [pendingCreditInr, setPendingCreditInr] = useState(0);
+  const [creditLoading, setCreditLoading] = useState(false);
+
+  useEffect(() => {
+    if (!open || editing || !member?.memberId) {
+      setPendingCreditInr(0);
+      return;
+    }
+    let cancelled = false;
+    setCreditLoading(true);
+    void membersApi
+      .referralCredits(String(member.memberId))
+      .then((res) => {
+        if (!cancelled) setPendingCreditInr(Number(res.pendingCreditInr) || 0);
+      })
+      .catch(() => {
+        if (!cancelled) setPendingCreditInr(0);
+      })
+      .finally(() => {
+        if (!cancelled) setCreditLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [open, editing, member?.memberId]);
+
   const defaults = useMemo<PaymentFormValues>(() => {
     const paidMonth =
       String(payment?.paidMonth || payment?.paid_month || "").trim() ||
       formatMonthKey();
+    const planAmount = Number(member?.amount || 0) || 0;
+    const amount =
+      payment?.amount != null
+        ? String(payment.amount)
+        : String(
+            pendingCreditInr > 0
+              ? paymentAmountWithReferralCredit(planAmount, pendingCreditInr)
+              : planAmount || "",
+          );
+    const creditNote =
+      !editing && pendingCreditInr > 0
+        ? `Referral credit ₹${pendingCreditInr} will apply (one-time)`
+        : "";
     return {
-      amount: payment?.amount != null ? String(payment.amount) : String(member?.amount || ""),
+      amount,
       method: String(payment?.method || member?.paymentMethod || methods[0] || "Cash"),
-      note: String(payment?.note || ""),
+      note: String(payment?.note || creditNote || ""),
       paidAt: toDateInputValue(String(payment?.paidAt || payment?.paid_at || "")),
       paidMonth: /^\d{4}-\d{2}$/.test(paidMonth) ? paidMonth : formatMonthKey(),
     };
-  }, [payment, member, methods]);
+  }, [payment, member, methods, pendingCreditInr, editing]);
 
   const [form, setForm] = useState(defaults);
   const [error, setError] = useState("");
@@ -104,6 +145,15 @@ export function PaymentEntryModal({
         </>
       }
     >
+      {!editing && pendingCreditInr > 0 ? (
+        <div className="mb-3 rounded-xl border border-emerald-500/30 bg-emerald-500/10 px-3 py-2 text-sm text-emerald-800 dark:text-emerald-200">
+          Referral credit ₹{pendingCreditInr} will apply (one-time). Plan amount stays{" "}
+          {Number(member?.amount || 0)}. Default collect is plan − credit.
+        </div>
+      ) : null}
+      {!editing && creditLoading ? (
+        <p className="mb-2 text-xs text-muted-foreground">Checking referral credits…</p>
+      ) : null}
       <div className="grid gap-3 sm:grid-cols-2">
         <div>
           <Label>Amount</Label>

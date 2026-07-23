@@ -19,6 +19,7 @@ import type {
   Member,
   StaffUser,
   Visitor,
+  Payment,
 } from "@/types";
 
 export const membersApi = {
@@ -92,7 +93,14 @@ export const membersApi = {
       body: JSON.stringify({ memberId: id }),
     }),
   addPayment: (id: string, payment: Record<string, unknown>) =>
-    apiFetch<Member>(`/members/${encodeURIComponent(id)}/payments`, {
+    apiFetch<{
+      ok?: boolean;
+      created?: boolean;
+      paymentId?: string;
+      payment?: Payment;
+      member?: Member;
+      referralCreditAppliedInr?: number;
+    } & Member>(`/members/${encodeURIComponent(id)}/payments`, {
       method: "POST",
       body: JSON.stringify(payment),
     }),
@@ -106,6 +114,47 @@ export const membersApi = {
       `/members/${encodeURIComponent(id)}/payments/${encodeURIComponent(paymentId)}`,
       { method: "DELETE" },
     ),
+  lookupReferral: (code: string) =>
+    apiFetch<{
+      ok?: boolean;
+      code?: string;
+      points?: number;
+      referrer?: {
+        memberUuid?: string;
+        memberCode?: string;
+        fullName?: string;
+        status?: string;
+      };
+      joinDiscountInr?: number;
+      referrerCreditInr?: number;
+      error?: string;
+    }>(`/referrals/lookup?code=${encodeURIComponent(code)}`),
+  applyReferral: (id: string, code: string) =>
+    apiFetch<{
+      ok?: boolean;
+      duplicate?: boolean;
+      code?: string;
+      referrerCreditInr?: number;
+      admissionDiscountInr?: number;
+      referrer?: { memberCode?: string; fullName?: string };
+      error?: string;
+    }>(`/members/${encodeURIComponent(id)}/referral`, {
+      method: "POST",
+      body: JSON.stringify({ code }),
+    }),
+  referralCredits: (id: string) =>
+    apiFetch<{
+      ok?: boolean;
+      pendingCreditInr?: number;
+      pendingEvents?: Array<{ id: string; creditInr: number; codeUsed?: string | null }>;
+      referredBy?: {
+        code?: string | null;
+        admissionDiscountInr?: number;
+        referrerUuid?: string;
+        createdAt?: string;
+      } | null;
+      error?: string;
+    }>(`/members/${encodeURIComponent(id)}/referral-credits`),
   setPaidForMonth: (id: string, monthKey: string, body: Record<string, unknown>) =>
     apiFetch<Member>(`/members/${encodeURIComponent(id)}/paid-for-month/${encodeURIComponent(monthKey)}`, {
       method: "PATCH",

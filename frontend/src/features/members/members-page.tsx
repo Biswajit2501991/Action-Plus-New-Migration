@@ -620,12 +620,24 @@ export function MembersPage() {
         ...payload,
       });
     },
-    onSuccess: async () => {
-      toast.success(editingPayment ? "Payment updated" : "Payment recorded");
+    onSuccess: async (data) => {
+      const credit = Number(
+        data && typeof data === "object" && "referralCreditAppliedInr" in data
+          ? (data as { referralCreditAppliedInr?: number }).referralCreditAppliedInr
+          : 0,
+      );
+      toast.success(
+        editingPayment
+          ? "Payment updated"
+          : credit > 0
+            ? `Payment recorded · referral credit ₹${credit} applied`
+            : "Payment recorded",
+      );
       setPaymentFor(null);
       setEditingPayment(null);
       await qc.invalidateQueries({ queryKey: ["members"] });
       await qc.invalidateQueries({ queryKey: ["finance"] });
+      await qc.invalidateQueries({ queryKey: ["member-referral-credits"] });
     },
     onError: (e: Error) => toast.error(e.message),
   });

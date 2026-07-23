@@ -494,6 +494,47 @@ export async function createMemberPayment(memberCode, input, branchScope = null)
     throw err;
   }
 
+  // Apply pending referral credits (one-time) — never changes members.amount.
+  let referralCreditAppliedInr = 0;
+  try {
+    const memberUuid = String(
+      refreshed?.memberUuid || memberRow?.member_uuid || '',
+    ).trim();
+    // memberRow may not have member_uuid — reload from refreshed / DB
+    let uuid = memberUuid;
+    if (!uuid) {
+      const { data: uuidRow } = await sb
+        .from(T.members)
+        .select('member_uuid')
+        .eq('id', memberRow.id)
+        .maybeSingle();
+      uuid = String(uuidRow?.member_uuid || '').trim();
+    }
+    if (uuid) {
+      const { applyPendingReferralCreditsOnPayment } = await import(
+        '../../services/referrals/referralBillingService.js'
+      );
+      const applied = await applyPendingReferralCreditsOnPayment({
+        memberUuid: uuid,
+        paymentId,
+        memberCode: code,
+      });
+      referralCreditAppliedInr = Number(applied?.appliedCreditInr) || 0;
+      if (referralCreditAppliedInr > 0) {
+        const creditNote = `Referral credit ₹${referralCreditAppliedInr} applied`;
+        const existingNote = String(createdPayment.note || '').trim();
+        if (!existingNote.toLowerCase().includes('referral credit')) {
+          // Best-effort note stamp on in-memory payment; history row already written.
+          createdPayment.note = existingNote
+            ? `${existingNote} · ${creditNote}`
+            : creditNote;
+        }
+      }
+    }
+  } catch (creditErr) {
+    console.error('referral credit apply skipped', creditErr);
+  }
+
   const persistedAmount = Number(createdPayment.amount || 0);
   const persistedPaidMonth = validatePaidMonthKey(createdPayment.paidMonth)
     || validatePaidMonthKey(createdPayment.billingMonth);
@@ -522,6 +563,7 @@ export async function createMemberPayment(memberCode, input, branchScope = null)
     paymentId,
     payment: createdPayment,
     member: refreshed,
+    referralCreditAppliedInr,
   };
 }
 

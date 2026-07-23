@@ -136,6 +136,7 @@ export function AddMemberHost() {
         const sourceVisitor = convertVisitor;
         const membersSnapshot = members;
         const visitorsSnapshot = visitors;
+        const referredByCode = String(opts?.referredByCode || "").trim();
 
         try {
           const { queued, member: saved } = await createMemberWithOfflineFallback(payload);
@@ -149,11 +150,35 @@ export function AddMemberHost() {
           upsertMemberInCache(qc, confirmed);
           clearPendingMemberCreate(id);
 
-          toast.success(
-            convertVisitor
-              ? `${confirmed.name || "Member"} saved · visitor converted`
-              : `${confirmed.name || "Member"} has been saved successfully`,
-          );
+          if (referredByCode) {
+            try {
+              const applied = await membersApi.applyReferral(id, referredByCode);
+              toast.success(
+                convertVisitor
+                  ? `${confirmed.name || "Member"} saved · visitor converted · referral applied`
+                  : applied.duplicate
+                    ? `${confirmed.name || "Member"} saved · referral already recorded`
+                    : `${confirmed.name || "Member"} saved · referral credit ₹${applied.referrerCreditInr || 50} pending for referrer`,
+              );
+            } catch (refErr) {
+              toast.success(
+                convertVisitor
+                  ? `${confirmed.name || "Member"} saved · visitor converted`
+                  : `${confirmed.name || "Member"} has been saved successfully`,
+              );
+              toast.error(
+                refErr instanceof Error
+                  ? `Referral not applied: ${refErr.message}`
+                  : "Referral not applied — you can retry from member details later",
+              );
+            }
+          } else {
+            toast.success(
+              convertVisitor
+                ? `${confirmed.name || "Member"} saved · visitor converted`
+                : `${confirmed.name || "Member"} has been saved successfully`,
+            );
+          }
           close();
 
           if (opts?.familyGroupId && opts?.familyPrimaryMemberId) {

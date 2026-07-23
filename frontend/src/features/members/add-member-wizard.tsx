@@ -27,6 +27,11 @@ import {
   nextBranchFormNumber,
 } from "@/lib/domain/member-id";
 import { cn } from "@/lib/utils";
+import {
+  NEW_MEMBER_JOIN_DISCOUNT_INR,
+  joinCollectAmount,
+} from "@/lib/domain/referral-billing";
+import { membersApi } from "@/services/api";
 import type { AppSettings, AuthUser, GymCode, Member } from "@/types";
 
 const MEDICAL_YES_NO_FIELDS: [string, string][] = [
@@ -132,6 +137,8 @@ export type AddMemberFormState = {
   parentGuardianName: string;
   parentGuardianDob: string;
   parentGuardianSignature: string;
+  /** Optional Member Portal referral code (not stored on member row). */
+  referredByCode: string;
 };
 
 function emptyMedical(): MedicalAnswers {
@@ -227,7 +234,14 @@ async function compressImageFile(file: File): Promise<string> {
 type Props = {
   open: boolean;
   onClose: () => void;
-  onSave: (member: Member, opts?: { familyGroupId?: string; familyPrimaryMemberId?: string }) => Promise<void> | void;
+  onSave: (
+    member: Member,
+    opts?: {
+      familyGroupId?: string;
+      familyPrimaryMemberId?: string;
+      referredByCode?: string;
+    },
+  ) => Promise<void> | void;
   settings?: AppSettings | null;
   members: Member[];
   gymCodes: GymCode[];
@@ -305,7 +319,20 @@ export function AddMemberWizard({
     parentGuardianName: "",
     parentGuardianDob: "",
     parentGuardianSignature: "",
+    referredByCode: "",
   }));
+  const [referralHint, setReferralHint] = useState<string>("");
+  const [referralError, setReferralError] = useState<string>("");
+  const [referralOk, setReferralOk] = useState(false);
+  const [referralLooking, setReferralLooking] = useState(false);
+  const [referralReferrerLabel, setReferralReferrerLabel] = useState("");
+
+  useEffect(() => {
+    if (!referralOk || !referralReferrerLabel) return;
+    setReferralHint(
+      `Referrer: ${referralReferrerLabel} · Collect now ₹${joinCollectAmount(form.amount, true)} (₹${NEW_MEMBER_JOIN_DISCOUNT_INR} join discount)`,
+    );
+  }, [form.amount, referralOk, referralReferrerLabel]);
 
   const draftKey = draftKeyForUser(currentUser);
 
@@ -363,6 +390,7 @@ export function AddMemberWizard({
             ...f,
             ...parsed.form,
             staff: staffName || parsed.form?.staff || f.staff,
+            referredByCode: String(parsed.form?.referredByCode || f.referredByCode || ""),
           };
           // Staff branch is locked — never let a stale draft wipe assignedGymCodeId
           // (that previously caused silent create failures / disappearing members).
@@ -635,8 +663,9 @@ export function AddMemberWizard({
       return null;
     }
     const now = new Date().toISOString();
+    const { referredByCode: _refCode, ...memberFields } = form;
     return {
-      ...form,
+      ...memberFields,
       ackSignature: String(form.name || "").trim(),
       memberId,
       formNo: Number(form.formNo),
@@ -653,8 +682,21 @@ export function AddMemberWizard({
   };
 
   const persistSave = async (member: Member, family?: { groupId: string; primaryMemberId: string }) => {
+    const code = String(form.referredByCode || "").trim();
+    if (code && !referralOk) {
+      setWarn("Referral code is invalid. Clear it or enter a valid Active/Hold member code.");
+      return;
+    }
     try {
-      await onSave(member, family ? { familyGroupId: family.groupId, familyPrimaryMemberId: family.primaryMemberId } : undefined);
+      await onSave(
+        member,
+        {
+          ...(family
+            ? { familyGroupId: family.groupId, familyPrimaryMemberId: family.primaryMemberId }
+            : {}),
+          ...(code ? { referredByCode: code } : {}),
+        },
+      );
       try {
         localStorage.removeItem(draftKey);
       } catch {
@@ -924,6 +966,72 @@ export function AddMemberWizard({
                     if (/^\d*$/.test(val)) setForm({ ...form, amount: val });
                   }}
                 />
+              </div>
+              <div className="sm:col-span-2">
+                <Label>Referred by code (optional)</Label>
+                <Input
+                  id="add-member-referredByCode"
+                  className="mt-1"
+                  placeholder="Member portal referral code"
+                  value={form.referredByCode}
+                  onChange={(e) => {
+                    const next = e.target.value.toUpperCase();
+                    setForm({ ...form, referredByCode: next });
+                    setReferralOk(false);
+                    setReferralHint("");
+                    setReferralReferrerLabel("");
+                    setReferralError("");
+                  }}
+                  onBlur={() => {
+                    const code = String(form.referredByCode || "").trim();
+                    if (!code) {
+                      setReferralOk(false);
+                      setReferralHint("");
+                      setReferralError("");
+                      return;
+                    }
+                    setReferralLooking(true);
+                    void membersApi
+                      .lookupReferral(code)
+                      .then((res) => {
+                        setReferralOk(true);
+                        setReferralError("");
+                        const label = `${res.referrer?.fullName || res.referrer?.memberCode || "Member"} (${res.referrer?.status || "Active"})`;
+                        setReferralReferrerLabel(label);
+                        setReferralHint(
+                          `Referrer: ${label} · Collect now ₹${joinCollectAmount(form.amount, true)} (₹${NEW_MEMBER_JOIN_DISCOUNT_INR} join discount)`,
+                        );
+                      })
+                      .catch((e: Error) => {
+                        setReferralOk(false);
+                        setReferralHint("");
+                        setReferralReferrerLabel("");
+                        setReferralError(
+                          e?.message === "referral-code-not-found"
+                            ? "Referral code not found"
+                            : e?.message === "referrer-not-eligible"
+                              ? "Referrer must be Active or Hold"
+                              : e?.message || "Invalid referral code",
+                        );
+                      })
+                      .finally(() => setReferralLooking(false));
+                  }}
+                />
+                {referralLooking ? (
+                  <p className="mt-1 text-xs text-muted-foreground">Checking code…</p>
+                ) : null}
+                {referralHint ? (
+                  <p className="mt-1 text-xs text-emerald-700 dark:text-emerald-300">{referralHint}</p>
+                ) : null}
+                {referralError ? (
+                  <p className="mt-1 text-xs text-rose-600">{referralError}</p>
+                ) : null}
+                {!form.referredByCode && form.amount ? (
+                  <p className="mt-1 text-xs text-muted-foreground">
+                    Plan amount stays as entered. With a valid referral code, collect ₹
+                    {joinCollectAmount(form.amount, true)} at admission (one-time).
+                  </p>
+                ) : null}
               </div>
               <div>
                 <Label>

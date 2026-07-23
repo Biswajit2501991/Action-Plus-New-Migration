@@ -121,6 +121,7 @@ import attendanceKioskRouter from './routes/attendanceKiosk.js';
 import { registerMemberPortalPhase2Routes } from './routes/memberPortalPhase2.js';
 import { registerMemberDailyWorkoutRoutes } from './routes/memberDailyWorkouts.js';
 import { registerMemberWeightLogRoutes } from './routes/memberWeightLogs.js';
+import { registerMemberReferralRoutes } from './routes/memberReferrals.js';
 import {
   authIsOwner,
   stampBranchOnRows,
@@ -543,6 +544,7 @@ registerMemberPortalPhase2Routes(app, { appendAuditLog });
 // Basic + PT member daily workout logs (separate from pt_client_profiles)
 registerMemberDailyWorkoutRoutes(app, { appendAuditLog });
 registerMemberWeightLogRoutes(app, { appendAuditLog });
+registerMemberReferralRoutes(app, { appendAuditLog });
 
 // Phase 2 gym-codes feature: list is authenticated-only, write is owner-only (inside the router).
 app.use('/api/gym-codes', gymCodesRouter);

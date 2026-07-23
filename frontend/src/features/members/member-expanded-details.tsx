@@ -545,6 +545,15 @@ export function MemberExpandedDetails({
   const [holdSel, setHoldSel] = useState(holdOptions[0] || "1 Month");
   const [monthFilter, setMonthFilter] = useState("");
 
+  const { data: referralInfo } = useQuery({
+    queryKey: ["member-referral-credits", m.memberId],
+    queryFn: () => membersApi.referralCredits(String(m.memberId)),
+    enabled: Boolean(m.memberId),
+    staleTime: 30_000,
+  });
+  const pendingReferralCredit = Number(referralInfo?.pendingCreditInr) || 0;
+  const referredByCode = String(referralInfo?.referredBy?.code || "").trim();
+
   const canWhatsApp = Boolean(String(m.mobile || "").trim());
 
   const isHold = String(m.status || "").trim().toLowerCase() === "hold";
@@ -753,6 +762,22 @@ export function MemberExpandedDetails({
         ? `${formatDate(String(payments[0].paidAt || payments[0].paid_at || ""))} · ${formatCurrency(Number(payments[0].amount || 0))}`
         : "—",
     },
+    ...(pendingReferralCredit > 0
+      ? [
+          {
+            label: "Pending referral credit",
+            value: formatCurrency(pendingReferralCredit),
+          },
+        ]
+      : []),
+    ...(referredByCode
+      ? [
+          {
+            label: "Referred by",
+            value: referredByCode,
+          },
+        ]
+      : []),
   ];
 
   const setView = (mode: DetailsViewMode) => {
