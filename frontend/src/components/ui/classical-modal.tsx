@@ -78,7 +78,7 @@ export function ClassicalModal({
             <X className="h-4 w-4" />
           </button>
         </div>
-        <div className="max-h-[min(70vh,640px)] overflow-y-auto px-5 py-4">{children}</div>
+        <div className="max-h-[min(78vh,720px)] overflow-y-auto px-5 py-4">{children}</div>
         {footer ? (
           <div className="flex flex-wrap items-center justify-end gap-2 border-t border-slate-200/80 bg-slate-50/80 px-5 py-3.5 dark:border-white/10 dark:bg-black/25">
             {footer}
