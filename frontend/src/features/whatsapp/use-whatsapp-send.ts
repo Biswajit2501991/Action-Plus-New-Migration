@@ -14,6 +14,10 @@ import {
   whatsappSendAuditAction,
 } from "@/lib/domain/whatsapp";
 import {
+  paymentAmountWithReferralCredit,
+  templateUsesReferralCreditInAmount,
+} from "@/lib/domain/referral-billing";
+import {
   type CustomTemplate,
   isCustomTemplateHistoryKey,
   isCustomTemplatesEnabled,
@@ -29,6 +33,15 @@ const EMPTY_PREVIEW: WhatsAppPreviewState = {
   message: "",
 };
 
+async function fetchPendingReferralCreditInr(memberId: string): Promise<number> {
+  try {
+    const res = await membersApi.referralCredits(memberId);
+    return Math.max(0, Number(res.pendingCreditInr) || 0);
+  } catch {
+    return 0;
+  }
+}
+
 export function useWhatsappSend() {
   const user = useAuthStore((s) => s.user);
   const qc = useQueryClient();
@@ -36,6 +49,7 @@ export function useWhatsappSend() {
   const { data: settings } = useSettings();
   const [preview, setPreview] = useState<WhatsAppPreviewState>(EMPTY_PREVIEW);
   const [sending, setSending] = useState(false);
+  const [previewCreditInr, setPreviewCreditInr] = useState(0);
 
   const branchId = String(user?.activeBranchId || user?.gymCodeId || "").trim();
   const featureEnabled = isCustomTemplatesEnabled(
@@ -61,7 +75,10 @@ export function useWhatsappSend() {
     [whatsappData?.templates],
   );
 
-  const closePreview = useCallback(() => setPreview(EMPTY_PREVIEW), []);
+  const closePreview = useCallback(() => {
+    setPreview(EMPTY_PREVIEW);
+    setPreviewCreditInr(0);
+  }, []);
 
   const resolveBodyOpts = useCallback(
     (templateKey: string) => {
@@ -73,9 +90,15 @@ export function useWhatsappSend() {
   );
 
   const openPreview = useCallback(
-    (member: Member, templateKey = "reminder") => {
+    async (member: Member, templateKey = "reminder") => {
       if (!member) return;
       const key = String(templateKey || "reminder").trim() || "reminder";
+      let pendingCredit = 0;
+      if (templateUsesReferralCreditInAmount(key) && member.memberId) {
+        pendingCredit = await fetchPendingReferralCreditInr(String(member.memberId));
+      }
+      setPreviewCreditInr(pendingCredit);
+
       if (isCustomTemplateHistoryKey(key)) {
         if (!featureEnabled) {
           toast.error("Custom WhatsApp templates are disabled in Settings.");
@@ -86,7 +109,10 @@ export function useWhatsappSend() {
           toast.error("This custom template was removed or is inactive.");
           return;
         }
-        const composed = composeWhatsAppMessage(member, key, templates, { customBody });
+        const composed = composeWhatsAppMessage(member, key, templates, {
+          customBody,
+          pendingReferralCreditInr: pendingCredit,
+        });
         setPreview({
           open: true,
           member,
@@ -95,7 +121,9 @@ export function useWhatsappSend() {
         });
         return;
       }
-      const composed = composeWhatsAppMessage(member, key, templates);
+      const composed = composeWhatsAppMessage(member, key, templates, {
+        pendingReferralCreditInr: pendingCredit,
+      });
       setPreview({
         open: true,
         member,
@@ -129,7 +157,17 @@ export function useWhatsappSend() {
         closePreview();
         return;
       }
-      const composed = composeWhatsAppMessage(member, templateKey, templates, bodyOpts);
+
+      let pendingCredit = previewCreditInr;
+      if (templateUsesReferralCreditInAmount(templateKey) && member.memberId) {
+        // Re-fetch at send time so we never apply a stale preview credit.
+        pendingCredit = await fetchPendingReferralCreditInr(String(member.memberId));
+      }
+
+      const composed = composeWhatsAppMessage(member, templateKey, templates, {
+        ...bodyOpts,
+        pendingReferralCreditInr: pendingCredit,
+      });
       if (!composed.url || !composed.phone) {
         toast.error("Mobile number is missing.");
         closePreview();
@@ -140,12 +178,47 @@ export function useWhatsappSend() {
 
       const sentAt = new Date().toISOString();
       const sentBy = String(user?.name || user?.email || user?.id || "Staff").trim() || "Staff";
+      const planAmount = Math.max(0, Number(member.amount) || 0);
       const patch = buildWhatsAppSendMemberPatch(member, composed.templateKey, {
         sentAt,
         sentBy,
+        referralCreditAppliedInr: pendingCredit,
+        planAmountInr: planAmount,
+        billedAmountInr:
+          pendingCredit > 0
+            ? paymentAmountWithReferralCredit(planAmount, pendingCredit)
+            : planAmount,
       });
 
       await membersApi.patch(member.memberId, patch);
+
+      if (
+        templateUsesReferralCreditInAmount(composed.templateKey) &&
+        pendingCredit > 0 &&
+        member.memberId
+      ) {
+        try {
+          const applied = await membersApi.applyReferralCreditsOnReminder(
+            String(member.memberId),
+            composed.templateKey,
+          );
+          if (Number(applied.appliedCreditInr) > 0) {
+            toast.success(
+              `WhatsApp opened · referral credit ₹${applied.appliedCreditInr} applied to reminder`,
+            );
+          } else {
+            toast.success("WhatsApp message opened.");
+          }
+        } catch {
+          // Message already opened — do not fail the send; credit can still apply on Payment Entry.
+          toast.success("WhatsApp message opened.");
+          toast.error("Could not reset pending referral credit. It may still apply on Payment Entry.");
+        }
+        await qc.invalidateQueries({ queryKey: ["member-referral-credits"] });
+      } else {
+        toast.success("WhatsApp message opened.");
+      }
+
       void logsApi
         .create({
           action: whatsappSendAuditAction(composed.templateKey),
@@ -158,11 +231,11 @@ export function useWhatsappSend() {
             source: "whatsapp_send",
             mobile: composed.phone,
             channel: "whatsapp",
+            referralCreditAppliedInr: pendingCredit > 0 ? pendingCredit : undefined,
           },
         })
         .catch(() => undefined);
 
-      toast.success("WhatsApp message opened.");
       await qc.invalidateQueries({ queryKey: ["members"] });
       closePreview();
     } catch (e) {
@@ -170,7 +243,7 @@ export function useWhatsappSend() {
     } finally {
       setSending(false);
     }
-  }, [preview, templates, user, qc, closePreview, resolveBodyOpts]);
+  }, [preview, previewCreditInr, templates, user, qc, closePreview, resolveBodyOpts]);
 
   return {
     templates,

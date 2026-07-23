@@ -27,7 +27,7 @@ CREATE INDEX IF NOT EXISTS member_referral_events_referrer_pending_idx
   ON public.member_referral_events (gym_id, referrer_uuid, referrer_credit_status);
 
 COMMENT ON COLUMN public.member_referral_events.referrer_credit_inr IS
-  'INR credit for referrer next billing (default 50). Applied once via Payment Entry.';
+  'INR credit for referrer next billing (default 50). Applied once via billing reminder SMS or Payment Entry.';
 COMMENT ON COLUMN public.member_referral_events.admission_discount_inr IS
   'Suggested one-time join collect discount for new member (default 100). Does not change plan amount.';
 COMMENT ON COLUMN public.member_referral_events.referrer_credit_status IS

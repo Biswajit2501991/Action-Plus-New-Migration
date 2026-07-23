@@ -155,6 +155,18 @@ export const membersApi = {
       } | null;
       error?: string;
     }>(`/members/${encodeURIComponent(id)}/referral-credits`),
+  applyReferralCreditsOnReminder: (id: string, templateKey = "reminder") =>
+    apiFetch<{
+      ok?: boolean;
+      appliedCreditInr?: number;
+      appliedEventIds?: string[];
+      memberUuid?: string;
+      memberCode?: string;
+      error?: string;
+    }>(`/members/${encodeURIComponent(id)}/referral-credits/apply-on-reminder`, {
+      method: "POST",
+      body: JSON.stringify({ templateKey }),
+    }),
   setPaidForMonth: (id: string, monthKey: string, body: Record<string, unknown>) =>
     apiFetch<Member>(`/members/${encodeURIComponent(id)}/paid-for-month/${encodeURIComponent(monthKey)}`, {
       method: "PATCH",

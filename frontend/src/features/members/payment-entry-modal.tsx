@@ -6,6 +6,7 @@ import { Input, Label, Select } from "@/components/ui/input";
 import { ClassicalModal } from "@/components/ui/classical-modal";
 import { formatMonthKey } from "@/lib/utils";
 import { paymentAmountWithReferralCredit } from "@/lib/domain/referral-billing";
+import { reminderReferralCollectAmount } from "@/lib/domain/whatsapp";
 import { membersApi } from "@/services/api";
 import type { Member, Payment } from "@/types";
 
@@ -46,6 +47,10 @@ export function PaymentEntryModal({
   const editing = Boolean(payment?.id);
   const [pendingCreditInr, setPendingCreditInr] = useState(0);
   const [creditLoading, setCreditLoading] = useState(false);
+  const reminderNetAmount = useMemo(
+    () => reminderReferralCollectAmount(member),
+    [member],
+  );
 
   useEffect(() => {
     if (!open || editing || !member?.memberId) {
@@ -75,18 +80,19 @@ export function PaymentEntryModal({
       String(payment?.paidMonth || payment?.paid_month || "").trim() ||
       formatMonthKey();
     const planAmount = Number(member?.amount || 0) || 0;
+    let collectAmount = planAmount;
+    let creditNote = "";
+    if (!editing) {
+      if (pendingCreditInr > 0) {
+        collectAmount = paymentAmountWithReferralCredit(planAmount, pendingCreditInr);
+        creditNote = `Referral credit ₹${pendingCreditInr} will apply (one-time)`;
+      } else if (reminderNetAmount > 0) {
+        collectAmount = reminderNetAmount;
+        creditNote = `Referral credit already applied on reminder (collect ₹${reminderNetAmount})`;
+      }
+    }
     const amount =
-      payment?.amount != null
-        ? String(payment.amount)
-        : String(
-            pendingCreditInr > 0
-              ? paymentAmountWithReferralCredit(planAmount, pendingCreditInr)
-              : planAmount || "",
-          );
-    const creditNote =
-      !editing && pendingCreditInr > 0
-        ? `Referral credit ₹${pendingCreditInr} will apply (one-time)`
-        : "";
+      payment?.amount != null ? String(payment.amount) : String(collectAmount || "");
     return {
       amount,
       method: String(payment?.method || member?.paymentMethod || methods[0] || "Cash"),
@@ -94,7 +100,7 @@ export function PaymentEntryModal({
       paidAt: toDateInputValue(String(payment?.paidAt || payment?.paid_at || "")),
       paidMonth: /^\d{4}-\d{2}$/.test(paidMonth) ? paidMonth : formatMonthKey(),
     };
-  }, [payment, member, methods, pendingCreditInr, editing]);
+  }, [payment, member, methods, pendingCreditInr, reminderNetAmount, editing]);
 
   const [form, setForm] = useState(defaults);
   const [error, setError] = useState("");
@@ -149,6 +155,12 @@ export function PaymentEntryModal({
         <div className="mb-3 rounded-xl border border-emerald-500/30 bg-emerald-500/10 px-3 py-2 text-sm text-emerald-800 dark:text-emerald-200">
           Referral credit ₹{pendingCreditInr} will apply (one-time). Plan amount stays{" "}
           {Number(member?.amount || 0)}. Default collect is plan − credit.
+        </div>
+      ) : null}
+      {!editing && pendingCreditInr <= 0 && reminderNetAmount > 0 ? (
+        <div className="mb-3 rounded-xl border border-sky-500/30 bg-sky-500/10 px-3 py-2 text-sm text-sky-800 dark:text-sky-200">
+          Referral credit was already applied on the billing reminder. Default collect is ₹
+          {reminderNetAmount} (plan {Number(member?.amount || 0)}).
         </div>
       ) : null}
       {!editing && creditLoading ? (
