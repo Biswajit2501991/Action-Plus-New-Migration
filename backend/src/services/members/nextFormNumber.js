@@ -1,4 +1,4 @@
-import { getSupabase, gymId } from "../db/supabase/client.js";
+import { getSupabase, gymId } from "../../db/supabase/client.js";
 
 /**
  * Next form number for a branch, skipping codes already used (including soft-deleted).
