@@ -1,3 +1,5 @@
+export type PtDayMark = "pt" | "nt" | null;
+
 export type PtCalendarCell =
   | { kind: "pad"; key: string }
   | {
@@ -6,6 +8,10 @@ export type PtCalendarCell =
       key: string;
       isSunday: boolean;
       hasFocus: boolean;
+      /** Note-only day (no exercise/PT mark). */
+      hasNote: boolean;
+      /** Display mark: PT takes precedence over NT. */
+      mark: PtDayMark;
       focus: string;
     };
 
@@ -42,6 +48,7 @@ export function buildPtMonthCalendarCells(
   year: number,
   monthIndex: number,
   focusByDate: Record<string, string> = {},
+  notesByDate: Record<string, string | boolean> = {},
 ): PtCalendarCell[] {
   const daysInMonth = new Date(year, monthIndex + 1, 0).getDate();
   const leadingPad = new Date(year, monthIndex, 1).getDay();
@@ -55,12 +62,22 @@ export function buildPtMonthCalendarCells(
     const key = ptDateKeyFromParts(year, monthIndex, day);
     const isSunday = new Date(year, monthIndex, day).getDay() === 0;
     const focus = String(focusByDate[key] || "").trim();
+    const hasFocus = Boolean(focus);
+    const noteRaw = notesByDate[key];
+    const hasNoteText =
+      typeof noteRaw === "string"
+        ? Boolean(noteRaw.trim())
+        : Boolean(noteRaw);
+    const hasNote = hasNoteText && !hasFocus;
+    const mark: PtDayMark = hasFocus ? "pt" : hasNote ? "nt" : null;
     cells.push({
       kind: "day",
       day,
       key,
       isSunday,
-      hasFocus: Boolean(focus),
+      hasFocus,
+      hasNote,
+      mark,
       focus,
     });
   }
