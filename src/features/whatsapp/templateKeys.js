@@ -7,6 +7,7 @@ export const WHATSAPP_TEMPLATE_KEYS = [
   'deactivate',
   'hold',
   'welcome',
+  'birthday',
 ];
 
 export function isWhatsappTemplateKey(key) {

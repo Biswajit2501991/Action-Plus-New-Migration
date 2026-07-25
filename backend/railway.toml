@@ -1,5 +1,5 @@
-# Prefer the repo-root railway.toml for Railway.
-# Root Directory must be "/" (repository root) because backend imports ../../src/*.
+# Prefer the repo-root railway.toml for the API Railway service.
+# Root Directory must be "/" because backend imports ../../src/*.
 [build]
 builder = "RAILPACK"
 buildCommand = "npm ci"

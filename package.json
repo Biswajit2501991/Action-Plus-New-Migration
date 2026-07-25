@@ -43,7 +43,14 @@
     "test:e2e:report": "playwright show-report tests/e2e/report",
     "install:v2": "npm install --prefix v2",
     "build:v2": "npm run build:strangler --prefix v2",
-    "dev:v2": "npm run dev --prefix v2"
+    "dev:v2": "npm run dev --prefix v2",
+    "install:frontend": "npm install --prefix frontend",
+    "dev:frontend": "npm run dev --prefix frontend",
+    "build:frontend": "npm run build --prefix frontend",
+    "start:frontend": "npm run start --prefix frontend",
+    "start:pulsgyms:v2": "zsh scripts/start-pulsgyms-v2.sh",
+    "start:v2:prod": "zsh scripts/start-v2-prod.sh",
+    "smoke:v2": "zsh scripts/smoke-v2.sh"
   },
   "devDependencies": {
     "@axe-core/playwright": "^4.11.3",
@@ -51,5 +58,8 @@
     "axe-core": "^4.11.4",
     "jsdom": "^29.1.1",
     "vitest": "^2.1.9"
+  },
+  "dependencies": {
+    "dotenv": "^17.4.2"
   }
 }

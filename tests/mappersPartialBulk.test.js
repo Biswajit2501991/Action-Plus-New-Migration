@@ -22,4 +22,23 @@ describe('appMemberToRow partialBulkSync', () => {
     }, 'gym-1', { partialBulkSync: true });
     expect(row.pay_month).toBe('2026-05');
   });
+
+  it('omits dob when dob is absent from bulk payload', () => {
+    const row = appMemberToRow({
+      memberId: 'APG-1',
+      name: 'Test',
+      status: 'Active',
+    }, 'gym-1', { partialBulkSync: true });
+    expect(row).not.toHaveProperty('dob');
+  });
+
+  it('omits dob when bulk payload carries placeholder only', () => {
+    const row = appMemberToRow({
+      memberId: 'APG-1',
+      name: 'Test',
+      status: 'Active',
+      dob: '1970-01-01',
+    }, 'gym-1', { partialBulkSync: true });
+    expect(row).not.toHaveProperty('dob');
+  });
 });

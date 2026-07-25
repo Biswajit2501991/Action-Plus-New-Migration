@@ -3,8 +3,10 @@ export const ALL_SECTIONS = [
   'Members',
   'PT Clients',
   'WhatsApp SMS',
+  'WhatsApp Verification',
   'Finance',
   'Staff',
+  'Website',
   'Attendance',
   'Leave Tracker',
   'Settings',
@@ -26,6 +28,7 @@ export const FINANCE_CHILD_PERMISSIONS = [
   { key: 'viewRevenueTrend4Months', label: 'Revenue Trend (Last 4 Months)' },
   { key: 'viewPlanPopularity', label: 'Plan Popularity' },
   { key: 'viewTransactionsAutoMembers', label: 'Transactions (Auto from Members)' },
+  { key: 'viewYtdCollected', label: 'YTD Collected' },
   { key: 'manageExpenses', label: 'Add / Edit Expense Entries' },
 ];
 
@@ -80,9 +83,21 @@ export const PT_CLIENTS_CHILD_PERMISSIONS = [
 
 export const ATTENDANCE_CHILD_PERMISSIONS = [
   { key: 'viewAttendance', label: 'View Attendance Dashboard' },
+  { key: 'viewMemberQrCheckin', label: 'Member QR Check-in' },
   { key: 'markAllPresent', label: 'Mark All Present' },
   { key: 'editAttendance', label: 'Edit Status / Notes' },
   { key: 'submitOwnLateNote', label: 'Submit own late-arrival note (no Attendance tab required)' },
+];
+
+export const WHATSAPP_VERIFICATION_CHILD_PERMISSIONS = [
+  { key: 'viewPortalVerify', label: 'WhatsApp Verification (member portal OTP)' },
+  { key: 'viewPortalChat', label: 'Portal Chat' },
+  { key: 'replyPortalChat', label: 'Reply in Portal Chat' },
+];
+
+export const STAFF_CHILD_PERMISSIONS = [
+  { key: 'viewStaff', label: 'View Staff page' },
+  { key: 'manageStaff', label: 'Add / Edit Staff & access' },
 ];
 
 export const LOGS_CHILD_PERMISSIONS = [
@@ -99,6 +114,10 @@ export const SUPPORT_CHILD_PERMISSIONS = [
 export const BACKEND_CHILD_PERMISSIONS = [
   { key: 'viewBackendPage', label: 'View Backend Section' },
   { key: 'controlBackendProcesses', label: 'Restart / Turn On / Turn Off Backend' },
+];
+
+export const WEBSITE_CHILD_PERMISSIONS = [
+  { key: 'viewWebsite', label: 'Open Website CMS / Admin' },
 ];
 
 export const PAYMENT_QR_CHILD_PERMISSIONS = [
@@ -122,6 +141,7 @@ export const DEFAULT_ACCESS = {
     viewPendingPayments: true,
     viewExpenseCard: true,
     viewProfitCard: true,
+    viewYtdCollected: true,
     manageExpenses: true,
   },
   settings: {
@@ -163,8 +183,18 @@ export const DEFAULT_ACCESS = {
     editPtWorkout: true,
     uploadDietDocuments: true,
   },
+  whatsappVerification: {
+    viewPortalVerify: true,
+    viewPortalChat: true,
+    replyPortalChat: true,
+  },
+  staff: {
+    viewStaff: true,
+    manageStaff: false,
+  },
   attendance: {
     viewAttendance: true,
+    viewMemberQrCheckin: true,
     markAllPresent: true,
     editAttendance: true,
     submitOwnLateNote: true,
@@ -182,17 +212,53 @@ export const DEFAULT_ACCESS = {
     viewBackendPage: true,
     controlBackendProcesses: true,
   },
+  website: {
+    viewWebsite: false,
+  },
   paymentQr: {
     viewPaymentQr: true,
     managePaymentSettings: false,
+  },
+  mobile: {
+    viewHome: true,
+    viewMembers: true,
+    viewPt: true,
+    viewStaff: true,
+    viewLeave: true,
+    viewMore: true,
+    homeCoreStats: true,
+    homeRevenue: true,
+    homeOverdue: true,
+    membersAdd: true,
+    membersEdit: true,
+    membersExpand: true,
+    leaveCreate: true,
+    leaveApprove: true,
+    moreFinance: true,
+    moreWhatsapp: true,
+    morePortalVerify: true,
+    morePortalChat: true,
+    moreAttendance: true,
+    moreMemberCheckin: true,
+    moreSettings: true,
+    moreLogs: true,
+    moreSupport: true,
+    moreBackend: true,
+    moreWebsite: true,
   },
 };
 
 /** Attendance tab visibility — not required for late-note self submit. */
 export const ATTENDANCE_SECTION_PERMISSION_KEYS = [
   'viewAttendance',
+  'viewMemberQrCheckin',
   'markAllPresent',
   'editAttendance',
+];
+
+export const WHATSAPP_VERIFICATION_SECTION_PERMISSION_KEYS = [
+  'viewPortalVerify',
+  'viewPortalChat',
 ];
 
 export function canSubmitOwnLateNote(access) {
@@ -216,6 +282,7 @@ export function normalizeAccess(access) {
       viewPendingPayments: access?.finance?.viewPendingPayments !== false,
       viewExpenseCard: access?.finance?.viewExpenseCard !== false,
       viewProfitCard: access?.finance?.viewProfitCard !== false,
+      viewYtdCollected: access?.finance?.viewYtdCollected !== false,
       manageExpenses: access?.finance?.manageExpenses !== false,
     },
     settings: {
@@ -238,6 +305,11 @@ export function normalizeAccess(access) {
       viewWelcome: access?.whatsapp?.viewWelcome !== false,
       viewTemplates: access?.whatsapp?.viewTemplates !== false,
     },
+    whatsappVerification: {
+      viewPortalVerify: access?.whatsappVerification?.viewPortalVerify !== false,
+      viewPortalChat: access?.whatsappVerification?.viewPortalChat !== false,
+      replyPortalChat: access?.whatsappVerification?.replyPortalChat !== false,
+    },
     leave: {
       viewCreateLeaveRequest: access?.leave?.viewCreateLeaveRequest !== false,
       viewLeaveRequests: access?.leave?.viewLeaveRequests !== false,
@@ -257,8 +329,13 @@ export function normalizeAccess(access) {
       editPtWorkout: access?.ptClients?.editPtWorkout !== false,
       uploadDietDocuments: access?.ptClients?.uploadDietDocuments !== false,
     },
+    staff: {
+      viewStaff: access?.staff?.viewStaff !== false,
+      manageStaff: access?.staff?.manageStaff === true,
+    },
     attendance: {
       viewAttendance: access?.attendance?.viewAttendance !== false,
+      viewMemberQrCheckin: access?.attendance?.viewMemberQrCheckin !== false,
       markAllPresent: access?.attendance?.markAllPresent !== false,
       editAttendance: access?.attendance?.editAttendance !== false,
       submitOwnLateNote: access?.attendance?.submitOwnLateNote !== false,
@@ -276,9 +353,40 @@ export function normalizeAccess(access) {
       viewBackendPage: access?.backend?.viewBackendPage !== false,
       controlBackendProcesses: access?.backend?.controlBackendProcesses !== false,
     },
+    website: {
+      // Opt-in: staff only see Website when explicitly granted
+      viewWebsite: access?.website?.viewWebsite === true,
+    },
     paymentQr: {
       viewPaymentQr: access?.paymentQr?.viewPaymentQr !== false,
       managePaymentSettings: access?.paymentQr?.managePaymentSettings === true,
+    },
+    mobile: {
+      viewHome: access?.mobile?.viewHome !== false,
+      viewMembers: access?.mobile?.viewMembers !== false,
+      viewPt: access?.mobile?.viewPt !== false,
+      viewStaff: access?.mobile?.viewStaff !== false,
+      viewLeave: access?.mobile?.viewLeave !== false,
+      viewMore: access?.mobile?.viewMore !== false,
+      homeCoreStats: access?.mobile?.homeCoreStats !== false,
+      homeRevenue: access?.mobile?.homeRevenue !== false,
+      homeOverdue: access?.mobile?.homeOverdue !== false,
+      membersAdd: access?.mobile?.membersAdd !== false,
+      membersEdit: access?.mobile?.membersEdit !== false,
+      membersExpand: access?.mobile?.membersExpand !== false,
+      leaveCreate: access?.mobile?.leaveCreate !== false,
+      leaveApprove: access?.mobile?.leaveApprove !== false,
+      moreFinance: access?.mobile?.moreFinance !== false,
+      moreWhatsapp: access?.mobile?.moreWhatsapp !== false,
+      morePortalVerify: access?.mobile?.morePortalVerify !== false,
+      morePortalChat: access?.mobile?.morePortalChat !== false,
+      moreAttendance: access?.mobile?.moreAttendance !== false,
+      moreMemberCheckin: access?.mobile?.moreMemberCheckin !== false,
+      moreSettings: access?.mobile?.moreSettings !== false,
+      moreLogs: access?.mobile?.moreLogs !== false,
+      moreSupport: access?.mobile?.moreSupport !== false,
+      moreBackend: access?.mobile?.moreBackend !== false,
+      moreWebsite: access?.mobile?.moreWebsite !== false,
     },
   };
 }

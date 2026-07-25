@@ -1,161 +1,200 @@
 import { Router } from 'express';
-import { loginRateLimit, recordFailedLogin, clearLoginFailures } from '../middleware/loginRateLimit.js';
-import {
-  buildPublicChallenge,
-  punchViaPin,
-} from '../services/attendanceKiosk/attendanceKioskService.js';
-import {
-  renderAttendanceKioskHtml,
-  renderAttendanceScanHtml,
-} from '../services/attendanceKiosk/attendanceKioskView.js';
-import { parseQrPayload } from '../services/attendanceKiosk/attendanceChallenge.js';
+import { clientIp } from '../middleware/loginRateLimit.js';
+import { resolveAttendanceKioskDevice } from '../services/attendance/kioskDevices.js';
+import { rotateAttendancePresenceToken } from '../services/attendance/presenceTokens.js';
 
 const router = Router();
 
-function deviceFromReq(req) {
+/** @type {Map<string, { count: number, resetAt: number }>} */
+const buckets = new Map();
+const MAX = 60;
+const WINDOW_MS = 60 * 1000;
+
+function rateLimit(req, res, next) {
+  const ip = clientIp(req);
+  const now = Date.now();
+  let entry = buckets.get(ip);
+  if (!entry || now >= entry.resetAt) {
+    entry = { count: 0, resetAt: now + WINDOW_MS };
+    buckets.set(ip, entry);
+  }
+  entry.count += 1;
+  if (entry.count > MAX) {
+    const retryAfterSec = Math.max(1, Math.ceil((entry.resetAt - now) / 1000));
+    res.setHeader('Retry-After', String(retryAfterSec));
+    return res.status(429).json({
+      error: 'too-many-requests',
+      message: 'Too many kiosk refresh attempts. Try again shortly.',
+      retryAfterSec,
+    });
+  }
+  return next();
+}
+
+function deviceFromRequest(req) {
   return String(
-    req.query?.device
-      || req.query?.token
-      || req.headers['x-apg-kiosk-device']
-      || req.body?.deviceToken
-      || '',
+    req.query?.device || req.query?.token || req.body?.device || req.headers['x-kiosk-device'] || '',
   ).trim();
 }
 
-function publicBaseFromReq(req) {
-  const fromEnv = String(process.env.APP_PUBLIC_URL || process.env.PUBLIC_APP_URL || '').trim();
-  if (fromEnv) return fromEnv.replace(/\/+$/, '');
-  const proto = String(req.headers['x-forwarded-proto'] || req.protocol || 'https').split(',')[0].trim();
-  const host = String(req.headers['x-forwarded-host'] || req.headers.host || '').split(',')[0].trim();
-  if (host) return `${proto}://${host}`.replace(/\/+$/, '');
-  return 'https://app.gymactionplus.com';
-}
-
-router.get('/pin-punch', (_req, res) => {
-  res.status(405).json({ error: 'method-not-allowed', message: 'Use POST /api/public/attendance-kiosk/pin-punch' });
-});
-
-router.post('/pin-punch', loginRateLimit, async (req, res) => {
+/**
+ * GET /api/public/attendance-kiosk/:gymCode/rotate?device=...
+ * Rotate presence QR for a valid always-on device token (no staff login).
+ */
+router.get('/:gymCode/rotate', rateLimit, async (req, res) => {
   try {
-    const result = await punchViaPin({
-      identifier: req.body?.identifier || req.body?.id,
-      password: req.body?.password || req.body?.pin,
-      qrPayload: req.body?.qrPayload,
-      code: req.body?.code,
-      branchId: req.body?.branchId || req.body?.gymCode,
-      type: req.body?.type || 'login',
-      atIso: req.body?.at,
-      timeZone: req.body?.timeZone,
-    });
-    clearLoginFailures(req);
-    return res.json(result);
-  } catch (error) {
-    const status = error?.status || 500;
-    if (status === 401 || status === 403) recordFailedLogin(req);
-    return res.status(status).json({
-      error: error?.message || 'pin-punch-failed',
-      message: String(error?.message || error),
-    });
-  }
-});
-
-router.get('/:gymCode/challenge', async (req, res) => {
-  try {
-    const data = await buildPublicChallenge({
-      gymCode: req.params.gymCode,
-      deviceToken: deviceFromReq(req),
-      publicBase: publicBaseFromReq(req),
-    });
-    res.setHeader('Cache-Control', 'no-store');
-    return res.json(data);
-  } catch (error) {
-    const status = error?.status || 500;
-    return res.status(status).json({
-      error: error?.message || 'challenge-failed',
-      message: String(error?.message || error),
-    });
-  }
-});
-
-router.get('/:gymCode/view', async (req, res) => {
-  const gymCode = String(req.params?.gymCode || '').trim();
-  const deviceToken = deviceFromReq(req);
-  if (!gymCode) return res.status(400).send('Gym code is required.');
-  try {
-    // Validate device before rendering so wall screens fail closed.
-    let branchName = '';
-    if (deviceToken) {
-      const challenge = await buildPublicChallenge({
-        gymCode,
-        deviceToken,
-        publicBase: publicBaseFromReq(req),
+    const gymCode = String(req.params.gymCode || '').trim();
+    const deviceToken = deviceFromRequest(req);
+    const device = await resolveAttendanceKioskDevice(deviceToken, gymCode);
+    if (!device?.gymCodeId) {
+      return res.status(401).json({
+        error: 'invalid-device',
+        message: 'Invalid or revoked kiosk device. Open a new kiosk URL from Settings.',
       });
-      branchName = challenge.branchName || '';
     }
-    const html = renderAttendanceKioskHtml({
-      gymCode,
-      branchName,
-      deviceToken,
-      apiBase: '/api/public/attendance-kiosk',
+
+    const rotated = rotateAttendancePresenceToken(device.gymCodeId);
+    const claimPath = `/attendance/claim?t=${encodeURIComponent(rotated.token)}`;
+    return res.json({
+      ok: true,
+      ...rotated,
+      claimPath,
+      gymCode: device.gymCode || gymCode,
+      label: device.label || 'Reception Kiosk',
     });
-    res.setHeader('Content-Type', 'text/html; charset=utf-8');
-    res.setHeader('Cache-Control', 'no-store');
-    return res.status(200).send(html);
-  } catch (error) {
-    const status = error?.status || 500;
-    if (status === 401) return res.status(401).send('Invalid or missing kiosk device token.');
-    if (status === 404) return res.status(404).send('Branch not found.');
-    return res.status(status).send(String(error?.message || 'Unable to load attendance kiosk.'));
+  } catch (err) {
+    return res.status(err?.status || 500).json({
+      error: err?.code || err?.message || 'kiosk-rotate-failed',
+      message: err?.detail || err?.message || 'Unable to refresh punch QR.',
+    });
   }
 });
 
-/** Phone-camera landing page — staff login + punch using wall QR payload. */
-router.get('/:gymCode/scan', async (req, res) => {
-  const gymCode = String(req.params?.gymCode || '').trim();
-  if (!gymCode) return res.status(400).send('Gym code is required.');
-  const qrPayload = String(
-    req.query?.p || req.query?.payload || req.query?.qr || '',
-  ).trim();
-  const parsed = parseQrPayload(qrPayload);
-  let branchName = '';
+/**
+ * GET /api/public/attendance-kiosk/:gymCode/view?device=...
+ * Self-contained HTML kiosk (works when opened via API rewrite; no React login shell).
+ */
+router.get('/:gymCode/view', rateLimit, async (req, res) => {
   try {
-    // Optional: resolve friendly name when payload/branch is valid shape.
-    if (parsed?.branchKey || gymCode) {
-      const { resolveAttendanceBranchId } = await import('../services/attendanceKiosk/attendanceKioskService.js');
-      const { useSupabase } = await import('../db/dataStore.js');
-      if (useSupabase()) {
-        const bid = await resolveAttendanceBranchId(parsed?.branchKey || gymCode);
-        if (bid) {
-          const { getSupabase, gymId } = await import('../db/supabase/client.js');
-          const { T } = await import('../db/tables.js');
-          const { data } = await getSupabase()
-            .from(T.gym_codes)
-            .select('name')
-            .eq('gym_id', gymId())
-            .eq('id', bid)
-            .maybeSingle();
-          branchName = data?.name || '';
-        }
+    const gymCode = String(req.params.gymCode || '').trim();
+    const deviceToken = deviceFromRequest(req);
+    const device = await resolveAttendanceKioskDevice(deviceToken, gymCode);
+    if (!device?.gymCodeId) {
+      res.status(401).type('html').send(`<!doctype html>
+<html><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1"/>
+<title>Punch QR Kiosk</title></head>
+<body style="margin:0;font-family:system-ui;background:#020617;color:#fecaca;display:grid;place-items:center;min-height:100vh;padding:24px;text-align:center">
+  <div><h1>Kiosk link invalid</h1><p>Open a new always-on punch QR URL from Settings (owner).</p></div>
+</body></html>`);
+      return;
+    }
+
+    const safeCode = JSON.stringify(gymCode);
+    const safeDevice = JSON.stringify(deviceToken);
+    const label = String(device.label || 'Reception Kiosk').replace(/[<>&"]/g, '');
+
+    res.type('html').send(`<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8"/>
+  <meta name="viewport" content="width=device-width,initial-scale=1"/>
+  <meta name="robots" content="noindex"/>
+  <title>Always-on Punch QR · ${label}</title>
+  <style>
+    :root { color-scheme: dark; }
+    body { margin:0; min-height:100vh; display:flex; flex-direction:column; align-items:center; justify-content:center;
+      background:#020617; color:#e2e8f0; font-family: ui-sans-serif, system-ui, sans-serif; padding:24px; text-align:center; }
+    .eyebrow { letter-spacing:.25em; text-transform:uppercase; font-size:11px; color:#5eead4; font-weight:600; }
+    h1 { margin:12px 0 8px; font-size:clamp(1.4rem,3vw,2rem); font-weight:600; }
+    p { color:#94a3b8; max-width:28rem; line-height:1.5; font-size:14px; }
+    .card { margin-top:28px; background:#fff; border-radius:24px; padding:16px; box-shadow:0 25px 50px rgba(0,0,0,.45); }
+    img { width:min(80vw,320px); height:min(80vw,320px); display:block; }
+    .timer-wrap { margin-top:20px; }
+    .timer-label { letter-spacing:.2em; text-transform:uppercase; font-size:10px; color:#5eead4; font-weight:600; margin:0; }
+    .timer { margin:6px 0 0; font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+      font-size:clamp(2.4rem,8vw,3.2rem); font-weight:600; color:#fff; letter-spacing:-0.02em; }
+    .meta { margin-top:10px; font-size:12px; color:#64748b; }
+    .err { color:#fda4af; margin-top:16px; }
+    button { margin-top:20px; border:1px solid rgba(255,255,255,.2); background:transparent; color:#e2e8f0;
+      border-radius:12px; padding:10px 16px; cursor:pointer; font-size:14px; }
+  </style>
+</head>
+<body>
+  <p class="eyebrow">Always-on punch QR</p>
+  <h1>Staff: scan to enable today&rsquo;s Time In</h1>
+  <p>This tablet stays signed out. The code refreshes automatically.</p>
+  <div class="card"><img id="qr" alt="Punch QR" width="320" height="320"/></div>
+  <div class="timer-wrap">
+    <p class="timer-label">Code valid for</p>
+    <p class="timer" id="countdown">—:—</p>
+  </div>
+  <p class="meta" id="meta">Loading…</p>
+  <p class="err" id="err" hidden></p>
+  <button type="button" id="refresh">Refresh now</button>
+  <script>
+    const gymCode = ${safeCode};
+    const device = ${safeDevice};
+    const qrEl = document.getElementById('qr');
+    const metaEl = document.getElementById('meta');
+    const errEl = document.getElementById('err');
+    const countdownEl = document.getElementById('countdown');
+    let timer = null;
+    let tick = null;
+    let expiresAtMs = 0;
+
+    function qrUrl(data) {
+      return 'https://api.qrserver.com/v1/create-qr-code/?size=320x320&data=' + encodeURIComponent(data);
+    }
+
+    function renderCountdown() {
+      if (!expiresAtMs) {
+        countdownEl.textContent = '—:—';
+        return;
+      }
+      const left = Math.max(0, Math.ceil((expiresAtMs - Date.now()) / 1000));
+      const m = Math.floor(left / 60);
+      const s = left % 60;
+      countdownEl.textContent = m + ':' + String(s).padStart(2, '0');
+    }
+
+    async function rotate() {
+      errEl.hidden = true;
+      try {
+        const res = await fetch('/api/public/attendance-kiosk/' + encodeURIComponent(gymCode) + '/rotate?device=' + encodeURIComponent(device), {
+          credentials: 'omit',
+          cache: 'no-store',
+        });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) throw new Error(data.message || data.error || ('HTTP ' + res.status));
+        const claimUrl = location.origin + (data.claimPath || ('/attendance/claim?t=' + encodeURIComponent(data.token)));
+        qrEl.src = qrUrl(claimUrl);
+        expiresAtMs = data.expiresAt ? new Date(data.expiresAt).getTime() : 0;
+        renderCountdown();
+        const until = data.expiresAt ? new Date(data.expiresAt).toLocaleTimeString() : '';
+        const every = Math.max(15, Math.floor((Number(data.expiresInSec) || 90) * 0.55));
+        metaEl.textContent = 'Auto-refreshes about every ' + every + 's' + (until ? ' · until ' + until : '');
+        const waitMs = Math.max(15000, Math.floor((Number(data.expiresInSec) || 90) * 1000 * 0.55));
+        clearTimeout(timer);
+        timer = setTimeout(rotate, waitMs);
+      } catch (e) {
+        errEl.hidden = false;
+        errEl.textContent = e && e.message ? e.message : 'Could not refresh QR';
+        clearTimeout(timer);
+        timer = setTimeout(rotate, 20000);
       }
     }
-  } catch {
-    // Non-fatal — page still works with gym code only.
-  }
-  const html = renderAttendanceScanHtml({
-    gymCode: parsed?.branchKey || gymCode,
-    branchName,
-    qrPayload,
-    apiBase: '/api/public/attendance-kiosk',
-  });
-  res.setHeader('Content-Type', 'text/html; charset=utf-8');
-  res.setHeader('Cache-Control', 'no-store');
-  return res.status(200).send(html);
-});
 
-router.get('/:gymCode', (req, res) => {
-  const q = new URLSearchParams(req.query || {}).toString();
-  const suffix = q ? `?${q}` : '';
-  return res.redirect(302, `/api/public/attendance-kiosk/${encodeURIComponent(req.params.gymCode)}/view${suffix}`);
+    clearInterval(tick);
+    tick = setInterval(renderCountdown, 1000);
+    document.getElementById('refresh').addEventListener('click', () => { void rotate(); });
+    void rotate();
+  </script>
+</body>
+</html>`);
+  } catch (err) {
+    return res.status(500).type('html').send(`<!doctype html><html><body style="background:#020617;color:#fecaca;font-family:system-ui;padding:24px">
+      <h1>Kiosk error</h1><p>${String(err?.message || err)}</p></body></html>`);
+  }
 });
 
 export default router;

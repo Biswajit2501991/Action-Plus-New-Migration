@@ -1,0 +1,9 @@
+# Railway: service Root Directory must be "frontend".
+[build]
+builder = "RAILPACK"
+buildCommand = "npm ci --include=optional && npm run build"
+
+[deploy]
+startCommand = "npm run start"
+healthcheckPath = "/login"
+restartPolicyType = "ON_FAILURE"

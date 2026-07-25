@@ -1,7 +1,9 @@
 import crypto from 'node:crypto';
 import { memberPhotoStorageEnabled } from '../../services/memberPhoto/storageConstants.js';
 import { passwordResetStatusFromRecord } from '../../../../src/features/passwordReset/passwordResetStatus.js';
+import { isBcryptHash } from '../../auth/passwords.js';
 import { emptyText, financeStatusFromNumeric, financeStatusToNumeric, toDate, toTs } from './utils.js';
+import { isValidMemberDob } from './memberProfileBulkGuard.js';
 
 /** Columns fetched for list pulls — excludes photo blob; includes storage metadata. */
 export const MEMBER_LIST_COLUMNS = [
@@ -12,6 +14,8 @@ export const MEMBER_LIST_COLUMNS = [
   'parent_guardian_dob', 'family_group_id', 'family_primary_member_id', 'last_sms_sent_json',
   'updated_by', 'assigned_gym_code_id', 'created_at', 'updated_at',
   'photo_version', 'photo_path', 'photo_url',
+  'member_uuid', 'portal_enabled', 'portal_status', 'qr_token', 'pin_hash',
+  'portal_activated_at', 'last_portal_login_at',
 ].join(',');
 
 /** Audit log columns for list pulls — excludes before/after JSON blobs. */
@@ -64,6 +68,12 @@ export function memberRowToApp(row, children = {}, options = {}) {
     updatedAt: row.updated_at,
     photoVersion: Number(row.photo_version || 0),
     hasPhoto: Boolean(String(row.photo_path || '').trim() || String(row.photo_url || '').trim()),
+    memberUuid: row.member_uuid || null,
+    portalEnabled: row.portal_enabled !== false,
+    portalStatus: row.portal_status || 'pending',
+    portalActivatedAt: row.portal_activated_at || null,
+    lastPortalLoginAt: row.last_portal_login_at || null,
+    hasPortalPin: Boolean(row.pin_hash),
   };
   if (slim) {
     return {
@@ -73,6 +83,7 @@ export function memberRowToApp(row, children = {}, options = {}) {
       paymentHistory: children.payments || [],
       messageHistory: [],
       attachments: [],
+      latestInjuryNote: children.latestInjuryNote || null,
     };
   }
   return {
@@ -84,7 +95,30 @@ export function memberRowToApp(row, children = {}, options = {}) {
     paymentHistory: children.payments || [],
     messageHistory: children.messages || [],
     attachments: children.attachments || [],
+    latestInjuryNote: pickLatestInjuryNote(children.injuryNotes),
   };
+}
+
+function pickLatestInjuryNote(notes) {
+  if (!Array.isArray(notes) || !notes.length) return null;
+  let best = null;
+  let bestMs = -1;
+  for (const n of notes) {
+    const text = String(n?.text || n?.note || '').trim();
+    if (!text) continue;
+    const at = String(n?.at || n?.createdAt || n?.ts || '').trim();
+    const ms = at ? new Date(at).getTime() : 0;
+    if (!best || (Number.isFinite(ms) && ms >= bestMs)) {
+      best = {
+        id: String(n?.id || '').trim(),
+        text,
+        by: String(n?.by || n?.createdBy || '').trim(),
+        at: at || new Date().toISOString(),
+      };
+      bestMs = Number.isFinite(ms) ? ms : 0;
+    }
+  }
+  return best;
 }
 
 /** Strip heavy nested fields from an app-shaped member for sqlite list parity. */
@@ -125,7 +159,7 @@ export function appMemberToRow(m, gymId, options = {}) {
     full_name: emptyText(m.name) || 'Unknown',
     email: emptyText(m.email),
     mobile: emptyText(m.mobile),
-    dob: toDate(m.dob, { required: true }),
+    dob: toDate(m.dob, { required: !options.partialBulkSync }),
     gender: emptyText(m.gender),
     address: emptyText(m.address),
     assigned_staff: emptyText(m.staff),
@@ -158,11 +192,22 @@ export function appMemberToRow(m, gymId, options = {}) {
     created_at: createdAt,
     updated_at: updatedAt,
   };
+  if (Object.prototype.hasOwnProperty.call(m, 'portalEnabled')) {
+    row.portal_enabled = Boolean(m.portalEnabled);
+  }
+  if (Object.prototype.hasOwnProperty.call(m, 'portalStatus')) {
+    const st = String(m.portalStatus || 'pending').trim().toLowerCase();
+    row.portal_status = ['pending', 'active', 'disabled'].includes(st) ? st : 'pending';
+  }
   if (options.partialBulkSync) {
     if (!Object.prototype.hasOwnProperty.call(m, 'payMonth')) delete row.pay_month;
     if (!Object.prototype.hasOwnProperty.call(m, 'ackSignature')) delete row.ack_signature;
     if (!Object.prototype.hasOwnProperty.call(m, 'parentGuardianSignature')) delete row.parent_guardian_signature;
     if (!Object.prototype.hasOwnProperty.call(m, 'medicalAnswers')) delete row.medical_answers_json;
+    if (!Object.prototype.hasOwnProperty.call(m, 'dob')) delete row.dob;
+    else if (!isValidMemberDob(row.dob)) delete row.dob;
+    if (!Object.prototype.hasOwnProperty.call(m, 'gender')) delete row.gender;
+    if (!Object.prototype.hasOwnProperty.call(m, 'address')) delete row.address;
   }
   return row;
 }
@@ -227,10 +272,18 @@ export function staffRowToApp(row, sections = [], access = {}, assignedBranchIds
   const passwordResetApprovedAt = row.password_reset_approved_at || '';
   const passwordResetRejectedAt = row.password_reset_rejected_at || '';
   const passwordResetRejectedBy = row.password_reset_rejected_by || '';
+  const plainLegacy = String(row.password_plain_legacy || '').trim();
+  const storedHash = String(row.password_hash || '').trim();
+  // Owner-readable password: dedicated display column, else legacy plaintext hash.
+  const password =
+    plainLegacy
+    || (!storedHash || isBcryptHash(storedHash) ? '' : storedHash);
   return {
     id: row.staff_login_id,
     name: row.full_name,
     email: row.email || '',
+    password,
+    hasPassword: Boolean(plainLegacy || storedHash),
     sections,
     access,
     blocked: Boolean(row.is_blocked),
@@ -411,8 +464,10 @@ export function appSmsToRow(e, gymId) {
 
 export function visitorRowToApp(row) {
   return {
-    id: row.external_visitor_id,
+    // Website leads may only have the bigint id until external_visitor_id is backfilled.
+    id: row.external_visitor_id || (row.id != null ? `W-${row.id}` : null),
     fullName: row.full_name,
+    name: row.full_name,
     email: row.email,
     mobile: row.mobile,
     dob: row.dob,
@@ -422,12 +477,29 @@ export function visitorRowToApp(row) {
     tentativeJoiningDate: row.tentative_joining_date,
     lastCalledAt: row.last_called_at,
     lastCalledBy: row.last_called_by,
+    staffSeenAt: row.staff_seen_at || null,
+    staffSeenBy: row.staff_seen_by || null,
     assignedGymCodeId: row.assigned_gym_code_id || null,
     addedAt: row.added_at,
+    visitDate: row.added_at,
+    notes: row.notes || '',
+    interestPlan: row.interest_plan || '',
+    goal: row.goal || '',
+    intakeSource:
+      row.intake_source ||
+      (String(row.last_called_by || '').startsWith('__intake:')
+        ? String(row.last_called_by).slice('__intake:'.length)
+        : null),
   };
 }
 
 export function appVisitorToRow(v, gymId) {
+  const intake = v.intakeSource ? String(v.intakeSource).trim() : '';
+  const lastCalledBy = v.lastCalledBy
+    ? String(v.lastCalledBy)
+    : intake
+      ? `__intake:${intake}`
+      : null;
   return {
     gym_id: gymId,
     external_visitor_id: String(v.id || crypto.randomUUID()),
@@ -440,10 +512,21 @@ export function appVisitorToRow(v, gymId) {
     call_back_required: Boolean(v.callBackRequired),
     tentative_joining_date: toDate(v.tentativeJoiningDate),
     last_called_at: toTs(v.lastCalledAt),
-    last_called_by: v.lastCalledBy || null,
+    last_called_by: lastCalledBy,
+    staff_seen_at: toTs(v.staffSeenAt),
+    staff_seen_by: v.staffSeenBy != null && String(v.staffSeenBy).trim()
+      ? String(v.staffSeenBy).trim()
+      : null,
     assigned_gym_code_id: v.assignedGymCodeId ? String(v.assignedGymCodeId).trim() : null,
     added_at: toTs(v.addedAt),
     created_at: toTs(v.addedAt) || new Date().toISOString(),
     updated_at: new Date().toISOString(),
+    notes: v.notes != null && String(v.notes).trim() ? String(v.notes).trim() : null,
+    interest_plan:
+      v.interestPlan != null && String(v.interestPlan).trim()
+        ? String(v.interestPlan).trim()
+        : null,
+    goal: v.goal != null && String(v.goal).trim() ? String(v.goal).trim() : null,
+    intake_source: intake || null,
   };
 }

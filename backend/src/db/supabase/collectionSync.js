@@ -54,6 +54,8 @@ export async function syncGymRowsByExternalId(sb, table, {
 
 /**
  * Sync child rows for one member by external id (attachments: full replace per member).
+ * @param {boolean} [deleteOrphans=true] When false, upsert/insert only — never delete
+ *   existing rows missing from the payload (safe for append-only injury notes).
  */
 export async function syncMemberChildRows(sb, table, {
   gymId,
@@ -61,6 +63,7 @@ export async function syncMemberChildRows(sb, table, {
   externalIdColumn,
   rows,
   onConflict,
+  deleteOrphans = true,
 }) {
   const incoming = (rows || []).filter((r) => {
     if (!externalIdColumn) return true;
@@ -79,25 +82,27 @@ export async function syncMemberChildRows(sb, table, {
     return;
   }
 
-  const { data: existing, error: selErr } = await sb
-    .from(table)
-    .select(externalIdColumn)
-    .eq('gym_id', gymId)
-    .eq('member_id', memberId);
-  if (selErr) throw selErr;
-
-  const incomingIds = new Set(incoming.map((r) => String(r[externalIdColumn])));
-  const toRemove = (existing || [])
-    .map((r) => String(r[externalIdColumn] || ''))
-    .filter((id) => id && !incomingIds.has(id));
-
-  if (toRemove.length) {
-    const { error } = await sb
+  if (deleteOrphans) {
+    const { data: existing, error: selErr } = await sb
       .from(table)
-      .delete()
-      .eq('member_id', memberId)
-      .in(externalIdColumn, toRemove);
-    if (error) throw new Error(`${table} child orphan delete: ${error.message}`);
+      .select(externalIdColumn)
+      .eq('gym_id', gymId)
+      .eq('member_id', memberId);
+    if (selErr) throw selErr;
+
+    const incomingIds = new Set(incoming.map((r) => String(r[externalIdColumn])));
+    const toRemove = (existing || [])
+      .map((r) => String(r[externalIdColumn] || ''))
+      .filter((id) => id && !incomingIds.has(id));
+
+    if (toRemove.length) {
+      const { error } = await sb
+        .from(table)
+        .delete()
+        .eq('member_id', memberId)
+        .in(externalIdColumn, toRemove);
+      if (error) throw new Error(`${table} child orphan delete: ${error.message}`);
+    }
   }
 
   for (const part of chunk(incoming, 80)) {

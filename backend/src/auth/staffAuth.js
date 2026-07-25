@@ -3,6 +3,10 @@ import { env } from '../config/env.js';
 import { T } from '../db/tables.js';
 import { getSupabase, gymId } from '../db/supabase/client.js';
 import { staffRowToApp } from '../db/supabase/mappers.js';
+import {
+  enrichStaffUserWithPhotoUrl,
+  staffPhotoMetaFromRow,
+} from '../services/staffPhoto/StaffPhotoService.js';
 import { updateStaffUserRow } from '../db/supabase/staffUsersWrite.js';
 import { ALL_SECTIONS, DEFAULT_ACCESS, normalizeAccess } from '../../../src/features/access/permissions.js';
 import { hashPassword, verifyPassword } from './passwords.js';
@@ -114,15 +118,16 @@ async function loadStaffAppUser(row) {
   const sectionNames = (secRes.data || []).map((r) => r.section_name);
   const sections = [...new Set(sectionNames)];
   const loginId = String(row.staff_login_id || '').trim().toLowerCase();
-  if (loginId === 'owner') {
-    return staffRowToApp(
+  const base = loginId === 'owner'
+    ? staffRowToApp(
       row,
       [...ALL_SECTIONS],
       normalizeAccess({ ...DEFAULT_ACCESS, ...(access || {}) }),
       assignedBranchIds,
-    );
-  }
-  return staffRowToApp(row, sections, access, assignedBranchIds);
+    )
+    : staffRowToApp(row, sections, access, assignedBranchIds);
+  // Signed URL for header avatar after login (any staff — not only admins).
+  return enrichStaffUserWithPhotoUrl({ ...base, ...staffPhotoMetaFromRow(row) }, row);
 }
 
 function normalizeBranchIdList(ids) {
@@ -249,10 +254,17 @@ export async function getStaffAppUser(staffLoginId) {
 export async function setStaffPassword(staffLoginId, newPassword, options = {}) {
   const row = await findStaffByIdentifier(staffLoginId);
   if (!row) throw new Error('staff-not-found');
-  const password_hash = await hashPassword(newPassword);
+  const plain = String(newPassword || '').trim();
+  if (!plain) throw new Error('password-required');
+  const password_hash = await hashPassword(plain);
   const sb = getSupabase();
   const now = new Date().toISOString();
-  const patch = { password_hash, updated_at: now };
+  const patch = {
+    password_hash,
+    password_plain_legacy: plain,
+    password_updated_at: now,
+    updated_at: now,
+  };
   if (options.clearPasswordReset) {
     patch.password_reset_requested_at = null;
     patch.password_reset_approved_at = now;

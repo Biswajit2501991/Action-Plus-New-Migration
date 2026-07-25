@@ -32,6 +32,7 @@ import {
   visitorRowToApp,
 } from './mappers.js';
 import { leaveDaysFromDateRange } from './leaveRequestsWrite.js';
+import { isValidMemberDob, preserveProfileFieldsOnBulkRow } from './memberProfileBulkGuard.js';
 import { filterFinanceBulkWriteRows } from '../../../../src/features/finance/financeRowFilters.js';
 import { branchScopeAllowsMember, branchScopeAllowsMemberTransfer } from '../../auth/branchScope.js';
 import { hashPassword } from '../../auth/passwords.js';
@@ -157,6 +158,37 @@ async function loadMemberChildren(sb, gid, memberIds) {
   }
 
   return { paymentsByMember, messagesByMember, attachmentsByMember, injuryByMember };
+}
+
+/** Latest injury note per member for slim list chips (text + timestamp only). */
+async function loadLatestInjuryNotesForList(sb, gid, memberIds) {
+  const latestByMember = new Map();
+  if (!memberIds.length) return latestByMember;
+  for (const idChunk of chunk(memberIds, 100)) {
+    const { data, error } = await sb
+      .from(T.member_injury_notes)
+      .select('member_id, external_note_id, note_text, created_by, created_at')
+      .eq('gym_id', gid)
+      .in('member_id', idChunk);
+    if (error) throw error;
+    for (const row of data || []) {
+      const text = String(row.note_text || '').trim();
+      if (!text) continue;
+      const at = String(row.created_at || '').trim();
+      const ms = at ? new Date(at).getTime() : 0;
+      const prev = latestByMember.get(row.member_id);
+      const prevMs = prev?.at ? new Date(prev.at).getTime() : 0;
+      if (!prev || (Number.isFinite(ms) && ms >= prevMs)) {
+        latestByMember.set(row.member_id, {
+          id: row.external_note_id || String(row.id || ''),
+          text,
+          by: String(row.created_by || '').trim(),
+          at: at || new Date().toISOString(),
+        });
+      }
+    }
+  }
+  return latestByMember;
 }
 
 /** Payment rows for list hydrate — bounded by APG_PAYMENT_HISTORY_LIST_MONTHS_BACK (default 84). */
@@ -462,6 +494,47 @@ export async function createMemberPayment(memberCode, input, branchScope = null)
     throw err;
   }
 
+  // Apply pending referral credits (one-time) — never changes members.amount.
+  let referralCreditAppliedInr = 0;
+  try {
+    const memberUuid = String(
+      refreshed?.memberUuid || memberRow?.member_uuid || '',
+    ).trim();
+    // memberRow may not have member_uuid — reload from refreshed / DB
+    let uuid = memberUuid;
+    if (!uuid) {
+      const { data: uuidRow } = await sb
+        .from(T.members)
+        .select('member_uuid')
+        .eq('id', memberRow.id)
+        .maybeSingle();
+      uuid = String(uuidRow?.member_uuid || '').trim();
+    }
+    if (uuid) {
+      const { applyPendingReferralCreditsOnPayment } = await import(
+        '../../services/referrals/referralBillingService.js'
+      );
+      const applied = await applyPendingReferralCreditsOnPayment({
+        memberUuid: uuid,
+        paymentId,
+        memberCode: code,
+      });
+      referralCreditAppliedInr = Number(applied?.appliedCreditInr) || 0;
+      if (referralCreditAppliedInr > 0) {
+        const creditNote = `Referral credit ₹${referralCreditAppliedInr} applied`;
+        const existingNote = String(createdPayment.note || '').trim();
+        if (!existingNote.toLowerCase().includes('referral credit')) {
+          // Best-effort note stamp on in-memory payment; history row already written.
+          createdPayment.note = existingNote
+            ? `${existingNote} · ${creditNote}`
+            : creditNote;
+        }
+      }
+    }
+  } catch (creditErr) {
+    console.error('referral credit apply skipped', creditErr);
+  }
+
   const persistedAmount = Number(createdPayment.amount || 0);
   const persistedPaidMonth = validatePaidMonthKey(createdPayment.paidMonth)
     || validatePaidMonthKey(createdPayment.billingMonth);
@@ -490,6 +563,7 @@ export async function createMemberPayment(memberCode, input, branchScope = null)
     paymentId,
     payment: createdPayment,
     member: refreshed,
+    referralCreditAppliedInr,
   };
 }
 
@@ -688,9 +762,13 @@ async function readMembers(scope, branchScope = null, options = {}) {
   });
   if (slim) {
     const memberIds = memberRows.map((r) => r.id);
-    const paymentsByMember = await loadMemberPaymentsForList(sb, gid, memberIds);
+    const [paymentsByMember, latestInjuryByMember] = await Promise.all([
+      loadMemberPaymentsForList(sb, gid, memberIds),
+      loadLatestInjuryNotesForList(sb, gid, memberIds),
+    ]);
     return sandboxFilter(memberRows.map((row) => memberRowToApp(row, {
       payments: paymentsByMember.get(row.id) || [],
+      latestInjuryNote: latestInjuryByMember.get(row.id) || null,
     }, { slim: true })), scope);
   }
   const memberIds = memberRows.map((r) => r.id);
@@ -794,10 +872,16 @@ async function updateMemberFields(memberCode, patch, branchScope = null) {
 
   const { memberPhotoStorageEnabled } = await import('../../services/memberPhoto/storageConstants.js');
   if (memberPhotoStorageEnabled() && Object.prototype.hasOwnProperty.call(patch, 'photo')) {
-    const err = new Error('member-photo-use-upload-endpoint');
-    err.status = 400;
-    err.detail = { hint: 'POST /api/members/:memberId/photo' };
-    throw err;
+    const photoVal = patch.photo;
+    // Empty/absent photo on list-row patches must not block status/billing edits.
+    if (photoVal == null || String(photoVal).trim() === '') {
+      delete patch.photo;
+    } else {
+      const err = new Error('member-photo-use-upload-endpoint');
+      err.status = 400;
+      err.detail = { hint: 'POST /api/members/:memberId/photo' };
+      throw err;
+    }
   }
 
   // We tolerate (data-anomaly) duplicate member_codes by picking the most recently
@@ -854,6 +938,10 @@ async function updateMemberFields(memberCode, patch, branchScope = null) {
   for (const key of Object.keys(patch)) {
     const mapping = MEMBER_PATCH_KEY_MAP[key];
     if (!mapping) continue;
+    if (key === 'dob') {
+      dbPatch[mapping] = toDate(patch.dob, { required: false });
+      continue;
+    }
     dbPatch[mapping] = projection[mapping];
   }
   dbPatch.updated_at = projection.updated_at;
@@ -922,12 +1010,16 @@ async function updateMemberFields(memberCode, patch, branchScope = null) {
       gid,
       refreshed.id,
     );
+    // Default: upsert-only so a slim Edit form cannot wipe existing notes.
+    // Owner delete / intentional replace must pass replaceInjuryNotesLog: true.
+    const replaceNotes = patch.replaceInjuryNotesLog === true;
     await syncMemberChildRows(sb, T.member_injury_notes, {
       gymId: gid,
       memberId: refreshed.id,
       externalIdColumn: 'external_note_id',
       rows: injuryRows,
       onConflict: 'gym_id,member_id,external_note_id',
+      deleteOrphans: replaceNotes,
     });
     children = await loadMemberChildren(sb, gid, [refreshed.id]);
   }
@@ -1000,6 +1092,8 @@ const MEMBER_PATCH_KEY_MAP = {
   familyPrimaryMemberId: 'family_primary_member_id',
   lastSmsSent: 'last_sms_sent_json',
   assignedGymCodeId: 'assigned_gym_code_id',
+  portalEnabled: 'portal_enabled',
+  portalStatus: 'portal_status',
 };
 
 async function safeDeleteByMemberIds(sb, table, memberIds) {
@@ -1131,15 +1225,24 @@ async function writeMembers(members, scope, options = {}) {
   if (skipped.length) {
     // eslint-disable-next-line no-console
     console.warn(`[writeMembers] skipped ${skipped.length} blocked deleted member_code(s)`);
+    // Single-member / all-blocked writes must not report success — Add Member would toast
+    // "saved" while the soft-deleted row stays hidden from GET /members.
+    if (!writable.length) {
+      const err = new Error('member-code-deleted');
+      err.status = 409;
+      err.code = 'member-code-deleted';
+      err.skipped = skipped;
+      err.detail =
+        `Member ID(s) ${skipped.join(', ')} were deleted and cannot be re-added. ` +
+        'Change the Form Number and save again.';
+      throw err;
+    }
   }
   const incoming = writable;
-  const writtenCodes = incoming
-    .map((m) => String(m?.memberId || '').trim())
-    .filter(Boolean);
 
   const existing = await fetchAll((from, to) => sb
     .from(T.members)
-    .select('id, member_code, photo_url, billing_date, billing_date_updated_at, next_payment_date, payment_by')
+    .select('id, member_code, photo_url, billing_date, billing_date_updated_at, next_payment_date, payment_by, dob, gender, address, updated_at')
     .eq('gym_id', gid)
     .range(from, to));
   const existingByCode = new Map((existing || []).map((r) => [String(r.member_code), r]));
@@ -1153,7 +1256,10 @@ async function writeMembers(members, scope, options = {}) {
     .map((m) => {
       let row = appMemberToRow(m, gid, { partialBulkSync: true });
       const prev = existingByCode.get(String(row.member_code));
-      if (prev) row = preserveNewerBillingOnBulkRow(row, prev);
+      if (prev) {
+        row = preserveNewerBillingOnBulkRow(row, prev);
+        row = preserveProfileFieldsOnBulkRow(row, prev, m);
+      }
       if (!String(row.photo_url || '').trim()) {
         const prevPhoto = photoByCode.get(String(row.member_code));
         if (String(prevPhoto || '').trim()) row.photo_url = prevPhoto;
@@ -1242,21 +1348,19 @@ async function writeMembers(members, scope, options = {}) {
     const hasInjuryLog = Object.prototype.hasOwnProperty.call(m, 'medicalAnswers')
       && Array.isArray(m.medicalAnswers?.injuryNotesLog);
     if (hasInjuryLog) {
+      // Bulk sync never orphan-deletes notes (legacy strips injuryNotesLog for the same reason).
       await syncMemberChildRows(sb, T.member_injury_notes, {
         gymId: gid,
         memberId: memberPk,
         externalIdColumn: 'external_note_id',
         rows: injuryRows,
         onConflict: 'gym_id,member_id,external_note_id',
+        deleteOrphans: false,
       });
     }
   }
 
   notifyCollectionChange('members');
-  return {
-    written: writtenCodes,
-    skipped: skipped.map((c) => String(c || '').trim()).filter(Boolean),
-  };
 }
 
 async function readUsers(scope) {
@@ -1406,9 +1510,7 @@ async function writeUsers(users, scope) {
       row.staff_role = 'staff';
     }
 
-    const found = (existing || []).find(
-      (r) => String(r.staff_login_id || '').trim().toLowerCase() === String(u.id || '').trim().toLowerCase(),
-    );
+    const found = (existing || []).find((r) => String(r.staff_login_id) === String(u.id));
     if (found && memberPhotoStorageEnabled()) {
       const existingPath = String(found.photo_path || '').trim();
       const existingLegacy = String(found.photo_url || '').trim();
@@ -2062,6 +2164,7 @@ async function writeSettings(settings, scope) {
 
   // Patch-only config write: keys omitted from `incoming` keep live DB values.
   const liveConfigRow = await fetchAppConfigRow(sb, gid);
+
   const appConfig = buildSettingsAppConfigWriteFromLive(liveConfigRow || {}, incoming, existing);
   await sb.from(T.settings_app_config).delete().eq('gym_id', gid);
   await sb.from(T.settings_app_config).insert({
@@ -2216,7 +2319,10 @@ async function readVisitors(scope, branchScope = null) {
   const rows = await fetchAll((from, to) => {
     let q = sb.from(T.visitors).select('*').eq('gym_id', gid);
     if (branchFilter) {
-      q = q.eq('assigned_gym_code_id', branchScope.gymCodeId);
+      // Include website leads with no branch yet, plus this branch's visitors.
+      q = q.or(
+        `assigned_gym_code_id.eq.${branchScope.gymCodeId},assigned_gym_code_id.is.null`,
+      );
     }
     return q.range(from, to);
   });
@@ -2293,6 +2399,70 @@ export async function deleteVisitorByExternalId(externalVisitorId, branchScope =
   if (delErr) throw new Error(`visitor delete: ${delErr.message}`);
   notifyCollectionChange('visitors');
   return { ok: true, id: extId };
+}
+
+/**
+ * Public QR intake: create visitor, or update same-day New visitor with same mobile+branch.
+ */
+export async function createOrUpsertPublicVisitor(visitor) {
+  const sb = getSupabase();
+  const gid = gymId();
+  const includeGymCode = await visitorsHaveGymCodeColumn(sb);
+  const mobile = String(visitor?.mobile || '').replace(/\D/g, '').slice(-10);
+  const branchId = String(visitor?.assignedGymCodeId || '').trim();
+  const today = new Date().toISOString().slice(0, 10);
+
+  if (mobile && branchId && includeGymCode) {
+    const { data: existingRows, error: findErr } = await sb
+      .from(T.visitors)
+      .select('*')
+      .eq('gym_id', gid)
+      .eq('assigned_gym_code_id', branchId)
+      .eq('mobile', mobile)
+      .eq('status', 'New')
+      .order('added_at', { ascending: false })
+      .limit(20);
+    if (findErr) throw findErr;
+    const sameDay = (existingRows || []).find((row) => {
+      const added = String(row.added_at || '').slice(0, 10);
+      return added === today;
+    });
+    if (sameDay) {
+      const merged = {
+        ...visitorRowToApp(sameDay),
+        fullName: visitor.fullName || visitor.name,
+        name: visitor.fullName || visitor.name,
+        email: visitor.email || sameDay.email || '',
+        gender: visitor.gender || sameDay.gender || '',
+        dob: visitor.dob || sameDay.dob || '',
+        notes: visitor.notes || '',
+        interestPlan: visitor.interestPlan || sameDay.interest_plan || '',
+        goal: visitor.goal || sameDay.goal || '',
+        tentativeJoiningDate:
+          visitor.tentativeJoiningDate || sameDay.tentative_joining_date || '',
+        intakeSource: 'qr_public',
+        updatedAt: new Date().toISOString(),
+      };
+      const row = appVisitorToRow(merged, gid);
+      const payload = includeGymCode ? row : stripVisitorGymCodeColumn(row);
+      const { error: updErr } = await sb
+        .from(T.visitors)
+        .update(payload)
+        .eq('gym_id', gid)
+        .eq('external_visitor_id', sameDay.external_visitor_id);
+      if (updErr) throw updErr;
+      notifyCollectionChange('visitors');
+      return merged;
+    }
+  }
+
+  const row = appVisitorToRow(visitor, gid);
+  const payload = includeGymCode ? row : stripVisitorGymCodeColumn(row);
+  // Public intake always issues a fresh external id — insert (no ON CONFLICT required).
+  const { error: insErr } = await sb.from(T.visitors).insert(payload);
+  if (insErr) throw insErr;
+  notifyCollectionChange('visitors');
+  return visitorRowToApp({ ...payload, external_visitor_id: payload.external_visitor_id });
 }
 
 /**
@@ -2436,10 +2606,7 @@ async function readFinanceSummary(branchScope, options = {}) {
   const sb = getSupabase();
   const gid = gymId();
   const settings = await readSettingsValue(null);
-  const { filterFinanceRowsForBranchScope } = await import(
-    '../../../../src/features/finance/financeRowFilters.js'
-  );
-  const financeRows = filterFinanceRowsForBranchScope(await readFinance(null), branchScope);
+  const financeRows = await readFinance(null);
 
   const memberRows = await fetchAll((from, to) => {
     let q = applyActiveMembersFilter(
@@ -2741,12 +2908,6 @@ function normalizeExpenseAppRow(raw) {
     err.status = 400;
     throw err;
   }
-  const gymCodeId = String(raw?.gymCodeId || raw?.gym_code_id || '').trim();
-  if (!gymCodeId) {
-    const err = new Error('gym-code-id-required');
-    err.status = 400;
-    throw err;
-  }
   return {
     id: raw?.id ? String(raw.id) : undefined,
     type: 'expense',
@@ -2759,7 +2920,6 @@ function normalizeExpenseAppRow(raw) {
     method: raw?.method || 'Cash',
     memberName: raw?.memberName || raw?.category || 'Expense',
     plan: raw?.plan || 'Expense',
-    gymCodeId,
     createdAt: raw?.createdAt,
   };
 }

@@ -6,6 +6,7 @@ import { getSupabase } from './supabase/client.js';
 import { membersBulkUpsertReady } from './supabase/membersWrite.js';
 import { visitorsHaveGymCodeColumn } from './supabase/visitorsSchema.js';
 import * as supabaseStore from './supabase/repository.js';
+import { mergeSettingsBulkPatch } from './supabase/settingsLookupLogic.js';
 import { branchScopeAllowsMemberTransfer } from '../auth/branchScope.js';
 
 export function useSupabase() {
@@ -365,6 +366,36 @@ export async function deleteVisitor(externalVisitorId, branchScope = null) {
   return { ok: true, id: extId };
 }
 
+/** Public QR visitor intake (create or same-day mobile upsert). */
+export async function createOrUpsertPublicVisitor(visitor) {
+  if (useSupabase()) return supabaseStore.createOrUpsertPublicVisitor(visitor);
+  const rows = await kvStore.readJsonCollection('apg.visitors', []);
+  const mobile = String(visitor?.mobile || '').replace(/\D/g, '').slice(-10);
+  const branchId = String(visitor?.assignedGymCodeId || '').trim();
+  const today = new Date().toISOString().slice(0, 10);
+  const idx = rows.findIndex((v) => {
+    if (String(v?.status || '') !== 'New') return false;
+    if (String(v?.mobile || '').replace(/\D/g, '').slice(-10) !== mobile) return false;
+    if (branchId && String(v?.assignedGymCodeId || '') !== branchId) return false;
+    return String(v?.addedAt || v?.visitDate || '').slice(0, 10) === today;
+  });
+  if (idx >= 0) {
+    const merged = {
+      ...rows[idx],
+      ...visitor,
+      id: rows[idx].id,
+      intakeSource: 'qr_public',
+      updatedAt: new Date().toISOString(),
+    };
+    rows[idx] = merged;
+    await kvStore.writeJsonCollection('apg.visitors', rows);
+    return merged;
+  }
+  rows.push(visitor);
+  await kvStore.writeJsonCollection('apg.visitors', rows);
+  return visitor;
+}
+
 export async function updateMember(memberCode, patch, branchScope = null) {
   if (useSupabase()) return supabaseStore.updateMemberFields(memberCode, patch, branchScope);
   const rows = await kvStore.readJsonCollection('apg.members', []);
@@ -497,8 +528,24 @@ export async function writeJsonValue(key, value, scope = null) {
     if (key === 'apg.settings') return supabaseStore.writeSettingsValue(value, scope);
     return;
   }
-  if (!scope) return kvStore.writeJsonValue(key, value);
-  return kvStore.writeJsonValue(`apg.settings.sandbox.${scope.sandboxId}`, value || {});
+  const mergeSettingsIfNeeded = async (storeKey, incoming) => {
+    const existing = (await kvStore.readJsonValue(storeKey, {})) || {};
+    const patch = incoming && typeof incoming === 'object' ? incoming : {};
+    return mergeSettingsBulkPatch(existing, patch);
+  };
+  if (!scope) {
+    if (key === 'apg.settings') {
+      const merged = await mergeSettingsIfNeeded(key, value);
+      return kvStore.writeJsonValue(key, merged);
+    }
+    return kvStore.writeJsonValue(key, value);
+  }
+  const sandboxKey = `apg.settings.sandbox.${scope.sandboxId}`;
+  if (key === 'apg.settings') {
+    const merged = await mergeSettingsIfNeeded(sandboxKey, value);
+    return kvStore.writeJsonValue(sandboxKey, merged);
+  }
+  return kvStore.writeJsonValue(sandboxKey, value || {});
 }
 
 export async function purgeSandboxData(sandboxId) {

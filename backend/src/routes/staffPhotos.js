@@ -1,16 +1,35 @@
 import { Router } from 'express';
 import crypto from 'node:crypto';
-import { requireStaffManagementRead, requireStaffManagementWrite } from '../middleware/requireStaffManagement.js';
+import { requireStaffManagementWrite } from '../middleware/requireStaffManagement.js';
+import { engineCanListStaff } from '../auth/tenant/scopedAuthorizationEngine.js';
 import { appendAuditLogEntry } from '../db/dataStore.js';
 import { uploadStaffPhoto, deleteStaffPhoto, batchStaffPhotoSignedUrls } from '../services/staffPhoto/StaffPhotoService.js';
 
 const router = Router();
 
-/** Batch signed URLs for staff list avatars. Must register before /:staffId routes. */
-router.post('/photo-urls', requireStaffManagementRead, async (req, res) => {
+/**
+ * Batch signed URLs for staff list avatars.
+ * Admins can batch any staff; other authenticated staff may only request their own id.
+ */
+router.post('/photo-urls', async (req, res) => {
+  if (!req.auth?.userId) {
+    return res.status(401).json({ error: 'unauthorized', message: 'Login required.' });
+  }
   const staffIds = Array.isArray(req.body?.staffIds) ? req.body.staffIds : [];
+  const normalized = [...new Set(staffIds.map((x) => String(x || '').trim()).filter(Boolean))];
+  const selfId = String(req.auth.userId || '').trim();
+  const canList = engineCanListStaff(req.auth);
+  const allowed = canList
+    ? normalized
+    : normalized.filter((id) => id.toLowerCase() === selfId.toLowerCase());
+  if (!canList && !allowed.length) {
+    return res.status(403).json({
+      error: 'branch-admin-required',
+      message: 'This action requires branch administrator privileges.',
+    });
+  }
   try {
-    const result = await batchStaffPhotoSignedUrls(staffIds);
+    const result = await batchStaffPhotoSignedUrls(allowed);
     return res.json({ ok: true, ...result });
   } catch (err) {
     const status = err?.status || 500;

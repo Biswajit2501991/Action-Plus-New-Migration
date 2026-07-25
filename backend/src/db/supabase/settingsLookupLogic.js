@@ -87,7 +87,7 @@ const OPT_IN_BOOL_KEYS = new Set([
 /**
  * Build settings_app_config write payload from the live DB row + sparse incoming
  * patch. Keys absent from `incoming` keep their live values — this prevents
- * sparse clients from wiping QR / notes / custom template flags.
+ * stale full-flag clients from wiping attendanceNotesEnabled / customTemplates.
  */
 export function buildSettingsAppConfigWriteFromLive(liveConfigRow, incoming, existingSettings = null) {
   const live = liveConfigRow && typeof liveConfigRow === 'object' ? liveConfigRow : {};

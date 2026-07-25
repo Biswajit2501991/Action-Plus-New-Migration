@@ -83,9 +83,6 @@ import { syncStaffBranchScope } from './middleware/syncStaffBranchScope.js';
 import {
   resolveReadBranchScope,
   filterRowsForStaffWrite,
-  prepareMembersBulkWrite,
-  assertMembersBulkWriteNonEmpty,
-  assertMembersBulkPersisted,
   assertStaffHasBranchForWrite,
   staffBranchBlocksAllRows,
   filterAttendanceRecordsForBranchScope,
@@ -101,8 +98,9 @@ import {
   resolveLookupDeleteRequesterForAuth,
   resolveLookupProvenanceForAuth,
 } from './auth/tenant/lookupProvenance.js';
-import { authIsBranchOwner, authIsMasterOwner, authUsesGlobalDataRead, authHasGlobalBranchRead, authCanAccessBranch, resolveActiveBranchId, resolveReadBranchIds } from './auth/tenant/scopedAuth.js';
+import { authIsBranchOwner, authIsMasterOwner, authUsesGlobalDataRead, authHasGlobalBranchRead, authIsBranchAdmin, resolveActiveBranchId, resolveReadBranchIds } from './auth/tenant/scopedAuth.js';
 import { Access, getStaffAccessForUser } from './auth/accessControl.js';
+import { ptClientAssignedToViewer, resolveStaffCanonical } from './services/pt/ptTrainerScope.js';
 import { canReadSettingsScope } from './db/supabase/settingsBranchFilter.js';
 import { normalizeSettingsScope } from './db/supabase/settingsScope.js';
 import { requireAccess, requireLogsBulkAccess } from './middleware/permissions.js';
@@ -114,9 +112,16 @@ import staffPhotosRouter from './routes/staffPhotos.js';
 import paymentQrRouter from './routes/paymentQr.js';
 import leaveBalanceRouter from './routes/leaveBalance.js';
 import publicPaymentQrRouter from './routes/publicPaymentQr.js';
+import publicVisitorsRouter from './routes/publicVisitors.js';
 import publicMemberStatusRouter from './routes/publicMemberStatus.js';
+import publicAttendancePresenceRouter from './routes/publicAttendancePresence.js';
 import publicAttendanceKioskRouter from './routes/publicAttendanceKiosk.js';
+import attendancePresenceRouter from './routes/attendancePresence.js';
 import attendanceKioskRouter from './routes/attendanceKiosk.js';
+import { registerMemberPortalPhase2Routes } from './routes/memberPortalPhase2.js';
+import { registerMemberDailyWorkoutRoutes } from './routes/memberDailyWorkouts.js';
+import { registerMemberWeightLogRoutes } from './routes/memberWeightLogs.js';
+import { registerMemberReferralRoutes } from './routes/memberReferrals.js';
 import {
   authIsOwner,
   stampBranchOnRows,
@@ -153,6 +158,13 @@ function stripUsersForApi(users) {
     const { password, ...safe } = u;
     return safe;
   });
+}
+
+/** Master owner may see owner-readable staff passwords; everyone else never does. */
+function usersForStaffListResponse(users, auth) {
+  const scoped = filterUsersForAuth(users, auth);
+  if (authIsMasterOwner(auth)) return scoped;
+  return stripUsersForApi(scoped);
 }
 // Member bulk PUT includes base64 photos; 1mb was dropping saves silently (413).
 app.use(express.json({ limit: '25mb' }));
@@ -512,7 +524,9 @@ app.get('/api/version', (_req, res) => {
 });
 
 app.use('/api/public/payment-qr', publicPaymentQrRouter);
+app.use('/api/public/visitors', publicVisitorsRouter);
 app.use('/api/public/member-status', publicMemberStatusRouter);
+app.use('/api/public/attendance/presence', publicAttendancePresenceRouter);
 app.use('/api/public/attendance-kiosk', publicAttendanceKioskRouter);
 
 app.use('/api/auth', authRouter);
@@ -520,6 +534,17 @@ app.use('/api/auth', authRouter);
 app.use('/api', requireApiAuth);
 app.use('/api', syncStaffBranchScope);
 app.use('/api', bindGymContext);
+
+// Authenticated presence QR (rotate/settings) must sit after requireApiAuth so req.auth is set.
+app.use('/api/attendance/presence', attendancePresenceRouter);
+app.use('/api/attendance-kiosk', attendanceKioskRouter);
+
+// Member Portal Phase 2: member QR check-in, portal chat, billing push settings
+registerMemberPortalPhase2Routes(app, { appendAuditLog });
+// Basic + PT member daily workout logs (separate from pt_client_profiles)
+registerMemberDailyWorkoutRoutes(app, { appendAuditLog });
+registerMemberWeightLogRoutes(app, { appendAuditLog });
+registerMemberReferralRoutes(app, { appendAuditLog });
 
 // Phase 2 gym-codes feature: list is authenticated-only, write is owner-only (inside the router).
 app.use('/api/gym-codes', gymCodesRouter);
@@ -637,58 +662,20 @@ app.get('/api/members', requireAccess(Access.membersRead), async (req, res) => {
   res.json(members);
 });
 
-/**
- * Next free form number for a branch (skips soft-deleted / audited member codes).
- * Query: gymCodeId (required), branchToken? (e.g. AP01), yearSuffix? (e.g. 26)
- */
-app.get('/api/members/next-form-number', requireAccess(Access.membersWrite), async (req, res) => {
+/** Must be registered before /api/members/:memberId or "next-form-number" is treated as an id. */
+app.get('/api/members/next-form-number', requireAccess(Access.membersRead), async (req, res) => {
   try {
-    const { suggestNextBranchFormNumber } = await import('./services/members/memberFormNumbers.js');
-    const gymCodeId = String(req.query?.gymCodeId || req.query?.branchId || '').trim();
-    const branchToken = String(req.query?.branchToken || req.query?.code || '').trim();
-    const yearSuffix = String(req.query?.yearSuffix || '').trim() || undefined;
-    const out = await suggestNextBranchFormNumber({ gymCodeId, branchToken, yearSuffix });
-    return res.json({ ok: true, ...out });
-  } catch (err) {
-    return res.status(err?.status || 500).json({
-      error: err?.message || 'next-form-failed',
-      message: err?.message || 'Could not allocate next form number',
+    const { resolveNextMemberFormNumber } = await import('./services/members/nextFormNumber.js');
+    const result = await resolveNextMemberFormNumber({
+      gymCodeId: req.query?.gymCodeId,
+      branchToken: req.query?.branchToken,
+      yearSuffix: req.query?.yearSuffix,
     });
-  }
-});
-
-/**
- * Dedicated create — preferred over PUT /members/bulk for Add Member.
- * Stamps staff branch, persists, and returns the saved row (fail closed).
- */
-app.post('/api/members', requireAccess(Access.membersWrite), async (req, res) => {
-  const member = req.body?.member && typeof req.body.member === 'object'
-    ? req.body.member
-    : (req.body && typeof req.body === 'object' && !Array.isArray(req.body) ? req.body : null);
-  if (!member || Array.isArray(member)) {
-    return res.status(400).json({ error: 'member-required', message: 'Request body must include a member object.' });
-  }
-  try {
-    const { createMemberDurable } = await import('./services/members/createMember.js');
-    const saved = await createMemberDurable(
-      member,
-      req.auth,
-      buildBranchScope(req),
-      readSandboxScope(req),
-    );
-    queueDatabaseBackup('members-create');
-    return res.status(201).json({ ok: true, member: saved, written: [saved.memberId] });
+    return res.json(result);
   } catch (err) {
-    const detail = err?.detail || null;
-    const suggested = detail?.suggestedFormNo
-      ? ` Use form number ${detail.suggestedFormNo}${detail.suggestedMemberId ? ` (${detail.suggestedMemberId})` : ''}.`
-      : '';
     return res.status(err?.status || 500).json({
-      error: err?.message || 'member-create-failed',
-      message: err?.message === 'members-bulk-blocked'
-        ? `This member ID was used by a deleted member and cannot be reused.${suggested}`
-        : (detail?.hint || err?.message || 'Member could not be saved. Please try again.'),
-      detail,
+      ok: false,
+      error: err?.message || 'next-form-number-failed',
     });
   }
 });
@@ -761,29 +748,14 @@ app.put('/api/members/bulk', requireAccess(Access.membersWrite), async (req, res
       detail: err.detail || null,
     });
   }
-  // Stamp BEFORE staff filter so untagged creates are not silently dropped
-  // (filter-then-stamp previously returned { ok: true } with zero rows written).
-  let prepared;
-  let droppedIds = [];
-  try {
-    const preparedResult = prepareMembersBulkWrite(rawWithoutDeleted, req.auth);
-    prepared = preparedResult.prepared;
-    droppedIds = preparedResult.droppedIds;
-    assertMembersBulkWriteNonEmpty(rawWithoutDeleted.length, prepared, droppedIds);
-  } catch (err) {
-    return res.status(err.status || 400).json({
-      error: err.message,
-      message: 'No members were saved — check branch assignment and try again.',
-      detail: err.detail || null,
-    });
-  }
+  const incoming = filterRowsForStaffWrite(rawWithoutDeleted, req.auth);
   // Defense-in-depth: prevent non-owner callers from quietly stripping payment
   // entries out of the snapshot. Slim bulk sync omits paymentHistory; guard only
   // runs when paymentHistory is present in the payload (pending member sync).
   try {
     if (!authIsOwner(req.auth)) {
       const { assertStaffPaymentDeletesAllowed } = await import('./db/dataStore.js');
-      await assertStaffPaymentDeletesAllowed(prepared, buildBranchScope(req));
+      await assertStaffPaymentDeletesAllowed(incoming, buildBranchScope(req));
     }
   } catch (err) {
     return res.status(err.status || 403).json({
@@ -791,45 +763,25 @@ app.put('/api/members/bulk', requireAccess(Access.membersWrite), async (req, res
       detail: err.detail || null,
     });
   }
+  // Owner without explicit selection => stamped HQ via their JWT gymCodeId;
+  // staff => stamped from their JWT gymCodeId; safe no-op for already-tagged rows.
+  const stamped = stampBranchOnRows(incoming, req.auth);
   const scope = readSandboxScope(req);
   const { writeJsonCollection } = await import('./db/dataStore.js');
-  let writeResult = null;
   try {
-    writeResult = await writeJsonCollection('apg.members', prepared, scope, {
+    await writeJsonCollection('apg.members', stamped, scope, {
       blockedMemberCodes: [...deletedSet],
     });
   } catch (err) {
-    return res.status(err?.status || 500).json({
-      error: err?.message || 'members-bulk-failed',
-      detail: err?.detail || null,
-    });
-  }
-  const written = Array.isArray(writeResult?.written)
-    ? writeResult.written
-    : prepared.map((m) => String(m?.memberId || '').trim()).filter(Boolean);
-  const skipped = Array.isArray(writeResult?.skipped) ? writeResult.skipped : [];
-  try {
-    assertMembersBulkPersisted(
-      prepared.map((m) => String(m?.memberId || '').trim()).filter(Boolean),
-      written,
-      skipped,
-    );
-  } catch (err) {
-    return res.status(err.status || 409).json({
-      error: err.message,
-      message: skipped.length
-        ? 'Member code was previously deleted and cannot be reused.'
-        : 'Member save did not persist. Please try again.',
-      detail: err.detail || null,
+    const status = err?.status || 500;
+    return res.status(status).json({
+      error: err?.code || err?.message || 'members-bulk-failed',
+      message: err?.detail || err?.message || 'Unable to save members.',
+      skipped: err?.skipped || undefined,
     });
   }
   queueDatabaseBackup('members-bulk');
-  res.json({
-    ok: true,
-    written,
-    skipped,
-    droppedIds,
-  });
+  res.json({ ok: true });
 });
 
 /**
@@ -838,7 +790,7 @@ app.put('/api/members/bulk', requireAccess(Access.membersWrite), async (req, res
  * Body: { patch: { ...partial app-member fields }, expectedAssignedGymCodeId?: string }
  */
 app.patch('/api/members/:memberId', requireAccess(Access.membersWrite), async (req, res) => {
-  const memberCode = String(req.params.memberId || '').trim();
+  const memberCode = decodeURIComponent(String(req.params.memberId || '').trim());
   const patch = req.body?.patch && typeof req.body.patch === 'object' ? req.body.patch : null;
   if (!memberCode) return res.status(400).json({ error: 'member-code-required' });
   if (!patch) return res.status(400).json({ error: 'patch-required' });
@@ -854,6 +806,285 @@ app.patch('/api/members/:memberId', requireAccess(Access.membersWrite), async (r
       error: err?.message || 'member-patch-failed',
       detail: err?.detail || null,
     });
+  }
+});
+
+/** Rotate membership QR token used by Member Portal digital card. */
+app.post('/api/members/:memberId/portal/rotate-qr', requireAccess(Access.membersWrite), async (req, res) => {
+  const memberCode = decodeURIComponent(String(req.params.memberId || '').trim());
+  if (!memberCode) return res.status(400).json({ error: 'member-code-required' });
+  try {
+    const { getSupabase, gymId } = await import('./db/supabase/client.js');
+    const crypto = await import('node:crypto');
+    const sb = getSupabase();
+    const gid = gymId() || req.auth?.gymId;
+    if (!sb || !gid) return res.status(500).json({ error: 'supabase-unavailable' });
+    const qrToken = crypto.randomBytes(32).toString('hex');
+    const { data, error } = await sb
+      .from('members')
+      .update({ qr_token: qrToken, updated_at: new Date().toISOString() })
+      .eq('gym_id', gid)
+      .eq('member_code', memberCode)
+      .is('deleted_at', null)
+      .select('member_code, member_uuid, qr_token')
+      .maybeSingle();
+    if (error) return res.status(500).json({ error: error.message });
+    if (!data) return res.status(404).json({ error: 'member-not-found' });
+    await appendAuditLog(req, {
+      action: 'member.portal.qr_rotated',
+      entityType: 'member',
+      entityId: memberCode,
+      after: { memberId: memberCode },
+    });
+    return res.json({ ok: true, memberCode, memberUuid: data.member_uuid });
+  } catch (err) {
+    return res.status(500).json({ error: err?.message || 'rotate-qr-failed' });
+  }
+});
+
+/** Revoke all Member Portal devices + sessions for a member. */
+app.post('/api/members/:memberId/portal/revoke-devices', requireAccess(Access.membersWrite), async (req, res) => {
+  const memberCode = decodeURIComponent(String(req.params.memberId || '').trim());
+  if (!memberCode) return res.status(400).json({ error: 'member-code-required' });
+  try {
+    const { getSupabase, gymId } = await import('./db/supabase/client.js');
+    const sb = getSupabase();
+    const gid = gymId() || req.auth?.gymId;
+    if (!sb || !gid) return res.status(500).json({ error: 'supabase-unavailable' });
+    const { data: member, error: findErr } = await sb
+      .from('members')
+      .select('member_uuid, member_code')
+      .eq('gym_id', gid)
+      .eq('member_code', memberCode)
+      .is('deleted_at', null)
+      .maybeSingle();
+    if (findErr) return res.status(500).json({ error: findErr.message });
+    if (!member?.member_uuid) return res.status(404).json({ error: 'member-not-found' });
+    const now = new Date().toISOString();
+    await sb
+      .from('member_portal_devices')
+      .update({ revoked_at: now })
+      .eq('member_uuid', member.member_uuid)
+      .is('revoked_at', null);
+    await sb
+      .from('member_portal_sessions')
+      .update({ revoked_at: now })
+      .eq('member_uuid', member.member_uuid)
+      .is('revoked_at', null);
+    await appendAuditLog(req, {
+      action: 'member.portal.devices_revoked',
+      entityType: 'member',
+      entityId: memberCode,
+      after: { memberId: memberCode },
+    });
+    return res.json({ ok: true });
+  } catch (err) {
+    return res.status(500).json({ error: err?.message || 'revoke-devices-failed' });
+  }
+});
+
+/** Pending Member Portal WhatsApp verifications for staff approval. */
+/** Member Portal WhatsApp staff approval queue (also exposed in /api/health features.portalVerifications). */
+app.get('/api/portal-verifications', requireAccess(Access.membersWrite), async (req, res) => {
+  try {
+    const { getSupabase, gymId } = await import('./db/supabase/client.js');
+    const sb = getSupabase();
+    const gid = gymId() || req.auth?.gymId;
+    if (!sb || !gid) return res.status(500).json({ error: 'supabase-unavailable' });
+    const status = String(req.query.status || 'pending').trim().toLowerCase();
+    let q = sb
+      .from('member_portal_otp_challenges')
+      .select(
+        'id, member_uuid, mobile_normalized, expires_at, created_at, staff_status, otp_plain_for_staff, verification_channel, staff_approved_at, staff_approved_by',
+      )
+      .eq('gym_id', gid)
+      .eq('verification_channel', 'whatsapp_staff')
+      .order('created_at', { ascending: false })
+      .limit(100);
+    if (status === 'pending') q = q.eq('staff_status', 'pending');
+    else if (status === 'approved') q = q.eq('staff_status', 'approved');
+    else if (status === 'rejected') q = q.eq('staff_status', 'rejected');
+    const { data: rows, error } = await q;
+    if (error) return res.status(500).json({ error: error.message });
+    const uuids = [...new Set((rows || []).map((r) => r.member_uuid).filter(Boolean))];
+    let membersByUuid = {};
+    if (uuids.length) {
+      const { data: members } = await sb
+        .from('members')
+        .select('member_uuid, member_code, full_name, mobile, status, assigned_gym_code_id')
+        .eq('gym_id', gid)
+        .in('member_uuid', uuids);
+      for (const m of members || []) membersByUuid[m.member_uuid] = m;
+    }
+    const items = (rows || []).map((r) => {
+      const m = membersByUuid[r.member_uuid] || {};
+      return {
+        id: r.id,
+        memberUuid: r.member_uuid,
+        memberCode: m.member_code || null,
+        fullName: m.full_name || null,
+        mobile: r.mobile_normalized || m.mobile || null,
+        membershipStatus: m.status || null,
+        assignedGymCodeId: m.assigned_gym_code_id || null,
+        staffStatus: r.staff_status,
+        otpForStaff: r.otp_plain_for_staff || null,
+        createdAt: r.created_at,
+        expiresAt: r.expires_at,
+        approvedAt: r.staff_approved_at || null,
+        approvedBy: r.staff_approved_by || null,
+      };
+    });
+    return res.json({ ok: true, items });
+  } catch (err) {
+    return res.status(500).json({ error: err?.message || 'list-failed' });
+  }
+});
+
+app.post('/api/portal-verifications/:id/approve', requireAccess(Access.membersWrite), async (req, res) => {
+  const id = String(req.params.id || '').trim();
+  if (!id) return res.status(400).json({ error: 'id-required' });
+  try {
+    const { getSupabase, gymId } = await import('./db/supabase/client.js');
+    const sb = getSupabase();
+    const gid = gymId() || req.auth?.gymId;
+    if (!sb || !gid) return res.status(500).json({ error: 'supabase-unavailable' });
+    const actor = req.auth?.name || req.auth?.userId || 'staff';
+    const now = new Date().toISOString();
+    const { data, error } = await sb
+      .from('member_portal_otp_challenges')
+      .update({
+        staff_status: 'approved',
+        staff_approved_at: now,
+        staff_approved_by: actor,
+        consumed_at: now,
+      })
+      .eq('id', id)
+      .eq('gym_id', gid)
+      .eq('staff_status', 'pending')
+      .select('id, member_uuid, mobile_normalized')
+      .maybeSingle();
+    if (error) return res.status(500).json({ error: error.message });
+    if (!data) return res.status(404).json({ error: 'not-found-or-already-handled' });
+    await appendAuditLog(req, {
+      action: 'member.portal.whatsapp_approved',
+      entityType: 'member_portal_otp',
+      entityId: id,
+      after: { memberUuid: data.member_uuid, mobile: data.mobile_normalized },
+    });
+    return res.json({ ok: true });
+  } catch (err) {
+    return res.status(500).json({ error: err?.message || 'approve-failed' });
+  }
+});
+
+app.post('/api/portal-verifications/:id/reject', requireAccess(Access.membersWrite), async (req, res) => {
+  const id = String(req.params.id || '').trim();
+  if (!id) return res.status(400).json({ error: 'id-required' });
+  try {
+    const { getSupabase, gymId } = await import('./db/supabase/client.js');
+    const sb = getSupabase();
+    const gid = gymId() || req.auth?.gymId;
+    if (!sb || !gid) return res.status(500).json({ error: 'supabase-unavailable' });
+    const actor = req.auth?.name || req.auth?.userId || 'staff';
+    const note = String(req.body?.note || '').trim().slice(0, 200);
+    const now = new Date().toISOString();
+    const { data, error } = await sb
+      .from('member_portal_otp_challenges')
+      .update({
+        staff_status: 'rejected',
+        staff_rejected_at: now,
+        staff_rejected_by: actor,
+        staff_note: note || null,
+      })
+      .eq('id', id)
+      .eq('gym_id', gid)
+      .eq('staff_status', 'pending')
+      .select('id, member_uuid')
+      .maybeSingle();
+    if (error) return res.status(500).json({ error: error.message });
+    if (!data) return res.status(404).json({ error: 'not-found-or-already-handled' });
+    await appendAuditLog(req, {
+      action: 'member.portal.whatsapp_rejected',
+      entityType: 'member_portal_otp',
+      entityId: id,
+      after: { memberUuid: data.member_uuid, note },
+    });
+    return res.json({ ok: true });
+  } catch (err) {
+    return res.status(500).json({ error: err?.message || 'reject-failed' });
+  }
+});
+
+/** Revoke portal access after WhatsApp approval: logout devices, clear PIN, require re-verify. */
+app.post('/api/portal-verifications/:id/revoke', requireAccess(Access.membersWrite), async (req, res) => {
+  const id = String(req.params.id || '').trim();
+  if (!id) return res.status(400).json({ error: 'id-required' });
+  try {
+    const { getSupabase, gymId } = await import('./db/supabase/client.js');
+    const sb = getSupabase();
+    const gid = gymId() || req.auth?.gymId;
+    if (!sb || !gid) return res.status(500).json({ error: 'supabase-unavailable' });
+    const actor = req.auth?.name || req.auth?.userId || 'staff';
+    const now = new Date().toISOString();
+
+    const { data: challenge, error: findErr } = await sb
+      .from('member_portal_otp_challenges')
+      .select('id, member_uuid, mobile_normalized, staff_status')
+      .eq('id', id)
+      .eq('gym_id', gid)
+      .eq('verification_channel', 'whatsapp_staff')
+      .maybeSingle();
+    if (findErr) return res.status(500).json({ error: findErr.message });
+    if (!challenge) return res.status(404).json({ error: 'not-found' });
+    if (challenge.staff_status !== 'approved') {
+      return res.status(400).json({ error: 'not-approved', message: 'Only approved verifications can be revoked.' });
+    }
+
+    const memberUuid = challenge.member_uuid;
+    await sb
+      .from('member_portal_devices')
+      .update({ revoked_at: now })
+      .eq('member_uuid', memberUuid)
+      .is('revoked_at', null);
+    await sb
+      .from('member_portal_sessions')
+      .update({ revoked_at: now })
+      .eq('member_uuid', memberUuid)
+      .is('revoked_at', null);
+
+    await sb
+      .from('members')
+      .update({
+        pin_hash: null,
+        portal_status: 'revoked',
+        portal_activated_at: null,
+        updated_at: now,
+      })
+      .eq('gym_id', gid)
+      .eq('member_uuid', memberUuid)
+      .is('deleted_at', null);
+
+    const { error: chErr } = await sb
+      .from('member_portal_otp_challenges')
+      .update({
+        staff_status: 'rejected',
+        staff_rejected_at: now,
+        staff_rejected_by: actor,
+        staff_note: 'access revoked by staff — member must re-verify',
+      })
+      .eq('id', id)
+      .eq('gym_id', gid);
+    if (chErr) return res.status(500).json({ error: chErr.message });
+
+    await appendAuditLog(req, {
+      action: 'member.portal.whatsapp_revoked',
+      entityType: 'member_portal_otp',
+      entityId: id,
+      after: { memberUuid, mobile: challenge.mobile_normalized },
+    });
+    return res.json({ ok: true });
+  } catch (err) {
+    return res.status(500).json({ error: err?.message || 'revoke-failed' });
   }
 });
 
@@ -1113,7 +1344,7 @@ app.delete('/api/visitors/:visitorId', requireAccess(Access.visitorsDelete), asy
 
 app.get('/api/users', requireStaffManagementRead, async (req, res) => {
   const users = await readJsonCollection('apg.users', [], null);
-  res.json(filterUsersForAuth(users, req.auth));
+  res.json(usersForStaffListResponse(users, req.auth));
 });
 
 app.use('/api/users', staffPhotosRouter);
@@ -1667,7 +1898,6 @@ app.delete('/api/custom-templates/:id', requireAccess(Access.templatesWrite), as
 
 app.use('/api/payment-qr', paymentQrRouter);
 app.use('/api/leave-balance', leaveBalanceRouter);
-app.use('/api/attendance-kiosk', attendanceKioskRouter);
 
 // ----------------------------------------------------------------------------
 // Leave Requests — dedicated mutation surface that bypasses the owner-only
@@ -1908,6 +2138,46 @@ async function handlePatchPtClientProfile(req, res) {
     const { readMember } = await import('./db/dataStore.js');
     const memberRow = await readMember(memberId, branchScope);
     if (!memberRow) return res.status(404).json({ error: 'member-not-found' });
+
+    const callerIsAdmin = callerIsOwner || authIsBranchAdmin(req.auth);
+    if (!callerIsAdmin) {
+      const settings = (await readJsonValue('apg.settings', {}, branchScope)) || {};
+      const prevAll = settings.ptClientProfiles && typeof settings.ptClientProfiles === 'object'
+        ? settings.ptClientProfiles
+        : {};
+      const prevProfile = prevAll[memberId] && typeof prevAll[memberId] === 'object'
+        ? prevAll[memberId]
+        : {};
+      const allowed = ptClientAssignedToViewer(
+        memberRow,
+        prevProfile,
+        req.auth?.userId,
+        null,
+        null,
+      );
+      if (!allowed) {
+        return res.status(403).json({
+          error: 'forbidden',
+          message: 'You can only edit PT clients assigned to you.',
+        });
+      }
+      // Staff cannot reassign the client to another trainer.
+      if (Object.prototype.hasOwnProperty.call(profile, 'trainerId')
+        || Object.prototype.hasOwnProperty.call(profile, 'trainer')) {
+        const nextTrainer = String(profile.trainerId || profile.trainer || '').trim();
+        if (nextTrainer) {
+          const callerKey = resolveStaffCanonical(req.auth?.userId);
+          const nextKey = resolveStaffCanonical(nextTrainer);
+          if (nextKey && callerKey && nextKey !== callerKey) {
+            return res.status(403).json({
+              error: 'forbidden',
+              message: 'You cannot reassign PT clients to another trainer.',
+            });
+          }
+        }
+      }
+    }
+
     const saved = await patchPtClientProfileValue(memberId, profile, {
       updatedBy: String(req.auth?.userId || '').trim(),
     });
@@ -1983,6 +2253,26 @@ app.post('/api/attendance/punch', requireAccess(Access.attendancePunch), async (
     if (punchType !== 'login' && punchType !== 'logout') {
       return res.status(400).json({ error: 'invalid_type', message: 'type must be login or logout' });
     }
+
+    if (punchType === 'login') {
+      const settings = (await readJsonValue('apg.settings', {}, null)) || {};
+      const requirePresence = settings.attendanceRequirePresenceQr === true;
+      if (requirePresence) {
+        try {
+          const { consumeAttendancePresenceTicket } = await import('./services/attendance/presenceTokens.js');
+          consumeAttendancePresenceTicket(req.body?.presenceTicket, req.auth.userId);
+        } catch (presErr) {
+          if (presErr?.code === 'presence_required' || presErr?.status === 403) {
+            return res.status(403).json({
+              error: 'presence_required',
+              message: presErr.detail || 'Scan the gym Attendance QR before Time In.',
+            });
+          }
+          throw presErr;
+        }
+      }
+    }
+
     const record = await punchStaffAttendance(readSandboxScope(req), {
       userId: req.auth.userId,
       punchType,
@@ -2303,31 +2593,7 @@ app.get('/api/finance/reconciliation', requireAccess(Access.financeRead), async 
 
 app.post('/api/finance/expenses', requireAccess(Access.financeWrite), async (req, res) => {
   try {
-    const body = req.body && typeof req.body === 'object' ? { ...req.body } : {};
-    const requested = String(body.gymCodeId || body.gym_code_id || '').trim();
-    const active = resolveActiveBranchId(req.auth);
-    let gymCodeId = '';
-    if (authHasGlobalBranchRead(req.auth)) {
-      gymCodeId = requested || active;
-      if (!gymCodeId) {
-        const { resolveHqGymCodeId } = await import('./services/branchWhatsappTemplates.js');
-        gymCodeId = String(await resolveHqGymCodeId() || '').trim();
-      }
-    } else {
-      gymCodeId = active || String(req.auth?.gymCodeId || '').trim();
-      if (requested && requested !== gymCodeId && !authCanAccessBranch(req.auth, requested)) {
-        return res.status(403).json({ error: 'branch-scope-forbidden' });
-      }
-      if (requested && authCanAccessBranch(req.auth, requested)) gymCodeId = requested;
-    }
-    if (!gymCodeId) {
-      return res.status(400).json({ error: 'gym-code-id-required' });
-    }
-    if (!authCanAccessBranch(req.auth, gymCodeId) && !authHasGlobalBranchRead(req.auth)) {
-      return res.status(403).json({ error: 'branch-scope-forbidden' });
-    }
-    body.gymCodeId = gymCodeId;
-    const saved = await upsertFinanceExpenseRow(body);
+    const saved = await upsertFinanceExpenseRow(req.body || {});
     queueDatabaseBackup('finance-expense');
     return res.status(201).json(saved);
   } catch (error) {
@@ -2358,15 +2624,9 @@ app.put('/api/finance/bulk', requireAccess(Access.financeWrite), async (req, res
       incoming = [];
     } else {
       const scope = await loadBranchScope(getSupabase(), req.auth);
-      const stampBranch = String(scope.gymCodeId || resolveActiveBranchId(req.auth) || req.auth.gymCodeId || '').trim();
-      incoming = incoming
-        .filter((t) => String(t?.type || '').toLowerCase() === 'expense')
-        .map((t) => ({
-          ...t,
-          gymCodeId: String(t?.gymCodeId || t?.gym_code_id || stampBranch).trim() || stampBranch,
-        }))
-        .filter((t) => branchScopeAllowsFinanceRow(t, scope));
+      incoming = incoming.filter((t) => branchScopeAllowsFinanceRow(t, scope));
       // Staff bulk sync: expenses only — prevents income orphan delete across branches.
+      incoming = incoming.filter((t) => String(t?.type || '').toLowerCase() === 'expense');
     }
   } else {
     // Owner bulk: income/manual rows only; expenses use POST /api/finance/expenses.
@@ -2496,10 +2756,9 @@ process.on('unhandledRejection', (reason) => {
   console.error('[backend] unhandledRejection:', reason?.message || reason);
 });
 
-const listenHost = process.env.HOST || '0.0.0.0';
-app.listen(env.PORT, listenHost, () => {
+app.listen(env.PORT, () => {
   // eslint-disable-next-line no-console
-  console.log(`Backend listening on ${listenHost}:${env.PORT} (data: ${dataBackendLabel()})`);
+  console.log(`Backend listening on :${env.PORT} (data: ${dataBackendLabel()})`);
   if (useSupabase()) {
     pingDataStore()
       .then(async () => {
