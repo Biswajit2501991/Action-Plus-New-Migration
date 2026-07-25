@@ -5,6 +5,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import {
+  BadgeCheck,
   Filter,
   MoreHorizontal,
   Plus,
@@ -40,6 +41,10 @@ import {
 import { MemberPhotoPreviewModal } from "@/features/members/member-photo-modals";
 import { MemberWorkoutDialog } from "@/features/members/member-workout-dialog";
 import { EditMemberModal } from "@/features/members/edit-member-modal";
+import {
+  isReceiptVerifyQuery,
+  VerifyReceiptModal,
+} from "@/features/members/verify-receipt-modal";
 import {
   MemberMetricModal,
   type MetricModalKey,
@@ -181,6 +186,17 @@ export function MembersPage() {
   const [focusStatus, setFocusStatus] = useState<string>(params.get("status") || "");
   const [quickSearchInput, setQuickSearchInput] = useState(params.get("q") || "");
   const [appliedQuickSearch, setAppliedQuickSearch] = useState(params.get("q") || "");
+  const [verifyOpen, setVerifyOpen] = useState(() => Boolean(params.get("verify")));
+  const [verifyQuery, setVerifyQuery] = useState(() => params.get("verify") || "");
+  const [verifyDraft, setVerifyDraft] = useState("");
+
+  useEffect(() => {
+    const v = params.get("verify");
+    if (!v) return;
+    setVerifyQuery(v);
+    setVerifyDraft(v);
+    setVerifyOpen(true);
+  }, [params]);
   const [filters, setFilters] = useState<MemberFilters>(() => {
     try {
       const saved = localStorage.getItem("apg.v2.memberFilters");
@@ -1014,6 +1030,33 @@ export function MembersPage() {
                 Offline queue: {offlinePendingCount}
               </span>
             ) : null}
+            <div className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row sm:items-center">
+              <Input
+                value={verifyDraft}
+                onChange={(e) => setVerifyDraft(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") {
+                    const q = verifyDraft.trim();
+                    setVerifyQuery(q);
+                    setVerifyOpen(true);
+                  }
+                }}
+                placeholder="APG-7F2C-991A"
+                className="h-9 w-full font-mono text-[12px] sm:w-[168px]"
+                aria-label="Receipt verify code"
+              />
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => {
+                  setVerifyQuery(verifyDraft.trim());
+                  setVerifyOpen(true);
+                }}
+              >
+                <BadgeCheck className="h-4 w-4" />
+                Verify receipt
+              </Button>
+            </div>
             <Button variant="outline" onClick={() => downloadTextFile("members.csv", toCsv(filtered as unknown as Record<string, unknown>[]))}>
               Export CSV
             </Button>
@@ -1352,9 +1395,18 @@ export function MembersPage() {
                               if (!next.trim()) setAppliedQuickSearch("");
                             }}
                             onKeyDown={(e) => {
-                              if (e.key === "Enter") setAppliedQuickSearch(quickSearchInput.trim());
+                              if (e.key === "Enter") {
+                                const next = quickSearchInput.trim();
+                                if (isReceiptVerifyQuery(next)) {
+                                  setVerifyQuery(next);
+                                  setVerifyDraft(next);
+                                  setVerifyOpen(true);
+                                  return;
+                                }
+                                setAppliedQuickSearch(next);
+                              }
                             }}
-                            placeholder="Search members..."
+                            placeholder="Search members or APG-…"
                             className={quickSearchInput.trim() ? "pr-16" : "pr-10"}
                           />
                           <div className="absolute right-2 top-1/2 flex -translate-y-1/2 items-center gap-0.5">
@@ -1374,7 +1426,16 @@ export function MembersPage() {
                             <button
                               type="button"
                               className="rounded-md p-1 text-muted-foreground hover:bg-muted hover:text-foreground"
-                              onClick={() => setAppliedQuickSearch(quickSearchInput.trim())}
+                              onClick={() => {
+                                const next = quickSearchInput.trim();
+                                if (isReceiptVerifyQuery(next)) {
+                                  setVerifyQuery(next);
+                                  setVerifyDraft(next);
+                                  setVerifyOpen(true);
+                                  return;
+                                }
+                                setAppliedQuickSearch(next);
+                              }}
                               aria-label="Search"
                             >
                               <Search className="h-4 w-4" />
@@ -1758,6 +1819,19 @@ export function MembersPage() {
         onSelectMember={(m) => {
           setMetricModal("");
           openEdit(m);
+        }}
+      />
+
+      <VerifyReceiptModal
+        open={verifyOpen}
+        initialQuery={verifyQuery}
+        onClose={() => setVerifyOpen(false)}
+        onOpenMember={(memberId) => {
+          const hit =
+            members.find((m) => m.memberId === memberId) ||
+            members.find((m) => String(m.memberId).toLowerCase() === memberId.toLowerCase());
+          setVerifyOpen(false);
+          if (hit) openEdit(hit);
         }}
       />
 

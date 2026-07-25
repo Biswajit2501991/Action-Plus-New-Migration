@@ -4,13 +4,14 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useQueryClient } from "@tanstack/react-query";
 import { Command } from "cmdk";
-import { X } from "lucide-react";
+import { BadgeCheck, X } from "lucide-react";
 import { useAuthStore, useUiStore } from "@/stores";
 import { useGymCodes, useMembers, useSettings } from "@/hooks/use-data";
 import { NAV_ITEMS } from "@/lib/nav";
 import { memberSearchHaystack } from "@/lib/domain/members";
 import { canAccessNavItem, hasAccess } from "@/lib/domain/permissions";
 import { EditMemberModal } from "@/features/members/edit-member-modal";
+import { isReceiptVerifyQuery } from "@/features/members/verify-receipt-modal";
 import type { Member } from "@/types";
 
 export function CommandPalette() {
@@ -26,6 +27,7 @@ export function CommandPalette() {
   const inputRef = useRef<HTMLInputElement>(null);
 
   const canEditMember = hasAccess(user, "members", "editMembers");
+  const canReadMembers = hasAccess(user, "members", "viewMembers") || canEditMember;
 
   useEffect(() => {
     if (!commandOpen) {
@@ -49,6 +51,9 @@ export function CommandPalette() {
     return members.filter((m) => memberSearchHaystack(m).includes(query)).slice(0, 12);
   }, [members, q]);
 
+  const receiptQuery = q.trim();
+  const showReceiptVerify = canReadMembers && isReceiptVerifyQuery(receiptQuery);
+
   const openMember = (m: Member) => {
     setCommandOpen(false);
     if (canEditMember) {
@@ -56,6 +61,11 @@ export function CommandPalette() {
       return;
     }
     router.push(`/members?q=${encodeURIComponent(m.memberId)}`);
+  };
+
+  const openReceiptVerify = () => {
+    setCommandOpen(false);
+    router.push(`/members?verify=${encodeURIComponent(receiptQuery)}`);
   };
 
   if (!commandOpen && !editing) return null;
@@ -80,8 +90,14 @@ export function CommandPalette() {
                 autoFocus
                 value={q}
                 onValueChange={setQ}
-                placeholder="Search members, pages, invoices…"
+                placeholder="Search members, pages, invoices, APG-…"
                 className="h-12 w-full bg-transparent py-0 pl-4 pr-11 text-sm outline-none"
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" && showReceiptVerify) {
+                    e.preventDefault();
+                    openReceiptVerify();
+                  }
+                }}
               />
               {q.trim() ? (
                 <button
@@ -101,6 +117,21 @@ export function CommandPalette() {
               <Command.Empty className="px-3 py-6 text-center text-sm text-muted-foreground">
                 No results found.
               </Command.Empty>
+              {showReceiptVerify ? (
+                <Command.Group heading="Receipts" className="px-1 py-2 text-xs text-muted-foreground">
+                  <Command.Item
+                    value={`verify-receipt ${receiptQuery}`}
+                    onSelect={openReceiptVerify}
+                    className="flex cursor-pointer items-center gap-2 rounded-xl px-3 py-2 text-sm text-foreground aria-selected:bg-accent"
+                  >
+                    <BadgeCheck className="h-4 w-4 text-muted-foreground" />
+                    <div>
+                      <div className="font-medium">Verify receipt</div>
+                      <div className="font-mono text-xs text-muted-foreground">{receiptQuery}</div>
+                    </div>
+                  </Command.Item>
+                </Command.Group>
+              ) : null}
               <Command.Group heading="Pages" className="px-1 py-2 text-xs text-muted-foreground">
                 {nav
                   .filter((n) => !q || n.label.toLowerCase().includes(q.toLowerCase()))
