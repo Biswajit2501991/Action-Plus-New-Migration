@@ -544,6 +544,7 @@ export function MemberExpandedDetails({
   const [portalMsg, setPortalMsg] = useState<string | null>(null);
   const [holdSel, setHoldSel] = useState(holdOptions[0] || "1 Month");
   const [monthFilter, setMonthFilter] = useState("");
+  const portalAccessOn = m.portalEnabled !== false;
 
   const { data: referralInfo } = useQuery({
     queryKey: ["member-referral-credits", m.memberId],
@@ -555,6 +556,32 @@ export function MemberExpandedDetails({
   const referredByCode = String(referralInfo?.referredBy?.code || "").trim();
 
   const canWhatsApp = Boolean(String(m.mobile || "").trim());
+
+  /** Per-member portal login gate (independent of Settings home-tile toggles). */
+  const setPortalAccess = async (enabled: boolean) => {
+    setPortalBusy(true);
+    setPortalMsg(null);
+    try {
+      await membersApi.patch(String(m.memberId), {
+        portalEnabled: enabled,
+        portalStatus: enabled ? (m.hasPortalPin ? "active" : "pending") : "disabled",
+      });
+      if (!enabled) {
+        // End active portal sessions immediately; PIN/QR kept for re-enable.
+        try {
+          await membersApi.revokePortalDevices(String(m.memberId));
+        } catch {
+          /* access already blocked by portalEnabled even if revoke fails */
+        }
+      }
+      await queryClient.invalidateQueries({ queryKey: ["members"] });
+      setPortalMsg(enabled ? "Member Portal access enabled" : "Member Portal access disabled");
+    } catch (err) {
+      setPortalMsg(err instanceof Error ? err.message : "Update failed");
+    } finally {
+      setPortalBusy(false);
+    }
+  };
 
   const isHold = String(m.status || "").trim().toLowerCase() === "hold";
   const isActive = String(m.status || "").trim().toLowerCase() === "active";
@@ -886,6 +913,44 @@ export function MemberExpandedDetails({
             Workout
           </Button>
         ) : null}
+        {canEdit ? (
+          <label
+            className={cn(
+              "inline-flex h-7 cursor-pointer items-center gap-1.5 rounded-md border px-2 text-[10px] font-semibold select-none",
+              portalAccessOn
+                ? "border-violet-300 bg-violet-50 text-violet-800 dark:border-violet-700 dark:bg-violet-950/40 dark:text-violet-200"
+                : "border-border bg-muted/40 text-muted-foreground",
+              portalBusy && "opacity-60",
+            )}
+            title={
+              portalAccessOn
+                ? "Member Portal access is ON — member can log in"
+                : "Member Portal access is OFF — member cannot log in"
+            }
+          >
+            <span>Portal</span>
+            <button
+              type="button"
+              role="switch"
+              aria-checked={portalAccessOn}
+              aria-label="Member Portal access"
+              disabled={portalBusy}
+              onClick={() => void setPortalAccess(!portalAccessOn)}
+              className={cn(
+                "relative h-4 w-7 shrink-0 rounded-full transition-colors",
+                portalAccessOn ? "bg-violet-600" : "bg-slate-300 dark:bg-slate-600",
+                portalBusy && "cursor-not-allowed",
+              )}
+            >
+              <span
+                className={cn(
+                  "absolute top-0.5 h-3 w-3 rounded-full bg-white shadow transition-transform",
+                  portalAccessOn ? "left-3.5" : "left-0.5",
+                )}
+              />
+            </button>
+          </label>
+        ) : null}
         {canDelete ? (
           <Button
             size="sm"
@@ -1012,25 +1077,9 @@ export function MemberExpandedDetails({
                 <span>Enabled</span>
                 <input
                   type="checkbox"
-                  checked={m.portalEnabled !== false}
+                  checked={portalAccessOn}
                   disabled={portalBusy}
-                  onChange={async (e) => {
-                    setPortalBusy(true);
-                    setPortalMsg(null);
-                    try {
-                      const enabled = e.target.checked;
-                      await membersApi.patch(String(m.memberId), {
-                        portalEnabled: enabled,
-                        portalStatus: enabled ? "active" : "disabled",
-                      });
-                      await queryClient.invalidateQueries({ queryKey: ["members"] });
-                      setPortalMsg(enabled ? "Portal enabled" : "Portal disabled");
-                    } catch (err) {
-                      setPortalMsg(err instanceof Error ? err.message : "Update failed");
-                    } finally {
-                      setPortalBusy(false);
-                    }
-                  }}
+                  onChange={(e) => void setPortalAccess(e.target.checked)}
                 />
               </label>
             ) : null}
