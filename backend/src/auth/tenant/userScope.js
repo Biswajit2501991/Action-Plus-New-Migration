@@ -79,8 +79,7 @@ export function sanitizeUsersBulkForAuth(users, auth) {
 export function assertBranchAdminManagesUser(auth, targetUser) {
   if (authIsMasterOwner(auth)) return;
   const allowed = new Set(resolveAllowedBranchIds(auth) || []);
-  const branch = String(targetUser?.gymCodeId || '').trim();
-  if (!branch || !allowed.has(branch)) {
+  if (!userMatchesReadBranches(targetUser, allowed)) {
     const err = new Error('cross-branch-staff-forbidden');
     err.status = 403;
     throw err;

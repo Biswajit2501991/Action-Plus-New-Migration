@@ -1,0 +1,124 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <meta name="robots" content="noindex,nofollow" />
+  <title>Attendance QR Kiosk (always-on)</title>
+  <script src="https://cdn.jsdelivr.net/npm/qrcode@1.5.4/build/qrcode.min.js" defer></script>
+  <style>
+    :root { --bg:#0b1220; --panel:#121a2b; --text:#f8fafc; --muted:#94a3b8; --accent:#38bdf8; --err:#fb7185; }
+    * { box-sizing: border-box; }
+    html, body { margin:0; min-height:100%; background:radial-gradient(1200px 600px at 50% -10%, #1e293b, var(--bg)); color:var(--text); font-family:"Segoe UI",system-ui,sans-serif; }
+    .wrap { max-width:920px; margin:0 auto; padding:24px 16px 48px; }
+    h1 { font-size:clamp(1.4rem,3vw,2rem); margin:0 0 6px; }
+    .sub { color:var(--muted); margin-bottom:18px; }
+    .panel { background:color-mix(in srgb, var(--panel) 92%, black); border:1px solid #243044; border-radius:24px; padding:22px; }
+    .qr-box { display:grid; place-items:center; background:#fff; border-radius:20px; padding:18px; min-height:280px; }
+    #qrCanvas { width:min(72vw,360px); height:auto; }
+    .secs { font-size:clamp(3rem,12vw,5.5rem); font-weight:800; line-height:1; color:var(--accent); text-align:center; margin-top:16px; }
+    .label { color:var(--muted); text-align:center; margin-top:4px; }
+    .err { background:#4c0519; border:1px solid var(--err); color:#fecdd3; border-radius:14px; padding:12px 14px; margin-bottom:14px; display:none; }
+    .err.show { display:block; }
+    .meta { margin-top:14px; display:flex; gap:10px; flex-wrap:wrap; justify-content:center; color:var(--muted); font-size:.85rem; }
+    .chip { border:1px solid #334155; border-radius:999px; padding:4px 10px; }
+    .punches { margin-top:18px; }
+    .punches h2 { font-size:.95rem; color:var(--muted); margin:0 0 8px; }
+    .punch { display:flex; justify-content:space-between; gap:8px; padding:8px 0; border-bottom:1px solid #1f2a3d; font-size:.92rem; }
+    .hint { margin-top:16px; color:var(--muted); font-size:.85rem; text-align:center; }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <h1>Attendance QR Kiosk</h1>
+    <p class="sub">Always-on display — no staff login required on this screen.</p>
+    <div id="err" class="err"></div>
+    <section class="panel">
+      <div class="qr-box"><canvas id="qrCanvas" width="360" height="360"></canvas></div>
+      <div class="secs" id="secs">--</div>
+      <div class="label">seconds until QR refreshes · offline grace ~90s</div>
+      <div class="meta">
+        <span class="chip" id="branchChip">Branch: —</span>
+        <span class="chip">Methods: QR · PIN · Login punch</span>
+      </div>
+      <div class="punches">
+        <h2>Recent check-ins</h2>
+        <div id="punchList"><div class="punch"><span>Waiting for scans…</span></div></div>
+      </div>
+    </section>
+    <p class="hint">Keep this tab open on the tablet. Logging out of the main app will not stop this page.</p>
+  </div>
+  <script>
+(function () {
+  const params = new URLSearchParams(window.location.search);
+  const gymCode = String(params.get('gym') || params.get('branch') || params.get('code') || '').trim();
+  const device = String(params.get('device') || params.get('token') || '').trim();
+  const apiBase = '/api/public/attendance-kiosk';
+  const errEl = document.getElementById('err');
+  const secsEl = document.getElementById('secs');
+  const punchList = document.getElementById('punchList');
+  const branchChip = document.getElementById('branchChip');
+  const canvas = document.getElementById('qrCanvas');
+  let expiresAt = 0;
+
+  function showErr(msg) {
+    errEl.textContent = msg || '';
+    errEl.classList.toggle('show', Boolean(msg));
+  }
+
+  function drawQr(payload) {
+    if (!payload || typeof QRCode === 'undefined') return;
+    QRCode.toCanvas(canvas, payload, { width: 360, margin: 2, color: { dark: '#0f172a', light: '#ffffff' } }, function () {});
+  }
+
+  function renderPunches(list) {
+    const rows = Array.isArray(list) ? list : [];
+    if (!rows.length) {
+      punchList.innerHTML = '<div class="punch"><span>Waiting for scans…</span></div>';
+      return;
+    }
+    punchList.innerHTML = rows.map((p) => {
+      const name = String(p.staffName || p.userId || 'Staff');
+      const kind = p.punchType === 'logout' ? 'Out' : 'In';
+      const at = p.at ? new Date(p.at).toLocaleTimeString() : '';
+      return '<div class="punch"><span>' + name + ' · ' + kind + '</span><span>' + at + '</span></div>';
+    }).join('');
+  }
+
+  function tick() {
+    const left = Math.max(0, Math.ceil((expiresAt - Date.now()) / 1000));
+    secsEl.textContent = String(left).padStart(2, '0');
+    secsEl.style.color = left <= 5 ? '#fbbf24' : '#38bdf8';
+  }
+
+  async function pull() {
+    if (!gymCode || !device) {
+      showErr('Missing gym/device in URL. Open this page from Settings → Open Attendance QR kiosk (Copy URL).');
+      return;
+    }
+    branchChip.textContent = 'Branch: ' + gymCode;
+    try {
+      const url = apiBase + '/' + encodeURIComponent(gymCode) + '/challenge?device=' + encodeURIComponent(device);
+      const res = await fetch(url, { cache: 'no-store' });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        showErr(data.message || data.error || ('Kiosk error ' + res.status));
+        return;
+      }
+      showErr('');
+      expiresAt = Number(data.expiresAt) || (Date.now() + (data.refreshInMs || 60000));
+      drawQr(data.qrPayload || '');
+      renderPunches(data.recentPunches);
+      tick();
+    } catch (e) {
+      showErr('Network blip — last QR stays valid for ~90s grace.');
+    }
+  }
+
+  pull();
+  setInterval(pull, 5000);
+  setInterval(tick, 250);
+})();
+  </script>
+</body>
+</html>

@@ -4,6 +4,29 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Action Plus Gym Manager</title>
+  <script>
+    /* Always-on attendance kiosk must never enter the logged-in SPA. */
+    (function () {
+      try {
+        var path = String(location.pathname || '').replace(/\/+$/, '');
+        if (path !== '/attendance/kiosk' && !path.endsWith('/attendance/kiosk')) return;
+        var params = new URLSearchParams(location.search || '');
+        var device = String(params.get('device') || params.get('token') || '').trim();
+        var gym = String(params.get('gym') || params.get('branch') || params.get('code') || '').trim();
+        if (!device) {
+          document.open();
+          document.write('<!doctype html><meta charset="utf-8"><title>Attendance Kiosk</title><body style="font-family:system-ui;background:#0b1220;color:#f8fafc;padding:32px"><h1>Attendance QR Kiosk</h1><p>This URL needs a device token.</p><p>Sign in as Owner → Settings → <b>Open Attendance QR kiosk</b> → <b>Copy URL</b>, then open that full link on the tablet.</p><p style="color:#94a3b8">Expected shape:<br><code>/attendance/kiosk?gym=YOUR_BRANCH&amp;device=apk_…</code></p></body>');
+          document.close();
+          return;
+        }
+        // Prefer dedicated static page (no React/auth).
+        var target = '/attendance-kiosk.html?gym=' + encodeURIComponent(gym || 'HQ') + '&device=' + encodeURIComponent(device);
+        if (location.pathname.indexOf('attendance-kiosk.html') === -1) {
+          location.replace(target);
+        }
+      } catch (e) { /* ignore */ }
+    })();
+  </script>
   <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='6' fill='%231e293b'/%3E%3Ctext x='16' y='22' text-anchor='middle' font-size='16' fill='%23fbbf24'%3E%2B%3C/text%3E%3C/svg%3E" />
   <!-- Local vendor bundles for offline operation (no CDN dependencies). -->
   <script src="./vendor/tailwindcss-cdn.js"></script>
@@ -6007,15 +6030,15 @@ Phone: +91-7047157510`;
           if (!prev || Object.keys(prev).length === 0) return prev;
           const next = { ...prev };
           let changed = false;
-          const now = Date.now();
           const remById = new Map((remoteMembers || []).map((r) => [String(r?.memberId || '').trim(), r]));
           for (const id of Object.keys(next)) {
             const info = next[id];
             const remote = remById.get(id);
             const remoteTs = remote ? memberSortTimestamp(remote) : 0;
-            const age = now - (info.markedAt || 0);
             const remoteCaughtUp = Boolean(remote) && remoteTs >= (info.localTs - MEMBER_REMOTE_SYNC_SLACK_MS);
-            if (remoteCaughtUp || age > MEMBER_SYNC_PENDING_MAX_MS) {
+            // Only clear when the server list confirms the member. Never age-out
+            // pending creates — that previously dropped newly saved members after ~20s.
+            if (remoteCaughtUp) {
               delete next[id];
               changed = true;
             }
@@ -19845,6 +19868,42 @@ function PTClientsPage({ members, users, settings, updateSetting, currentUser, a
       const [clearing, setClearing] = React.useState(false);
       const [clearError, setClearError] = React.useState('');
       const [clearResult, setClearResult] = React.useState(null);
+      const [qrScanDraft, setQrScanDraft] = React.useState('');
+      const [qrScanBusy, setQrScanBusy] = React.useState(false);
+      const [qrScanMsg, setQrScanMsg] = React.useState('');
+      const submitQrScan = async (punchType = 'login') => {
+        const scanFn = window.__APG_MODULES?.scanAttendanceQr;
+        if (typeof scanFn !== 'function' || typeof backendJson !== 'function' || dataSyncMode !== 'backend') {
+          setQrScanMsg('QR scan requires backend sync.');
+          return;
+        }
+        const payload = String(qrScanDraft || '').trim();
+        if (!payload) {
+          setQrScanMsg('Paste or scan the kiosk QR payload first.');
+          return;
+        }
+        setQrScanBusy(true);
+        setQrScanMsg('');
+        try {
+          const res = await scanFn(backendJson, { qrPayload: payload, type: punchType });
+          const play = window.__APG_MODULES?.playAttendanceSuccessSound;
+          if (typeof play === 'function') play(true);
+          setQrScanMsg(res?.toast || 'Attendance marked via QR.');
+          setQrScanDraft('');
+          if (typeof refreshStaffAttendance === 'function') {
+            const end = iso(new Date());
+            const start = new Date();
+            start.setMonth(start.getMonth() - 1);
+            refreshStaffAttendance({ startDate: iso(start), endDate: end });
+          }
+        } catch (err) {
+          const play = window.__APG_MODULES?.playAttendanceSuccessSound;
+          if (typeof play === 'function') play(false);
+          setQrScanMsg(String(err?.message || err || 'QR scan failed'));
+        } finally {
+          setQrScanBusy(false);
+        }
+      };
       const attendanceAccess = normalizeAccess(access).attendance;
       const canViewAttendance = attendanceAccess?.viewAttendance !== false;
       const canMarkAllPresent = attendanceAccess?.markAllPresent !== false;
@@ -19931,6 +19990,24 @@ function PTClientsPage({ members, users, settings, updateSetting, currentUser, a
             <div className="rounded-2xl border border-amber-200 bg-amber-50 p-3"><div className="text-xs text-amber-700">On Leave</div><div className="text-xl font-semibold text-amber-900">{leaveCount}</div></div>
             <div className="rounded-2xl border border-slate-200 bg-slate-50 p-3"><div className="text-xs text-slate-600">Total Staff</div><div className="text-xl font-semibold text-slate-900">{staff.length}</div></div>
           </div>
+          {dataSyncMode === 'backend' && (
+            <div className="rounded-2xl border border-sky-200 bg-sky-50 p-3 space-y-2" data-testid="attendance-qr-scan-card">
+              <div className="text-sm font-semibold text-sky-900">QR check-in (scan kiosk code)</div>
+              <p className="text-xs text-sky-800">Paste the QR payload from the wall kiosk, or use a scanner that types into this field. Also supports PIN on the kiosk and normal login punch.</p>
+              <div className="flex flex-col sm:flex-row gap-2">
+                <input
+                  value={qrScanDraft}
+                  onChange={(e) => setQrScanDraft(e.target.value)}
+                  placeholder="APG1|BRANCH|code|expires…"
+                  className="flex-1 rounded-xl border border-sky-200 bg-white px-3 py-2 text-sm"
+                  data-testid="attendance-qr-scan-input"
+                />
+                <button type="button" disabled={qrScanBusy} onClick={() => submitQrScan('login')} className="rounded-full bg-sky-600 px-4 py-2 text-sm font-semibold text-white disabled:opacity-50">Check in</button>
+                <button type="button" disabled={qrScanBusy} onClick={() => submitQrScan('logout')} className="rounded-full border border-sky-300 bg-white px-4 py-2 text-sm font-semibold text-sky-800 disabled:opacity-50">Check out</button>
+              </div>
+              {qrScanMsg && <div className="text-xs text-sky-900">{qrScanMsg}</div>}
+            </div>
+          )}
           <div className="rounded-3xl border border-slate-200 bg-white p-3 sm:p-4 space-y-3">
             {staff.map(s => {
               const rec = map[keyFor(s.id)] || {};
@@ -20966,6 +21043,126 @@ function PTClientsPage({ members, users, settings, updateSetting, currentUser, a
           localStorage.setItem(STORAGE_KEYS.gymCodesPanelOpen, gymCodesPanelOpen ? '1' : '0');
         } catch {}
       }, [gymCodesPanelOpen]);
+      const [kioskPanelOpen, setKioskPanelOpen] = React.useState(false);
+      const [kioskBranchId, setKioskBranchId] = React.useState('');
+      const [kioskDevices, setKioskDevices] = React.useState([]);
+      const [kioskBusy, setKioskBusy] = React.useState(false);
+      const [kioskError, setKioskError] = React.useState('');
+      const [kioskCreated, setKioskCreated] = React.useState(null);
+      const refreshKioskDevices = React.useCallback(async () => {
+        const listFn = window.__APG_MODULES?.listAttendanceKioskDevices;
+        if (typeof listFn !== 'function' || !backendJson) return;
+        try {
+          const res = await listFn(backendJson, { gymCodeId: kioskBranchId || undefined });
+          setKioskDevices(Array.isArray(res?.devices) ? res.devices : []);
+        } catch (err) {
+          setKioskError(String(err?.message || err || 'Failed to load kiosk devices.'));
+        }
+      }, [backendJson, kioskBranchId]);
+      React.useEffect(() => {
+        if (!kioskPanelOpen || !isOwnerForCodes) return;
+        refreshKioskDevices();
+      }, [kioskPanelOpen, isOwnerForCodes, refreshKioskDevices]);
+      React.useEffect(() => {
+        if (kioskBranchId) return;
+        const hq = (gymCodes || []).find((c) => String(c.code || '').toUpperCase() === 'HQ');
+        const first = hq || (gymCodes || [])[0];
+        if (first?.id) setKioskBranchId(String(first.id));
+      }, [gymCodes, kioskBranchId]);
+      const createKioskDeviceAction = async () => {
+        const createFn = window.__APG_MODULES?.createAttendanceKioskDevice;
+        if (typeof createFn !== 'function' || !backendJson || !kioskBranchId) return;
+        setKioskBusy(true);
+        setKioskError('');
+        setKioskCreated(null);
+        try {
+          const branch = (gymCodes || []).find((c) => String(c.id) === String(kioskBranchId));
+          const res = await createFn(backendJson, {
+            gymCodeId: kioskBranchId,
+            label: `${branch?.code || 'Branch'} Reception`,
+          });
+          const buildUrl = window.__APG_MODULES?.buildAttendanceKioskViewUrl;
+          const absFn = window.__APG_MODULES?.toAbsoluteKioskUrl;
+          const saveFn = window.__APG_MODULES?.saveAttendanceKioskCreds;
+          const codeForUrl = branch?.code || branch?.id || kioskBranchId;
+          const relative = typeof buildUrl === 'function'
+            ? buildUrl({ gymCode: codeForUrl, deviceToken: res.token })
+            : (res.kioskUrl || '');
+          const url = typeof absFn === 'function' ? absFn(relative) : relative;
+          if (typeof saveFn === 'function') {
+            saveFn(kioskBranchId, {
+              url,
+              token: res.token,
+              deviceId: res.device?.id,
+              gymCode: codeForUrl,
+            });
+          }
+          setKioskCreated({
+            token: res.token,
+            url,
+            device: res.device,
+          });
+          await refreshKioskDevices();
+        } catch (err) {
+          setKioskError(String(err?.message || err || 'Failed to create kiosk device.'));
+        } finally {
+          setKioskBusy(false);
+        }
+      };
+      const openPublicAttendanceKiosk = async () => {
+        const openFn = window.__APG_MODULES?.ensureAndOpenAttendanceKiosk;
+        if (typeof openFn !== 'function' || !backendJson) {
+          setKioskError('Backend sync required to open the always-on kiosk.');
+          return;
+        }
+        const branchId = kioskBranchId
+          || String(currentUser?.activeBranchId || currentUser?.gymCodeId || '').trim();
+        const branch = (gymCodes || []).find((c) => String(c.id) === String(branchId))
+          || (gymCodes || [])[0];
+        if (!branch?.id) {
+          setKioskError('Create a gym branch first, then open the kiosk.');
+          return;
+        }
+        setKioskBusy(true);
+        setKioskError('');
+        try {
+          if (!kioskBranchId) setKioskBranchId(String(branch.id));
+          const result = await openFn(backendJson, {
+            gymCodeId: branch.id,
+            gymCode: branch.code || branch.id,
+            label: `${branch.code || 'Branch'} Reception`,
+            openWindow: true,
+          });
+          setKioskCreated({
+            token: result.token,
+            url: result.url,
+            device: { id: result.deviceId },
+          });
+          setKioskPanelOpen(true);
+          await refreshKioskDevices();
+        } catch (err) {
+          setKioskError(String(err?.message || err || 'Could not open attendance kiosk.'));
+        } finally {
+          setKioskBusy(false);
+        }
+      };
+      const revokeKioskDeviceAction = async (deviceId) => {
+        const revokeFn = window.__APG_MODULES?.revokeAttendanceKioskDevice;
+        if (typeof revokeFn !== 'function' || !backendJson || !deviceId) return;
+        if (!window.confirm('Revoke this kiosk device? The wall tablet URL will stop working.')) return;
+        setKioskBusy(true);
+        try {
+          await revokeFn(backendJson, deviceId);
+          const clearFn = window.__APG_MODULES?.clearSavedAttendanceKioskCreds;
+          if (typeof clearFn === 'function' && kioskBranchId) clearFn(kioskBranchId);
+          setKioskCreated(null);
+          await refreshKioskDevices();
+        } catch (err) {
+          setKioskError(String(err?.message || err || 'Failed to revoke device.'));
+        } finally {
+          setKioskBusy(false);
+        }
+      };
       const BACKUPS_PER_PAGE = 12;
       const backupPages = Math.max(1, Math.ceil((availableBackups || []).length / BACKUPS_PER_PAGE));
       const pagedBackups = React.useMemo(() => {
@@ -21110,7 +21307,7 @@ function PTClientsPage({ members, users, settings, updateSetting, currentUser, a
       const businessItems = settingItems.filter((x) => businessSettingKeys.has(x.key));
       const memberPtItems = settingItems.filter((x) => memberPtSettingKeys.has(x.key));
       const showBranchSystemCategory = isOwnerForCodes || canManageCustomTemplatesFlag || canViewBackendDiskUsage || settingsAccess.manageFineRule;
-      const branchSystemItemCount = (isOwnerForCodes ? 1 : 0) + (canManageCustomTemplatesFlag ? 1 : 0) + (canViewBackendDiskUsage ? 1 : 0) + (settingsAccess.manageFineRule ? 1 : 0);
+      const branchSystemItemCount = (isOwnerForCodes ? 2 : 0) + (canManageCustomTemplatesFlag ? 1 : 0) + (canViewBackendDiskUsage ? 1 : 0) + (settingsAccess.manageFineRule ? 1 : 0);
       const lookupIconSvg = {
         plans: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M12 2l2.4 7.4H22l-6 4.6 2.3 7-6.3-4.6L5.7 21l2.3-7-6-4.6h7.6z"/></svg>,
         statuses: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M7 3h10a2 2 0 012 2v16l-7-3.5L5 21V5a2 2 0 012-2z"/></svg>,
@@ -21360,6 +21557,150 @@ function PTClientsPage({ members, users, settings, updateSetting, currentUser, a
               </div>
             </SettingsNavRow>
           )}
+          {isOwnerForCodes && (
+            <SettingsNavRow
+              testId="attendance-kiosk-panel"
+              toggleTestId="attendance-kiosk-toggle"
+              title="System Features — Attendance QR Kiosk"
+              description="24/7 wall display for rotating attendance QR. No staff login needed on the tablet."
+              badge={(kioskDevices || []).length}
+              iconTone="emerald"
+              icon={<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/><path d="M14 14h3v3h-3zM20 14v6M14 20h6"/></svg>}
+              isOpen={kioskPanelOpen}
+              onToggle={() => setKioskPanelOpen((v) => !v)}
+              ariaControls="attendance-kiosk-panel-body"
+            >
+              <div id="attendance-kiosk-panel-body" className="space-y-4" data-testid="attendance-kiosk-body">
+                <p className="text-sm text-slate-600">
+                  Create a <strong>device token</strong> per branch, open the kiosk URL on a reception tablet (fullscreen), and leave it running.
+                  Staff mark attendance by: (1) scanning the QR while logged in, (2) Staff ID + password on the kiosk PIN tab, or (3) normal app login punch.
+                  QR rotates every 60s; last code stays valid ~90s if Wi‑Fi blips.
+                </p>
+                {kioskError && (
+                  <div className="rounded-xl border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-700">{kioskError}</div>
+                )}
+                <div className="flex flex-wrap items-end gap-2">
+                  <div>
+                    <label className="block text-xs font-medium text-slate-600 mb-1">Branch</label>
+                    <select
+                      value={kioskBranchId}
+                      onChange={(e) => setKioskBranchId(e.target.value)}
+                      className="rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm"
+                      data-testid="attendance-kiosk-branch"
+                    >
+                      {(gymCodes || []).map((c) => (
+                        <option key={c.id} value={c.id}>{c.code} — {c.name}</option>
+                      ))}
+                    </select>
+                  </div>
+                  <button
+                    type="button"
+                    disabled={kioskBusy || !kioskBranchId}
+                    onClick={createKioskDeviceAction}
+                    className="rounded-full px-4 py-2 text-sm font-semibold bg-emerald-600 hover:bg-emerald-700 text-white disabled:opacity-50"
+                    data-testid="attendance-kiosk-create"
+                  >
+                    {kioskBusy ? 'Working…' : 'Create kiosk device'}
+                  </button>
+                  <button
+                    type="button"
+                    disabled={kioskBusy}
+                    onClick={openPublicAttendanceKiosk}
+                    className="rounded-full px-4 py-2 text-sm font-semibold bg-sky-600 hover:bg-sky-700 text-white disabled:opacity-50"
+                    data-testid="attendance-kiosk-open"
+                  >
+                    Open Attendance QR kiosk
+                  </button>
+                  <button
+                    type="button"
+                    disabled={kioskBusy}
+                    onClick={refreshKioskDevices}
+                    className="rounded-xl px-3 py-2 text-sm font-medium border border-slate-300 bg-white hover:bg-slate-50"
+                  >
+                    Refresh
+                  </button>
+                </div>
+                {kioskCreated && (
+                  <div className="rounded-2xl border border-emerald-200 bg-emerald-50 p-3 space-y-2" data-testid="attendance-kiosk-created">
+                    <div className="text-sm font-semibold text-emerald-800">Device token (copy now — shown once)</div>
+                    <code className="block break-all text-xs bg-white border border-emerald-100 rounded-lg px-2 py-2">{kioskCreated.token}</code>
+                    <div className="text-sm font-semibold text-emerald-800">Kiosk URL</div>
+                    <code className="block break-all text-xs bg-white border border-emerald-100 rounded-lg px-2 py-2">{kioskCreated.url}</code>
+                    <div className="flex flex-wrap gap-2">
+                      <button
+                        type="button"
+                        className="rounded-full px-3 py-1.5 text-xs font-semibold bg-emerald-700 text-white"
+                        onClick={() => {
+                          try { navigator.clipboard.writeText(kioskCreated.url); } catch {}
+                        }}
+                      >
+                        Copy URL
+                      </button>
+                      <button
+                        type="button"
+                        className="rounded-full px-3 py-1.5 text-xs font-semibold border border-emerald-300 bg-white text-emerald-800"
+                        onClick={() => {
+                          try { navigator.clipboard.writeText(kioskCreated.token); } catch {}
+                        }}
+                      >
+                        Copy token
+                      </button>
+                      <a
+                        href={kioskCreated.url}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="rounded-full px-3 py-1.5 text-xs font-semibold border border-emerald-300 bg-white text-emerald-800"
+                        data-testid="attendance-kiosk-preview"
+                      >
+                        Open in new tab
+                      </a>
+                    </div>
+                    <p className="text-xs text-emerald-800">
+                      Leave this URL open on the tablet. Logging out of the main app will not stop this page.
+                    </p>
+                  </div>
+                )}
+                <div className="overflow-x-auto rounded-xl border border-slate-200">
+                  <table className="min-w-full text-sm">
+                    <thead className="bg-slate-50 text-left text-xs uppercase text-slate-500">
+                      <tr>
+                        <th className="px-3 py-2">Label</th>
+                        <th className="px-3 py-2">Created</th>
+                        <th className="px-3 py-2">Last seen</th>
+                        <th className="px-3 py-2 text-right">Actions</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {(kioskDevices || []).length === 0 ? (
+                        <tr><td colSpan={4} className="px-3 py-6 text-center text-slate-500">No kiosk devices yet for this branch.</td></tr>
+                      ) : kioskDevices.map((d) => (
+                        <tr key={d.id} className="border-t border-slate-100">
+                          <td className="px-3 py-2">{d.label}</td>
+                          <td className="px-3 py-2 text-slate-500">{d.createdAt ? new Date(d.createdAt).toLocaleString() : '—'}</td>
+                          <td className="px-3 py-2 text-slate-500">{d.lastSeenAt ? new Date(d.lastSeenAt).toLocaleString() : '—'}</td>
+                          <td className="px-3 py-2 text-right">
+                            <button
+                              type="button"
+                              disabled={kioskBusy}
+                              onClick={() => revokeKioskDeviceAction(d.id)}
+                              className="text-xs font-semibold text-rose-600 hover:text-rose-700"
+                            >
+                              Revoke
+                            </button>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+                <ul className="text-xs text-slate-500 list-disc pl-5 space-y-1">
+                  {(window.__APG_MODULES?.ATTENDANCE_PUNCH_METHODS || []).map((m) => (
+                    <li key={m.key}>{m.label}</li>
+                  ))}
+                </ul>
+              </div>
+            </SettingsNavRow>
+          )}
           {canViewBackendDiskUsage && (
             <SettingsNavRow
               testId="settings-panel-disk-usage"
@@ -21594,6 +21935,87 @@ function PTClientsPage({ members, users, settings, updateSetting, currentUser, a
                 </div>
               </div>
             </SettingsNavRow>
+          )}
+          {isOwnerForCodes && (
+            <div
+              className="apg-settings-nav-item rounded-2xl border border-emerald-200 bg-emerald-50/50 p-4 space-y-3"
+              data-testid="settings-panel-attendance-qr-feature"
+            >
+              <div className="flex flex-wrap items-start justify-between gap-3">
+                <div className="min-w-0 flex-1">
+                  <div className="text-sm font-semibold text-slate-900">Require attendance QR for Time In</div>
+                  <p className="text-sm text-slate-600 mt-1">
+                    Staff should use the always-on Attendance QR kiosk (public URL + device token). No owner login needed on the reception tablet.
+                  </p>
+                </div>
+                <label className="inline-flex items-center gap-2 text-sm font-semibold text-slate-800 shrink-0">
+                  <input
+                    type="checkbox"
+                    checked={settings.attendanceRequirePresenceQr === true}
+                    onChange={async (e) => {
+                      const enabled = Boolean(e.target.checked);
+                      updateSetting('attendanceRequirePresenceQr', enabled);
+                      if (dataSyncMode === 'backend' && typeof backendJson === 'function') {
+                        try {
+                          await backendJson('/attendance-presence/settings', {
+                            method: 'PUT',
+                            body: JSON.stringify({ attendanceRequirePresenceQr: enabled }),
+                          });
+                        } catch {
+                          try {
+                            await backendJson('/settings/bulk', {
+                              method: 'PUT',
+                              body: JSON.stringify({
+                                settings: settingsForBulkSync({ ...settings, attendanceRequirePresenceQr: enabled }),
+                              }),
+                            });
+                          } catch { /* ignore */ }
+                        }
+                      }
+                    }}
+                    data-testid="attendance-require-qr-flag"
+                  />
+                  Enable
+                </label>
+              </div>
+              <button
+                type="button"
+                disabled={kioskBusy || dataSyncMode !== 'backend'}
+                onClick={openPublicAttendanceKiosk}
+                className="rounded-full px-4 py-2 text-sm font-semibold bg-emerald-600 hover:bg-emerald-700 text-white disabled:opacity-50"
+                data-testid="open-attendance-qr-kiosk"
+              >
+                Open Attendance QR kiosk
+              </button>
+              <div className="text-xs text-slate-500">
+                Opens a public kiosk page that keeps working after you log out. Use Copy URL from the box below if you need to bookmark it on another device.
+              </div>
+              {kioskError && (
+                <div className="rounded-xl border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-700">{kioskError}</div>
+              )}
+              {kioskCreated?.url && (
+                <div className="rounded-xl border border-emerald-200 bg-white p-3 space-y-2">
+                  <div className="text-xs font-semibold text-emerald-800">Always-on kiosk URL</div>
+                  <code className="block break-all text-xs text-slate-700">{kioskCreated.url}</code>
+                  <div className="flex flex-wrap gap-2">
+                    <button
+                      type="button"
+                      className="rounded-full px-3 py-1.5 text-xs font-semibold bg-emerald-700 text-white"
+                      onClick={() => { try { navigator.clipboard.writeText(kioskCreated.url); } catch {} }}
+                    >
+                      Copy URL
+                    </button>
+                    <button
+                      type="button"
+                      className="rounded-full px-3 py-1.5 text-xs font-semibold border border-emerald-300 text-emerald-800"
+                      onClick={() => { try { navigator.clipboard.writeText(kioskCreated.token); } catch {} }}
+                    >
+                      Copy token
+                    </button>
+                  </div>
+                </div>
+              )}
+            </div>
           )}
           {canManageCustomTemplatesFlag && (
             <div

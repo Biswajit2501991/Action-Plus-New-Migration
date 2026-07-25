@@ -168,6 +168,20 @@ import {
   fetchSelfAttendanceTodayApi,
 } from '../features/attendance/attendanceNotesClient.js';
 import {
+  buildAttendanceKioskViewUrl,
+  toAbsoluteKioskUrl,
+  readSavedAttendanceKioskCreds,
+  saveAttendanceKioskCreds,
+  clearSavedAttendanceKioskCreds,
+  ensureAndOpenAttendanceKiosk,
+  listAttendanceKioskDevices,
+  createAttendanceKioskDevice,
+  revokeAttendanceKioskDevice,
+  scanAttendanceQr,
+  playAttendanceSuccessSound,
+  ATTENDANCE_PUNCH_METHODS,
+} from '../features/attendance/attendanceKioskClient.js';
+import {
   RESERVED_SYSTEM_TEMPLATE_CODES,
   customTemplateHistoryKey,
   isCustomTemplateHistoryKey,
@@ -705,6 +719,18 @@ window.__APG_MODULES.createAttendanceNoteApi = createAttendanceNoteApi;
 window.__APG_MODULES.fetchAttendanceNotesApi = fetchAttendanceNotesApi;
 window.__APG_MODULES.fetchLatestAttendanceNoteApi = fetchLatestAttendanceNoteApi;
 window.__APG_MODULES.fetchSelfAttendanceTodayApi = fetchSelfAttendanceTodayApi;
+window.__APG_MODULES.buildAttendanceKioskViewUrl = buildAttendanceKioskViewUrl;
+window.__APG_MODULES.toAbsoluteKioskUrl = toAbsoluteKioskUrl;
+window.__APG_MODULES.readSavedAttendanceKioskCreds = readSavedAttendanceKioskCreds;
+window.__APG_MODULES.saveAttendanceKioskCreds = saveAttendanceKioskCreds;
+window.__APG_MODULES.clearSavedAttendanceKioskCreds = clearSavedAttendanceKioskCreds;
+window.__APG_MODULES.ensureAndOpenAttendanceKiosk = ensureAndOpenAttendanceKiosk;
+window.__APG_MODULES.listAttendanceKioskDevices = listAttendanceKioskDevices;
+window.__APG_MODULES.createAttendanceKioskDevice = createAttendanceKioskDevice;
+window.__APG_MODULES.revokeAttendanceKioskDevice = revokeAttendanceKioskDevice;
+window.__APG_MODULES.scanAttendanceQr = scanAttendanceQr;
+window.__APG_MODULES.playAttendanceSuccessSound = playAttendanceSuccessSound;
+window.__APG_MODULES.ATTENDANCE_PUNCH_METHODS = ATTENDANCE_PUNCH_METHODS;
 window.__APG_MODULES.RESERVED_SYSTEM_TEMPLATE_CODES = RESERVED_SYSTEM_TEMPLATE_CODES;
 window.__APG_MODULES.isValidCustomTemplateCode = isValidCustomTemplateCode;
 window.__APG_MODULES.customTemplateHistoryKey = customTemplateHistoryKey;

@@ -95,7 +95,8 @@ export function assertBranchWriteAllowed(rows, auth) {
 
 /** @returns {Promise<{ limited: boolean, gymCodeId: string|null, memberCodes: Set<string>|null, staffLogins: Set<string>|null, visitorIds: Set<string>|null }>} */
 export async function loadBranchScope(sb, auth) {
-  if (authHasGlobalBranchRead(auth)) {
+  // Master with no active branch: gym-wide. Master with active branch: that branch only.
+  if (authHasGlobalBranchRead(auth) && !resolveActiveBranchId(auth)) {
     return { limited: false, gymCodeId: null, memberCodes: null, staffLogins: null, visitorIds: null };
   }
   const allowed = resolveReadBranchIds(auth);

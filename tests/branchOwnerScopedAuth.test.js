@@ -64,6 +64,16 @@ describe('userScope', () => {
     expect(filterUsersForAuth(users, auth)).toEqual([{ id: 'a', gymCodeId: 'b1' }]);
   });
 
+
+  it('includes staff whose assignedBranchIds touch the active branch', () => {
+    const auth = { staffRole: 'branch_owner', allowedBranchIds: ['b1', 'b2'], activeBranchId: 'b1', gymCodeId: 'b1' };
+    const users = [
+      { id: 'home-elsewhere', gymCodeId: 'b2', assignedBranchIds: ['b2', 'b1'] },
+      { id: 'other', gymCodeId: 'b2', assignedBranchIds: ['b2'] },
+    ];
+    expect(filterUsersForAuth(users, auth).map((u) => u.id)).toEqual(['home-elsewhere']);
+  });
+
   it('master owner with active branch sees only staff for that branch', () => {
     const auth = { userId: 'owner', staffRole: 'master_owner', activeBranchId: 'b2', gymCodeId: 'b2' };
     const users = [

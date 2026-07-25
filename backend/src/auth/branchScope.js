@@ -1,4 +1,4 @@
-import { authHasGlobalBranchRead, filterRowsByBranch } from './branchFilter.js';
+import { authHasGlobalBranchRead, filterRowsByBranch, stampBranchOnRows } from './branchFilter.js';
 import {
   resolveActiveBranchId,
   resolveAllowedBranchIds,
@@ -114,10 +114,75 @@ export function filterAttendanceRecordsForBranchScope(records, scope) {
 
 /**
  * Server-side write filter: staff may only upsert rows in their branch.
- * Untagged rows are dropped (prevents stamping another branch's legacy rows via bulk PUT).
+ * Prefer {@link prepareMembersBulkWrite} for PUT /members/bulk so untagged
+ * creates are stamped before this filter runs (otherwise creates are silently dropped).
  */
 export function filterRowsForStaffWrite(rows, auth) {
   return filterRowsByBranch(rows, auth);
+}
+
+/**
+ * Durable bulk prepare: stamp branch first, then apply staff write filter.
+ * Prevents "saved then disappeared" when clients omit assignedGymCodeId.
+ *
+ * @returns {{ prepared: object[], stamped: object[], droppedIds: string[] }}
+ */
+export function prepareMembersBulkWrite(rows, auth) {
+  const incoming = Array.isArray(rows) ? rows : [];
+  const stamped = stampBranchOnRows(incoming, auth);
+  const prepared = filterRowsForStaffWrite(stamped, auth);
+  if (authHasGlobalBranchRead(auth) || prepared.length === stamped.length) {
+    return { prepared, stamped, droppedIds: [] };
+  }
+  const kept = new Set(
+    prepared.map((r) => String(r?.memberId || '').trim()).filter(Boolean),
+  );
+  const droppedIds = stamped
+    .map((r) => String(r?.memberId || '').trim())
+    .filter((id) => id && !kept.has(id));
+  return { prepared, stamped, droppedIds };
+}
+
+/**
+ * Fail closed when the client sent members but none are writable after scope.
+ * @throws {Error & { status?: number, detail?: object }}
+ */
+export function assertMembersBulkWriteNonEmpty(receivedCount, prepared, droppedIds = []) {
+  const n = Number(receivedCount) || 0;
+  const writable = Array.isArray(prepared) ? prepared.length : 0;
+  if (n > 0 && writable === 0) {
+    const err = new Error('members-bulk-empty-after-scope');
+    err.status = 400;
+    err.detail = {
+      received: n,
+      writable: 0,
+      droppedIds: Array.isArray(droppedIds) ? droppedIds : [],
+    };
+    throw err;
+  }
+}
+
+/**
+ * Fail closed when the client sent writable rows but nothing was persisted
+ * (e.g. all codes blocked by soft-delete / delete-audit resurrection guard).
+ * @throws {Error & { status?: number, detail?: object }}
+ */
+export function assertMembersBulkPersisted(preparedIds, writtenIds, skippedIds) {
+  const prepared = (Array.isArray(preparedIds) ? preparedIds : [])
+    .map((id) => String(id || '').trim())
+    .filter(Boolean);
+  if (!prepared.length) return;
+  const written = new Set(
+    (Array.isArray(writtenIds) ? writtenIds : []).map((id) => String(id || '').trim()).filter(Boolean),
+  );
+  if (written.size > 0) return;
+  const skipped = (Array.isArray(skippedIds) ? skippedIds : [])
+    .map((id) => String(id || '').trim())
+    .filter(Boolean);
+  const err = new Error(skipped.length ? 'members-bulk-blocked' : 'members-bulk-not-persisted');
+  err.status = 409;
+  err.detail = { skipped, missing: prepared };
+  throw err;
 }
 
 /** @throws {Error & { status?: number }} */

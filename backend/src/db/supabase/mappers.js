@@ -362,6 +362,7 @@ export function financeRowToApp(row) {
     category: row.category || '',
     note: cleanNote,
     memberStatus: '',
+    gymCodeId: row.gym_code_id || null,
     createdAt: row.created_at,
   };
 }
@@ -369,6 +370,7 @@ export function financeRowToApp(row) {
 export function appFinanceToRow(t, gymId, memberId = null) {
   const statusNote = t.status ? `status:${t.status}` : '';
   const note = [statusNote, emptyText(t.note)].filter(Boolean).join(' | ');
+  const gymCodeId = t.gymCodeId || t.gym_code_id || null;
   return {
     gym_id: gymId,
     external_tx_id: t.id ? String(t.id) : crypto.randomUUID(),
@@ -384,6 +386,7 @@ export function appFinanceToRow(t, gymId, memberId = null) {
     status: financeStatusToNumeric(t.status),
     category: emptyText(t.category),
     note,
+    gym_code_id: gymCodeId ? String(gymCodeId).trim() : null,
     created_at: toTs(t.createdAt) || new Date().toISOString(),
   };
 }
