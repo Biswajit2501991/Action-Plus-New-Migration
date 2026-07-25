@@ -9,6 +9,11 @@ import {
   normalizePortalSections,
   splitWorkoutOptionsAndHomeTiles,
 } from "@/lib/member-portal-ui-config";
+import {
+  DEFAULT_PORTAL_ACCESS_BY_STATUS,
+  normalizePortalAccessByStatus,
+  type PortalAccessByStatus,
+} from "@/lib/member-portal-access-by-status";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -166,6 +171,54 @@ async function persistHomeTileMarker(
   }
 }
 
+async function syncMembersPortalAccessByStatus(
+  cfg: { url: string; key: string; gymId: string },
+  accessByStatus: PortalAccessByStatus,
+) {
+  const map = normalizePortalAccessByStatus(accessByStatus);
+  for (const [statusKey, allowed] of Object.entries(map)) {
+    const now = new Date().toISOString();
+    if (allowed) {
+      await sbFetch(
+        cfg,
+        `members?gym_id=eq.${encodeURIComponent(cfg.gymId)}&status=eq.${encodeURIComponent(statusKey)}&deleted_at=is.null&portal_status=eq.disabled`,
+        {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json", Prefer: "return=minimal" },
+          body: JSON.stringify({
+            portal_enabled: true,
+            portal_status: "pending",
+            updated_at: now,
+          }),
+        },
+      );
+      await sbFetch(
+        cfg,
+        `members?gym_id=eq.${encodeURIComponent(cfg.gymId)}&status=eq.${encodeURIComponent(statusKey)}&deleted_at=is.null&portal_status=neq.disabled`,
+        {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json", Prefer: "return=minimal" },
+          body: JSON.stringify({ portal_enabled: true, updated_at: now }),
+        },
+      );
+    } else {
+      await sbFetch(
+        cfg,
+        `members?gym_id=eq.${encodeURIComponent(cfg.gymId)}&status=eq.${encodeURIComponent(statusKey)}&deleted_at=is.null`,
+        {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json", Prefer: "return=minimal" },
+          body: JSON.stringify({
+            portal_enabled: false,
+            portal_status: "disabled",
+            updated_at: now,
+          }),
+        },
+      );
+    }
+  }
+}
+
 function publicSettingsPayload(
   row: Record<string, unknown> | null,
   exerciseTypes?: string[],
@@ -182,6 +235,9 @@ function publicSettingsPayload(
       gym_id: row?.gym_id,
       basic_workout_options: hydrated.workoutOptions,
       portal_sections: hydrated.portalSections,
+      portal_access_by_status: normalizePortalAccessByStatus(
+        row?.portal_access_by_status ?? DEFAULT_PORTAL_ACCESS_BY_STATUS,
+      ),
       auth_method: row?.auth_method || "whatsapp_staff",
       chat_retention_days: row?.chat_retention_days ?? 7,
     },
@@ -233,6 +289,7 @@ export async function PUT(req: Request) {
   let body: {
     basic_workout_options?: unknown;
     portal_sections?: unknown;
+    portal_access_by_status?: unknown;
   } = {};
   try {
     body = (await req.json()) as typeof body;
@@ -260,6 +317,17 @@ export async function PUT(req: Request) {
       payloadSections,
       mergePortalSections(existing?.portal_sections, DEFAULT_PORTAL_SECTIONS),
     );
+    const previousAccess = normalizePortalAccessByStatus(
+      existing?.portal_access_by_status ?? DEFAULT_PORTAL_ACCESS_BY_STATUS,
+    );
+    const portalAccessByStatus = normalizePortalAccessByStatus(
+      body.portal_access_by_status !== undefined
+        ? body.portal_access_by_status
+        : previousAccess,
+    );
+    // Bulk-sync only when the status policy actually changed — never on tile-only saves.
+    const accessChanged =
+      JSON.stringify(previousAccess) !== JSON.stringify(portalAccessByStatus);
 
     const row = {
       gym_id: cfg.gymId,
@@ -281,6 +349,7 @@ export async function PUT(req: Request) {
         existing?.auth_method === "auto_identity" ? "auto_identity" : "whatsapp_staff",
       basic_workout_options: basicWorkoutOptions,
       portal_sections: portalSections,
+      portal_access_by_status: portalAccessByStatus,
       updated_at: new Date().toISOString(),
     };
 
@@ -306,6 +375,13 @@ export async function PUT(req: Request) {
     const savedRows = (await res.json()) as Array<Record<string, unknown>>;
     const saved = Array.isArray(savedRows) && savedRows[0] ? savedRows[0] : row;
     await persistHomeTileMarker(cfg, portalSections);
+    if (accessChanged) {
+      try {
+        await syncMembersPortalAccessByStatus(cfg, portalAccessByStatus);
+      } catch (syncErr) {
+        console.error("syncMembersPortalAccessByStatus", syncErr);
+      }
+    }
     const exerciseTypes = await loadExerciseTypeMarkers(cfg);
     return NextResponse.json(
       publicSettingsPayload(saved as Record<string, unknown>, exerciseTypes),

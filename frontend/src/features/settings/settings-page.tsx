@@ -36,6 +36,12 @@ import { hasAccess, isMasterOwnerUser } from "@/lib/domain/permissions";
 import { cn, downloadTextFile } from "@/lib/utils";
 import { useAuthStore } from "@/stores";
 import type { AppSettings, GymCode } from "@/types";
+import {
+  DEFAULT_PORTAL_ACCESS_BY_STATUS,
+  normalizePortalAccessByStatus,
+  PORTAL_ACCESS_STATUS_META,
+  type PortalAccessByStatus,
+} from "@/lib/member-portal-access-by-status";
 
 function readFileAsDataUrl(file: File) {
   return new Promise<string>((resolve, reject) => {
@@ -706,6 +712,9 @@ export function SettingsPage() {
   const [portalSections, setPortalSections] = useState<PortalSections>(() => ({
     ...DEFAULT_PORTAL_SECTIONS,
   }));
+  const [portalAccessByStatus, setPortalAccessByStatus] = useState<PortalAccessByStatus>(
+    () => ({ ...DEFAULT_PORTAL_ACCESS_BY_STATUS }),
+  );
   const [newBasicOption, setNewBasicOption] = useState("");
   const [portalUiBusy, setPortalUiBusy] = useState(false);
   const [portalUiDirty, setPortalUiDirty] = useState(false);
@@ -734,6 +743,7 @@ export function SettingsPage() {
             auth_method?: string;
             basic_workout_options?: BasicWorkoutOption[];
             portal_sections?: PortalSections;
+            portal_access_by_status?: PortalAccessByStatus;
           };
         }>("/portal-ui-settings");
         if (cancelled) return;
@@ -754,6 +764,9 @@ export function SettingsPage() {
             });
             setBasicWorkoutOptions(hydrated.workoutOptions);
             setPortalSections(hydrated.portalSections);
+            setPortalAccessByStatus(
+              normalizePortalAccessByStatus(data.settings?.portal_access_by_status),
+            );
             return false;
           });
         }
@@ -816,11 +829,13 @@ export function SettingsPage() {
       const token = homeTilesBitToken(payloadSections);
 
       // Prefer Next/Supabase (writes portal_sections + __pht__ marker when configured).
+      const payloadAccess = normalizePortalAccessByStatus(portalAccessByStatus);
       let data: {
         ok?: boolean;
         settings?: {
           basic_workout_options?: BasicWorkoutOption[];
           portal_sections?: PortalSections;
+          portal_access_by_status?: PortalAccessByStatus;
         };
       } | null = null;
       let savedViaNext = false;
@@ -830,17 +845,43 @@ export function SettingsPage() {
           settings?: {
             basic_workout_options?: BasicWorkoutOption[];
             portal_sections?: PortalSections;
+            portal_access_by_status?: PortalAccessByStatus;
           };
         }>("/portal-ui-settings", {
           method: "PUT",
           body: JSON.stringify({
             basic_workout_options: payloadOptions,
             portal_sections: payloadSections,
+            portal_access_by_status: payloadAccess,
           }),
         });
         savedViaNext = Boolean(data?.ok !== false && data?.settings);
       } catch {
         data = null;
+      }
+
+      // Express fallback also persists + bulk-syncs status access when Next save fails.
+      if (!savedViaNext) {
+        try {
+          data = await apiFetch<{
+            ok?: boolean;
+            settings?: {
+              basic_workout_options?: BasicWorkoutOption[];
+              portal_sections?: PortalSections;
+              portal_access_by_status?: PortalAccessByStatus;
+            };
+          }>("/portal-settings", {
+            method: "PUT",
+            body: JSON.stringify({
+              basic_workout_options: payloadOptions,
+              portal_sections: payloadSections,
+              portal_access_by_status: payloadAccess,
+            }),
+          });
+          savedViaNext = Boolean(data?.ok !== false && data?.settings);
+        } catch {
+          /* keep null — marker path may still succeed */
+        }
       }
 
       // Durable fallback on current production: exerciseTypes marker lookup.
@@ -878,8 +919,14 @@ export function SettingsPage() {
       });
       setBasicWorkoutOptions(hydrated.workoutOptions);
       setPortalSections(hydrated.portalSections);
+      setPortalAccessByStatus(
+        normalizePortalAccessByStatus(
+          data?.settings?.portal_access_by_status ?? payloadAccess,
+        ),
+      );
       setPortalUiDirty(false);
       await qc.invalidateQueries({ queryKey: ["settings"] });
+      await qc.invalidateQueries({ queryKey: ["members"] });
       toast.success("Member Portal settings saved");
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Could not save portal settings");
@@ -1772,6 +1819,33 @@ export function SettingsPage() {
                     description={meta.description}
                     onChange={(next) => {
                       setPortalSections((prev) => ({ ...prev, [meta.key]: next }));
+                      setPortalUiDirty(true);
+                    }}
+                  />
+                ))}
+              </div>
+            </div>
+
+            <div className="space-y-3 rounded-2xl border border-violet-200/70 bg-gradient-to-b from-violet-50/40 to-white p-4 dark:border-violet-900/40 dark:from-violet-950/20 dark:to-card">
+              <div>
+                <p className="text-sm font-medium text-foreground">Portal access by status</p>
+                <p className="mt-0.5 text-[11px] leading-relaxed text-muted-foreground">
+                  Grant Member Portal login for whole status groups. Saving applies to all members
+                  in that status. Individual Portal ON/OFF on each member still works, and status
+                  changes auto-apply this policy. Home tile toggles above are separate and
+                  unchanged.
+                </p>
+              </div>
+              <div className="grid gap-2 lg:grid-cols-2">
+                {PORTAL_ACCESS_STATUS_META.map((meta) => (
+                  <SettingsToggle
+                    key={meta.key}
+                    checked={portalAccessByStatus[meta.key]}
+                    disabled={portalUiBusy}
+                    label={meta.label}
+                    description={meta.description}
+                    onChange={(next) => {
+                      setPortalAccessByStatus((prev) => ({ ...prev, [meta.key]: next }));
                       setPortalUiDirty(true);
                     }}
                   />

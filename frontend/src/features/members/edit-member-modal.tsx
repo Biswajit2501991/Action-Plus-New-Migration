@@ -43,7 +43,14 @@ import {
   type ReactivationFeePrompt,
 } from "@/features/members/reactivation-fee-modal";
 import { cn } from "@/lib/utils";
+import {
+  DEFAULT_PORTAL_ACCESS_BY_STATUS,
+  normalizePortalAccessByStatus,
+  portalAccessPatchForStatus,
+  type PortalAccessByStatus,
+} from "@/lib/member-portal-access-by-status";
 import { membersApi } from "@/services/api";
+import { apiFetch } from "@/services/api/client";
 import type { AppSettings, AuthUser, GymCode, Member } from "@/types";
 
 const MEDICAL_YES_NO_FIELDS: [string, string][] = [
@@ -740,6 +747,26 @@ export function EditMemberModal({
         setEdit((prev) => ({ ...prev, medicalAnswers: nextMedical }));
         setInjuryDraft("");
         await persistMedicalAnswers(nextMedical, { replaceInjuryNotesLog: false });
+      }
+
+      // Status change → apply gym-wide portal access-by-status policy (PIN kept).
+      if (fromStatus !== toStatus) {
+        let accessByStatus: PortalAccessByStatus = DEFAULT_PORTAL_ACCESS_BY_STATUS;
+        try {
+          const data = await apiFetch<{
+            settings?: { portal_access_by_status?: PortalAccessByStatus };
+          }>("/portal-ui-settings");
+          accessByStatus = normalizePortalAccessByStatus(
+            data.settings?.portal_access_by_status,
+          );
+        } catch {
+          /* defaults */
+        }
+        const portalPatch = portalAccessPatchForStatus(payload.status, accessByStatus, {
+          hasPortalPin: Boolean(member.hasPortalPin),
+        });
+        payload.portalEnabled = portalPatch.portalEnabled;
+        payload.portalStatus = portalPatch.portalStatus;
       }
 
       const res = await membersApi.patch(id, payload);

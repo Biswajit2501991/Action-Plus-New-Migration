@@ -527,6 +527,10 @@ export function registerMemberPortalPhase2Routes(app, { appendAuditLog }) {
   app.get("/api/portal-settings", requireAccess(Access.membersWrite), async (req, res) => {
     try {
       const { getSupabase, gymId } = await import("../db/supabase/client.js");
+      const {
+        normalizePortalAccessByStatus,
+        DEFAULT_PORTAL_ACCESS_BY_STATUS,
+      } = await import("../lib/portalAccessByStatus.js");
       const sb = getSupabase();
       const gid = gymId() || req.auth?.gymId;
       if (!sb || !gid) return res.status(500).json({ error: "supabase-unavailable" });
@@ -546,6 +550,7 @@ export function registerMemberPortalPhase2Routes(app, { appendAuditLog }) {
         auth_method: "whatsapp_staff",
         basic_workout_options: DEFAULT_BASIC_WORKOUT_OPTIONS,
         portal_sections: DEFAULT_PORTAL_SECTIONS,
+        portal_access_by_status: DEFAULT_PORTAL_ACCESS_BY_STATUS,
       };
       const split = splitWorkoutOptionsAndHomeTiles(settings.basic_workout_options);
       const portalSections = mergePortalSections(
@@ -558,6 +563,9 @@ export function registerMemberPortalPhase2Routes(app, { appendAuditLog }) {
           ...settings,
           basic_workout_options: split.workoutOptions,
           portal_sections: portalSections,
+          portal_access_by_status: normalizePortalAccessByStatus(
+            settings.portal_access_by_status,
+          ),
         },
       });
     } catch (err) {
@@ -611,6 +619,22 @@ export function registerMemberPortalPhase2Routes(app, { appendAuditLog }) {
         mergePortalSections(existing?.portal_sections, DEFAULT_PORTAL_SECTIONS),
       );
 
+      const {
+        normalizePortalAccessByStatus,
+        syncMembersPortalAccessByStatus,
+      } = await import("../lib/portalAccessByStatus.js");
+      const previousAccess = normalizePortalAccessByStatus(
+        existing?.portal_access_by_status,
+      );
+      const portalAccessByStatus = normalizePortalAccessByStatus(
+        req.body?.portal_access_by_status !== undefined
+          ? req.body.portal_access_by_status
+          : previousAccess,
+      );
+      // Bulk-sync only when status policy values changed — not on tile-only saves.
+      const accessChanged =
+        JSON.stringify(previousAccess) !== JSON.stringify(portalAccessByStatus);
+
       const row = {
         gym_id: gid,
         billing_push_enabled: Boolean(
@@ -632,6 +656,7 @@ export function registerMemberPortalPhase2Routes(app, { appendAuditLog }) {
         auth_method: authMethod,
         basic_workout_options: basicWorkoutOptions,
         portal_sections: portalSections,
+        portal_access_by_status: portalAccessByStatus,
         updated_at: new Date().toISOString(),
       };
       const { data, error } = await sb
@@ -640,6 +665,20 @@ export function registerMemberPortalPhase2Routes(app, { appendAuditLog }) {
         .select("*")
         .maybeSingle();
       if (error) return res.status(500).json({ error: error.message });
+
+      let syncResults = null;
+      if (accessChanged) {
+        try {
+          syncResults = await syncMembersPortalAccessByStatus(
+            sb,
+            gid,
+            portalAccessByStatus,
+          );
+        } catch (syncErr) {
+          console.error("syncMembersPortalAccessByStatus", syncErr);
+        }
+      }
+
       const splitSaved = splitWorkoutOptionsAndHomeTiles(data?.basic_workout_options);
       const sectionsSaved = mergePortalSections(
         data?.portal_sections,
@@ -651,7 +690,11 @@ export function registerMemberPortalPhase2Routes(app, { appendAuditLog }) {
           ...data,
           basic_workout_options: splitSaved.workoutOptions,
           portal_sections: sectionsSaved,
+          portal_access_by_status: normalizePortalAccessByStatus(
+            data?.portal_access_by_status ?? portalAccessByStatus,
+          ),
         },
+        syncResults,
       });
     } catch (err) {
       return res.status(500).json({ error: err?.message || "save-failed" });
