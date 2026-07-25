@@ -33,14 +33,19 @@ export const FINANCE_CHILD_PERMISSIONS = [
 ];
 
 export const SETTINGS_CHILD_PERMISSIONS = [
+  { key: 'viewAppearance', label: 'Appearance' },
+  { key: 'manageGymBranches', label: 'Gym Branches' },
+  { key: 'manageFineRule', label: 'Fine SMS Rule' },
+  { key: 'manageSystemFeatures', label: 'System Features' },
   { key: 'managePlans', label: 'Plans' },
   { key: 'manageStatuses', label: 'Statuses' },
   { key: 'managePaymentMethods', label: 'Payment Methods' },
   { key: 'manageExpenseCategories', label: 'Expense Categories' },
   { key: 'manageHoldDurations', label: 'Hold Durations' },
   { key: 'manageGenders', label: 'Genders' },
+  { key: 'manageExerciseTypes', label: 'Exercise Types' },
+  { key: 'manageSettingsBackup', label: 'Settings backup & recovery' },
   { key: 'viewBackendDiskUsage', label: 'Disk Usage (Backend)' },
-  { key: 'manageFineRule', label: 'Fine SMS Rule' },
 ];
 
 export const WHATSAPP_CHILD_PERMISSIONS = [

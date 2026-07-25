@@ -24,12 +24,42 @@ export function manualIncomeFinanceRows(financeTransactions) {
  * @param {object[]} rows
  * @returns {{ rows: object[], strippedMirroredRows: number }}
  */
-/** Branch-scoped finance read/write: expenses have no member; income needs in-scope member. */
+/**
+ * Branch-scoped finance read/write.
+ * - Global / unlimited scope: all rows.
+ * - Expenses: must match scope gymCodeId (or allowedBranchIds).
+ * - Income: member must be in scope.memberCodes when that set is present.
+ */
 export function branchScopeAllowsFinanceRow(row, scope) {
   if (!row || typeof row !== 'object') return false;
-  if (String(row.type || '').toLowerCase() === 'expense') return true;
+  if (!scope?.limited) return true;
+  if (String(row.type || '').toLowerCase() === 'expense') {
+    const rowBranch = String(row.gymCodeId || row.gym_code_id || '').trim();
+    if (!rowBranch) return false;
+    const active = String(scope.gymCodeId || '').trim();
+    if (active && rowBranch === active) return true;
+    const allowed = Array.isArray(scope.allowedBranchIds) ? scope.allowedBranchIds : [];
+    return allowed.some((id) => String(id || '').trim() === rowBranch);
+  }
+  if (!scope.memberCodes) return false;
   const mid = String(row.memberId || '').trim();
-  return Boolean(mid && scope?.memberCodes?.has(mid));
+  return Boolean(mid && scope.memberCodes.has(mid));
+}
+
+/**
+ * Filter finance rows for summary / reconciliation using resolveReadBranchScope shape.
+ * When gymCodeId is set (staff, branch owner, or master with active branch), expenses
+ * are limited to that branch. Global master (no gymCodeId) sees all.
+ */
+export function filterFinanceRowsForBranchScope(rows, branchScope) {
+  const list = Array.isArray(rows) ? rows : [];
+  if (branchScope?.staffNoBranch) return [];
+  const branchId = String(branchScope?.gymCodeId || '').trim();
+  if (!branchId) return list;
+  return list.filter((row) => {
+    if (String(row?.type || '').toLowerCase() !== 'expense') return true;
+    return String(row.gymCodeId || row.gym_code_id || '').trim() === branchId;
+  });
 }
 
 export function filterFinanceBulkWriteRows(rows) {

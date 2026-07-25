@@ -122,6 +122,17 @@ describe('filterRowsForStaffWrite', () => {
     const auth = { userId: 'deep', gymCodeId: BRANCH_A };
     expect(filterRowsForStaffWrite(rows, auth).map((r) => r.memberId)).toEqual(['m1']);
   });
+
+  it('prepareMembersBulkWrite stamps untagged before filter (create-safe)', async () => {
+    const { prepareMembersBulkWrite } = await import('../backend/src/auth/branchScope.js');
+    const auth = { userId: 'deep', gymCodeId: BRANCH_A, activeBranchId: BRANCH_A };
+    const { prepared } = prepareMembersBulkWrite(
+      [{ memberId: 'm3' }, { memberId: 'm2', assignedGymCodeId: BRANCH_B }],
+      auth,
+    );
+    expect(prepared.map((r) => r.memberId).sort()).toEqual(['m2', 'm3']);
+    expect(prepared.every((r) => r.assignedGymCodeId === BRANCH_A)).toBe(true);
+  });
 });
 
 describe('assertStaffHasBranchForWrite', () => {

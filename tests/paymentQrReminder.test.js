@@ -1,5 +1,4 @@
-import test from 'node:test';
-import assert from 'node:assert/strict';
+import { describe, it, expect } from 'vitest';
 import {
   isPaymentQrInReminderEnabled,
   resolveMemberBranchCodeForPaymentQr,
@@ -7,65 +6,64 @@ import {
   maybeAppendPaymentQrToReminderMessage,
 } from '../src/features/paymentQr/paymentQrReminder.js';
 
-test('isPaymentQrInReminderEnabled defaults off', () => {
-  assert.equal(isPaymentQrInReminderEnabled({}), false);
-  assert.equal(isPaymentQrInReminderEnabled({ paymentQrInReminderEnabled: false }), false);
-  assert.equal(isPaymentQrInReminderEnabled({ paymentQrInReminderEnabled: true }), true);
-});
+describe('paymentQrReminder', () => {
+  it('isPaymentQrInReminderEnabled defaults off', () => {
+    expect(isPaymentQrInReminderEnabled({})).toBe(false);
+    expect(isPaymentQrInReminderEnabled({ paymentQrInReminderEnabled: false })).toBe(false);
+    expect(isPaymentQrInReminderEnabled({ paymentQrInReminderEnabled: true })).toBe(true);
+  });
 
-test('resolveMemberBranchCodeForPaymentQr uses member branch', () => {
-  const gymCodes = [
-    { id: 'b-apk', code: 'APK', name: 'Kolkata' },
-    { id: 'b-apa', code: 'APA', name: 'Adra' },
-  ];
-  assert.equal(
-    resolveMemberBranchCodeForPaymentQr({ assignedGymCodeId: 'b-apa' }, gymCodes),
-    'APA',
-  );
-});
+  it('resolveMemberBranchCodeForPaymentQr uses member branch', () => {
+    const gymCodes = [
+      { id: 'b-apk', code: 'APK', name: 'Kolkata' },
+      { id: 'b-apa', code: 'APA', name: 'Adra' },
+    ];
+    expect(
+      resolveMemberBranchCodeForPaymentQr({ assignedGymCodeId: 'b-apa' }, gymCodes),
+    ).toBe('APA');
+  });
 
-test('resolveMemberBranchCodeForPaymentQr falls back to HQ', () => {
-  const gymCodes = [{ id: 'hq', code: 'HQ', name: 'Headquarters' }];
-  assert.equal(resolveMemberBranchCodeForPaymentQr({}, gymCodes, 'hq'), 'HQ');
-});
+  it('resolveMemberBranchCodeForPaymentQr falls back to HQ', () => {
+    const gymCodes = [{ id: 'hq', code: 'HQ', name: 'Headquarters' }];
+    expect(resolveMemberBranchCodeForPaymentQr({}, gymCodes, 'hq')).toBe('HQ');
+  });
 
-test('maybeAppendPaymentQrToReminderMessage only affects reminder when enabled', () => {
-  const member = { assignedGymCodeId: 'b-apa' };
-  const gymCodes = [{ id: 'b-apa', code: 'APA', name: 'Adra' }];
-  const base = 'Hello Customer';
-  assert.equal(
-    maybeAppendPaymentQrToReminderMessage(base, {
-      templateKey: 'welcome',
+  it('maybeAppendPaymentQrToReminderMessage only affects reminder when enabled', () => {
+    const member = { assignedGymCodeId: 'b-apa' };
+    const gymCodes = [{ id: 'b-apa', code: 'APA', name: 'Adra' }];
+    const base = 'Hello Customer';
+    expect(
+      maybeAppendPaymentQrToReminderMessage(base, {
+        templateKey: 'welcome',
+        member,
+        settings: { paymentQrInReminderEnabled: true },
+        gymCodes,
+        apiBaseUrl: '/api',
+      }),
+    ).toBe(base);
+    const out = maybeAppendPaymentQrToReminderMessage(base, {
+      templateKey: 'reminder',
       member,
       settings: { paymentQrInReminderEnabled: true },
       gymCodes,
       apiBaseUrl: '/api',
-    }),
-    base,
-  );
-  const out = maybeAppendPaymentQrToReminderMessage(base, {
-    templateKey: 'reminder',
-    member,
-    settings: { paymentQrInReminderEnabled: true },
-    gymCodes,
-    apiBaseUrl: '/api',
+    });
+    expect(out).toMatch(/Click below to pay:/);
+    expect(out.includes(buildPublicPaymentQrViewUrl('APA', '/api'))).toBe(true);
   });
-  assert.match(out, /Click below to pay:/);
-  assert.equal(out.includes(buildPublicPaymentQrViewUrl('APA', '/api')), true);
-});
 
-test('maybeAppendPaymentQrToReminderMessage leaves message unchanged when disabled', () => {
-  const member = { assignedGymCodeId: 'b-apa' };
-  const gymCodes = [{ id: 'b-apa', code: 'APA', name: 'Adra' }];
-  const base = 'Reminder body';
-  assert.equal(
-    maybeAppendPaymentQrToReminderMessage(base, {
-      templateKey: 'reminder',
-      member,
-      settings: {},
-      gymCodes,
-      apiBaseUrl: '/api',
-    }),
-    base,
-  );
+  it('maybeAppendPaymentQrToReminderMessage leaves message unchanged when disabled', () => {
+    const member = { assignedGymCodeId: 'b-apa' };
+    const gymCodes = [{ id: 'b-apa', code: 'APA', name: 'Adra' }];
+    const base = 'Reminder body';
+    expect(
+      maybeAppendPaymentQrToReminderMessage(base, {
+        templateKey: 'reminder',
+        member,
+        settings: {},
+        gymCodes,
+        apiBaseUrl: '/api',
+      }),
+    ).toBe(base);
+  });
 });

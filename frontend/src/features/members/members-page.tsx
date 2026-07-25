@@ -97,6 +97,13 @@ import { VisitorsPanel } from "@/features/visitors/visitors-panel";
 import { MessagePreviewModal } from "@/features/whatsapp/message-preview-modal";
 import { useWhatsappSend } from "@/features/whatsapp/use-whatsapp-send";
 import { pushHistoryCheckpoint } from "@/lib/history-stack";
+import {
+  DEFAULT_PORTAL_ACCESS_BY_STATUS,
+  normalizePortalAccessByStatus,
+  portalAccessPatchForStatus,
+  type PortalAccessByStatus,
+} from "@/lib/member-portal-access-by-status";
+import { apiFetch } from "@/services/api/client";
 
 const PAGE_SIZE = 10;
 const STATUS_KEYS = ["Active", "Hold", "Deactivated", "Cancelled"] as const;
@@ -502,6 +509,17 @@ export function MembersPage() {
     }) => {
       pushHistoryCheckpoint(qc, "member status");
       const ts = new Date().toISOString();
+      let accessByStatus: PortalAccessByStatus = DEFAULT_PORTAL_ACCESS_BY_STATUS;
+      try {
+        const data = await apiFetch<{
+          settings?: { portal_access_by_status?: PortalAccessByStatus };
+        }>("/portal-ui-settings");
+        accessByStatus = normalizePortalAccessByStatus(
+          data.settings?.portal_access_by_status,
+        );
+      } catch {
+        /* defaults match historical Active/Hold gate */
+      }
       return Promise.all(
         ids.map(async (id) => {
           const current = members.find((m) => m.memberId === id);
@@ -510,11 +528,16 @@ export function MembersPage() {
           // Surgical patch only — never spread the list row (it includes photo: ""
           // and other list fields). Backend rejects PATCH when `photo` is present
           // with storage enabled, which looked like "saved then rolled back".
+          const portalPatch = portalAccessPatchForStatus(status, accessByStatus, {
+            hasPortalPin: Boolean(current.hasPortalPin),
+          });
           const patch: Partial<Member> = {
             status,
             ...(status === "Hold"
               ? { holdDuration: holdDuration || settings?.holdDurations?.[0] || "1 Month" }
               : { holdDuration: "" }),
+            portalEnabled: portalPatch.portalEnabled,
+            portalStatus: portalPatch.portalStatus,
             updatedAt: ts,
           };
           if (amountOverride != null) {

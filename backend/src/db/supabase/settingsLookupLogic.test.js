@@ -85,6 +85,48 @@ describe('mergeSettingsBulkPatch', () => {
 });
 
 describe('buildSettingsAppConfigWriteFromLive', () => {
+  it('persists QR Visitor intake ON through a sparse toggle patch', () => {
+    const row = buildSettingsAppConfigWriteFromLive(
+      {
+        fine_sms_enabled: true,
+        fine_sms_grace_days: 0,
+        fine_sms_immediate_roles_json: [],
+        finance_use_estimated_expense: true,
+        config_json: {
+          attendanceNotesEnabled: true,
+          qrVisitorIntakeEnabled: false,
+          attendanceRequirePresenceQr: false,
+          customTemplatesEnabled: true,
+        },
+      },
+      { qrVisitorIntakeEnabled: true },
+    );
+    expect(row.config_json.qrVisitorIntakeEnabled).toBe(true);
+    expect(row.config_json.attendanceRequirePresenceQr).toBe(false);
+    expect(row.config_json.attendanceNotesEnabled).toBe(true);
+    expect(row.config_json.customTemplatesEnabled).toBe(true);
+  });
+
+  it('persists Require attendance QR ON through a sparse toggle patch', () => {
+    const row = buildSettingsAppConfigWriteFromLive(
+      {
+        fine_sms_enabled: true,
+        fine_sms_grace_days: 0,
+        fine_sms_immediate_roles_json: [],
+        finance_use_estimated_expense: true,
+        config_json: {
+          attendanceNotesEnabled: true,
+          qrVisitorIntakeEnabled: true,
+          attendanceRequirePresenceQr: false,
+        },
+      },
+      { attendanceRequirePresenceQr: true },
+    );
+    expect(row.config_json.attendanceRequirePresenceQr).toBe(true);
+    expect(row.config_json.qrVisitorIntakeEnabled).toBe(true);
+    expect(row.config_json.attendanceNotesEnabled).toBe(true);
+  });
+
   it('preserves live qrVisitorIntakeEnabled when patch only toggles notes', () => {
     const row = buildSettingsAppConfigWriteFromLive(
       {
