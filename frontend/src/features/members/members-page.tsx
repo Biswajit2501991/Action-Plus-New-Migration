@@ -188,13 +188,11 @@ export function MembersPage() {
   const [appliedQuickSearch, setAppliedQuickSearch] = useState(params.get("q") || "");
   const [verifyOpen, setVerifyOpen] = useState(() => Boolean(params.get("verify")));
   const [verifyQuery, setVerifyQuery] = useState(() => params.get("verify") || "");
-  const [verifyDraft, setVerifyDraft] = useState("");
 
   useEffect(() => {
     const v = params.get("verify");
     if (!v) return;
     setVerifyQuery(v);
-    setVerifyDraft(v);
     setVerifyOpen(true);
   }, [params]);
   const [filters, setFilters] = useState<MemberFilters>(() => {
@@ -1030,33 +1028,17 @@ export function MembersPage() {
                 Offline queue: {offlinePendingCount}
               </span>
             ) : null}
-            <div className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row sm:items-center">
-              <Input
-                value={verifyDraft}
-                onChange={(e) => setVerifyDraft(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === "Enter") {
-                    const q = verifyDraft.trim();
-                    setVerifyQuery(q);
-                    setVerifyOpen(true);
-                  }
-                }}
-                placeholder="APG-7F2C-991A"
-                className="h-9 w-full font-mono text-[12px] sm:w-[168px]"
-                aria-label="Receipt verify code"
-              />
-              <Button
-                type="button"
-                variant="outline"
-                onClick={() => {
-                  setVerifyQuery(verifyDraft.trim());
-                  setVerifyOpen(true);
-                }}
-              >
-                <BadgeCheck className="h-4 w-4" />
-                Verify receipt
-              </Button>
-            </div>
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => {
+                setVerifyQuery("");
+                setVerifyOpen(true);
+              }}
+            >
+              <BadgeCheck className="h-4 w-4" />
+              Verify receipt
+            </Button>
             <Button variant="outline" onClick={() => downloadTextFile("members.csv", toCsv(filtered as unknown as Record<string, unknown>[]))}>
               Export CSV
             </Button>
@@ -1399,7 +1381,6 @@ export function MembersPage() {
                                 const next = quickSearchInput.trim();
                                 if (isReceiptVerifyQuery(next)) {
                                   setVerifyQuery(next);
-                                  setVerifyDraft(next);
                                   setVerifyOpen(true);
                                   return;
                                 }
@@ -1430,7 +1411,6 @@ export function MembersPage() {
                                 const next = quickSearchInput.trim();
                                 if (isReceiptVerifyQuery(next)) {
                                   setVerifyQuery(next);
-                                  setVerifyDraft(next);
                                   setVerifyOpen(true);
                                   return;
                                 }
