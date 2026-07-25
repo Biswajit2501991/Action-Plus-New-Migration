@@ -111,9 +111,18 @@ export function MemberWorkoutDialog({
     return map;
   }, [byDate]);
 
+  const notesMap = useMemo(() => {
+    const map: Record<string, string> = {};
+    for (const [k, v] of Object.entries(byDate)) {
+      const note = String(v?.notes || "").trim();
+      if (note) map[k] = note;
+    }
+    return map;
+  }, [byDate]);
+
   const monthCells = useMemo(
-    () => buildPtMonthCalendarCells(viewYear, viewMonthIndex, focusMap),
-    [viewYear, viewMonthIndex, focusMap],
+    () => buildPtMonthCalendarCells(viewYear, viewMonthIndex, focusMap, notesMap),
+    [viewYear, viewMonthIndex, focusMap, notesMap],
   );
 
   const load = useCallback(async () => {
@@ -396,6 +405,9 @@ export function MemberWorkoutDialog({
               </div>
             ))}
           </div>
+          <p className="mb-1 text-[10px] text-muted-foreground">
+            Green = workout/PT · Amber = NT (notes only)
+          </p>
           <div className="mt-1 grid grid-cols-7 gap-1">
             {monthCells.map((cell) => {
               if (cell.kind === "pad") {
@@ -406,18 +418,29 @@ export function MemberWorkoutDialog({
                 <button
                   key={cell.key}
                   type="button"
-                  title={cell.focus || undefined}
+                  title={
+                    cell.mark === "nt"
+                      ? `${cell.key}: Notes (NT)`
+                      : cell.focus || undefined
+                  }
                   onClick={() => selectDay(cell.key)}
                   className={cn(
                     "min-h-9 rounded-md border text-[11px] transition",
-                    cell.hasFocus
+                    cell.mark === "pt"
                       ? "border-emerald-400/70 bg-emerald-50 text-emerald-900 dark:bg-emerald-950/40 dark:text-emerald-100"
-                      : "border-transparent bg-muted/40 text-foreground",
+                      : cell.mark === "nt"
+                        ? "border-amber-400/70 bg-amber-50 text-amber-950 dark:bg-amber-950/40 dark:text-amber-100"
+                        : "border-transparent bg-muted/40 text-foreground",
                     active && "ring-2 ring-teal-500",
-                    cell.isSunday && "opacity-60",
+                    cell.isSunday && cell.mark == null && "opacity-60",
                   )}
                 >
-                  {cell.day}
+                  <span className="block leading-tight">{cell.day}</span>
+                  {cell.mark ? (
+                    <span className="block text-[9px] font-semibold uppercase leading-none">
+                      {cell.mark === "pt" ? "PT" : "NT"}
+                    </span>
+                  ) : null}
                 </button>
               );
             })}
