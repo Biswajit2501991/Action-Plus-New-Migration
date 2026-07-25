@@ -1,7 +1,13 @@
 import { createHmac, timingSafeEqual } from "crypto";
-import { env } from "../config/env.js";
 import { Access } from "../auth/accessControl.js";
 import { requireAccess } from "../middleware/permissions.js";
+import {
+  isFingerprintCode,
+  memberPortalSecret,
+  normalizeFingerprintQuery,
+  paymentPublicId,
+  receiptFingerprint,
+} from "../lib/receiptFingerprint.js";
 import {
   DEFAULT_BASIC_WORKOUT_OPTIONS,
   DEFAULT_PORTAL_SECTIONS,
@@ -15,15 +21,6 @@ import {
 function b64urlDecode(input) {
   const pad = input.length % 4 === 0 ? "" : "=".repeat(4 - (input.length % 4));
   return Buffer.from(input.replace(/-/g, "+").replace(/_/g, "/") + pad, "base64");
-}
-
-function memberPortalSecret() {
-  return String(
-    process.env.MEMBER_PORTAL_JWT_SECRET ||
-      process.env.ADMIN_SESSION_SECRET ||
-      env.JWT_SECRET ||
-      "",
-  ).trim();
 }
 
 /** Verify APG1.<body>.<sig> member QR payload. */
@@ -698,6 +695,158 @@ export function registerMemberPortalPhase2Routes(app, { appendAuditLog }) {
       });
     } catch (err) {
       return res.status(500).json({ error: err?.message || "save-failed" });
+    }
+  });
+
+  /**
+   * Staff receipt verify — read-only lookup by fingerprint (APG-XXXX-XXXX)
+   * or public payment id. No writes; does not alter payments or members.
+   */
+  app.get("/api/receipts/verify", requireAccess(Access.membersRead), async (req, res) => {
+    try {
+      const qRaw = String(req.query.q || req.query.code || "").trim();
+      if (!qRaw) {
+        return res.status(400).json({ ok: false, error: "query-required" });
+      }
+      if (!memberPortalSecret()) {
+        return res.status(500).json({
+          ok: false,
+          error: "receipt-secret-missing",
+          message:
+            "Set MEMBER_PORTAL_JWT_SECRET on Gym Manager (same value as Gym Website) to verify receipt codes.",
+        });
+      }
+
+      const { getSupabase, gymId } = await import("../db/supabase/client.js");
+      const sb = getSupabase();
+      const gid = gymId() || req.auth?.gymId;
+      if (!sb || !gid) {
+        return res.status(500).json({ ok: false, error: "supabase-unavailable" });
+      }
+
+      const fingerprintWanted = isFingerprintCode(qRaw)
+        ? normalizeFingerprintQuery(qRaw)
+        : null;
+
+      async function hydrateMatch(row, matchType) {
+        const publicId = paymentPublicId(row);
+        const fingerprint = receiptFingerprint({
+          gymId: gid,
+          memberId: row.member_id,
+          paymentId: publicId,
+        });
+        const { data: member } = await sb
+          .from("members")
+          .select(
+            "id, member_uuid, member_code, full_name, mobile, status, plan_name, amount",
+          )
+          .eq("gym_id", gid)
+          .eq("id", row.member_id)
+          .maybeSingle();
+
+        return {
+          ok: true,
+          found: true,
+          matchType,
+          fingerprint,
+          payment: {
+            id: publicId,
+            rowId: row.id,
+            amount: Number(row.amount || 0),
+            paidAt: row.paid_at || null,
+            method: row.method || null,
+            paidMonth: row.paid_month || row.billing_month || null,
+            billingMonth: row.billing_month || null,
+            billingDate: row.billing_date || null,
+            note: row.note || null,
+            recordedBy: row.recorded_by || null,
+            source: row.source || null,
+          },
+          member: member
+            ? {
+                memberId: member.member_code || String(member.id),
+                memberUuid: member.member_uuid || null,
+                name: member.full_name || "—",
+                mobile: member.mobile || null,
+                status: member.status || null,
+                planName: member.plan_name || null,
+                amount: member.amount != null ? Number(member.amount) : null,
+              }
+            : null,
+        };
+      }
+
+      const payCols =
+        "id, member_id, external_payment_id, paid_at, amount, method, paid_month, billing_month, billing_date, note, recorded_by, source";
+
+      // 1) Direct payment id / external id lookup (also works when pasted from receipt).
+      if (!fingerprintWanted) {
+        const byExternal = await sb
+          .from("member_payment_history")
+          .select(payCols)
+          .eq("gym_id", gid)
+          .eq("external_payment_id", qRaw)
+          .maybeSingle();
+        if (byExternal.error) {
+          return res.status(500).json({ ok: false, error: byExternal.error.message });
+        }
+        if (byExternal.data) {
+          return res.json(await hydrateMatch(byExternal.data, "payment_id"));
+        }
+        if (/^\d+$/.test(qRaw)) {
+          const byId = await sb
+            .from("member_payment_history")
+            .select(payCols)
+            .eq("gym_id", gid)
+            .eq("id", qRaw)
+            .maybeSingle();
+          if (byId.error) {
+            return res.status(500).json({ ok: false, error: byId.error.message });
+          }
+          if (byId.data) {
+            return res.json(await hydrateMatch(byId.data, "payment_id"));
+          }
+        }
+        return res.json({
+          ok: true,
+          found: false,
+          query: qRaw,
+          message: "No payment found for that receipt / payment id.",
+        });
+      }
+
+      // 2) Fingerprint scan — ~1k rows; read-only, no writes.
+      const { data: rows, error } = await sb
+        .from("member_payment_history")
+        .select(payCols)
+        .eq("gym_id", gid)
+        .limit(5000);
+      if (error) {
+        return res.status(500).json({ ok: false, error: error.message });
+      }
+
+      for (const row of rows || []) {
+        const publicId = paymentPublicId(row);
+        if (!publicId) continue;
+        const fp = receiptFingerprint({
+          gymId: gid,
+          memberId: row.member_id,
+          paymentId: publicId,
+        });
+        if (fp === fingerprintWanted) {
+          return res.json(await hydrateMatch(row, "fingerprint"));
+        }
+      }
+
+      return res.json({
+        ok: true,
+        found: false,
+        query: fingerprintWanted,
+        message:
+          "No payment matches this verify code. Check the code, or confirm MEMBER_PORTAL_JWT_SECRET matches the Gym Website.",
+      });
+    } catch (err) {
+      return res.status(500).json({ ok: false, error: err?.message || "verify-failed" });
     }
   });
 }

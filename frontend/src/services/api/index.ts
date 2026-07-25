@@ -114,6 +114,39 @@ export const membersApi = {
       `/members/${encodeURIComponent(id)}/payments/${encodeURIComponent(paymentId)}`,
       { method: "DELETE" },
     ),
+  /** Staff read-only receipt verify by APG-XXXX-XXXX or payment / receipt id. */
+  verifyReceipt: (q: string) =>
+    apiFetch<{
+      ok: boolean;
+      found: boolean;
+      matchType?: "fingerprint" | "payment_id";
+      fingerprint?: string;
+      query?: string;
+      message?: string;
+      error?: string;
+      payment?: {
+        id: string;
+        rowId?: number | string;
+        amount: number;
+        paidAt: string | null;
+        method: string | null;
+        paidMonth: string | null;
+        billingMonth: string | null;
+        billingDate: string | null;
+        note: string | null;
+        recordedBy?: string | null;
+        source?: string | null;
+      };
+      member?: {
+        memberId: string;
+        memberUuid?: string | null;
+        name: string;
+        mobile: string | null;
+        status: string | null;
+        planName: string | null;
+        amount: number | null;
+      } | null;
+    }>(`/receipts/verify?q=${encodeURIComponent(q)}`),
   lookupReferral: (code: string) =>
     apiFetch<{
       ok?: boolean;
