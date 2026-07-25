@@ -914,42 +914,42 @@ export function MemberExpandedDetails({
           </Button>
         ) : null}
         {canEdit ? (
-          <label
-            className={cn(
-              "inline-flex h-7 cursor-pointer items-center gap-1.5 rounded-md border px-2 text-[10px] font-semibold select-none",
-              portalAccessOn
-                ? "border-violet-300 bg-violet-50 text-violet-800 dark:border-violet-700 dark:bg-violet-950/40 dark:text-violet-200"
-                : "border-border bg-muted/40 text-muted-foreground",
-              portalBusy && "opacity-60",
-            )}
+          <Button
+            type="button"
+            size="sm"
+            variant="outline"
+            role="switch"
+            aria-checked={portalAccessOn}
+            disabled={portalBusy}
+            onClick={() => void setPortalAccess(!portalAccessOn)}
             title={
               portalAccessOn
-                ? "Member Portal access is ON — member can log in"
-                : "Member Portal access is OFF — member cannot log in"
+                ? "Member Portal access is ON — member can log in. Click to turn OFF."
+                : "Member Portal access is OFF — member cannot log in. Click to turn ON."
             }
+            className={cn(
+              "h-7 gap-1.5 text-[10px] font-semibold",
+              portalAccessOn
+                ? "border-violet-400 bg-violet-100 text-violet-900 hover:bg-violet-200 dark:border-violet-600 dark:bg-violet-950/60 dark:text-violet-100 dark:hover:bg-violet-900/60"
+                : "border-slate-300 bg-slate-100 text-slate-700 hover:bg-slate-200 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-200",
+            )}
           >
-            <span>Portal</span>
-            <button
-              type="button"
-              role="switch"
-              aria-checked={portalAccessOn}
-              aria-label="Member Portal access"
-              disabled={portalBusy}
-              onClick={() => void setPortalAccess(!portalAccessOn)}
+            <span
               className={cn(
-                "relative h-4 w-7 shrink-0 rounded-full transition-colors",
-                portalAccessOn ? "bg-violet-600" : "bg-slate-300 dark:bg-slate-600",
-                portalBusy && "cursor-not-allowed",
+                "relative inline-flex h-3.5 w-6 shrink-0 rounded-full",
+                portalAccessOn ? "bg-violet-600" : "bg-slate-400",
               )}
+              aria-hidden
             >
               <span
                 className={cn(
-                  "absolute top-0.5 h-3 w-3 rounded-full bg-white shadow transition-transform",
-                  portalAccessOn ? "left-3.5" : "left-0.5",
+                  "absolute top-0.5 h-2.5 w-2.5 rounded-full bg-white shadow",
+                  portalAccessOn ? "left-3" : "left-0.5",
                 )}
               />
-            </button>
-          </label>
+            </span>
+            Portal {portalAccessOn ? "ON" : "OFF"}
+          </Button>
         ) : null}
         {canDelete ? (
           <Button
