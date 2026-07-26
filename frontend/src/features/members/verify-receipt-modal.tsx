@@ -16,12 +16,12 @@ type VerifyReceiptModalProps = {
   onOpenMember?: (memberId: string) => void;
 };
 
+/** Shape used to auto-detect receipt codes (not phone / member search). */
 export function isReceiptVerifyQuery(raw: string): boolean {
   const q = String(raw || "").trim();
   if (!q) return false;
   if (/^APG-[A-F0-9]{4}-[A-F0-9]{4}$/i.test(q)) return true;
   if (/^pay-/i.test(q)) return true;
-  if (/^\d{5,}$/.test(q) && !/[a-z]/i.test(q)) return true;
   return false;
 }
 

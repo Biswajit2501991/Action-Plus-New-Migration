@@ -41,10 +41,7 @@ import {
 import { MemberPhotoPreviewModal } from "@/features/members/member-photo-modals";
 import { MemberWorkoutDialog } from "@/features/members/member-workout-dialog";
 import { EditMemberModal } from "@/features/members/edit-member-modal";
-import {
-  isReceiptVerifyQuery,
-  VerifyReceiptModal,
-} from "@/features/members/verify-receipt-modal";
+import { VerifyReceiptModal } from "@/features/members/verify-receipt-modal";
 import {
   MemberMetricModal,
   type MetricModalKey,
@@ -1378,16 +1375,10 @@ export function MembersPage() {
                             }}
                             onKeyDown={(e) => {
                               if (e.key === "Enter") {
-                                const next = quickSearchInput.trim();
-                                if (isReceiptVerifyQuery(next)) {
-                                  setVerifyQuery(next);
-                                  setVerifyOpen(true);
-                                  return;
-                                }
-                                setAppliedQuickSearch(next);
+                                setAppliedQuickSearch(quickSearchInput.trim());
                               }
                             }}
-                            placeholder="Search members or APG-…"
+                            placeholder="Search members…"
                             className={quickSearchInput.trim() ? "pr-16" : "pr-10"}
                           />
                           <div className="absolute right-2 top-1/2 flex -translate-y-1/2 items-center gap-0.5">
@@ -1408,13 +1399,7 @@ export function MembersPage() {
                               type="button"
                               className="rounded-md p-1 text-muted-foreground hover:bg-muted hover:text-foreground"
                               onClick={() => {
-                                const next = quickSearchInput.trim();
-                                if (isReceiptVerifyQuery(next)) {
-                                  setVerifyQuery(next);
-                                  setVerifyOpen(true);
-                                  return;
-                                }
-                                setAppliedQuickSearch(next);
+                                setAppliedQuickSearch(quickSearchInput.trim());
                               }}
                               aria-label="Search"
                             >
