@@ -16,10 +16,8 @@ export function normalizePortalAccessByStatus(input) {
     if (key in src) out[key] = Boolean(src[key]);
     else if (lower in src) out[key] = Boolean(src[lower]);
   }
-  // All-false bricks every member login — treat as unset and keep historical Active/Hold.
-  if (!out.Active && !out.Hold && !out.Deactivated && !out.Cancelled) {
-    return { ...DEFAULT_PORTAL_ACCESS_BY_STATUS };
-  }
+  // Allow all-off: disable every status group, then grant portal access per member.
+  // Unset/empty input still yields DEFAULT (Active + Hold) via the seed above.
   return out;
 }
 

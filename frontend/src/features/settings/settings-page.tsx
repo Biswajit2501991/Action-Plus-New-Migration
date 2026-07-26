@@ -1830,10 +1830,10 @@ export function SettingsPage() {
               <div>
                 <p className="text-sm font-medium text-foreground">Portal access by status</p>
                 <p className="mt-0.5 text-[11px] leading-relaxed text-muted-foreground">
-                  Grant Member Portal login for whole status groups. Saving applies to all members
-                  in that status. Individual Portal ON/OFF on each member still works, and status
-                  changes auto-apply this policy. Home tile toggles above are separate and
-                  unchanged.
+                  Grant Member Portal login for whole status groups. You can turn every status off,
+                  then enable Portal ON only for specific members. Saving applies the group policy
+                  to all members in that status; individual Portal ON/OFF still overrides afterward.
+                  Status changes auto-apply this policy. Home tile toggles above are separate.
                 </p>
               </div>
               <div className="grid gap-2 lg:grid-cols-2">
