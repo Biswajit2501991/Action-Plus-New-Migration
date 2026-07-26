@@ -2241,7 +2241,7 @@ export async function patchPtClientProfile(memberCode, incomingProfile, meta = {
   // Legacy imports may have duplicate member_codes; pick the newest row (maybeSingle throws on >1).
   const { data: memberRows, error: memberErr } = await sb
     .from(T.members)
-    .select('id')
+    .select('id, member_uuid, plan_name')
     .eq('gym_id', gid)
     .eq('member_code', code)
     .order('updated_at', { ascending: false })
@@ -2250,13 +2250,7 @@ export async function patchPtClientProfile(memberCode, incomingProfile, meta = {
   const memberRow = Array.isArray(memberRows) && memberRows.length ? memberRows[0] : null;
   if (!memberRow?.id) throw new Error('member_not_found');
 
-  const { data: memberPlanRow, error: memberPlanErr } = await sb
-    .from(T.members)
-    .select('plan_name')
-    .eq('id', memberRow.id)
-    .single();
-  if (memberPlanErr) throw memberPlanErr;
-  if (!isPtPlanName(memberPlanRow?.plan_name)) {
+  if (!isPtPlanName(memberRow?.plan_name)) {
     const err = new Error('member_not_pt_eligible');
     err.status = 400;
     throw err;
@@ -2301,6 +2295,26 @@ export async function patchPtClientProfile(memberCode, incomingProfile, meta = {
     const { error: insErr } = await sb.from(T.pt_client_profiles).insert(row);
     if (insErr) throw insErr;
   }
+
+  // Keep Member Expand Workout / portal daily calendar in sync with focus changes.
+  if (
+    Object.prototype.hasOwnProperty.call(incomingProfile, 'focusByDate') &&
+    memberRow.member_uuid
+  ) {
+    try {
+      const { syncFocusMapDiffToDaily } = await import('../../lib/ptWorkoutCalendarSync.js');
+      await syncFocusMapDiffToDaily(sb, {
+        gymId: gid,
+        memberUuid: memberRow.member_uuid,
+        prevFocusByDate: prev.focusByDate,
+        nextFocusByDate: merged.focusByDate,
+        actor: merged.updatedBy || 'trainer',
+      });
+    } catch (syncErr) {
+      console.warn('[pt-workout-sync] focus→daily failed:', syncErr?.message || syncErr);
+    }
+  }
+
   notifyCollectionChange('settings');
   return merged;
 }

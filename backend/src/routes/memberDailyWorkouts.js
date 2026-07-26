@@ -31,10 +31,11 @@ export function registerMemberDailyWorkoutRoutes(app, { appendAuditLog }) {
   async function resolveMemberUuid(sb, gid, memberIdOrUuid) {
     const key = String(memberIdOrUuid || "").trim();
     if (!key) return null;
+    const cols = "id, member_uuid, member_code, full_name, status, plan_name";
     if (/^[0-9a-f-]{36}$/i.test(key)) {
       const { data } = await sb
         .from("members")
-        .select("member_uuid, member_code, full_name, status, plan_name")
+        .select(cols)
         .eq("gym_id", gid)
         .eq("member_uuid", key)
         .is("deleted_at", null)
@@ -43,7 +44,7 @@ export function registerMemberDailyWorkoutRoutes(app, { appendAuditLog }) {
     }
     const { data } = await sb
       .from("members")
-      .select("member_uuid, member_code, full_name, status, plan_name")
+      .select(cols)
       .eq("gym_id", gid)
       .eq("member_code", key)
       .is("deleted_at", null)
@@ -53,7 +54,7 @@ export function registerMemberDailyWorkoutRoutes(app, { appendAuditLog }) {
     if (Number.isFinite(asNum) && asNum > 0) {
       const { data: byId } = await sb
         .from("members")
-        .select("member_uuid, member_code, full_name, status, plan_name")
+        .select(cols)
         .eq("gym_id", gid)
         .eq("id", asNum)
         .is("deleted_at", null)
@@ -61,6 +62,20 @@ export function registerMemberDailyWorkoutRoutes(app, { appendAuditLog }) {
       return byId || null;
     }
     return null;
+  }
+
+  async function syncDailyToPtFocus(sb, gid, member, workoutDate, exercises) {
+    try {
+      const { syncDailyWorkoutToFocus } = await import("../lib/ptWorkoutCalendarSync.js");
+      await syncDailyWorkoutToFocus(sb, {
+        gymId: gid,
+        memberPk: member.id,
+        dateKey: workoutDate,
+        exercises,
+      });
+    } catch (syncErr) {
+      console.warn("[pt-workout-sync] daily→focus failed:", syncErr?.message || syncErr);
+    }
   }
 
   app.get(
@@ -104,6 +119,22 @@ export function registerMemberDailyWorkoutRoutes(app, { appendAuditLog }) {
           };
         }
 
+        // PT Scheduler focus days should appear on Expand → Workout calendar too.
+        let mergedByDate = byDate;
+        try {
+          const {
+            loadFocusByDateForMember,
+            mergeFocusIntoByDate,
+          } = await import("../lib/ptWorkoutCalendarSync.js");
+          const focusByDate = await loadFocusByDateForMember(sb, {
+            gymId: gid,
+            memberPk: member.id,
+          });
+          mergedByDate = mergeFocusIntoByDate(byDate, focusByDate);
+        } catch (syncErr) {
+          console.warn("[pt-workout-sync] GET merge failed:", syncErr?.message || syncErr);
+        }
+
         return res.json({
           ok: true,
           member: {
@@ -113,7 +144,7 @@ export function registerMemberDailyWorkoutRoutes(app, { appendAuditLog }) {
             status: member.status,
             planName: member.plan_name,
           },
-          byDate,
+          byDate: mergedByDate,
           items: data || [],
         });
       } catch (err) {
@@ -158,6 +189,7 @@ export function registerMemberDailyWorkoutRoutes(app, { appendAuditLog }) {
             .eq("member_uuid", member.member_uuid)
             .eq("workout_date", workoutDate);
           if (delErr) return res.status(500).json({ error: delErr.message });
+          await syncDailyToPtFocus(sb, gid, member, workoutDate, []);
           await appendAuditLog(req, {
             action: "member.daily_workout.clear",
             entityType: "member",
@@ -186,6 +218,8 @@ export function registerMemberDailyWorkoutRoutes(app, { appendAuditLog }) {
           )
           .maybeSingle();
         if (error) return res.status(500).json({ error: error.message });
+
+        await syncDailyToPtFocus(sb, gid, member, workoutDate, exercises);
 
         await appendAuditLog(req, {
           action: "member.daily_workout.save",

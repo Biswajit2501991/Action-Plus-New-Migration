@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { ClassicalModal } from "@/components/ui/classical-modal";
 import { Button } from "@/components/ui/button";
@@ -63,6 +64,7 @@ export function MemberWorkoutDialog({
   canEdit: boolean;
   onClose: () => void;
 }) {
+  const queryClient = useQueryClient();
   const options = useMemo(() => {
     const list =
       Array.isArray(exerciseTypes) && exerciseTypes.length
@@ -213,6 +215,8 @@ export function MemberWorkoutDialog({
           : `Cleared workout for ${workoutDate}`,
       );
       await load();
+      // PT Scheduler reads focusByDate from settings — refresh after Expand save.
+      void queryClient.invalidateQueries({ queryKey: ["settings"] });
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Save failed");
     } finally {
