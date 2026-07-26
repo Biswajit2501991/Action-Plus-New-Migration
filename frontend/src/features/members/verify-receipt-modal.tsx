@@ -16,12 +16,12 @@ type VerifyReceiptModalProps = {
   onOpenMember?: (memberId: string) => void;
 };
 
+/** Shape used to auto-detect receipt codes (not phone / member search). */
 export function isReceiptVerifyQuery(raw: string): boolean {
   const q = String(raw || "").trim();
   if (!q) return false;
   if (/^APG-[A-F0-9]{4}-[A-F0-9]{4}$/i.test(q)) return true;
   if (/^pay-/i.test(q)) return true;
-  if (/^\d{5,}$/.test(q) && !/[a-z]/i.test(q)) return true;
   return false;
 }
 
@@ -69,6 +69,25 @@ export function VerifyReceiptModal({
     setResult(null);
   }, [open, initialQuery]);
 
+  // Lock page scroll while open (same pattern as Hold Members / Edit Member).
+  useEffect(() => {
+    if (!open) return;
+    const prev = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    return () => {
+      document.body.style.overflow = prev;
+    };
+  }, [open]);
+
+  useEffect(() => {
+    if (!open) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") onClose();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [open, onClose]);
+
   const runVerify = useCallback(async (raw: string) => {
     const q = String(raw || "").trim();
     if (!q) {
@@ -109,7 +128,7 @@ export function VerifyReceiptModal({
 
   return (
     <div
-      className="fixed inset-0 z-[120] flex items-center justify-center bg-slate-950/55 p-4 backdrop-blur-[3px]"
+      className="fixed inset-0 z-[120] flex items-center justify-center overflow-y-auto overscroll-contain bg-slate-950/55 p-3 backdrop-blur-[3px] sm:p-4"
       role="dialog"
       aria-modal="true"
       aria-labelledby="verify-receipt-title"
@@ -117,12 +136,16 @@ export function VerifyReceiptModal({
         if (e.target === e.currentTarget) onClose();
       }}
     >
-      <div className="relative w-full max-w-lg overflow-hidden rounded-[28px] border border-slate-200/90 bg-[#fbfaf7] shadow-[0_40px_120px_-48px_rgba(15,23,42,0.75)] dark:border-white/10 dark:bg-[#0e131a]">
-        <div className="absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-amber-400/70 to-transparent" />
-        <div className="absolute -right-16 -top-20 h-48 w-48 rounded-full bg-amber-300/15 blur-3xl dark:bg-amber-400/10" />
+      <div
+        className="relative my-auto flex max-h-[min(92dvh,920px)] w-full max-w-lg flex-col overflow-hidden rounded-[28px] border border-slate-200/90 bg-[#fbfaf7] shadow-[0_40px_120px_-48px_rgba(15,23,42,0.75)] dark:border-white/10 dark:bg-[#0e131a]"
+        onMouseDown={(e) => e.stopPropagation()}
+      >
+        <div className="pointer-events-none absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-amber-400/70 to-transparent" />
+        <div className="pointer-events-none absolute -right-16 -top-20 h-48 w-48 rounded-full bg-amber-300/15 blur-3xl dark:bg-amber-400/10" />
 
-        <div className="relative flex items-start justify-between gap-3 px-6 pb-2 pt-5">
-          <div className="min-w-0">
+        {/* Sticky header — X always visible */}
+        <div className="relative z-10 flex shrink-0 items-start justify-between gap-3 border-b border-slate-200/70 bg-[#fbfaf7]/95 px-5 pb-3 pt-5 backdrop-blur-sm dark:border-white/10 dark:bg-[#0e131a]/95 sm:px-6">
+          <div className="min-w-0 pr-2">
             <p className="text-[10px] font-semibold uppercase tracking-[0.28em] text-slate-400">
               Action Plus Gym
             </p>
@@ -140,13 +163,14 @@ export function VerifyReceiptModal({
             type="button"
             onClick={onClose}
             aria-label="Close"
-            className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-slate-200/90 bg-white/80 text-slate-500 transition hover:bg-white hover:text-slate-900 dark:border-white/10 dark:bg-white/5 dark:hover:text-slate-100"
+            className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-full border border-slate-300 bg-white text-slate-700 shadow-sm transition hover:bg-slate-50 hover:text-slate-950 dark:border-white/25 dark:bg-white/10 dark:text-white dark:hover:bg-white/20"
           >
-            <X className="h-4 w-4" />
+            <X className="h-4 w-4" strokeWidth={2.5} />
           </button>
         </div>
 
-        <div className="relative space-y-5 px-6 pb-6 pt-3">
+        {/* Scrollable body — same pattern as Hold Members / Edit Member */}
+        <div className="relative min-h-0 flex-1 space-y-5 overflow-y-auto overscroll-contain px-5 py-4 sm:px-6">
           <div className="rounded-2xl border border-slate-200/80 bg-white/90 p-3 shadow-sm dark:border-white/10 dark:bg-white/[0.03]">
             <label className="mb-1.5 block text-[10px] font-semibold uppercase tracking-[0.18em] text-slate-400">
               Verify code
@@ -246,18 +270,19 @@ export function VerifyReceiptModal({
               ) : null}
             </div>
           ) : null}
+        </div>
 
-          <div className="flex items-center justify-between gap-3">
-            <p className="text-[11px] text-slate-400">Read-only · gym records are final</p>
-            <Button
-              type="button"
-              variant="outline"
-              className="rounded-full"
-              onClick={onClose}
-            >
-              Close
-            </Button>
-          </div>
+        {/* Sticky footer — Close always reachable */}
+        <div className="relative z-10 flex shrink-0 items-center justify-between gap-3 border-t border-slate-200/70 bg-[#fbfaf7]/95 px-5 py-3 backdrop-blur-sm dark:border-white/10 dark:bg-[#0e131a]/95 sm:px-6">
+          <p className="text-[11px] text-slate-400">Read-only · gym records are final</p>
+          <Button
+            type="button"
+            variant="outline"
+            className="rounded-full"
+            onClick={onClose}
+          >
+            Close
+          </Button>
         </div>
       </div>
     </div>
