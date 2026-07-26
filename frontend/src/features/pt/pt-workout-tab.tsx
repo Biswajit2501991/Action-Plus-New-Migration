@@ -1,10 +1,12 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { useQueryClient } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import { Input, Label, Select, Textarea } from "@/components/ui/input";
 import { buildPtMonthCalendarCells, parsePtDateKey, ptDateKeyFromParts } from "@/lib/domain/pt-calendar";
 import { isoDate } from "@/lib/domain/member-dates";
+import { apiFetch } from "@/services/api/client";
 import { cn, formatDate } from "@/lib/utils";
 import type { Member, StaffUser } from "@/types";
 import type { PtClientProfile } from "@/types/pt";
@@ -27,6 +29,18 @@ const MONTH_LABELS = [
 ];
 
 type FocusDraft = { memberId: string; dateKey: string; focus: string | null } | null;
+
+type DailyDayLog = {
+  exercises?: string[];
+  notes?: string;
+};
+
+function focusFromExercises(exercises: string[] | undefined): string {
+  const list = (exercises || []).map((x) => String(x || "").trim()).filter(Boolean);
+  if (!list.length) return "";
+  if (list.length === 1) return list[0].slice(0, 80);
+  return list.join(", ").slice(0, 80);
+}
 
 export function PtWorkoutTab({
   member,
@@ -59,11 +73,13 @@ export function PtWorkoutTab({
   reviewPending: boolean;
   onConfirmReview: () => void;
 }) {
+  const queryClient = useQueryClient();
   const [workoutDate, setWorkoutDate] = useState(isoDate(new Date()));
   const [workoutCalendarOpen, setWorkoutCalendarOpen] = useState(true);
   const [focusPage, setFocusPage] = useState(1);
   const [focusScheduleDraft, setFocusScheduleDraft] = useState<FocusDraft>(null);
   const [focusScheduleSaving, setFocusScheduleSaving] = useState(false);
+  const [dailyByDate, setDailyByDate] = useState<Record<string, DailyDayLog>>({});
 
   const savedFocusByDate = profile.focusByDate || {};
   const workoutDateKey = isoDate(workoutDate || new Date());
@@ -81,17 +97,62 @@ export function PtWorkoutTab({
       focusScheduleDraft.dateKey === workoutDateKey,
   );
 
-  const savedFocusForDate = savedFocusByDate[workoutDateKey] || "";
+  const loadDailyWorkouts = useCallback(async () => {
+    const key = encodeURIComponent(member.memberId || member.memberUuid || "");
+    if (!key) {
+      setDailyByDate({});
+      return;
+    }
+    try {
+      const data = await apiFetch<{
+        ok?: boolean;
+        byDate?: Record<string, DailyDayLog>;
+        focusBackfilled?: number;
+      }>(`/member-daily-workouts/${key}`);
+      setDailyByDate(data.byDate || {});
+      if (Number(data.focusBackfilled) > 0) {
+        void queryClient.invalidateQueries({ queryKey: ["settings"] });
+      }
+    } catch {
+      setDailyByDate({});
+    }
+  }, [member.memberId, member.memberUuid, queryClient]);
+
+  useEffect(() => {
+    void loadDailyWorkouts();
+  }, [loadDailyWorkouts]);
+
+  // Union PT focusByDate with Expand → Workout daily logs so both calendars match.
+  const syncedFocusByDate = useMemo(() => {
+    const next: Record<string, string> = { ...savedFocusByDate };
+    for (const [day, row] of Object.entries(dailyByDate)) {
+      if (next[day]) continue;
+      const label = focusFromExercises(row?.exercises);
+      if (label) next[day] = label;
+    }
+    return next;
+  }, [savedFocusByDate, dailyByDate]);
+
+  const notesByDate = useMemo(() => {
+    const next: Record<string, string> = {};
+    for (const [day, row] of Object.entries(dailyByDate)) {
+      const note = String(row?.notes || "").trim();
+      if (note) next[day] = note;
+    }
+    return next;
+  }, [dailyByDate]);
+
+  const savedFocusForDate = syncedFocusByDate[workoutDateKey] || "";
   const focusScheduleDirty = focusDraftApplies && (focusScheduleDraft?.focus || "") !== savedFocusForDate;
 
   const displayFocusByDate = useMemo(() => {
-    const next = { ...savedFocusByDate };
+    const next = { ...syncedFocusByDate };
     if (focusDraftApplies && focusScheduleDraft) {
       if (focusScheduleDraft.focus) next[workoutDateKey] = focusScheduleDraft.focus;
       else delete next[workoutDateKey];
     }
     return next;
-  }, [savedFocusByDate, focusDraftApplies, focusScheduleDraft, workoutDateKey]);
+  }, [syncedFocusByDate, focusDraftApplies, focusScheduleDraft, workoutDateKey]);
 
   useEffect(() => {
     setFocusScheduleDraft(null);
@@ -108,6 +169,7 @@ export function PtWorkoutTab({
     dateParts.year,
     dateParts.monthIndex,
     displayFocusByDate,
+    notesByDate,
   );
   const ptDaysDone = monthCalendarCells.filter((c) => c.kind === "day" && !c.isSunday && c.hasFocus).length;
   const selectedDateFocus = displayFocusByDate[workoutDateKey] || "";
@@ -146,13 +208,16 @@ export function PtWorkoutTab({
     if (!focusScheduleDirty || !focusDraftApplies || focusScheduleSaving) return;
     setFocusScheduleSaving(true);
     const ok = await onSaveFocus(focusScheduleDraft?.focus || null, workoutDateKey);
-    if (ok) setFocusScheduleDraft(null);
+    if (ok) {
+      setFocusScheduleDraft(null);
+      await loadDailyWorkouts();
+    }
     setFocusScheduleSaving(false);
   };
 
   const clearFocusSchedule = async () => {
     if (!canEdit || focusScheduleSaving) return;
-    const hasSaved = Boolean(savedFocusByDate[workoutDateKey]);
+    const hasSaved = Boolean(syncedFocusByDate[workoutDateKey]);
     const hasDraftSelection = focusDraftApplies && focusScheduleDraft?.focus;
     if (!hasSaved && !hasDraftSelection) return;
     if (
@@ -164,7 +229,10 @@ export function PtWorkoutTab({
     }
     setFocusScheduleSaving(true);
     const ok = await onSaveFocus(null, workoutDateKey);
-    if (ok) setFocusScheduleDraft(null);
+    if (ok) {
+      setFocusScheduleDraft(null);
+      await loadDailyWorkouts();
+    }
     setFocusScheduleSaving(false);
   };
 
@@ -389,8 +457,8 @@ export function PtWorkoutTab({
             </div>
             <p className="mt-2 text-[11px] text-muted-foreground">
               Tap a day to set Workout Date, choose a focus above, then Save
-              {canEdit ? "" : " (view only — ask owner for Edit PT Workout)"}. Green = scheduled · Rose =
-              open.
+              {canEdit ? "" : " (view only — ask owner for Edit PT Workout)"}. Synced with Member Expand
+              → Workout. Green = PT · Amber = notes · Rose = open.
             </p>
             <div className="mb-2 mt-2 grid grid-cols-7 gap-2 text-center text-xs text-muted-foreground">
               {WEEKDAYS.map((d) => (
@@ -414,19 +482,33 @@ export function PtWorkoutTab({
                     onClick={() => handleWorkoutDateChange(entry.key)}
                     className={cn(
                       "min-h-12 rounded-lg border px-2 py-2 text-xs",
-                      entry.isSunday
+                      entry.isSunday && !entry.hasFocus && !entry.hasNote
                         ? "border-border bg-muted text-muted-foreground"
                         : entry.hasFocus
                           ? "border-emerald-300 bg-emerald-50 text-emerald-700 dark:bg-emerald-950/30"
-                          : "border-rose-300 bg-rose-50 text-rose-700 dark:bg-rose-950/30",
+                          : entry.hasNote
+                            ? "border-amber-300 bg-amber-50 text-amber-800 dark:bg-amber-950/30"
+                            : "border-rose-300 bg-rose-50 text-rose-700 dark:bg-rose-950/30",
                       workoutDateKey === entry.key && "ring-2 ring-sky-500",
                     )}
                     title={
-                      entry.focus ? `${entry.key}: ${entry.focus}` : `${entry.key}: No focus assigned`
+                      entry.focus
+                        ? `${entry.key}: ${entry.focus}`
+                        : entry.hasNote
+                          ? `${entry.key}: Notes only`
+                          : `${entry.key}: No focus assigned`
                     }
                   >
                     <div className="font-semibold">{entry.day}</div>
-                    <div className="mt-1 truncate">{entry.focus || (entry.isSunday ? "Sun" : "—")}</div>
+                    <div className="mt-1 truncate">
+                      {entry.mark === "pt"
+                        ? entry.focus || "PT"
+                        : entry.mark === "nt"
+                          ? "NT"
+                          : entry.isSunday
+                            ? "Sun"
+                            : "—"}
+                    </div>
                   </button>
                 ),
               )}

@@ -136,6 +136,7 @@ export function MemberWorkoutDialog({
         apiFetch<{
           ok?: boolean;
           byDate?: Record<string, DayLog>;
+          focusBackfilled?: number;
         }>(`/member-daily-workouts/${key}`),
         apiFetch<{
           ok?: boolean;
@@ -149,6 +150,9 @@ export function MemberWorkoutDialog({
         })),
       ]);
       setByDate(workoutData.byDate || {});
+      if (Number(workoutData.focusBackfilled) > 0) {
+        void queryClient.invalidateQueries({ queryKey: ["settings"] });
+      }
       setWeightLogs(Array.isArray(weightData.logs) ? weightData.logs : []);
       setCurrentKg(weightData.currentKg ?? null);
       setChangeKg(weightData.changeKg ?? null);

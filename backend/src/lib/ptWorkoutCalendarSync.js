@@ -260,3 +260,77 @@ export function mergeFocusIntoByDate(byDate, focusByDate) {
   }
   return out;
 }
+
+/**
+ * Fill missing focusByDate days from existing daily workout exercises.
+ * Never overwrites an existing focus label. Never deletes. Notes untouched.
+ */
+export async function backfillFocusFromDaily(
+  sb,
+  { gymId, memberPk, byDate },
+) {
+  const gid = String(gymId || "").trim();
+  const memberId = Number(memberPk);
+  if (!gid || !Number.isFinite(memberId) || memberId <= 0) {
+    return { ok: false, reason: "bad-args", filled: 0 };
+  }
+
+  const daily = byDate && typeof byDate === "object" ? byDate : {};
+  const fills = {};
+  for (const [rawDay, row] of Object.entries(daily)) {
+    const day = normalizeDate(rawDay);
+    if (!day) continue;
+    const label = focusLabelFromExercises(row?.exercises);
+    if (!label) continue;
+    fills[day] = label;
+  }
+  if (!Object.keys(fills).length) return { ok: true, filled: 0, skipped: "no-daily-exercises" };
+
+  const { data: profileRows, error: profileErr } = await sb
+    .from("pt_client_profiles")
+    .select("id, plan_json")
+    .eq("gym_id", gid)
+    .eq("member_id", memberId)
+    .order("updated_at", { ascending: false })
+    .limit(1);
+  if (profileErr) throw profileErr;
+  const profileRow = Array.isArray(profileRows) && profileRows.length ? profileRows[0] : null;
+  if (!profileRow?.id) return { ok: true, filled: 0, skipped: "no-pt-profile" };
+
+  const plan =
+    profileRow.plan_json && typeof profileRow.plan_json === "object"
+      ? { ...profileRow.plan_json }
+      : {};
+  const focusByDate =
+    plan.focusByDate && typeof plan.focusByDate === "object"
+      ? { ...plan.focusByDate }
+      : {};
+
+  let filled = 0;
+  for (const [day, label] of Object.entries(fills)) {
+    const existing = normalizeFocusLabel(focusByDate[day]);
+    if (existing) continue;
+    focusByDate[day] = label;
+    filled += 1;
+  }
+  if (!filled) return { ok: true, filled: 0, skipped: "nothing-missing" };
+
+  const nowIso = new Date().toISOString();
+  plan.focusByDate = focusByDate;
+  plan.updatedAt = nowIso;
+
+  const { error } = await sb
+    .from("pt_client_profiles")
+    .update({ plan_json: plan, updated_at: nowIso })
+    .eq("id", profileRow.id);
+  if (error) throw error;
+
+  try {
+    const { notifyCollectionChange } = await import("../realtime/supabaseListener.js");
+    notifyCollectionChange("settings");
+  } catch {
+    /* optional */
+  }
+
+  return { ok: true, filled, focusByDate };
+}

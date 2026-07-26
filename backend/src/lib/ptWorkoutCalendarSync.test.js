@@ -22,3 +22,18 @@ describe("mergeFocusIntoByDate", () => {
     assert.equal(merged["2026-07-03"].notes, "sore knee");
   });
 });
+
+describe("focusLabel helpers via merge gap-fill semantics", () => {
+  it("keeps existing daily exercises when focus also exists", () => {
+    const merged = mergeFocusIntoByDate(
+      {
+        "2026-07-13": { exercises: ["PT"], notes: "" },
+        "2026-07-25": { exercises: [], notes: "rest note" },
+      },
+      { "2026-07-14": "Chest" },
+    );
+    assert.deepEqual(merged["2026-07-13"].exercises, ["PT"]);
+    assert.deepEqual(merged["2026-07-14"].exercises, ["Chest"]);
+    assert.equal(merged["2026-07-25"].notes, "rest note");
+  });
+});

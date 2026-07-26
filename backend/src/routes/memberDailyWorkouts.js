@@ -121,11 +121,20 @@ export function registerMemberDailyWorkoutRoutes(app, { appendAuditLog }) {
 
         // PT Scheduler focus days should appear on Expand → Workout calendar too.
         let mergedByDate = byDate;
+        let focusBackfilled = 0;
         try {
           const {
             loadFocusByDateForMember,
             mergeFocusIntoByDate,
+            backfillFocusFromDaily,
           } = await import("../lib/ptWorkoutCalendarSync.js");
+          // Heal older Expand→Workout logs into PT focusByDate (gap-fill only).
+          const backfill = await backfillFocusFromDaily(sb, {
+            gymId: gid,
+            memberPk: member.id,
+            byDate,
+          });
+          focusBackfilled = Number(backfill?.filled) || 0;
           const focusByDate = await loadFocusByDateForMember(sb, {
             gymId: gid,
             memberPk: member.id,
@@ -146,6 +155,7 @@ export function registerMemberDailyWorkoutRoutes(app, { appendAuditLog }) {
           },
           byDate: mergedByDate,
           items: data || [],
+          focusBackfilled,
         });
       } catch (err) {
         return res.status(500).json({ error: err?.message || "load-failed" });
