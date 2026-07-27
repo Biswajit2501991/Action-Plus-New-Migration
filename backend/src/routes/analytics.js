@@ -230,8 +230,11 @@ export function registerAnalyticsRoutes(app) {
       for (const m of members) {
         const st = String(m.status || "").trim();
         if (st in byStatus) byStatus[st] += 1;
-        const plan = String(m.plan_name || "Unknown").trim() || "Unknown";
-        byPlan[plan] = (byPlan[plan] || 0) + 1;
+        // Plan mix top-10 is Active-only (display aggregate; does not mutate members).
+        if (st === "Active") {
+          const plan = String(m.plan_name || "Unknown").trim() || "Unknown";
+          byPlan[plan] = (byPlan[plan] || 0) + 1;
+        }
         // Display-only window: ignore future / typo joining_date months (e.g. 2044-07).
         const jm = String(m.joining_date || "").slice(0, 7);
         if (allowedJoinMonths.has(jm)) joinsByMonth[jm] = (joinsByMonth[jm] || 0) + 1;

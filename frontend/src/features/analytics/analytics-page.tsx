@@ -189,13 +189,19 @@ export function AnalyticsPage() {
   const planMix = useMemo(() => {
     const map: Record<string, number> = {};
     for (const m of members) {
+      // Plan mix is Active-only so Hold/Deactivated/Cancelled do not inflate the chart.
+      if (String(m.status || "").trim() !== "Active") continue;
       const plan = String(m.plan || "Unknown").trim() || "Unknown";
       map[plan] = (map[plan] || 0) + 1;
     }
     return Object.entries(map)
       .sort((a, b) => b[1] - a[1])
       .slice(0, 10)
-      .map(([plan, count]) => ({ plan, count }));
+      .map(([plan, count]) => ({
+        plan: plan.length > 28 ? `${plan.slice(0, 26)}…` : plan,
+        planFull: plan,
+        count,
+      }));
   }, [members]);
 
   const overviewKpis = asRecord(overviewQ.data?.kpis);
@@ -378,15 +384,33 @@ export function AnalyticsPage() {
             </Card>
             <Card>
               <CardHeader>
-                <CardTitle>Plan mix (top 10)</CardTitle>
+                <CardTitle>Plan mix (top 10) — Active</CardTitle>
               </CardHeader>
-              <CardContent className="h-64">
+              <CardContent className="h-72 overflow-hidden">
                 <ResponsiveContainer width="100%" height="100%">
-                  <BarChart data={planMix} layout="vertical" margin={{ left: 24 }}>
+                  <BarChart
+                    data={planMix}
+                    layout="vertical"
+                    margin={{ top: 4, right: 12, left: 8, bottom: 4 }}
+                  >
                     <CartesianGrid strokeDasharray="3 3" className="stroke-border" />
                     <XAxis type="number" allowDecimals={false} tick={{ fontSize: 11 }} />
-                    <YAxis type="category" dataKey="plan" width={100} tick={{ fontSize: 10 }} />
-                    <Tooltip />
+                    <YAxis
+                      type="category"
+                      dataKey="plan"
+                      width={120}
+                      tick={{ fontSize: 10 }}
+                      interval={0}
+                    />
+                    <Tooltip
+                      formatter={(value) => [value, "Members"]}
+                      labelFormatter={(_, payload) => {
+                        const row = payload?.[0]?.payload as
+                          | { planFull?: string; plan?: string }
+                          | undefined;
+                        return row?.planFull || row?.plan || "";
+                      }}
+                    />
                     <Bar dataKey="count" fill="#0369a1" radius={[0, 6, 6, 0]} />
                   </BarChart>
                 </ResponsiveContainer>
