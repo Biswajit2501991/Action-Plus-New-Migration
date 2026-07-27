@@ -7,11 +7,13 @@
  */
 
 /**
- * Known login vs plan-suffix spelling differences (e.g. staff Koushik, plan PT-Kaushik).
+ * Known login vs plan-suffix spelling differences (e.g. staff Koushik, plan PT-Kaushik / PT-Kaushk).
  * Bidirectional: either form resolves to the same canonical id.
  */
 export const TRAINER_SPELLING_ALIASES = [
   ['koushik', 'kaushik'],
+  ['koushik', 'kaushk'],
+  ['kaushik', 'kaushk'],
 ];
 
 export function seedTrainerSpellingAliases(aliasMap = null) {

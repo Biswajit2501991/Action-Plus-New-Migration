@@ -61,6 +61,19 @@ describe('ptTrainerScope', () => {
     ).toBe(false);
   });
 
+  it('matches typo plan PT-Kaushk to staff Koushik', () => {
+    expect(
+      ptClientAssignedToViewer(
+        { plan: 'PT-Kaushk' },
+        {},
+        'Koushik',
+        'Koushik',
+        new Map([['koushik', 'koushik']]),
+      ),
+    ).toBe(true);
+    expect(resolveStaffCanonical('Kaushk', new Map([['koushik', 'koushik']]))).toBe('koushik');
+  });
+
   it('matches short plan suffix to longer staff login (Bis → Biswajit)', () => {
     expect(staffTokenMatchesViewer('bis', new Set(['biswajit']))).toBe(true);
     expect(

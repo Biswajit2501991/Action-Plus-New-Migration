@@ -14,10 +14,12 @@ export function canViewAllPtClients(user: AuthUser | null | undefined) {
 }
 
 /**
- * Known login vs plan-suffix spelling differences (staff Koushik, plan PT-Kaushik).
+ * Known login vs plan-suffix spelling differences (staff Koushik, plan PT-Kaushik / PT-Kaushk).
  */
 export const TRAINER_SPELLING_ALIASES: Array<[string, string]> = [
   ["koushik", "kaushik"],
+  ["koushik", "kaushk"],
+  ["kaushik", "kaushk"],
 ];
 
 export function seedTrainerSpellingAliases(
