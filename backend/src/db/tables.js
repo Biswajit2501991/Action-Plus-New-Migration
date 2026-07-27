@@ -36,6 +36,7 @@ export const T = {
   leave_requests: 'leave_requests',
   leave_balance_adjustments: 'leave_balance_adjustments',
   staff_attendance_records: 'staff_attendance_records',
+  staff_attendance_punches: 'staff_attendance_punches',
   attendance_notes: 'attendance_notes',
   member_payment_history: 'member_payment_history',
   member_paid_for_month: 'member_paid_for_month',

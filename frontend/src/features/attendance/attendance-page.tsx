@@ -48,6 +48,41 @@ function resolveFirstLoginTimestamp(row: AttendanceRecord) {
   return "";
 }
 
+function resolveDayPunches(row: AttendanceRecord) {
+  const listed = Array.isArray(row.punches) ? row.punches : [];
+  const cleaned = listed
+    .map((p) => ({
+      id: String(p.id || `${p.type}-${p.at}`),
+      type: String(p.type || "").toLowerCase() === "logout" ? "logout" : "login",
+      at: toIsoOrEmpty(p.at),
+      markedBy: String(p.markedBy || "").trim(),
+    }))
+    .filter((p) => p.at)
+    .sort((a, b) => a.at.localeCompare(b.at));
+  if (cleaned.length) return cleaned;
+
+  const synthetic: { id: string; type: "login" | "logout"; at: string; markedBy: string }[] = [];
+  const firstLogin = resolveFirstLoginTimestamp(row);
+  if (firstLogin) {
+    synthetic.push({
+      id: `legacy-login-${row.date}-${row.userId}`,
+      type: "login",
+      at: firstLogin,
+      markedBy: String(row.markedBy || "").trim(),
+    });
+  }
+  const lastLogout = toIsoOrEmpty(row.lastLogoutAt);
+  if (lastLogout) {
+    synthetic.push({
+      id: `legacy-logout-${row.date}-${row.userId}`,
+      type: "logout",
+      at: lastLogout,
+      markedBy: String(row.updatedBy || row.markedBy || "").trim(),
+    });
+  }
+  return synthetic;
+}
+
 function staffName(users: StaffUser[], userId?: string) {
   const hit = users.find((u) => u.id === userId);
   return hit?.name || userId || "—";
@@ -262,7 +297,7 @@ export function AttendancePage() {
     <div className="space-y-5">
       <PageHeader
         title="Attendance"
-        description="Daily staff attendance with first-login and last-logout tracking."
+        description="One row per staff per day. Main row shows first login and last logout; expand to see every login/logout that day."
         actions={
           <div className="flex flex-wrap items-center gap-2">
             <Input
@@ -314,6 +349,7 @@ export function AttendancePage() {
             staff.map((s) => {
               const rec = recordMap.get(attendanceRecordKey(date, s.id)) || {};
               const firstLoginTs = resolveFirstLoginTimestamp(rec);
+              const dayPunches = resolveDayPunches(rec);
               const isOpen = expandedStaffId === s.id;
               const historyRows = historyByUser[s.id] || [];
               const totalPages = Math.max(1, Math.ceil(historyRows.length / HISTORY_PAGE_SIZE));
@@ -363,6 +399,11 @@ export function AttendancePage() {
                           {rec.lastLogoutAt
                             ? `Out ${formatDateTimeTz(rec.lastLogoutAt, displayTz)}`
                             : ""}
+                        </span>
+                      ) : null}
+                      {dayPunches.length > 1 ? (
+                        <span className="rounded-full border border-slate-200 bg-slate-50 px-2 py-0.5 text-[10px] font-semibold text-slate-600">
+                          {dayPunches.length} punches
                         </span>
                       ) : null}
                       {noteRow ? (
@@ -490,6 +531,70 @@ export function AttendancePage() {
                             </span>
                           </div>
                         ) : null}
+                      </div>
+
+                      <div className="rounded-2xl border border-slate-200 bg-white p-3 dark:border-border dark:bg-card">
+                        <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+                          <div className="text-sm font-semibold">All login / logout today</div>
+                          <div className="text-xs text-muted-foreground">
+                            {dayPunches.length
+                              ? `${dayPunches.length} event${dayPunches.length === 1 ? "" : "s"}`
+                              : "No punches yet"}
+                          </div>
+                        </div>
+                        <div className="overflow-x-auto">
+                          <table className="min-w-full text-xs">
+                            <thead>
+                              <tr className="bg-slate-100 text-slate-700 dark:bg-muted dark:text-muted-foreground">
+                                <th className="px-2 py-1.5 text-left font-semibold">#</th>
+                                <th className="px-2 py-1.5 text-left font-semibold">Type</th>
+                                <th className="px-2 py-1.5 text-left font-semibold">Time</th>
+                                <th className="px-2 py-1.5 text-left font-semibold">By</th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {dayPunches.map((p, idx) => (
+                                <tr
+                                  key={p.id}
+                                  className="border-t border-slate-200 dark:border-border"
+                                >
+                                  <td className="whitespace-nowrap px-2 py-1.5">{idx + 1}</td>
+                                  <td className="whitespace-nowrap px-2 py-1.5">
+                                    <span
+                                      className={cn(
+                                        "rounded-full border px-2 py-0.5 text-[10px] font-semibold",
+                                        p.type === "logout"
+                                          ? "border-rose-200 bg-rose-50 text-rose-800"
+                                          : "border-emerald-200 bg-emerald-50 text-emerald-800",
+                                      )}
+                                    >
+                                      {p.type === "logout" ? "Logout" : "Login"}
+                                    </span>
+                                  </td>
+                                  <td className="whitespace-nowrap px-2 py-1.5">
+                                    {formatDateTimeTz(p.at, displayTz)}{" "}
+                                    <span className="text-[10px] uppercase text-slate-400">
+                                      {displayTz}
+                                    </span>
+                                  </td>
+                                  <td className="whitespace-nowrap px-2 py-1.5">
+                                    {p.markedBy || "—"}
+                                  </td>
+                                </tr>
+                              ))}
+                              {!dayPunches.length ? (
+                                <tr>
+                                  <td
+                                    colSpan={4}
+                                    className="px-2 py-3 text-center text-muted-foreground"
+                                  >
+                                    No login/logout events recorded for this day.
+                                  </td>
+                                </tr>
+                              ) : null}
+                            </tbody>
+                          </table>
+                        </div>
                       </div>
 
                       <div className="rounded-2xl border border-slate-200 bg-slate-50/80 p-3 dark:border-border dark:bg-muted/20">

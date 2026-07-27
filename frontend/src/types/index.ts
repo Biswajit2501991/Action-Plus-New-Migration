@@ -231,6 +231,15 @@ export type AuditLog = {
   [key: string]: unknown;
 };
 
+export type AttendancePunchEvent = {
+  id?: string;
+  type?: "login" | "logout" | string;
+  at?: string;
+  timeZoneAtMark?: string;
+  markedBy?: string;
+  [key: string]: unknown;
+};
+
 export type AttendanceRecord = {
   id?: string;
   userId?: string;
@@ -243,6 +252,8 @@ export type AttendanceRecord = {
   notes?: string;
   firstLoginAt?: string;
   lastLogoutAt?: string;
+  /** All login/logout events for this staff+day (expand detail). */
+  punches?: AttendancePunchEvent[];
   autoPresentWindowUntil?: string;
   timeZoneAtMark?: string;
   autoMarked?: boolean;

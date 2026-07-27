@@ -594,10 +594,23 @@ function applyAttendancePunchToRecords(records, { userId, punchType, atIso, time
   const actor = actorName || uid;
   const existingIdx = records.findIndex((r) => String(r.date).slice(0, 10) === today && r.userId === uid);
   const existing = existingIdx >= 0 ? records[existingIdx] : null;
+  const punchEvent = {
+    id: crypto.randomUUID(),
+    type: punchType === 'logout' ? 'logout' : 'login',
+    at,
+    timeZoneAtMark: timeZone || null,
+    markedBy: actor,
+  };
   let next;
   if (punchType === 'logout') {
     if (existing) {
-      next = { ...existing, lastLogoutAt: at, updatedAt: at, updatedBy: actor };
+      next = {
+        ...existing,
+        lastLogoutAt: at,
+        updatedAt: at,
+        updatedBy: actor,
+        punches: [...(Array.isArray(existing.punches) ? existing.punches : []), punchEvent],
+      };
       records[existingIdx] = next;
     } else {
       next = {
@@ -616,6 +629,7 @@ function applyAttendancePunchToRecords(records, { userId, punchType, atIso, time
         markedBy: actor,
         updatedAt: at,
         updatedBy: actor,
+        punches: [punchEvent],
       };
       records.unshift(next);
     }
@@ -631,6 +645,7 @@ function applyAttendancePunchToRecords(records, { userId, punchType, atIso, time
         firstLoginAt: existing.firstLoginAt || at,
         updatedAt: at,
         updatedBy: actor,
+        punches: [...(Array.isArray(existing.punches) ? existing.punches : []), punchEvent],
       };
       records[existingIdx] = next;
     } else {
@@ -650,6 +665,7 @@ function applyAttendancePunchToRecords(records, { userId, punchType, atIso, time
         markedBy: actor,
         updatedAt: at,
         updatedBy: actor,
+        punches: [punchEvent],
       };
       records.unshift(next);
     }

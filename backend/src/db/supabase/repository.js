@@ -3426,8 +3426,126 @@ async function upsertAttendanceRow(sb, gid, appRecord) {
   if (insErr) throw new Error(`staff_attendance_records: ${insErr.message}`);
 }
 
+function punchEventToApp(r) {
+  return {
+    id: r.id,
+    type: r.punch_type === 'logout' ? 'logout' : 'login',
+    at: r.punched_at,
+    timeZoneAtMark: r.timezone_at_mark || null,
+    markedBy: r.marked_by || null,
+  };
+}
+
+/**
+ * Append one login/logout event for the day. Soft-fails if punches table is missing
+ * so existing attendance punch still works before/without migration.
+ */
+async function appendStaffAttendancePunch(sb, gid, {
+  attendanceRecordId = null,
+  staffLoginId,
+  attendanceDate,
+  punchType,
+  punchedAt,
+  timeZone = null,
+  markedBy = null,
+}) {
+  const row = {
+    gym_id: gid,
+    attendance_record_id: attendanceRecordId || null,
+    staff_login_id: String(staffLoginId || '').trim(),
+    attendance_date: String(attendanceDate || '').slice(0, 10),
+    punch_type: punchType === 'logout' ? 'logout' : 'login',
+    punched_at: toTs(punchedAt) || new Date().toISOString(),
+    timezone_at_mark: timeZone || null,
+    marked_by: markedBy || null,
+  };
+  if (!row.staff_login_id || !row.attendance_date) return null;
+  const { data, error } = await sb
+    .from(T.staff_attendance_punches)
+    .insert(row)
+    .select('id, punch_type, punched_at, timezone_at_mark, marked_by')
+    .maybeSingle();
+  if (error) {
+    if (isMissingDbTableError(error)) return null;
+    throw new Error(`staff_attendance_punches: ${error.message}`);
+  }
+  return data ? punchEventToApp(data) : null;
+}
+
+async function loadStaffAttendancePunchesInRange(sb, gid, { startDate, endDate }) {
+  try {
+    const rows = await fetchAll((from, to) =>
+      sb.from(T.staff_attendance_punches)
+        .select('id, staff_login_id, attendance_date, punch_type, punched_at, timezone_at_mark, marked_by')
+        .eq('gym_id', gid)
+        .gte('attendance_date', startDate)
+        .lte('attendance_date', endDate)
+        .order('punched_at', { ascending: true })
+        .range(from, to));
+    return rows || [];
+  } catch (error) {
+    if (isMissingDbTableError(error)) return [];
+    throw error;
+  }
+}
+
+function attachPunchesToAttendanceRecords(records, punchRows) {
+  const byKey = new Map();
+  for (const row of punchRows || []) {
+    const key = `${String(row.attendance_date || '').slice(0, 10)}__${String(row.staff_login_id || '').trim()}`;
+    if (!byKey.has(key)) byKey.set(key, []);
+    byKey.get(key).push(punchEventToApp(row));
+  }
+  return (records || []).map((rec) => {
+    const key = `${String(rec.date || '').slice(0, 10)}__${String(rec.userId || '').trim()}`;
+    const punches = byKey.get(key) || [];
+    if (punches.length) return { ...rec, punches };
+    // Display-only fallback for legacy days that only have summary stamps.
+    const synthetic = [];
+    if (rec.firstLoginAt) {
+      synthetic.push({
+        id: `legacy-login-${key}`,
+        type: 'login',
+        at: rec.firstLoginAt,
+        markedBy: rec.markedBy || null,
+      });
+    }
+    if (rec.lastLogoutAt) {
+      synthetic.push({
+        id: `legacy-logout-${key}`,
+        type: 'logout',
+        at: rec.lastLogoutAt,
+        markedBy: rec.updatedBy || rec.markedBy || null,
+      });
+    }
+    return { ...rec, punches: synthetic };
+  });
+}
+
+async function resolveAttendanceInternalId(sb, gid, { externalRecordId, staffLoginId, attendanceDate }) {
+  if (externalRecordId) {
+    const { data, error } = await sb
+      .from(T.staff_attendance_records)
+      .select('id')
+      .eq('gym_id', gid)
+      .eq('external_record_id', String(externalRecordId))
+      .maybeSingle();
+    if (!error && data?.id) return data.id;
+  }
+  const { data, error } = await sb
+    .from(T.staff_attendance_records)
+    .select('id')
+    .eq('gym_id', gid)
+    .eq('staff_login_id', String(staffLoginId || '').trim())
+    .eq('attendance_date', String(attendanceDate || '').slice(0, 10))
+    .maybeSingle();
+  if (error) return null;
+  return data?.id || null;
+}
+
 /**
  * Login/logout punch for the authenticated staff member (today).
+ * Keeps one daily summary row (first login + last logout) and appends every punch event.
  */
 export async function punchStaffAttendance(_scope, { userId, punchType, atIso, timeZone, actorName }) {
   const sb = getSupabase();
@@ -3512,6 +3630,26 @@ export async function punchStaffAttendance(_scope, { userId, punchType, atIso, t
   }
 
   await upsertAttendanceRow(sb, gid, appRecord);
+  const attendanceRecordId =
+    existing?.id
+    || await resolveAttendanceInternalId(sb, gid, {
+      externalRecordId: appRecord.id,
+      staffLoginId: uid,
+      attendanceDate: today,
+    });
+  const punchEvent = await appendStaffAttendancePunch(sb, gid, {
+    attendanceRecordId,
+    staffLoginId: uid,
+    attendanceDate: today,
+    punchType: punchType === 'logout' ? 'logout' : 'login',
+    punchedAt: nowIso,
+    timeZone: timeZone || null,
+    markedBy: actor,
+  }).catch(() => null);
+
+  const priorPunches = Array.isArray(appRecord.punches) ? appRecord.punches : [];
+  appRecord.punches = punchEvent ? [...priorPunches, punchEvent] : priorPunches;
+
   notifyCollectionChange('settings');
   return appRecord;
 }
@@ -3554,7 +3692,9 @@ export async function readStaffAttendanceInRange(_scope, { startDate, endDate })
       .lte('attendance_date', end)
       .order('attendance_date', { ascending: false })
       .range(from, to));
-  return (rows || []).map((r) => attendanceRowToApp(r));
+  const records = (rows || []).map((r) => attendanceRowToApp(r));
+  const punchRows = await loadStaffAttendancePunchesInRange(sb, gid, { startDate: start, endDate: end });
+  return attachPunchesToAttendanceRecords(records, punchRows);
 }
 
 /** Today's attendance row for one staff member (self-service; no dashboard access required). */
