@@ -59,6 +59,15 @@ describe('ptTrainerScope', () => {
         new Map([['koushik', 'koushik']]),
       ),
     ).toBe(false);
+    expect(
+      ptClientAssignedToViewer(
+        { plan: 'PT-Raja', staff: 'Deep' },
+        { trainerId: 'Koushik' },
+        'Koushik',
+        'Koushik',
+        new Map([['koushik', 'koushik']]),
+      ),
+    ).toBe(false);
   });
 
   it('matches typo plan PT-Kaushk to staff Koushik', () => {

@@ -68,15 +68,16 @@ export function ptAssignmentTokens(member, profile) {
     const s = String(v || '').trim();
     if (s) tokens.push(s);
   };
-  push(profile?.trainerId);
-  push(profile?.trainer);
-
   const plan = String(member?.plan || member?.plan_name || '').trim();
   const suffix = ptPlanTrainerSuffix(plan);
   if (suffix) {
-    // PT-Raja / PT-Bis → trainer is the plan suffix (not sales assigned_staff).
+    // PT-Raja / PT-Bis suffix is authoritative for roster scoping.
+    // Ignore profile/enrollment trainer fields to avoid cross-trainer leaks.
     push(suffix);
+    return tokens;
   } else {
+    push(profile?.trainerId);
+    push(profile?.trainer);
     // Generic PT plan — fall back to enrollment / trainer fields.
     push(member?.staff);
     push(member?.assigned_staff);

@@ -115,14 +115,16 @@ export function ptAssignmentTokens(
     const s = String(v || "").trim();
     if (s) tokens.push(s);
   };
-  push((profile as { trainerId?: unknown } | null | undefined)?.trainerId);
-  push((profile as { trainer?: unknown } | null | undefined)?.trainer);
-
   const plan = String(member?.plan || "").trim();
   const suffix = ptPlanTrainerSuffix(plan);
   if (suffix) {
+    // PT-Raja / PT-Bis suffix is authoritative for roster scoping.
+    // Ignore profile/enrollment trainer fields to avoid cross-trainer leaks.
     push(suffix);
+    return tokens;
   } else {
+    push((profile as { trainerId?: unknown } | null | undefined)?.trainerId);
+    push((profile as { trainer?: unknown } | null | undefined)?.trainer);
     push(member?.staff);
     push(member?.trainerId);
   }
