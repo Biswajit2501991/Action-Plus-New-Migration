@@ -48,69 +48,68 @@ import { Skeleton } from "@/components/ui/misc";
 
 const SIDEBAR_GROUP_THEME: Record<
   string,
-  { ring: string; panel: string; heading: string; icon: string; active: string; hover: string }
+  {
+    glow: string;
+    heading: string;
+    icon: string;
+    active: string;
+    hover: string;
+  }
 > = {
   "MEMBERS & CLIENTS": {
-    ring: "border-cyan-200/80 dark:border-cyan-300/30",
-    panel:
-      "bg-[linear-gradient(155deg,rgba(241,251,255,0.92),rgba(228,246,255,0.9))] dark:bg-[linear-gradient(160deg,rgba(8,49,70,0.42),rgba(8,30,48,0.52))]",
+    glow: "rgba(34, 211, 238, 0.55)",
     heading: "text-cyan-700/90 dark:text-cyan-100/90",
     icon: "text-cyan-600 dark:text-cyan-200/95",
-    active: "bg-cyan-500/16 text-cyan-900 shadow-sm ring-1 ring-cyan-300/45 dark:bg-cyan-400/28 dark:text-cyan-50",
+    active:
+      "bg-cyan-500/16 text-cyan-900 shadow-sm ring-1 ring-cyan-300/45 dark:bg-cyan-400/28 dark:text-cyan-50",
     hover: "hover:bg-cyan-500/10 hover:text-cyan-900 dark:hover:text-cyan-50",
   },
   COMMUNICATION: {
-    ring: "border-violet-200/80 dark:border-violet-300/30",
-    panel:
-      "bg-[linear-gradient(155deg,rgba(248,243,255,0.93),rgba(240,232,255,0.9))] dark:bg-[linear-gradient(160deg,rgba(56,26,86,0.44),rgba(35,18,58,0.54))]",
+    glow: "rgba(167, 139, 250, 0.58)",
     heading: "text-violet-700/90 dark:text-violet-100/90",
     icon: "text-violet-600 dark:text-violet-200/95",
-    active: "bg-violet-500/16 text-violet-900 shadow-sm ring-1 ring-violet-300/45 dark:bg-violet-400/28 dark:text-violet-50",
+    active:
+      "bg-violet-500/16 text-violet-900 shadow-sm ring-1 ring-violet-300/45 dark:bg-violet-400/28 dark:text-violet-50",
     hover: "hover:bg-violet-500/10 hover:text-violet-900 dark:hover:text-violet-50",
   },
   OPERATIONS: {
-    ring: "border-teal-200/80 dark:border-teal-300/30",
-    panel:
-      "bg-[linear-gradient(155deg,rgba(238,252,248,0.93),rgba(225,247,241,0.9))] dark:bg-[linear-gradient(160deg,rgba(7,65,67,0.44),rgba(6,38,45,0.54))]",
+    glow: "rgba(45, 212, 191, 0.55)",
     heading: "text-teal-700/90 dark:text-teal-100/90",
     icon: "text-teal-600 dark:text-teal-200/95",
-    active: "bg-teal-500/16 text-teal-900 shadow-sm ring-1 ring-teal-300/45 dark:bg-teal-400/28 dark:text-teal-50",
+    active:
+      "bg-teal-500/16 text-teal-900 shadow-sm ring-1 ring-teal-300/45 dark:bg-teal-400/28 dark:text-teal-50",
     hover: "hover:bg-teal-500/10 hover:text-teal-900 dark:hover:text-teal-50",
   },
   FINANCE: {
-    ring: "border-amber-200/80 dark:border-amber-300/30",
-    panel:
-      "bg-[linear-gradient(155deg,rgba(255,250,237,0.94),rgba(252,243,222,0.91))] dark:bg-[linear-gradient(160deg,rgba(85,61,13,0.45),rgba(52,37,10,0.56))]",
+    glow: "rgba(251, 191, 36, 0.55)",
     heading: "text-amber-700/90 dark:text-amber-100/90",
     icon: "text-amber-600 dark:text-amber-200/95",
-    active: "bg-amber-500/16 text-amber-900 shadow-sm ring-1 ring-amber-300/45 dark:bg-amber-400/30 dark:text-amber-50",
+    active:
+      "bg-amber-500/16 text-amber-900 shadow-sm ring-1 ring-amber-300/45 dark:bg-amber-400/30 dark:text-amber-50",
     hover: "hover:bg-amber-500/10 hover:text-amber-900 dark:hover:text-amber-50",
   },
   "STAFF & MANAGEMENT": {
-    ring: "border-fuchsia-200/80 dark:border-fuchsia-300/30",
-    panel:
-      "bg-[linear-gradient(155deg,rgba(253,241,250,0.93),rgba(247,230,243,0.9))] dark:bg-[linear-gradient(160deg,rgba(82,25,73,0.44),rgba(50,17,45,0.54))]",
+    glow: "rgba(232, 121, 249, 0.55)",
     heading: "text-fuchsia-700/90 dark:text-fuchsia-100/90",
     icon: "text-fuchsia-600 dark:text-fuchsia-200/95",
-    active: "bg-fuchsia-500/16 text-fuchsia-900 shadow-sm ring-1 ring-fuchsia-300/45 dark:bg-fuchsia-400/28 dark:text-fuchsia-50",
+    active:
+      "bg-fuchsia-500/16 text-fuchsia-900 shadow-sm ring-1 ring-fuchsia-300/45 dark:bg-fuchsia-400/28 dark:text-fuchsia-50",
     hover: "hover:bg-fuchsia-500/10 hover:text-fuchsia-900 dark:hover:text-fuchsia-50",
   },
   SYSTEM: {
-    ring: "border-slate-200/85 dark:border-slate-300/30",
-    panel:
-      "bg-[linear-gradient(155deg,rgba(244,247,253,0.94),rgba(234,240,250,0.9))] dark:bg-[linear-gradient(160deg,rgba(38,56,84,0.44),rgba(23,36,61,0.54))]",
+    glow: "rgba(148, 163, 184, 0.5)",
     heading: "text-slate-700/90 dark:text-slate-100/90",
     icon: "text-slate-600 dark:text-slate-200/95",
-    active: "bg-slate-500/16 text-slate-900 shadow-sm ring-1 ring-slate-300/45 dark:bg-slate-400/28 dark:text-slate-50",
+    active:
+      "bg-slate-500/16 text-slate-900 shadow-sm ring-1 ring-slate-300/45 dark:bg-slate-400/28 dark:text-slate-50",
     hover: "hover:bg-slate-500/10 hover:text-slate-900 dark:hover:text-slate-50",
   },
   "": {
-    ring: "border-blue-200/80 dark:border-blue-300/30",
-    panel:
-      "bg-[linear-gradient(155deg,rgba(240,247,255,0.94),rgba(227,239,255,0.9))] dark:bg-[linear-gradient(160deg,rgba(25,60,108,0.44),rgba(15,37,72,0.54))]",
+    glow: "rgba(59, 130, 246, 0.55)",
     heading: "text-blue-700/90 dark:text-blue-100/90",
     icon: "text-blue-600 dark:text-blue-200/95",
-    active: "bg-blue-500/16 text-blue-900 shadow-sm ring-1 ring-blue-300/45 dark:bg-blue-400/28 dark:text-blue-50",
+    active:
+      "bg-blue-500/16 text-blue-900 shadow-sm ring-1 ring-blue-300/45 dark:bg-blue-400/28 dark:text-blue-50",
     hover: "hover:bg-blue-500/10 hover:text-blue-900 dark:hover:text-blue-50",
   },
 };
@@ -170,6 +169,21 @@ function DesktopShell({ children }: { children: React.ReactNode }) {
     visibleNav.some((n) => n.group === group),
   );
 
+  /** Section whose route is current — only this group gets strong edge shine. */
+  const activeGroup = useMemo(() => {
+    const matches = NAV_ITEMS.filter(
+      (item) =>
+        canAccessNavItem(user, item) &&
+        !item.external &&
+        Boolean(pathname) &&
+        (pathname === item.href || pathname.startsWith(`${item.href}/`)),
+    );
+    if (!matches.length) return null;
+    // Prefer the longest href match (e.g. nested routes under a longer path).
+    matches.sort((a, b) => b.href.length - a.href.length);
+    return matches[0].group;
+  }, [pathname, user]);
+
   const brandBlock = (collapsed: boolean) =>
     collapsed ? (
       <div className="mx-auto h-9 w-9 overflow-hidden rounded-full ring-1 ring-border">
@@ -221,20 +235,21 @@ function DesktopShell({ children }: { children: React.ReactNode }) {
           </div>
 
           <nav className="flex-1 space-y-5 overflow-y-auto px-3 pb-4">
-            {groups.map((group) => (
+            {groups.map((group) => {
+              const theme = SIDEBAR_GROUP_THEME[group] || SIDEBAR_GROUP_THEME.SYSTEM;
+              const sectionActive = activeGroup === group;
+              return (
               <div
                 key={group || "main"}
-                className={cn(
-                  "rounded-2xl border p-2.5 shadow-[0_14px_30px_-20px_rgba(15,23,42,0.65)] backdrop-blur-xl",
-                  (SIDEBAR_GROUP_THEME[group] || SIDEBAR_GROUP_THEME.SYSTEM).ring,
-                  (SIDEBAR_GROUP_THEME[group] || SIDEBAR_GROUP_THEME.SYSTEM).panel,
-                )}
+                className="sidebar-liquid-glass p-2.5"
+                data-active={sectionActive ? "true" : "false"}
+                style={{ ["--sidebar-glow" as string]: theme.glow }}
               >
                 {!sidebarCollapsed && group ? (
                   <p
                     className={cn(
                       "mb-2 px-2 text-[10px] font-semibold uppercase tracking-wider",
-                      (SIDEBAR_GROUP_THEME[group] || SIDEBAR_GROUP_THEME.SYSTEM).heading,
+                      theme.heading,
                     )}
                   >
                     {group}
@@ -244,7 +259,6 @@ function DesktopShell({ children }: { children: React.ReactNode }) {
                   {visibleNav
                     .filter((i) => i.group === group)
                     .map((item) => {
-                      const theme = SIDEBAR_GROUP_THEME[group] || SIDEBAR_GROUP_THEME.SYSTEM;
                       const active =
                         !item.external &&
                         (pathname === item.href || pathname.startsWith(`${item.href}/`));
@@ -324,7 +338,8 @@ function DesktopShell({ children }: { children: React.ReactNode }) {
                     })}
                 </div>
               </div>
-            ))}
+              );
+            })}
           </nav>
 
           <div className="border-t border-border/70 p-3">
