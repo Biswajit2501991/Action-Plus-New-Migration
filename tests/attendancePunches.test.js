@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 
 /**
- * Mirrors frontend resolveDayPunches / backend attachPunches fallback for unit coverage.
+ * Mirrors frontend resolveDayPunches / backend attachPunches merge+dedupe.
  * Daily summary stays one row; expand lists every punch.
  */
 function resolveDayPunches(row) {
@@ -12,18 +12,28 @@ function resolveDayPunches(row) {
       type: String(p.type || '').toLowerCase() === 'logout' ? 'logout' : 'login',
       at: String(p.at || '').trim(),
     }))
-    .filter((p) => p.at)
-    .sort((a, b) => a.at.localeCompare(b.at));
-  if (cleaned.length) return cleaned;
+    .filter((p) => p.at);
 
-  const synthetic = [];
-  if (row.firstLoginAt) {
-    synthetic.push({ id: 'legacy-login', type: 'login', at: row.firstLoginAt });
+  const hasLogin = cleaned.some((p) => p.type === 'login');
+  const hasLogout = cleaned.some((p) => p.type === 'logout');
+  if (!hasLogin && row.firstLoginAt) {
+    cleaned.unshift({ id: 'summary-login', type: 'login', at: row.firstLoginAt });
   }
-  if (row.lastLogoutAt) {
-    synthetic.push({ id: 'legacy-logout', type: 'logout', at: row.lastLogoutAt });
+  if (!hasLogout && row.lastLogoutAt) {
+    cleaned.push({ id: 'summary-logout', type: 'logout', at: row.lastLogoutAt });
   }
-  return synthetic;
+
+  const out = [];
+  const seen = new Set();
+  for (const punch of cleaned.sort((a, b) => a.at.localeCompare(b.at))) {
+    const atMs = Date.parse(punch.at);
+    const bucket = Number.isFinite(atMs) ? Math.floor(atMs / 15000) : punch.at;
+    const key = `${punch.type}__${bucket}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(punch);
+  }
+  return out;
 }
 
 function applyPunchToSummary(existing, punchType, at) {
@@ -59,19 +69,31 @@ describe('attendance day punches', () => {
     expect(row.punches.map((p) => p.type)).toEqual(['login', 'logout', 'login', 'logout']);
   });
 
-  it('falls back to summary stamps when punch list is empty', () => {
+  it('merges first login stamp when punch list only has logouts', () => {
     const punches = resolveDayPunches({
-      firstLoginAt: '2026-07-27T03:00:00.000Z',
-      lastLogoutAt: '2026-07-27T12:00:00.000Z',
-      punches: [],
+      firstLoginAt: '2026-07-27T10:24:10.000Z',
+      lastLogoutAt: '2026-07-27T11:06:00.000Z',
+      punches: [
+        { id: 'a', type: 'logout', at: '2026-07-27T11:06:00.000Z' },
+        { id: 'b', type: 'logout', at: '2026-07-27T11:06:05.000Z' },
+      ],
     });
-    expect(punches).toEqual([
-      { id: 'legacy-login', type: 'login', at: '2026-07-27T03:00:00.000Z' },
-      { id: 'legacy-logout', type: 'logout', at: '2026-07-27T12:00:00.000Z' },
-    ]);
+    expect(punches.map((p) => p.type)).toEqual(['login', 'logout']);
+    expect(punches[0].at).toBe('2026-07-27T10:24:10.000Z');
   });
 
-  it('prefers stored punch events over legacy fallback', () => {
+  it('dedupes accidental double logout within 15 seconds', () => {
+    const punches = resolveDayPunches({
+      punches: [
+        { id: 'a', type: 'logout', at: '2026-07-27T11:06:00.696Z' },
+        { id: 'b', type: 'logout', at: '2026-07-27T11:06:10.024Z' },
+      ],
+    });
+    expect(punches).toHaveLength(1);
+    expect(punches[0].type).toBe('logout');
+  });
+
+  it('prefers stored punch events over empty fallback', () => {
     const punches = resolveDayPunches({
       firstLoginAt: '2026-07-27T03:00:00.000Z',
       lastLogoutAt: '2026-07-27T12:00:00.000Z',

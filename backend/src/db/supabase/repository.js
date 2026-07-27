@@ -3436,9 +3436,56 @@ function punchEventToApp(r) {
   };
 }
 
+function punchDedupeKey(punch) {
+  const type = punch?.type === 'logout' ? 'logout' : 'login';
+  const atMs = Date.parse(String(punch?.at || ''));
+  if (!Number.isFinite(atMs)) return `${type}__${String(punch?.at || '')}`;
+  // Collapse accidental double-submit punches within 15s.
+  const bucket = Math.floor(atMs / 15000);
+  return `${type}__${bucket}`;
+}
+
+function dedupePunchEvents(punches = []) {
+  const out = [];
+  const seen = new Set();
+  for (const punch of punches) {
+    const key = punchDedupeKey(punch);
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(punch);
+  }
+  return out.sort((a, b) => String(a.at || '').localeCompare(String(b.at || '')));
+}
+
+function mergeSummaryStampsIntoPunches(rec, punches = []) {
+  const merged = [...(punches || [])];
+  const hasLogin = merged.some((p) => p.type === 'login');
+  const hasLogout = merged.some((p) => p.type === 'logout');
+  const key = `${String(rec.date || '').slice(0, 10)}__${String(rec.userId || '').trim()}`;
+
+  if (!hasLogin && rec.firstLoginAt) {
+    merged.unshift({
+      id: `summary-login-${key}`,
+      type: 'login',
+      at: rec.firstLoginAt,
+      markedBy: rec.markedBy || null,
+    });
+  }
+  if (!hasLogout && rec.lastLogoutAt) {
+    merged.push({
+      id: `summary-logout-${key}`,
+      type: 'logout',
+      at: rec.lastLogoutAt,
+      markedBy: rec.updatedBy || rec.markedBy || null,
+    });
+  }
+  return dedupePunchEvents(merged);
+}
+
 /**
  * Append one login/logout event for the day. Soft-fails if punches table is missing
  * so existing attendance punch still works before/without migration.
+ * Skips near-duplicate same-type punches (double logout/login within 15s).
  */
 async function appendStaffAttendancePunch(sb, gid, {
   attendanceRecordId = null,
@@ -3449,17 +3496,40 @@ async function appendStaffAttendancePunch(sb, gid, {
   timeZone = null,
   markedBy = null,
 }) {
+  const type = punchType === 'logout' ? 'logout' : 'login';
+  const atIso = toTs(punchedAt) || new Date().toISOString();
+  const staffId = String(staffLoginId || '').trim();
+  const day = String(attendanceDate || '').slice(0, 10);
+  if (!staffId || !day) return null;
+
+  const atMs = Date.parse(atIso);
+  if (Number.isFinite(atMs)) {
+    const windowStart = new Date(atMs - 15000).toISOString();
+    const { data: recent, error: recentErr } = await sb
+      .from(T.staff_attendance_punches)
+      .select('id')
+      .eq('gym_id', gid)
+      .eq('staff_login_id', staffId)
+      .eq('attendance_date', day)
+      .eq('punch_type', type)
+      .gte('punched_at', windowStart)
+      .lte('punched_at', atIso)
+      .limit(1);
+    if (!recentErr && Array.isArray(recent) && recent.length) {
+      return null;
+    }
+  }
+
   const row = {
     gym_id: gid,
     attendance_record_id: attendanceRecordId || null,
-    staff_login_id: String(staffLoginId || '').trim(),
-    attendance_date: String(attendanceDate || '').slice(0, 10),
-    punch_type: punchType === 'logout' ? 'logout' : 'login',
-    punched_at: toTs(punchedAt) || new Date().toISOString(),
+    staff_login_id: staffId,
+    attendance_date: day,
+    punch_type: type,
+    punched_at: atIso,
     timezone_at_mark: timeZone || null,
     marked_by: markedBy || null,
   };
-  if (!row.staff_login_id || !row.attendance_date) return null;
   const { data, error } = await sb
     .from(T.staff_attendance_punches)
     .insert(row)
@@ -3499,26 +3569,7 @@ function attachPunchesToAttendanceRecords(records, punchRows) {
   return (records || []).map((rec) => {
     const key = `${String(rec.date || '').slice(0, 10)}__${String(rec.userId || '').trim()}`;
     const punches = byKey.get(key) || [];
-    if (punches.length) return { ...rec, punches };
-    // Display-only fallback for legacy days that only have summary stamps.
-    const synthetic = [];
-    if (rec.firstLoginAt) {
-      synthetic.push({
-        id: `legacy-login-${key}`,
-        type: 'login',
-        at: rec.firstLoginAt,
-        markedBy: rec.markedBy || null,
-      });
-    }
-    if (rec.lastLogoutAt) {
-      synthetic.push({
-        id: `legacy-logout-${key}`,
-        type: 'logout',
-        at: rec.lastLogoutAt,
-        markedBy: rec.updatedBy || rec.markedBy || null,
-      });
-    }
-    return { ...rec, punches: synthetic };
+    return { ...rec, punches: mergeSummaryStampsIntoPunches(rec, punches) };
   });
 }
 

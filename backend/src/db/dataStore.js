@@ -592,15 +592,25 @@ function applyAttendancePunchToRecords(records, { userId, punchType, atIso, time
   const at = atIso || new Date().toISOString();
   const today = at.slice(0, 10);
   const actor = actorName || uid;
+  const type = punchType === 'logout' ? 'logout' : 'login';
   const existingIdx = records.findIndex((r) => String(r.date).slice(0, 10) === today && r.userId === uid);
   const existing = existingIdx >= 0 ? records[existingIdx] : null;
-  const punchEvent = {
-    id: crypto.randomUUID(),
-    type: punchType === 'logout' ? 'logout' : 'login',
-    at,
-    timeZoneAtMark: timeZone || null,
-    markedBy: actor,
-  };
+  const priorPunches = Array.isArray(existing?.punches) ? existing.punches : [];
+  const atMs = Date.parse(at);
+  const isDuplicate = priorPunches.some((p) => {
+    if ((p?.type === 'logout' ? 'logout' : 'login') !== type) return false;
+    const prevMs = Date.parse(String(p?.at || ''));
+    return Number.isFinite(atMs) && Number.isFinite(prevMs) && Math.abs(atMs - prevMs) <= 15000;
+  });
+  const punchEvent = isDuplicate
+    ? null
+    : {
+        id: crypto.randomUUID(),
+        type,
+        at,
+        timeZoneAtMark: timeZone || null,
+        markedBy: actor,
+      };
   let next;
   if (punchType === 'logout') {
     if (existing) {
@@ -609,7 +619,7 @@ function applyAttendancePunchToRecords(records, { userId, punchType, atIso, time
         lastLogoutAt: at,
         updatedAt: at,
         updatedBy: actor,
-        punches: [...(Array.isArray(existing.punches) ? existing.punches : []), punchEvent],
+        punches: punchEvent ? [...priorPunches, punchEvent] : priorPunches,
       };
       records[existingIdx] = next;
     } else {
@@ -629,7 +639,7 @@ function applyAttendancePunchToRecords(records, { userId, punchType, atIso, time
         markedBy: actor,
         updatedAt: at,
         updatedBy: actor,
-        punches: [punchEvent],
+        punches: punchEvent ? [punchEvent] : [],
       };
       records.unshift(next);
     }
@@ -645,7 +655,7 @@ function applyAttendancePunchToRecords(records, { userId, punchType, atIso, time
         firstLoginAt: existing.firstLoginAt || at,
         updatedAt: at,
         updatedBy: actor,
-        punches: [...(Array.isArray(existing.punches) ? existing.punches : []), punchEvent],
+        punches: punchEvent ? [...priorPunches, punchEvent] : priorPunches,
       };
       records[existingIdx] = next;
     } else {
@@ -665,7 +675,7 @@ function applyAttendancePunchToRecords(records, { userId, punchType, atIso, time
         markedBy: actor,
         updatedAt: at,
         updatedBy: actor,
-        punches: [punchEvent],
+        punches: punchEvent ? [punchEvent] : [],
       };
       records.unshift(next);
     }

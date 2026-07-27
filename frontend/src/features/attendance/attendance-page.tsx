@@ -53,34 +53,45 @@ function resolveDayPunches(row: AttendanceRecord) {
   const cleaned = listed
     .map((p) => ({
       id: String(p.id || `${p.type}-${p.at}`),
-      type: String(p.type || "").toLowerCase() === "logout" ? "logout" : "login",
+      type: String(p.type || "").toLowerCase() === "logout" ? ("logout" as const) : ("login" as const),
       at: toIsoOrEmpty(p.at),
       markedBy: String(p.markedBy || "").trim(),
     }))
-    .filter((p) => p.at)
-    .sort((a, b) => a.at.localeCompare(b.at));
-  if (cleaned.length) return cleaned;
+    .filter((p) => p.at);
 
-  const synthetic: { id: string; type: "login" | "logout"; at: string; markedBy: string }[] = [];
+  const hasLogin = cleaned.some((p) => p.type === "login");
+  const hasLogout = cleaned.some((p) => p.type === "logout");
   const firstLogin = resolveFirstLoginTimestamp(row);
-  if (firstLogin) {
-    synthetic.push({
-      id: `legacy-login-${row.date}-${row.userId}`,
+  if (!hasLogin && firstLogin) {
+    cleaned.unshift({
+      id: `summary-login-${row.date}-${row.userId}`,
       type: "login",
       at: firstLogin,
       markedBy: String(row.markedBy || "").trim(),
     });
   }
   const lastLogout = toIsoOrEmpty(row.lastLogoutAt);
-  if (lastLogout) {
-    synthetic.push({
-      id: `legacy-logout-${row.date}-${row.userId}`,
+  if (!hasLogout && lastLogout) {
+    cleaned.push({
+      id: `summary-logout-${row.date}-${row.userId}`,
       type: "logout",
       at: lastLogout,
       markedBy: String(row.updatedBy || row.markedBy || "").trim(),
     });
   }
-  return synthetic;
+
+  // Collapse accidental double-submit punches within 15s.
+  const out: { id: string; type: "login" | "logout"; at: string; markedBy: string }[] = [];
+  const seen = new Set<string>();
+  for (const punch of cleaned.sort((a, b) => a.at.localeCompare(b.at))) {
+    const atMs = Date.parse(punch.at);
+    const bucket = Number.isFinite(atMs) ? Math.floor(atMs / 15000) : punch.at;
+    const key = `${punch.type}__${bucket}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(punch);
+  }
+  return out;
 }
 
 function staffName(users: StaffUser[], userId?: string) {
