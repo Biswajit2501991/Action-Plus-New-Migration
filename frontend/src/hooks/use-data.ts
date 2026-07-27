@@ -122,7 +122,12 @@ export function useLogs() {
   });
 }
 
-export function useAttendance(opts?: { startDate?: string; endDate?: string; enabled?: boolean }) {
+export function useAttendance(opts?: {
+  startDate?: string;
+  endDate?: string;
+  enabled?: boolean;
+  fullHistoryForOwner?: boolean;
+}) {
   const user = useAuthStore((s) => s.user);
   const authed = Boolean(user);
   const isOwner =
@@ -136,7 +141,13 @@ export function useAttendance(opts?: { startDate?: string; endDate?: string; ena
     }
     const end = new Date();
     const start = new Date();
-    if (isOwner) start.setFullYear(start.getFullYear() - 5);
+    if (isOwner) {
+      if (opts?.fullHistoryForOwner) {
+        start.setFullYear(2000, 0, 1);
+      } else {
+        start.setFullYear(start.getFullYear() - 5);
+      }
+    }
     else start.setMonth(start.getMonth() - 3);
     const fmt = (d: Date) => {
       const y = d.getFullYear();

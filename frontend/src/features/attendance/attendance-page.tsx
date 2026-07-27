@@ -30,6 +30,24 @@ const STATUSES = ["Present", "Absent", "Half Day", "Leave"] as const;
 const HISTORY_PAGE_SIZE = 5;
 const RECORDS_PAGE_SIZE = 10;
 
+function toIsoOrEmpty(value: unknown) {
+  const raw = String(value || "").trim();
+  if (!raw) return "";
+  return Number.isNaN(Date.parse(raw)) ? "" : raw;
+}
+
+function resolveFirstLoginTimestamp(row: AttendanceRecord) {
+  const firstLogin = toIsoOrEmpty(row.firstLoginAt);
+  if (firstLogin) return firstLogin;
+  const checkInIso = toIsoOrEmpty(row.checkIn);
+  if (checkInIso) return checkInIso;
+  // Legacy/manual present rows may not carry firstLoginAt.
+  if (String(row.status || "").trim() === "Present") {
+    return toIsoOrEmpty(row.updatedAt);
+  }
+  return "";
+}
+
 function staffName(users: StaffUser[], userId?: string) {
   const hit = users.find((u) => u.id === userId);
   return hit?.name || userId || "—";
@@ -64,7 +82,7 @@ export function AttendancePage() {
   const canMarkAll = hasAccess(user, "attendance", "markAllPresent");
   const canEdit = hasAccess(user, "attendance", "editAttendance");
 
-  const { data: records = [], isLoading } = useAttendance();
+  const { data: records = [], isLoading } = useAttendance({ fullHistoryForOwner: true });
   const { data: users = [] } = useUsers();
   const { data: settings } = useSettings();
   const notesEnabled = isAttendanceNotesEnabled(settings as Record<string, unknown>);
@@ -295,6 +313,7 @@ export function AttendancePage() {
           ) : (
             staff.map((s) => {
               const rec = recordMap.get(attendanceRecordKey(date, s.id)) || {};
+              const firstLoginTs = resolveFirstLoginTimestamp(rec);
               const isOpen = expandedStaffId === s.id;
               const historyRows = historyByUser[s.id] || [];
               const totalPages = Math.max(1, Math.ceil(historyRows.length / HISTORY_PAGE_SIZE));
@@ -335,12 +354,12 @@ export function AttendancePage() {
                       >
                         {rec.status || "Absent"}
                       </span>
-                      {rec.firstLoginAt || rec.lastLogoutAt ? (
+                      {firstLoginTs || rec.lastLogoutAt ? (
                         <span className="max-w-[220px] truncate text-[10px] text-slate-500">
-                          {rec.firstLoginAt
-                            ? `In ${formatDateTimeTz(rec.firstLoginAt, displayTz)}`
+                          {firstLoginTs
+                            ? `In ${formatDateTimeTz(firstLoginTs, displayTz)}`
                             : ""}
-                          {rec.firstLoginAt && rec.lastLogoutAt ? " · " : ""}
+                          {firstLoginTs && rec.lastLogoutAt ? " · " : ""}
                           {rec.lastLogoutAt
                             ? `Out ${formatDateTimeTz(rec.lastLogoutAt, displayTz)}`
                             : ""}
@@ -400,9 +419,9 @@ export function AttendancePage() {
                         <div>
                           <Label className="text-xs text-muted-foreground">First Login In</Label>
                           <div className="mt-1 rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-sm dark:border-border dark:bg-muted/40">
-                            {rec.firstLoginAt ? (
+                            {firstLoginTs ? (
                               <>
-                                {formatDateTimeTz(rec.firstLoginAt, displayTz)}{" "}
+                                {formatDateTimeTz(firstLoginTs, displayTz)}{" "}
                                 <span className="text-[10px] uppercase text-slate-400">
                                   {displayTz}
                                 </span>
@@ -491,29 +510,32 @@ export function AttendancePage() {
                               </tr>
                             </thead>
                             <tbody>
-                              {visibleRows.map((row) => (
-                                <tr
-                                  key={String(row.id || `${row.date}-${row.userId}`)}
-                                  className="border-t border-slate-200 dark:border-border"
-                                >
-                                  <td className="whitespace-nowrap px-2 py-1.5">
-                                    {formatDate(row.date)}
-                                  </td>
-                                  <td className="whitespace-nowrap px-2 py-1.5">
-                                    {row.status || "Absent"}
-                                  </td>
-                                  <td className="whitespace-nowrap px-2 py-1.5">
-                                    {row.firstLoginAt
-                                      ? formatDateTimeTz(row.firstLoginAt, displayTz)
-                                      : "—"}
-                                  </td>
-                                  <td className="whitespace-nowrap px-2 py-1.5">
-                                    {row.lastLogoutAt
-                                      ? formatDateTimeTz(row.lastLogoutAt, displayTz)
-                                      : "—"}
-                                  </td>
-                                </tr>
-                              ))}
+                              {visibleRows.map((row) => {
+                                const rowFirstLoginTs = resolveFirstLoginTimestamp(row);
+                                return (
+                                  <tr
+                                    key={String(row.id || `${row.date}-${row.userId}`)}
+                                    className="border-t border-slate-200 dark:border-border"
+                                  >
+                                    <td className="whitespace-nowrap px-2 py-1.5">
+                                      {formatDate(row.date)}
+                                    </td>
+                                    <td className="whitespace-nowrap px-2 py-1.5">
+                                      {row.status || "Absent"}
+                                    </td>
+                                    <td className="whitespace-nowrap px-2 py-1.5">
+                                      {rowFirstLoginTs
+                                        ? formatDateTimeTz(rowFirstLoginTs, displayTz)
+                                        : "—"}
+                                    </td>
+                                    <td className="whitespace-nowrap px-2 py-1.5">
+                                      {row.lastLogoutAt
+                                        ? formatDateTimeTz(row.lastLogoutAt, displayTz)
+                                        : "—"}
+                                    </td>
+                                  </tr>
+                                );
+                              })}
                               {!visibleRows.length ? (
                                 <tr>
                                   <td
@@ -614,6 +636,7 @@ export function AttendancePage() {
               <tbody>
                 {ledgerRows.map((r) => {
                   const uid = String(r.userId || r.staffId || "");
+                  const firstLoginTs = resolveFirstLoginTimestamp(r);
                   const note =
                     notesEnabled
                       ? latestNoteByStaffDate.get(
@@ -638,7 +661,7 @@ export function AttendancePage() {
                         </span>
                       </td>
                       <td className="whitespace-nowrap px-3 py-2">
-                        {r.firstLoginAt ? formatDateTimeTz(r.firstLoginAt, displayTz) : "—"}
+                        {firstLoginTs ? formatDateTimeTz(firstLoginTs, displayTz) : "—"}
                       </td>
                       <td className="whitespace-nowrap px-3 py-2">
                         {r.lastLogoutAt ? formatDateTimeTz(r.lastLogoutAt, displayTz) : "—"}
