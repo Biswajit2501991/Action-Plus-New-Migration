@@ -2,7 +2,7 @@
 
 import { useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { ImagePlus, QrCode } from "lucide-react";
+import { ImagePlus, QrCode, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import { ClassicalModal } from "@/components/ui/classical-modal";
 import { Badge, EmptyState, PageHeader, Skeleton } from "@/components/ui/misc";
@@ -47,6 +47,8 @@ export function PaymentQrSettingsPanel() {
   const { data: gymCodes = [] } = useGymCodes();
   const canManage =
     isMasterOwnerUser(user) || hasAccess(user, "paymentQr", "managePaymentSettings");
+  /** Permanent delete is owner-only (same gate as create/update on backend). */
+  const canDeletePermanently = isMasterOwnerUser(user);
   const branchId = String(user?.activeBranchId || user?.gymCodeId || "");
 
   const [branchFilter, setBranchFilter] = useState(branchId);
@@ -112,6 +114,33 @@ export function PaymentQrSettingsPanel() {
     },
     onError: (e: Error) => toast.error(e.message),
   });
+
+  const remove = useMutation({
+    mutationFn: async (item: PaymentQrItem) => {
+      const id = String(item.id || "").trim();
+      if (!id) throw new Error("Missing payment QR id");
+      return paymentQrApi.remove(id, String(item.gymCodeId || "").trim() || undefined);
+    },
+    onSuccess: async () => {
+      toast.success("Payment QR deleted permanently");
+      await qc.invalidateQueries({ queryKey: ["payment-qr-manage"] });
+      await qc.invalidateQueries({ queryKey: ["payment-qr"] });
+    },
+    onError: (e: Error) => toast.error(e.message || "Could not delete payment QR"),
+  });
+
+  function confirmDelete(item: PaymentQrItem) {
+    const label = String(item.qrName || "Payment QR");
+    const branch = String(item.branchLabel || item.gymCodeId || "—");
+    if (
+      !window.confirm(
+        `Delete this Payment QR permanently?\n\n${label}\nBranch: ${branch}\n\nThis cannot be undone. Member payments and other finance data are not affected.`,
+      )
+    ) {
+      return;
+    }
+    remove.mutate(item);
+  }
 
   if (!canManage) {
     return (
@@ -200,24 +229,38 @@ export function PaymentQrSettingsPanel() {
                     <ImagePlus className="h-8 w-8 text-slate-300" />
                   )}
                 </div>
-                <Button
-                  size="sm"
-                  variant="outline"
-                  className="w-full"
-                  onClick={() => {
-                    setDraft({
-                      id: String(item.id),
-                      qrName: String(item.qrName || ""),
-                      gymCodeId: String(item.gymCodeId || ""),
-                      displayOrder: String(item.displayOrder ?? 0),
-                      isActive: item.isActive !== false,
-                      imageDataUrl: "",
-                    });
-                    setFormOpen(true);
-                  }}
-                >
-                  Edit
-                </Button>
+                <div className="flex gap-2">
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="flex-1"
+                    onClick={() => {
+                      setDraft({
+                        id: String(item.id),
+                        qrName: String(item.qrName || ""),
+                        gymCodeId: String(item.gymCodeId || ""),
+                        displayOrder: String(item.displayOrder ?? 0),
+                        isActive: item.isActive !== false,
+                        imageDataUrl: "",
+                      });
+                      setFormOpen(true);
+                    }}
+                  >
+                    Edit
+                  </Button>
+                  {canDeletePermanently ? (
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      className="text-rose-700 hover:bg-rose-50 dark:hover:bg-rose-950/40"
+                      disabled={remove.isPending}
+                      onClick={() => confirmDelete(item)}
+                    >
+                      <Trash2 className="mr-1 h-3.5 w-3.5" />
+                      Delete
+                    </Button>
+                  ) : null}
+                </div>
               </CardContent>
             </Card>
           ))}

@@ -5,6 +5,7 @@ import { requireAccess } from '../middleware/permissions.js';
 import { appendAuditLogEntry } from '../db/dataStore.js';
 import {
   createPaymentQrSetting,
+  deletePaymentQrSetting,
   listPaymentQrSettings,
   updatePaymentQrSetting,
   uploadPaymentQrImage,
@@ -113,6 +114,34 @@ router.post('/:id/image', requireAccess(Access.paymentQrManage), async (req, res
   } catch (err) {
     const status = err?.status || 500;
     return res.status(status).json(paymentQrErrorPayload(err, 'payment-qr-image-upload-failed'));
+  }
+});
+
+/** Owner permanent delete — removes payment_qr_settings row + storage image only. */
+router.delete('/:id', requireAccess(Access.paymentQrManage), async (req, res) => {
+  const qrId = String(req.params?.id || '').trim();
+  if (!qrId) return res.status(400).json({ error: 'payment-qr-id-required' });
+  try {
+    const result = await deletePaymentQrSetting(req.auth, qrId, {
+      gymCodeId: req.query?.gymCodeId || req.query?.gym_code_id || req.body?.gymCodeId || req.body?.gym_code_id,
+    });
+    await appendAuditLogEntry(null, {
+      id: crypto.randomUUID(),
+      ts: new Date().toISOString(),
+      actor: String(req.auth?.userId || 'system'),
+      action: 'payment_qr.deleted',
+      entityType: 'payment_qr',
+      entityId: result.id,
+      before: {
+        id: result.id,
+        qrName: result.qrName,
+        gymCodeId: result.gymCodeId,
+      },
+    }).catch(() => {});
+    return res.json({ ok: true, ...result });
+  } catch (err) {
+    const status = err?.status || 500;
+    return res.status(status).json(paymentQrErrorPayload(err, 'payment-qr-delete-failed'));
   }
 });
 

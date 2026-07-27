@@ -350,3 +350,57 @@ export async function uploadPaymentQrImage(auth, qrId, imagePayload, options = {
   const [item] = await enrichPaymentQrRows([data], { signImages: true });
   return { item, photoUrl: item?.qrImageUrl || null };
 }
+
+/**
+ * Permanently delete one payment QR setting + storage image.
+ * Owner-only (global branch read). Does not touch payments, members, or finance ledger.
+ * @returns {Promise<{ ok: true, id: string, gymCodeId: string, qrName: string }>}
+ */
+export async function deletePaymentQrSetting(auth, qrId, options = {}) {
+  if (!authHasGlobalBranchRead(auth)) {
+    throw Object.assign(new Error('payment-qr-manage-forbidden'), { status: 403 });
+  }
+
+  const sb = getSupabase();
+  const gid = gymId();
+  const safeId = assertValidPaymentQrId(qrId);
+
+  let query = sb
+    .from(T.payment_qr_settings)
+    .select('*')
+    .eq('gym_id', gid)
+    .eq('id', safeId);
+
+  const rawBranch = String(options?.gymCodeId || options?.gym_code_id || '').trim();
+  if (rawBranch) {
+    const branchId = assertBranchUuid(await resolveEffectiveTemplateBranchId(auth, rawBranch));
+    query = query.eq('gym_code_id', branchId);
+  }
+
+  const { data: existing, error: loadErr } = await query.maybeSingle();
+  if (loadErr) rethrowPaymentQrDbError(loadErr);
+  if (!existing) {
+    throw Object.assign(new Error('payment-qr-not-found'), { status: 404 });
+  }
+
+  const { error: deleteErr } = await sb
+    .from(T.payment_qr_settings)
+    .delete()
+    .eq('gym_id', gid)
+    .eq('id', safeId)
+    .eq('gym_code_id', existing.gym_code_id);
+
+  if (deleteErr) rethrowPaymentQrDbError(deleteErr);
+
+  const imagePath = existing.qr_image_path ? String(existing.qr_image_path) : '';
+  if (imagePath) {
+    await deleteMemberPhotoObject(imagePath).catch(() => {});
+  }
+
+  return {
+    ok: true,
+    id: safeId,
+    gymCodeId: String(existing.gym_code_id || ''),
+    qrName: String(existing.qr_name || ''),
+  };
+}

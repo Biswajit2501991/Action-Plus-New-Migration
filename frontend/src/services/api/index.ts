@@ -821,4 +821,14 @@ export const paymentQrApi = {
         }),
       },
     ),
+  /** Owner permanent delete of one payment QR (+ image). */
+  remove: (id: string, gymCodeId?: string) => {
+    const q = new URLSearchParams();
+    if (gymCodeId) q.set("gymCodeId", gymCodeId);
+    const qs = q.toString();
+    return apiFetch<{ ok?: boolean; id?: string }>(
+      `/payment-qr/${encodeURIComponent(id)}${qs ? `?${qs}` : ""}`,
+      { method: "DELETE" },
+    );
+  },
 };

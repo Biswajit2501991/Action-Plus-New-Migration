@@ -1,5 +1,8 @@
 import { describe, it, expect } from 'vitest';
-import { paymentQrRowToApp } from '../backend/src/services/paymentQr/paymentQrService.js';
+import {
+  deletePaymentQrSetting,
+  paymentQrRowToApp,
+} from '../backend/src/services/paymentQr/paymentQrService.js';
 import { isMissingDbTableError } from '../backend/src/db/supabase/utils.js';
 
 describe('paymentQr', () => {
@@ -37,5 +40,12 @@ describe('paymentQr', () => {
       message: "Could not find the table 'public.payment_qr_settings' in the schema cache",
     };
     expect(isMissingDbTableError(err)).toBe(true);
+  });
+
+  it('deletePaymentQrSetting rejects non-owner auth without touching data', async () => {
+    await expect(deletePaymentQrSetting({ role: 'staff' }, '11111111-1111-4111-8111-111111111111')).rejects.toMatchObject({
+      message: 'payment-qr-manage-forbidden',
+      status: 403,
+    });
   });
 });
