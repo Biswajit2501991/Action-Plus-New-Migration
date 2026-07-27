@@ -1,8 +1,8 @@
 import { describe, it, expect } from 'vitest';
 
 /**
- * Mirrors frontend resolveDayPunches / backend attachPunches merge+dedupe.
- * Daily summary stays one row; expand lists every punch.
+ * Mirrors frontend resolveDayPunches / backend attachPunches merge+collapse.
+ * Daily summary stays one row; expand lists every meaningful punch.
  */
 function resolveDayPunches(row) {
   const listed = Array.isArray(row.punches) ? row.punches : [];
@@ -14,86 +14,64 @@ function resolveDayPunches(row) {
     }))
     .filter((p) => p.at);
 
-  const hasLogin = cleaned.some((p) => p.type === 'login');
-  const hasLogout = cleaned.some((p) => p.type === 'logout');
-  if (!hasLogin && row.firstLoginAt) {
-    cleaned.unshift({ id: 'summary-login', type: 'login', at: row.firstLoginAt });
+  const near = (a, b, windowMs = 60000) => {
+    const am = Date.parse(a);
+    const bm = Date.parse(b);
+    return Number.isFinite(am) && Number.isFinite(bm) && Math.abs(am - bm) <= windowMs;
+  };
+
+  if (row.firstLoginAt && !cleaned.some((p) => p.type === 'login' && near(p.at, row.firstLoginAt))) {
+    cleaned.push({ id: 'summary-login', type: 'login', at: row.firstLoginAt });
   }
-  if (!hasLogout && row.lastLogoutAt) {
+  if (row.lastLogoutAt && !cleaned.some((p) => p.type === 'logout' && near(p.at, row.lastLogoutAt))) {
     cleaned.push({ id: 'summary-logout', type: 'logout', at: row.lastLogoutAt });
   }
 
+  const sorted = cleaned.sort((a, b) => a.at.localeCompare(b.at));
   const out = [];
-  const seen = new Set();
-  for (const punch of cleaned.sort((a, b) => a.at.localeCompare(b.at))) {
-    const atMs = Date.parse(punch.at);
-    const bucket = Number.isFinite(atMs) ? Math.floor(atMs / 15000) : punch.at;
-    const key = `${punch.type}__${bucket}`;
-    if (seen.has(key)) continue;
-    seen.add(key);
+  for (const punch of sorted) {
+    const prev = out[out.length - 1];
+    if (prev && prev.type === punch.type) {
+      if (punch.type === 'logout') out[out.length - 1] = punch;
+      continue;
+    }
     out.push(punch);
   }
   return out;
 }
 
-function applyPunchToSummary(existing, punchType, at) {
-  const punch = { id: `p-${at}`, type: punchType, at };
-  if (!existing) {
-    return {
-      date: at.slice(0, 10),
-      userId: 'staff1',
-      status: 'Present',
-      firstLoginAt: punchType === 'login' ? at : '',
-      lastLogoutAt: punchType === 'logout' ? at : '',
-      punches: [punch],
-    };
-  }
-  return {
-    ...existing,
-    firstLoginAt: existing.firstLoginAt || (punchType === 'login' ? at : existing.firstLoginAt),
-    lastLogoutAt: punchType === 'logout' ? at : existing.lastLogoutAt,
-    punches: [...(existing.punches || []), punch],
-  };
-}
-
 describe('attendance day punches', () => {
-  it('keeps one daily summary while recording every login/logout', () => {
-    let row = applyPunchToSummary(null, 'login', '2026-07-27T03:00:00.000Z');
-    row = applyPunchToSummary(row, 'logout', '2026-07-27T07:00:00.000Z');
-    row = applyPunchToSummary(row, 'login', '2026-07-27T08:30:00.000Z');
-    row = applyPunchToSummary(row, 'logout', '2026-07-27T12:00:00.000Z');
-
-    expect(row.firstLoginAt).toBe('2026-07-27T03:00:00.000Z');
-    expect(row.lastLogoutAt).toBe('2026-07-27T12:00:00.000Z');
-    expect(row.punches).toHaveLength(4);
-    expect(row.punches.map((p) => p.type)).toEqual(['login', 'logout', 'login', 'logout']);
-  });
-
-  it('merges first login stamp when punch list only has logouts', () => {
+  it('includes first login even when a later re-login exists', () => {
     const punches = resolveDayPunches({
       firstLoginAt: '2026-07-27T10:24:10.000Z',
-      lastLogoutAt: '2026-07-27T11:06:00.000Z',
+      lastLogoutAt: '2026-07-27T11:08:14.000Z',
       punches: [
         { id: 'a', type: 'logout', at: '2026-07-27T11:06:00.000Z' },
-        { id: 'b', type: 'logout', at: '2026-07-27T11:06:05.000Z' },
+        { id: 'b', type: 'logout', at: '2026-07-27T11:06:37.000Z' },
+        { id: 'c', type: 'login', at: '2026-07-27T11:08:06.000Z' },
+        { id: 'd', type: 'logout', at: '2026-07-27T11:08:14.000Z' },
       ],
     });
-    expect(punches.map((p) => p.type)).toEqual(['login', 'logout']);
+    expect(punches.map((p) => p.type)).toEqual(['login', 'logout', 'login', 'logout']);
     expect(punches[0].at).toBe('2026-07-27T10:24:10.000Z');
+    expect(punches[1].at).toBe('2026-07-27T11:06:37.000Z');
+    expect(punches[2].at).toBe('2026-07-27T11:08:06.000Z');
+    expect(punches[3].at).toBe('2026-07-27T11:08:14.000Z');
   });
 
-  it('dedupes accidental double logout within 15 seconds', () => {
+  it('collapses consecutive duplicate logouts', () => {
     const punches = resolveDayPunches({
       punches: [
         { id: 'a', type: 'logout', at: '2026-07-27T11:06:00.696Z' },
-        { id: 'b', type: 'logout', at: '2026-07-27T11:06:10.024Z' },
+        { id: 'b', type: 'logout', at: '2026-07-27T11:06:37.024Z' },
       ],
     });
     expect(punches).toHaveLength(1);
     expect(punches[0].type).toBe('logout');
+    expect(punches[0].at).toBe('2026-07-27T11:06:37.024Z');
   });
 
-  it('prefers stored punch events over empty fallback', () => {
+  it('keeps alternating login/logout sessions intact', () => {
     const punches = resolveDayPunches({
       firstLoginAt: '2026-07-27T03:00:00.000Z',
       lastLogoutAt: '2026-07-27T12:00:00.000Z',
@@ -101,9 +79,9 @@ describe('attendance day punches', () => {
         { id: 'a', type: 'login', at: '2026-07-27T03:00:00.000Z' },
         { id: 'b', type: 'logout', at: '2026-07-27T06:00:00.000Z' },
         { id: 'c', type: 'login', at: '2026-07-27T08:00:00.000Z' },
+        { id: 'd', type: 'logout', at: '2026-07-27T12:00:00.000Z' },
       ],
     });
-    expect(punches).toHaveLength(3);
-    expect(punches[2].type).toBe('login');
+    expect(punches.map((p) => p.type)).toEqual(['login', 'logout', 'login', 'logout']);
   });
 });

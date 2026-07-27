@@ -3440,8 +3440,8 @@ function punchDedupeKey(punch) {
   const type = punch?.type === 'logout' ? 'logout' : 'login';
   const atMs = Date.parse(String(punch?.at || ''));
   if (!Number.isFinite(atMs)) return `${type}__${String(punch?.at || '')}`;
-  // Collapse accidental double-submit punches within 15s.
-  const bucket = Math.floor(atMs / 15000);
+  // Collapse accidental double-submit punches within 60s.
+  const bucket = Math.floor(atMs / 60000);
   return `${type}__${bucket}`;
 }
 
@@ -3459,19 +3459,23 @@ function dedupePunchEvents(punches = []) {
 
 function mergeSummaryStampsIntoPunches(rec, punches = []) {
   const merged = [...(punches || [])];
-  const hasLogin = merged.some((p) => p.type === 'login');
-  const hasLogout = merged.some((p) => p.type === 'logout');
   const key = `${String(rec.date || '').slice(0, 10)}__${String(rec.userId || '').trim()}`;
+  const near = (a, b, windowMs = 60000) => {
+    const am = Date.parse(String(a || ''));
+    const bm = Date.parse(String(b || ''));
+    return Number.isFinite(am) && Number.isFinite(bm) && Math.abs(am - bm) <= windowMs;
+  };
 
-  if (!hasLogin && rec.firstLoginAt) {
-    merged.unshift({
+  // Always include First Login stamp even if a later re-login exists.
+  if (rec.firstLoginAt && !merged.some((p) => p.type === 'login' && near(p.at, rec.firstLoginAt))) {
+    merged.push({
       id: `summary-login-${key}`,
       type: 'login',
       at: rec.firstLoginAt,
       markedBy: rec.markedBy || null,
     });
   }
-  if (!hasLogout && rec.lastLogoutAt) {
+  if (rec.lastLogoutAt && !merged.some((p) => p.type === 'logout' && near(p.at, rec.lastLogoutAt))) {
     merged.push({
       id: `summary-logout-${key}`,
       type: 'logout',
@@ -3479,7 +3483,18 @@ function mergeSummaryStampsIntoPunches(rec, punches = []) {
       markedBy: rec.updatedBy || rec.markedBy || null,
     });
   }
-  return dedupePunchEvents(merged);
+
+  const sorted = dedupePunchEvents(merged);
+  const out = [];
+  for (const punch of sorted) {
+    const prev = out[out.length - 1];
+    if (prev && prev.type === punch.type) {
+      if (punch.type === 'logout') out[out.length - 1] = punch;
+      continue;
+    }
+    out.push(punch);
+  }
+  return out;
 }
 
 /**
@@ -3504,7 +3519,7 @@ async function appendStaffAttendancePunch(sb, gid, {
 
   const atMs = Date.parse(atIso);
   if (Number.isFinite(atMs)) {
-    const windowStart = new Date(atMs - 15000).toISOString();
+    const windowStart = new Date(atMs - 60000).toISOString();
     const { data: recent, error: recentErr } = await sb
       .from(T.staff_attendance_punches)
       .select('id')

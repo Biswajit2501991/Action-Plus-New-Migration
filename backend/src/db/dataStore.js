@@ -600,7 +600,7 @@ function applyAttendancePunchToRecords(records, { userId, punchType, atIso, time
   const isDuplicate = priorPunches.some((p) => {
     if ((p?.type === 'logout' ? 'logout' : 'login') !== type) return false;
     const prevMs = Date.parse(String(p?.at || ''));
-    return Number.isFinite(atMs) && Number.isFinite(prevMs) && Math.abs(atMs - prevMs) <= 15000;
+    return Number.isFinite(atMs) && Number.isFinite(prevMs) && Math.abs(atMs - prevMs) <= 60000;
   });
   const punchEvent = isDuplicate
     ? null

@@ -59,11 +59,16 @@ function resolveDayPunches(row: AttendanceRecord) {
     }))
     .filter((p) => p.at);
 
-  const hasLogin = cleaned.some((p) => p.type === "login");
-  const hasLogout = cleaned.some((p) => p.type === "logout");
+  const near = (a: string, b: string, windowMs = 60_000) => {
+    const am = Date.parse(a);
+    const bm = Date.parse(b);
+    return Number.isFinite(am) && Number.isFinite(bm) && Math.abs(am - bm) <= windowMs;
+  };
+
+  // Always surface summary First Login / Last Logout if that exact stamp is missing.
   const firstLogin = resolveFirstLoginTimestamp(row);
-  if (!hasLogin && firstLogin) {
-    cleaned.unshift({
+  if (firstLogin && !cleaned.some((p) => p.type === "login" && near(p.at, firstLogin))) {
+    cleaned.push({
       id: `summary-login-${row.date}-${row.userId}`,
       type: "login",
       at: firstLogin,
@@ -71,7 +76,7 @@ function resolveDayPunches(row: AttendanceRecord) {
     });
   }
   const lastLogout = toIsoOrEmpty(row.lastLogoutAt);
-  if (!hasLogout && lastLogout) {
+  if (lastLogout && !cleaned.some((p) => p.type === "logout" && near(p.at, lastLogout))) {
     cleaned.push({
       id: `summary-logout-${row.date}-${row.userId}`,
       type: "logout",
@@ -80,15 +85,15 @@ function resolveDayPunches(row: AttendanceRecord) {
     });
   }
 
-  // Collapse accidental double-submit punches within 15s.
+  const sorted = cleaned.sort((a, b) => a.at.localeCompare(b.at));
   const out: { id: string; type: "login" | "logout"; at: string; markedBy: string }[] = [];
-  const seen = new Set<string>();
-  for (const punch of cleaned.sort((a, b) => a.at.localeCompare(b.at))) {
-    const atMs = Date.parse(punch.at);
-    const bucket = Number.isFinite(atMs) ? Math.floor(atMs / 15000) : punch.at;
-    const key = `${punch.type}__${bucket}`;
-    if (seen.has(key)) continue;
-    seen.add(key);
+  for (const punch of sorted) {
+    const prev = out[out.length - 1];
+    if (prev && prev.type === punch.type) {
+      // Consecutive same type is noise (double logout/login). Keep earliest login / latest logout.
+      if (punch.type === "logout") out[out.length - 1] = punch;
+      continue;
+    }
     out.push(punch);
   }
   return out;
