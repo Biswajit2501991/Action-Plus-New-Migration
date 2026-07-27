@@ -2939,6 +2939,47 @@ function normalizeExpenseAppRow(raw) {
   };
 }
 
+/** Compare expense notes ignoring status: prefix noise. */
+function expenseNoteFingerprint(note) {
+  return String(note || '')
+    .replace(/^\s*status:\w+\s*\|\s*/i, '')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .toLowerCase();
+}
+
+/**
+ * Return a recent identical expense (same amount/date/category/note) if one exists.
+ * Prevents double-submit duplicates without deleting or rewriting other rows.
+ */
+async function findRecentDuplicateExpense(sb, gid, expenseAppRow) {
+  const amount = Number(expenseAppRow.amount || 0);
+  const txDate = String(expenseAppRow.date || '').slice(0, 10);
+  const category = String(expenseAppRow.category || '').trim();
+  if (!amount || !txDate) return null;
+  const sinceIso = new Date(Date.now() - 5 * 60 * 1000).toISOString();
+  const { data, error } = await sb
+    .from(T.finance_transactions)
+    .select('*')
+    .eq('gym_id', gid)
+    .eq('tx_type', 'expense')
+    .eq('amount', amount)
+    .eq('tx_date', txDate)
+    .eq('category', category)
+    .gte('created_at', sinceIso)
+    .order('created_at', { ascending: false })
+    .limit(10);
+  if (error) {
+    console.warn('[finance] duplicate-check failed:', error.message);
+    return null;
+  }
+  const want = expenseNoteFingerprint(expenseAppRow.note);
+  for (const row of data || []) {
+    if (expenseNoteFingerprint(row.note) === want) return row;
+  }
+  return null;
+}
+
 /** Single expense upsert — no orphan delete (row API). */
 export async function upsertFinanceExpenseRow(rawExpense) {
   const expenseAppRow = normalizeExpenseAppRow(rawExpense);
@@ -2950,6 +2991,14 @@ export async function upsertFinanceExpenseRow(rawExpense) {
   }
   const sb = getSupabase();
   const gid = gymId();
+
+  // Idempotent re-submit with the same client id → upsert same row.
+  // Soft dedupe for double-clicks that generated different ids.
+  if (!expenseAppRow.id) {
+    const dup = await findRecentDuplicateExpense(sb, gid, expenseAppRow);
+    if (dup) return financeRowToApp(dup);
+  }
+
   const dbRow = appFinanceToRow(expenseAppRow, gid, null);
   await syncGymRowsByExternalId(sb, T.finance_transactions, {
     gymId: gid,

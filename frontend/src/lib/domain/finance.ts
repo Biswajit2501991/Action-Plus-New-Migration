@@ -293,7 +293,7 @@ export function validateExpenseDraft(draft: { amount?: unknown; note?: unknown }
 }
 
 export function buildExpensePayload(
-  draft: { amount?: unknown; category?: string; note?: string; date?: string },
+  draft: { amount?: unknown; category?: string; note?: string; date?: string; id?: string },
   actor: string,
   gymCodeId?: string | null,
 ) {
@@ -303,7 +303,9 @@ export function buildExpensePayload(
     : [noteBase, `Added by: ${actor}`].filter(Boolean).join(" • ");
   const dateRaw = String(draft.date || "").trim();
   const branch = String(gymCodeId || "").trim();
+  const id = String(draft.id || "").trim();
   return {
+    ...(id ? { id } : {}),
     type: "expense",
     amount: Number(draft.amount || 0),
     category: String(draft.category || "General").trim() || "General",

@@ -1,9 +1,9 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
-import { Download, Plus, Search } from "lucide-react";
+import { Download, Plus, Search, Trash2 } from "lucide-react";
 import { PageHeader, Skeleton, StatCard } from "@/components/ui/misc";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -52,6 +52,8 @@ export function FinancePage() {
     note: "",
     date: localTodayCalendarKey(),
   });
+  /** Stable id per draft so double-submit upserts the same row instead of duplicating. */
+  const expenseDraftIdRef = useRef("");
 
   const expenseBranchId = String(
     activeBranchId || user?.activeBranchId || user?.gymCodeId || "",
@@ -71,6 +73,7 @@ export function FinancePage() {
   const canManageExpenses = hasAccess(user, "finance", "manageExpenses");
   const canManagePaymentQr =
     isMasterOwnerUser(user) || hasAccess(user, "paymentQr", "managePaymentSettings");
+  const expenseSaveLockRef = useRef(false);
 
   const ledger = useMemo(
     () => buildFinanceLedgerRows(members, data?.transactions || []),
@@ -152,25 +155,40 @@ export function FinancePage() {
 
   const addExpense = useMutation({
     mutationFn: async () => {
-      const check = validateExpenseDraft({ amount: expense.amount, note: expense.note });
-      if (!check.ok) throw new Error(check.error);
-      if (!expenseBranchId) {
-        throw new Error("Select a branch before adding an expense.");
+      if (expenseSaveLockRef.current) return null;
+      expenseSaveLockRef.current = true;
+      try {
+        const check = validateExpenseDraft({ amount: expense.amount, note: expense.note });
+        if (!check.ok) throw new Error(check.error);
+        if (!expenseBranchId) {
+          throw new Error("Select a branch before adding an expense.");
+        }
+        if (!expenseDraftIdRef.current) {
+          expenseDraftIdRef.current =
+            typeof crypto !== "undefined" && crypto.randomUUID
+              ? crypto.randomUUID()
+              : `exp-${Date.now()}`;
+        }
+        const payload = buildExpensePayload(
+          {
+            id: expenseDraftIdRef.current,
+            amount: expense.amount,
+            category: expense.category || settings?.expenseCategories?.[0] || "General",
+            note: expense.note,
+            date: expense.date,
+          },
+          String(user?.name || user?.id || "Staff"),
+          expenseBranchId,
+        );
+        return await financeApi.addExpense(payload);
+      } finally {
+        expenseSaveLockRef.current = false;
       }
-      const payload = buildExpensePayload(
-        {
-          amount: expense.amount,
-          category: expense.category || settings?.expenseCategories?.[0] || "General",
-          note: expense.note,
-          date: expense.date,
-        },
-        String(user?.name || user?.id || "Staff"),
-        expenseBranchId,
-      );
-      return financeApi.addExpense(payload);
     },
-    onSuccess: async () => {
+    onSuccess: async (saved) => {
+      if (!saved) return;
       toast.success("Expense added");
+      expenseDraftIdRef.current = "";
       setExpense({
         amount: "",
         category: "",
@@ -185,6 +203,39 @@ export function FinancePage() {
     },
     onError: (e: Error) => toast.error(e.message),
   });
+
+  const deleteExpense = useMutation({
+    mutationFn: async (externalTxId: string) => {
+      const id = String(externalTxId || "").trim();
+      if (!id) throw new Error("Missing expense id");
+      return financeApi.deleteExpense(id);
+    },
+    onSuccess: async () => {
+      toast.success("Expense deleted");
+      await Promise.all([
+        qc.invalidateQueries({ queryKey: ["finance"] }),
+        qc.invalidateQueries({ queryKey: ["finance-year"] }),
+      ]);
+    },
+    onError: (e: Error) => toast.error(e.message || "Could not delete expense"),
+  });
+
+  function confirmDeleteExpense(row: { id?: string; amount?: number; category?: string; date?: string }) {
+    const id = String(row.id || "").trim();
+    if (!id) {
+      toast.error("Missing expense id");
+      return;
+    }
+    const label = `${formatCurrency(Number(row.amount) || 0)} · ${row.category || "Expense"} · ${formatDate(row.date)}`;
+    if (
+      !window.confirm(
+        `Delete this expense?\n\n${label}\n\nThis only removes the expense row. Payments and member data are not changed.`,
+      )
+    ) {
+      return;
+    }
+    deleteExpense.mutate(id);
+  }
 
   const exportCsv = () => {
     const rows = filteredLedger.map((r) => ({
@@ -353,7 +404,13 @@ export function FinancePage() {
               />
             </div>
             <div className="flex items-end md:col-span-5">
-              <Button onClick={() => addExpense.mutate()} disabled={addExpense.isPending}>
+              <Button
+                onClick={() => {
+                  if (addExpense.isPending) return;
+                  addExpense.mutate();
+                }}
+                disabled={addExpense.isPending}
+              >
                 {addExpense.isPending ? "Saving…" : "Save expense"}
               </Button>
             </div>
@@ -602,6 +659,9 @@ export function FinancePage() {
                     <th className="px-3 py-2.5 font-semibold">Category</th>
                     <th className="px-3 py-2.5 font-semibold">Amount</th>
                     <th className="px-3 py-2.5 font-semibold">Note</th>
+                    {canManageExpenses ? (
+                      <th className="px-3 py-2.5 text-right font-semibold">Actions</th>
+                    ) : null}
                   </tr>
                 </thead>
                 <tbody>
@@ -615,12 +675,27 @@ export function FinancePage() {
                       <td className="max-w-[280px] truncate px-3 py-2 text-xs text-muted-foreground">
                         {r.note || "—"}
                       </td>
+                      {canManageExpenses ? (
+                        <td className="px-3 py-2 text-right">
+                          <Button
+                            type="button"
+                            size="sm"
+                            variant="outline"
+                            className="h-8 text-rose-700 hover:bg-rose-50 dark:hover:bg-rose-950/40"
+                            disabled={deleteExpense.isPending}
+                            onClick={() => confirmDeleteExpense(r)}
+                          >
+                            <Trash2 className="mr-1 h-3.5 w-3.5" />
+                            Delete
+                          </Button>
+                        </td>
+                      ) : null}
                     </tr>
                   ))}
                   {!expenseMonthRows.length ? (
                     <tr>
                       <td
-                        colSpan={4}
+                        colSpan={canManageExpenses ? 5 : 4}
                         className="px-3 py-8 text-center text-sm text-muted-foreground"
                       >
                         No expenses logged for this month.

@@ -2546,7 +2546,9 @@ app.post('/api/logs/cleanup', requireAccess(Access.logsClear), async (req, res) 
 
 app.get('/api/finance', requireAccess(Access.financeRead), async (req, res) => {
   const finance = await readScopedCollection(req, 'apg.finance', []);
-  if (authUsesGlobalDataRead(req.auth)) return res.json(finance);
+  // Master owner always sees all finance/expense rows (any active branch).
+  // Branch selection must not hide previous-month expenses tagged to another gym_code_id.
+  if (authHasGlobalBranchRead(req.auth)) return res.json(finance);
   if (!req.auth?.gymCodeId) return res.json([]);
   const scope = await loadBranchScope(getSupabase(), req.auth);
   res.json(finance.filter((t) => branchScopeAllowsFinanceRow(t, scope)));
