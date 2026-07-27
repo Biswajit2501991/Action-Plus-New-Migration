@@ -36,6 +36,24 @@ export function registerAnalyticsRoutes(app) {
     return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
   }
 
+  /** Last N calendar month keys ending at `through` (YYYY-MM), inclusive. */
+  function lastNMonthKeys(through = monthKeyFromDate(), n = 12) {
+    const parts = String(through || "").split("-").map(Number);
+    let y = parts[0];
+    let m = parts[1];
+    if (!y || !m) return [];
+    const out = [];
+    for (let i = 0; i < n; i += 1) {
+      out.unshift(`${y}-${String(m).padStart(2, "0")}`);
+      m -= 1;
+      if (m < 1) {
+        m = 12;
+        y -= 1;
+      }
+    }
+    return out;
+  }
+
   /** Owner with no active branch = gym-wide; otherwise restrict to allowed gym code ids. */
   function branchIdsForAuth(auth) {
     if (authHasGlobalBranchRead(auth) && !resolveActiveBranchId(auth)) {
@@ -208,13 +226,15 @@ export function registerAnalyticsRoutes(app) {
       const byStatus = { Active: 0, Hold: 0, Deactivated: 0, Cancelled: 0 };
       const byPlan = {};
       const joinsByMonth = {};
+      const allowedJoinMonths = new Set(lastNMonthKeys(monthKeyFromDate(), 12));
       for (const m of members) {
         const st = String(m.status || "").trim();
         if (st in byStatus) byStatus[st] += 1;
         const plan = String(m.plan_name || "Unknown").trim() || "Unknown";
         byPlan[plan] = (byPlan[plan] || 0) + 1;
+        // Display-only window: ignore future / typo joining_date months (e.g. 2044-07).
         const jm = String(m.joining_date || "").slice(0, 7);
-        if (/^\d{4}-\d{2}$/.test(jm)) joinsByMonth[jm] = (joinsByMonth[jm] || 0) + 1;
+        if (allowedJoinMonths.has(jm)) joinsByMonth[jm] = (joinsByMonth[jm] || 0) + 1;
       }
 
       return res.json({
@@ -226,10 +246,9 @@ export function registerAnalyticsRoutes(app) {
           .sort((a, b) => b[1] - a[1])
           .slice(0, 15)
           .map(([plan, count]) => ({ plan, count })),
-        joinsByMonth: Object.entries(joinsByMonth)
-          .sort((a, b) => a[0].localeCompare(b[0]))
-          .slice(-12)
-          .map(([month, count]) => ({ month, count })),
+        joinsByMonth: [...allowedJoinMonths]
+          .sort((a, b) => a.localeCompare(b))
+          .map((month) => ({ month, count: joinsByMonth[month] || 0 })),
       });
     } catch (err) {
       return res.status(500).json({ error: err?.message || "analytics-members-failed" });

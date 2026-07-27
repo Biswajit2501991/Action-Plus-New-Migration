@@ -159,16 +159,31 @@ export function AnalyticsPage() {
   }, [yearSummary, finance]);
 
   const joinsByMonth = useMemo(() => {
+    const through = formatMonthKey();
+    const allowed = new Set<string>();
+    {
+      const [y0, m0] = through.split("-").map(Number);
+      let y = y0;
+      let m = m0;
+      for (let i = 0; i < 12; i += 1) {
+        allowed.add(`${y}-${String(m).padStart(2, "0")}`);
+        m -= 1;
+        if (m < 1) {
+          m = 12;
+          y -= 1;
+        }
+      }
+    }
     const map: Record<string, number> = {};
     for (const m of members) {
+      // Display-only: ignore future / typo join months (e.g. 2044-07) so chart stays in real range.
       const raw = String(m.joiningDate || "").slice(0, 7);
-      if (!/^\d{4}-\d{2}$/.test(raw)) continue;
+      if (!allowed.has(raw)) continue;
       map[raw] = (map[raw] || 0) + 1;
     }
-    return Object.entries(map)
-      .sort((a, b) => a[0].localeCompare(b[0]))
-      .slice(-12)
-      .map(([month, count]) => ({ month, count }));
+    return [...allowed]
+      .sort((a, b) => a.localeCompare(b))
+      .map((month) => ({ month, count: map[month] || 0 }));
   }, [members]);
 
   const planMix = useMemo(() => {
