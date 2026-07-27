@@ -18,6 +18,8 @@ export const STALE = {
   finance: 3 * 60_000,
   /** Logs / messaging */
   volatile: 90_000,
+  /** System Analytics — read-only aggregates; safe to keep longer */
+  analytics: 10 * 60_000,
 } as const;
 
 export const GC_TIME = 24 * 60 * 60_000; // keep for persist window
@@ -37,6 +39,7 @@ const PERSIST_ROOT_KEYS = new Set([
   "leave-balance",
   "attendance-notes",
   "whatsapp-templates",
+  "analytics",
 ]);
 
 export function createAppQueryClient() {
@@ -106,5 +109,6 @@ export function invalidateBranchScopedQueries(client: QueryClient) {
     client.invalidateQueries({ queryKey: ["logs"] }),
     client.invalidateQueries({ queryKey: ["settings"] }),
     client.invalidateQueries({ queryKey: ["gym-codes"] }),
+    client.invalidateQueries({ queryKey: ["analytics"] }),
   ]);
 }

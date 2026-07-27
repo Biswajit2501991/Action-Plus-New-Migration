@@ -30,6 +30,8 @@ import {
   expiringSoon,
 } from "@/lib/domain/members";
 import { analyticsApi } from "@/services/api";
+import { STALE } from "@/lib/query-cache";
+import { useAuthStore } from "@/stores";
 import { cn, downloadTextFile, formatCurrency, formatDate, formatMonthKey, toCsv } from "@/lib/utils";
 
 type TabId =
@@ -73,45 +75,57 @@ function SparseNote({ message }: { message?: string | null }) {
 
 export function AnalyticsPage() {
   const [tab, setTab] = useState<TabId>("overview");
+  const branchId = useAuthStore((s) =>
+    String(s.user?.activeBranchId || s.user?.gymCodeId || ""),
+  );
   const { data: members = [], isLoading: membersLoading } = useMembers();
   const { data: finance } = useFinance();
   const { data: yearSummary } = useFinanceYearSummary();
   const { data: visitors = [] } = useVisitors();
 
+  /** Persist + longer stale so Analytics opens from cache instead of reloading every visit. */
+  const analyticsQueryOpts = {
+    staleTime: STALE.analytics,
+    gcTime: 24 * 60 * 60_000,
+    refetchOnWindowFocus: false,
+    refetchOnReconnect: false,
+    placeholderData: (prev: Record<string, unknown> | undefined) => prev,
+  } as const;
+
   const overviewQ = useQuery({
-    queryKey: ["analytics", "overview"],
+    queryKey: ["analytics", "overview", branchId || "all"],
     queryFn: analyticsApi.overview,
-    staleTime: 60_000,
+    ...analyticsQueryOpts,
   });
   const portalQ = useQuery({
-    queryKey: ["analytics", "portal"],
+    queryKey: ["analytics", "portal", branchId || "all"],
     queryFn: analyticsApi.portal,
     enabled: tab === "portal" || tab === "overview",
-    staleTime: 60_000,
+    ...analyticsQueryOpts,
   });
   const opsQ = useQuery({
-    queryKey: ["analytics", "operations"],
+    queryKey: ["analytics", "operations", branchId || "all"],
     queryFn: analyticsApi.operations,
     enabled: tab === "operations",
-    staleTime: 60_000,
+    ...analyticsQueryOpts,
   });
   const ptQ = useQuery({
-    queryKey: ["analytics", "pt"],
+    queryKey: ["analytics", "pt", branchId || "all"],
     queryFn: analyticsApi.pt,
     enabled: tab === "pt",
-    staleTime: 60_000,
+    ...analyticsQueryOpts,
   });
   const websiteQ = useQuery({
-    queryKey: ["analytics", "website"],
+    queryKey: ["analytics", "website", branchId || "all"],
     queryFn: analyticsApi.website,
     enabled: tab === "website",
-    staleTime: 60_000,
+    ...analyticsQueryOpts,
   });
   const growthQ = useQuery({
-    queryKey: ["analytics", "growth"],
+    queryKey: ["analytics", "growth", branchId || "all"],
     queryFn: analyticsApi.growth,
     enabled: tab === "growth",
-    staleTime: 60_000,
+    ...analyticsQueryOpts,
   });
 
   const status = useMemo(() => countByStatus(members), [members]);
