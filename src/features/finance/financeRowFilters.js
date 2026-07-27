@@ -28,6 +28,8 @@ export function manualIncomeFinanceRows(financeTransactions) {
  * Branch-scoped finance read/write.
  * - Global / unlimited scope: all rows.
  * - Expenses: must match scope gymCodeId (or allowedBranchIds).
+ *   Legacy untagged expenses (missing gymCodeId) stay visible so KPI/list match —
+ *   they were often saved before branch stamping worked.
  * - Income: member must be in scope.memberCodes when that set is present.
  */
 export function branchScopeAllowsFinanceRow(row, scope) {
@@ -35,7 +37,7 @@ export function branchScopeAllowsFinanceRow(row, scope) {
   if (!scope?.limited) return true;
   if (String(row.type || '').toLowerCase() === 'expense') {
     const rowBranch = String(row.gymCodeId || row.gym_code_id || '').trim();
-    if (!rowBranch) return false;
+    if (!rowBranch) return true;
     const active = String(scope.gymCodeId || '').trim();
     if (active && rowBranch === active) return true;
     const allowed = Array.isArray(scope.allowedBranchIds) ? scope.allowedBranchIds : [];
@@ -49,7 +51,8 @@ export function branchScopeAllowsFinanceRow(row, scope) {
 /**
  * Filter finance rows for summary / reconciliation using resolveReadBranchScope shape.
  * When gymCodeId is set (staff, branch owner, or master with active branch), expenses
- * are limited to that branch. Global master (no gymCodeId) sees all.
+ * are limited to that branch. Untagged (null gymCodeId) expenses remain visible so
+ * totals match the Expenses list. Global master (no gymCodeId) sees all.
  */
 export function filterFinanceRowsForBranchScope(rows, branchScope) {
   const list = Array.isArray(rows) ? rows : [];
@@ -58,7 +61,9 @@ export function filterFinanceRowsForBranchScope(rows, branchScope) {
   if (!branchId) return list;
   return list.filter((row) => {
     if (String(row?.type || '').toLowerCase() !== 'expense') return true;
-    return String(row.gymCodeId || row.gym_code_id || '').trim() === branchId;
+    const rowBranch = String(row.gymCodeId || row.gym_code_id || '').trim();
+    if (!rowBranch) return true;
+    return rowBranch === branchId;
   });
 }
 

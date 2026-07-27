@@ -2935,12 +2935,19 @@ function normalizeExpenseAppRow(raw) {
     memberName: raw?.memberName || raw?.category || 'Expense',
     plan: raw?.plan || 'Expense',
     createdAt: raw?.createdAt,
+    gymCodeId: String(raw?.gymCodeId || raw?.gym_code_id || '').trim() || null,
   };
 }
 
 /** Single expense upsert — no orphan delete (row API). */
 export async function upsertFinanceExpenseRow(rawExpense) {
   const expenseAppRow = normalizeExpenseAppRow(rawExpense);
+  const gymCodeId = String(expenseAppRow.gymCodeId || '').trim();
+  if (!gymCodeId) {
+    const err = new Error('gym-code-id-required');
+    err.status = 400;
+    throw err;
+  }
   const sb = getSupabase();
   const gid = gymId();
   const dbRow = appFinanceToRow(expenseAppRow, gid, null);

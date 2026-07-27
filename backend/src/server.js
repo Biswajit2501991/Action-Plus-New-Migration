@@ -2596,7 +2596,14 @@ app.get('/api/finance/reconciliation', requireAccess(Access.financeRead), async 
 
 app.post('/api/finance/expenses', requireAccess(Access.financeWrite), async (req, res) => {
   try {
-    const saved = await upsertFinanceExpenseRow(req.body || {});
+    const body = { ...(req.body || {}) };
+    if (!String(body.gymCodeId || body.gym_code_id || '').trim()) {
+      body.gymCodeId =
+        resolveActiveBranchId(req.auth) ||
+        String(req.auth?.gymCodeId || '').trim() ||
+        '';
+    }
+    const saved = await upsertFinanceExpenseRow(body);
     queueDatabaseBackup('finance-expense');
     return res.status(201).json(saved);
   } catch (error) {

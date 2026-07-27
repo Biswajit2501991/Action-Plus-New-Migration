@@ -45,10 +45,11 @@ describe('financeRowFilters', () => {
       { type: 'expense', amount: 100, gymCodeId: 'hq' },
       scope,
     )).toBe(false);
+    // Legacy untagged expenses remain visible so list matches KPI totals.
     expect(branchScopeAllowsFinanceRow(
       { type: 'expense', amount: 100 },
       scope,
-    )).toBe(false);
+    )).toBe(true);
     expect(branchScopeAllowsFinanceRow({ type: 'income', memberId: 'APG001' }, scope)).toBe(true);
     expect(branchScopeAllowsFinanceRow({ type: 'income', memberId: 'OTHER' }, scope)).toBe(false);
     expect(branchScopeAllowsFinanceRow({ type: 'income' }, scope)).toBe(false);
@@ -60,16 +61,17 @@ describe('financeRowFilters', () => {
     expect(branchScopeAllowsFinanceRow({ type: 'income', memberId: 'X' }, scope)).toBe(true);
   });
 
-  it('filterFinanceRowsForBranchScope keeps only matching expenses', () => {
+  it('filterFinanceRowsForBranchScope keeps matching + untagged expenses', () => {
     const rows = [
       { type: 'expense', amount: 126000, gymCodeId: 'hq' },
       { type: 'expense', amount: 500, gymCodeId: 'kasipure' },
+      { type: 'expense', amount: 1200 },
       { type: 'income', amount: 100, memberId: 'APG1' },
     ];
     const filtered = filterFinanceRowsForBranchScope(rows, { gymCodeId: 'kasipure' });
-    expect(filtered).toHaveLength(2);
-    expect(filtered.find((r) => r.type === 'expense')?.amount).toBe(500);
-    expect(filterFinanceRowsForBranchScope(rows, { gymCodeId: null })).toHaveLength(3);
+    expect(filtered).toHaveLength(3);
+    expect(filtered.filter((r) => r.type === 'expense').map((r) => r.amount).sort((a, b) => a - b)).toEqual([500, 1200]);
+    expect(filterFinanceRowsForBranchScope(rows, { gymCodeId: null })).toHaveLength(4);
     expect(filterFinanceRowsForBranchScope(rows, { staffNoBranch: true })).toHaveLength(0);
   });
 

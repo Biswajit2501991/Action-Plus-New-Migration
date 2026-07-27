@@ -154,6 +154,9 @@ export function FinancePage() {
     mutationFn: async () => {
       const check = validateExpenseDraft({ amount: expense.amount, note: expense.note });
       if (!check.ok) throw new Error(check.error);
+      if (!expenseBranchId) {
+        throw new Error("Select a branch before adding an expense.");
+      }
       const payload = buildExpensePayload(
         {
           amount: expense.amount,
