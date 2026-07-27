@@ -122,6 +122,7 @@ import { registerMemberPortalPhase2Routes } from './routes/memberPortalPhase2.js
 import { registerMemberDailyWorkoutRoutes } from './routes/memberDailyWorkouts.js';
 import { registerMemberWeightLogRoutes } from './routes/memberWeightLogs.js';
 import { registerMemberReferralRoutes } from './routes/memberReferrals.js';
+import { registerAnalyticsRoutes } from './routes/analytics.js';
 import {
   authIsOwner,
   stampBranchOnRows,
@@ -545,6 +546,8 @@ registerMemberPortalPhase2Routes(app, { appendAuditLog });
 registerMemberDailyWorkoutRoutes(app, { appendAuditLog });
 registerMemberWeightLogRoutes(app, { appendAuditLog });
 registerMemberReferralRoutes(app, { appendAuditLog });
+// System Analytics — read-only aggregates (no ledger/member writes)
+registerAnalyticsRoutes(app);
 
 // Phase 2 gym-codes feature: list is authenticated-only, write is owner-only (inside the router).
 app.use('/api/gym-codes', gymCodesRouter);

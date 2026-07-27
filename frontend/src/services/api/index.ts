@@ -363,6 +363,18 @@ export const financeApi = {
     }),
 };
 
+/** System Analytics — read-only aggregates (never mutates members/payments). */
+export const analyticsApi = {
+  overview: () => apiFetch<Record<string, unknown>>("/analytics/overview"),
+  members: () => apiFetch<Record<string, unknown>>("/analytics/members"),
+  money: () => apiFetch<Record<string, unknown>>("/analytics/money"),
+  portal: () => apiFetch<Record<string, unknown>>("/analytics/portal"),
+  operations: () => apiFetch<Record<string, unknown>>("/analytics/operations"),
+  pt: () => apiFetch<Record<string, unknown>>("/analytics/pt"),
+  website: () => apiFetch<Record<string, unknown>>("/analytics/website"),
+  growth: () => apiFetch<Record<string, unknown>>("/analytics/growth"),
+};
+
 export const attendanceApi = {
   records: (params: { startDate: string; endDate: string }) => {
     const q = new URLSearchParams({

@@ -12,6 +12,7 @@ export const ALL_SECTIONS = [
   "Attendance",
   "Leave Tracker",
   "Settings",
+  "Analytics",
   "Logs",
   "Support",
   "Backend",
@@ -176,6 +177,7 @@ export const MOBILE_MORE_PERMISSIONS: AccessChildPermission[] = [
   { key: "moreMemberCheckin", label: "More — Member QR Check-in" },
   { key: "moreSettings", label: "More — Settings" },
   { key: "moreLogs", label: "More — Logs" },
+  { key: "moreAnalytics", label: "More — Analytics" },
   { key: "moreSupport", label: "More — Support" },
   { key: "moreBackend", label: "More — Backend" },
   { key: "moreWebsite", label: "More — Website" },
@@ -708,6 +710,7 @@ export function sectionsWithRoleDefaults(user: AuthUser | null | undefined): Aut
       "Attendance",
       "Leave Tracker",
       "Settings",
+      "Analytics",
       "Logs",
     ];
   }
@@ -758,7 +761,7 @@ export function canAccessSection(user: AuthUser | null | undefined, section: str
   }
 
   const sections = Array.isArray(user.sections) ? user.sections : [];
-  const listed = sections.includes(section) || section === "Support" || section === "Logs";
+  const listed = sections.includes(section) || section === "Support" || section === "Logs" || section === "Analytics";
   if (!listed) return false;
 
   if (section === "Attendance") {
@@ -769,6 +772,16 @@ export function canAccessSection(user: AuthUser | null | undefined, section: str
   }
   if (section === "Staff") return hasAccess(user, "staff", "viewStaff");
   if (section === "Logs") return hasAccess(user, "logs", "viewLogs");
+  if (section === "Analytics") {
+    return (
+      hasAccess(user, "members", "viewMembers") ||
+      hasAccess(user, "finance", "viewRevenueAutoMembers") ||
+      hasAccess(user, "finance", "viewYtdCollected") ||
+      hasAccess(user, "dashboard", "viewDashboardCore") ||
+      hasAccess(user, "dashboard", "viewMembershipTrends") ||
+      hasAccess(user, "logs", "viewLogs")
+    );
+  }
   if (section === "Support") return hasAccess(user, "support", "viewSupportTemplates");
   if (section === "Backend") return hasAccess(user, "backend", "viewBackendPage");
   return true;
@@ -882,6 +895,7 @@ const MOBILE_PATH_ACCESS: Array<{ prefix: string; key: string }> = [
   { prefix: "/attendance", key: "moreAttendance" },
   { prefix: "/settings", key: "moreSettings" },
   { prefix: "/logs", key: "moreLogs" },
+  { prefix: "/analytics", key: "moreAnalytics" },
   { prefix: "/support", key: "moreSupport" },
   { prefix: "/backend", key: "moreBackend" },
   { prefix: "https://www.actionplusgym.com", key: "moreWebsite" },
@@ -998,6 +1012,7 @@ export const DEFAULT_ROLE_TEMPLATES: RoleTemplate[] = [
       "Attendance",
       "Leave Tracker",
       "Settings",
+      "Analytics",
       "Logs",
     ],
     color:

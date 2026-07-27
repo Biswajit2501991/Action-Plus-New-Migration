@@ -13,6 +13,7 @@ import {
   Users,
   Wallet,
   Plane,
+  BarChart3,
   type LucideIcon,
 } from "lucide-react";
 
@@ -40,6 +41,7 @@ export const SECTION_ORDER = [
   "Attendance",
   "Leave Tracker",
   "Settings",
+  "Analytics",
   "Logs",
   "Support",
   "Backend",
@@ -90,6 +92,7 @@ export const NAV_ITEMS: NavItem[] = [
   },
   { href: "/leave", label: "Leave Tracker", icon: Plane, section: "Leave Tracker", tier: "A", group: "OPERATIONS" },
   { href: "/settings", label: "Settings", icon: Settings, section: "Settings", tier: "A", group: "SYSTEM" },
+  { href: "/analytics", label: "Analytics", icon: BarChart3, section: "Analytics", tier: "A", group: "SYSTEM" },
   { href: "/logs", label: "Logs", icon: ClipboardList, section: "Logs", tier: "A", group: "SYSTEM" },
   { href: "/support", label: "Support", icon: FileText, section: "Support", tier: "A", group: "SYSTEM" },
   { href: "/backend", label: "Backend", icon: Server, section: "Backend", tier: "A", group: "SYSTEM" },
