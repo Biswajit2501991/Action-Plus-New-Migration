@@ -46,6 +46,75 @@ import { MembersTodayVisitorBadge } from "@/components/layout/members-today-visi
 import { PortalChatUnreadBadge } from "@/components/layout/portal-chat-unread-badge";
 import { Skeleton } from "@/components/ui/misc";
 
+const SIDEBAR_GROUP_THEME: Record<
+  string,
+  { ring: string; panel: string; heading: string; icon: string; active: string; hover: string }
+> = {
+  "MEMBERS & CLIENTS": {
+    ring: "border-cyan-500/35 dark:border-cyan-300/30",
+    panel:
+      "bg-[linear-gradient(160deg,rgba(8,38,66,0.7),rgba(8,24,47,0.66))] dark:bg-[linear-gradient(160deg,rgba(8,49,70,0.42),rgba(8,30,48,0.52))]",
+    heading: "text-cyan-200/90 dark:text-cyan-100/90",
+    icon: "text-cyan-300/95 dark:text-cyan-200/95",
+    active: "bg-cyan-500/22 text-white shadow-sm ring-1 ring-cyan-300/35 dark:bg-cyan-400/28 dark:text-cyan-50",
+    hover: "hover:bg-cyan-500/12 hover:text-cyan-50",
+  },
+  COMMUNICATION: {
+    ring: "border-violet-500/35 dark:border-violet-300/30",
+    panel:
+      "bg-[linear-gradient(160deg,rgba(46,22,76,0.7),rgba(29,16,52,0.66))] dark:bg-[linear-gradient(160deg,rgba(56,26,86,0.44),rgba(35,18,58,0.54))]",
+    heading: "text-violet-200/90 dark:text-violet-100/90",
+    icon: "text-violet-300/95 dark:text-violet-200/95",
+    active: "bg-violet-500/22 text-white shadow-sm ring-1 ring-violet-300/35 dark:bg-violet-400/28 dark:text-violet-50",
+    hover: "hover:bg-violet-500/12 hover:text-violet-50",
+  },
+  OPERATIONS: {
+    ring: "border-teal-500/35 dark:border-teal-300/30",
+    panel:
+      "bg-[linear-gradient(160deg,rgba(7,53,58,0.72),rgba(6,33,43,0.67))] dark:bg-[linear-gradient(160deg,rgba(7,65,67,0.44),rgba(6,38,45,0.54))]",
+    heading: "text-teal-200/90 dark:text-teal-100/90",
+    icon: "text-teal-300/95 dark:text-teal-200/95",
+    active: "bg-teal-500/22 text-white shadow-sm ring-1 ring-teal-300/35 dark:bg-teal-400/28 dark:text-teal-50",
+    hover: "hover:bg-teal-500/12 hover:text-teal-50",
+  },
+  FINANCE: {
+    ring: "border-amber-500/35 dark:border-amber-300/30",
+    panel:
+      "bg-[linear-gradient(160deg,rgba(70,50,11,0.72),rgba(46,33,12,0.67))] dark:bg-[linear-gradient(160deg,rgba(85,61,13,0.45),rgba(52,37,10,0.56))]",
+    heading: "text-amber-200/90 dark:text-amber-100/90",
+    icon: "text-amber-300/95 dark:text-amber-200/95",
+    active: "bg-amber-500/22 text-white shadow-sm ring-1 ring-amber-300/35 dark:bg-amber-400/30 dark:text-amber-50",
+    hover: "hover:bg-amber-500/12 hover:text-amber-50",
+  },
+  "STAFF & MANAGEMENT": {
+    ring: "border-fuchsia-500/35 dark:border-fuchsia-300/30",
+    panel:
+      "bg-[linear-gradient(160deg,rgba(65,21,58,0.7),rgba(41,14,39,0.66))] dark:bg-[linear-gradient(160deg,rgba(82,25,73,0.44),rgba(50,17,45,0.54))]",
+    heading: "text-fuchsia-200/90 dark:text-fuchsia-100/90",
+    icon: "text-fuchsia-300/95 dark:text-fuchsia-200/95",
+    active: "bg-fuchsia-500/22 text-white shadow-sm ring-1 ring-fuchsia-300/35 dark:bg-fuchsia-400/28 dark:text-fuchsia-50",
+    hover: "hover:bg-fuchsia-500/12 hover:text-fuchsia-50",
+  },
+  SYSTEM: {
+    ring: "border-slate-500/35 dark:border-slate-300/30",
+    panel:
+      "bg-[linear-gradient(160deg,rgba(33,47,72,0.72),rgba(20,33,55,0.67))] dark:bg-[linear-gradient(160deg,rgba(38,56,84,0.44),rgba(23,36,61,0.54))]",
+    heading: "text-slate-200/90 dark:text-slate-100/90",
+    icon: "text-slate-300/95 dark:text-slate-200/95",
+    active: "bg-slate-500/26 text-white shadow-sm ring-1 ring-slate-300/35 dark:bg-slate-400/28 dark:text-slate-50",
+    hover: "hover:bg-slate-500/14 hover:text-slate-50",
+  },
+  "": {
+    ring: "border-blue-500/35 dark:border-blue-300/30",
+    panel:
+      "bg-[linear-gradient(160deg,rgba(20,49,90,0.72),rgba(13,32,60,0.67))] dark:bg-[linear-gradient(160deg,rgba(25,60,108,0.44),rgba(15,37,72,0.54))]",
+    heading: "text-blue-200/90 dark:text-blue-100/90",
+    icon: "text-blue-300/95 dark:text-blue-200/95",
+    active: "bg-blue-500/22 text-white shadow-sm ring-1 ring-blue-300/35 dark:bg-blue-400/28 dark:text-blue-50",
+    hover: "hover:bg-blue-500/12 hover:text-blue-50",
+  },
+};
+
 function DesktopShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
   const { user, logout, changeBranch } = useAuth();
@@ -153,9 +222,21 @@ function DesktopShell({ children }: { children: React.ReactNode }) {
 
           <nav className="flex-1 space-y-5 overflow-y-auto px-3 pb-4">
             {groups.map((group) => (
-              <div key={group || "main"}>
+              <div
+                key={group || "main"}
+                className={cn(
+                  "rounded-2xl border p-2.5 shadow-[0_14px_30px_-20px_rgba(15,23,42,0.65)] backdrop-blur-xl",
+                  (SIDEBAR_GROUP_THEME[group] || SIDEBAR_GROUP_THEME.SYSTEM).ring,
+                  (SIDEBAR_GROUP_THEME[group] || SIDEBAR_GROUP_THEME.SYSTEM).panel,
+                )}
+              >
                 {!sidebarCollapsed && group ? (
-                  <p className="mb-2 px-2 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+                  <p
+                    className={cn(
+                      "mb-2 px-2 text-[10px] font-semibold uppercase tracking-wider",
+                      (SIDEBAR_GROUP_THEME[group] || SIDEBAR_GROUP_THEME.SYSTEM).heading,
+                    )}
+                  >
                     {group}
                   </p>
                 ) : null}
@@ -163,6 +244,7 @@ function DesktopShell({ children }: { children: React.ReactNode }) {
                   {visibleNav
                     .filter((i) => i.group === group)
                     .map((item) => {
+                      const theme = SIDEBAR_GROUP_THEME[group] || SIDEBAR_GROUP_THEME.SYSTEM;
                       const active =
                         !item.external &&
                         (pathname === item.href || pathname.startsWith(`${item.href}/`));
@@ -170,8 +252,8 @@ function DesktopShell({ children }: { children: React.ReactNode }) {
                       const linkClass = cn(
                         "flex flex-1 items-center gap-3 rounded-xl px-3 py-2 text-sm transition-colors",
                         active
-                          ? "bg-slate-900 text-white shadow-sm dark:bg-teal-400 dark:text-slate-950"
-                          : "text-muted-foreground hover:bg-accent hover:text-foreground",
+                          ? theme.active
+                          : cn("text-white/90 dark:text-white/85", theme.hover),
                       );
                       return (
                         <div key={item.href} className="group relative flex items-center">
@@ -183,7 +265,12 @@ function DesktopShell({ children }: { children: React.ReactNode }) {
                               className={linkClass}
                               title={item.label}
                             >
-                              <Icon className="h-4 w-4 shrink-0" />
+                              <Icon
+                                className={cn(
+                                  "h-4 w-4 shrink-0",
+                                  active ? "text-current" : theme.icon,
+                                )}
+                              />
                               {!sidebarCollapsed ? (
                                 <span className="flex min-w-0 items-center gap-1 truncate">
                                   <span className="truncate">{item.label}</span>
@@ -198,7 +285,12 @@ function DesktopShell({ children }: { children: React.ReactNode }) {
                             </a>
                           ) : (
                             <Link href={item.href} className={linkClass} title={item.label}>
-                              <Icon className="h-4 w-4 shrink-0" />
+                              <Icon
+                                className={cn(
+                                  "h-4 w-4 shrink-0",
+                                  active ? "text-current" : theme.icon,
+                                )}
+                              />
                               {!sidebarCollapsed ? (
                                 <span className="flex min-w-0 items-center gap-1 truncate">
                                   <span className="truncate">{item.label}</span>
