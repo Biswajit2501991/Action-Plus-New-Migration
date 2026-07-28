@@ -690,7 +690,7 @@ export function SettingsPage() {
     fine: false,
     features: false,
     portalAuth: false,
-    portalUi: true,
+    portalUi: false,
     business: false,
     member: false,
     recovery: false,
