@@ -1,5 +1,10 @@
 import type { AttendanceRecord, LeaveRequest } from "@/types";
-import { localCalendarDateKey, localTodayCalendarKey } from "@/lib/domain/billing";
+import { localCalendarDateKey } from "@/lib/domain/billing";
+import {
+  ATTENDANCE_TIME_ZONE,
+  attendanceTodayCalendarKey,
+} from "@/lib/domain/attendance";
+import { calendarDateKeyInTimeZone } from "@/lib/domain/today-visitors-nav";
 
 export function attendanceRecordKey(date?: string | null, userId?: string | null) {
   return `${localCalendarDateKey(date || "")}__${String(userId || "").trim()}`;
@@ -26,22 +31,22 @@ export function mergeAttendanceRecords(
 }
 
 export function defaultAttendanceRange(isOwner: boolean) {
-  const end = localTodayCalendarKey();
+  const end = attendanceTodayCalendarKey();
   const start = new Date();
   if (isOwner) start.setFullYear(start.getFullYear() - 5);
   else start.setMonth(start.getMonth() - 3);
   return {
-    startDate: localCalendarDateKey(start),
+    startDate: calendarDateKeyInTimeZone(start, ATTENDANCE_TIME_ZONE),
     endDate: end,
   };
 }
 
 export function notesDefaultRange() {
-  const end = localTodayCalendarKey();
+  const end = attendanceTodayCalendarKey();
   const start = new Date();
   start.setMonth(start.getMonth() - 2);
   return {
-    startDate: localCalendarDateKey(start),
+    startDate: calendarDateKeyInTimeZone(start, ATTENDANCE_TIME_ZONE),
     endDate: end,
   };
 }

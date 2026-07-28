@@ -108,6 +108,7 @@ async function ensureAttendanceRecordIdForNote(auth, {
     userId: target,
     punchType: 'login',
     atIso: new Date().toISOString(),
+    timeZone: 'Asia/Kolkata',
     actorName: requester,
   });
   return resolveAttendanceRecordInternalId({

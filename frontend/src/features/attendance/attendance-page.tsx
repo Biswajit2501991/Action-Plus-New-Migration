@@ -13,10 +13,10 @@ import { attendanceApi } from "@/services/api";
 import { cn, formatDate } from "@/lib/utils";
 import { hasAccess } from "@/lib/domain/permissions";
 import { formatDateTimeTz } from "@/lib/domain/member-actions";
-import { localTodayCalendarKey } from "@/lib/domain/billing";
 import {
   formatAttendanceNoteBadge,
   isAttendanceNotesEnabled,
+  attendanceTodayCalendarKey,
 } from "@/lib/domain/attendance";
 import {
   attendanceRecordKey,
@@ -108,7 +108,7 @@ export function AttendancePage() {
   const user = useAuthStore((s) => s.user);
   const qc = useQueryClient();
   const displayTz = "IST";
-  const today = localTodayCalendarKey();
+  const today = attendanceTodayCalendarKey();
   const [date, setDate] = useState(today);
   const [expandedStaffId, setExpandedStaffId] = useState("");
   const [historyPageByStaff, setHistoryPageByStaff] = useState<Record<string, number>>({});

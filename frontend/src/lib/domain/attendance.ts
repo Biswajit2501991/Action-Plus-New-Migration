@@ -1,6 +1,16 @@
+import { calendarDateKeyInTimeZone } from "@/lib/domain/today-visitors-nav";
+
 /** Attendance notes feature flag + category helpers (prod parity). */
 
 export const ATTENDANCE_NOTES_FEATURE_FLAG_KEY = "attendanceNotesEnabled";
+
+/** Gym attendance calendar timezone (matches backend punch day bucketing). */
+export const ATTENDANCE_TIME_ZONE = "Asia/Kolkata";
+
+/** Today's attendance calendar date in gym timezone (IST), not browser-local/UTC. */
+export function attendanceTodayCalendarKey(now: Date = new Date()) {
+  return calendarDateKeyInTimeZone(now, ATTENDANCE_TIME_ZONE);
+}
 
 /** Visitor intake QR (public form + staff Visitor QR card). */
 export const QR_VISITOR_INTAKE_FEATURE_FLAG_KEY = "qrVisitorIntakeEnabled";

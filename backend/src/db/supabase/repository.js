@@ -67,6 +67,10 @@ import {
 } from './utils.js';
 import { filterSettingsLookupRowsForAuth } from './settingsLookupBranchFilter.js';
 import { settingsLookupHasBranchColumn } from './settingsLookupBranchId.js';
+import {
+  attendanceCalendarDateKey,
+  attendanceTodayCalendarKey,
+} from '../../services/attendance/attendanceCalendarDate.js';
 import { stripVisitorGymCodeColumn, visitorsHaveGymCodeColumn } from './visitorsSchema.js';
 import { syncStaffUserAccess, syncStaffUserSections } from './staffUserSync.js';
 import {
@@ -3619,7 +3623,8 @@ export async function punchStaffAttendance(_scope, { userId, punchType, atIso, t
   const uid = String(userId || '').trim();
   if (!uid) throw new Error('userId required');
   const at = atIso || new Date().toISOString();
-  const today = toDate(at);
+  // Gym day = IST calendar (not UTC ISO date), so early-morning punches stay on the correct day.
+  const today = attendanceCalendarDateKey(at, timeZone) || toDate(at);
   const actor = actorName || uid;
   const nowIso = at;
 
@@ -3769,7 +3774,7 @@ export async function readStaffAttendanceForUserToday(_scope, userId) {
   const gid = gymId();
   const uid = String(userId || '').trim();
   if (!uid) return null;
-  const today = new Date().toISOString().slice(0, 10);
+  const today = attendanceTodayCalendarKey() || new Date().toISOString().slice(0, 10);
   const { data, error } = await sb
     .from(T.staff_attendance_records)
     .select(ATTENDANCE_LIST_COLUMNS)

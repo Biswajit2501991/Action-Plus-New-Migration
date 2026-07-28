@@ -16,6 +16,11 @@ import { mergeSettingsPreserveNewerPt } from "@/lib/domain/pt-profile-cache";
 import { STALE } from "@/lib/query-cache";
 import { useAuthStore } from "@/stores";
 import type { AppSettings } from "@/types";
+import {
+  ATTENDANCE_TIME_ZONE,
+  attendanceTodayCalendarKey,
+} from "@/lib/domain/attendance";
+import { calendarDateKeyInTimeZone } from "@/lib/domain/today-visitors-nav";
 
 export function useMembers() {
   const user = useAuthStore((s) => s.user);
@@ -149,13 +154,10 @@ export function useAttendance(opts?: {
       }
     }
     else start.setMonth(start.getMonth() - 3);
-    const fmt = (d: Date) => {
-      const y = d.getFullYear();
-      const m = String(d.getMonth() + 1).padStart(2, "0");
-      const day = String(d.getDate()).padStart(2, "0");
-      return `${y}-${m}-${day}`;
+    return {
+      startDate: calendarDateKeyInTimeZone(start, ATTENDANCE_TIME_ZONE),
+      endDate: attendanceTodayCalendarKey(end),
     };
-    return { startDate: fmt(start), endDate: fmt(end) };
   })();
 
   return useQuery({

@@ -8,6 +8,7 @@ import { visitorsHaveGymCodeColumn } from './supabase/visitorsSchema.js';
 import * as supabaseStore from './supabase/repository.js';
 import { mergeSettingsBulkPatch } from './supabase/settingsLookupLogic.js';
 import { branchScopeAllowsMemberTransfer } from '../auth/branchScope.js';
+import { attendanceCalendarDateKey } from '../services/attendance/attendanceCalendarDate.js';
 
 export function useSupabase() {
   if (env.DATA_BACKEND === 'supabase') return true;
@@ -590,7 +591,8 @@ export async function upsertStaffAttendanceRecords(scope, appRecords) {
 function applyAttendancePunchToRecords(records, { userId, punchType, atIso, timeZone, actorName }) {
   const uid = String(userId || '').trim();
   const at = atIso || new Date().toISOString();
-  const today = at.slice(0, 10);
+  // Gym day = IST calendar (not UTC ISO date), so early-morning punches stay on the correct day.
+  const today = attendanceCalendarDateKey(at, timeZone) || at.slice(0, 10);
   const actor = actorName || uid;
   const type = punchType === 'logout' ? 'logout' : 'login';
   const existingIdx = records.findIndex((r) => String(r.date).slice(0, 10) === today && r.userId === uid);

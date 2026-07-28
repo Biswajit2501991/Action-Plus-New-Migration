@@ -38,7 +38,8 @@ async function punchSafe(type: "login" | "logout", actorName?: string) {
     const record = await attendanceApi.punch({
       type,
       at: new Date().toISOString(),
-      timeZone: "IST",
+      // Gym attendance day is IST; backend maps aliases → Asia/Kolkata.
+      timeZone: "Asia/Kolkata",
       actorName: actorName || undefined,
       presenceTicket,
     });
@@ -55,7 +56,18 @@ async function punchSafe(type: "login" | "logout", actorName?: string) {
       });
       return null;
     }
-    /* punch is best-effort — never block auth */
+    // Punch must never block auth, but silent failure hid missing In/Out times.
+    toast.error(
+      type === "login"
+        ? "Signed in, but Time In was not recorded."
+        : "Signed out, but Time Out was not recorded.",
+      {
+        description:
+          err instanceof ApiError
+            ? err.message
+            : "Check your connection and try again from Attendance if needed.",
+      },
+    );
     return null;
   }
 }

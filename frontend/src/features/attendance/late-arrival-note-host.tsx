@@ -10,12 +10,12 @@ import {
   ATTENDANCE_NOTE_CATEGORIES,
   ATTENDANCE_NOTE_CATEGORY_LABELS,
   ATTENDANCE_NOTE_MAX_LENGTH,
+  attendanceTodayCalendarKey,
   isAttendanceNotesEnabled,
   isLoginLateForShift,
   resolveBranchShiftConfig,
   validateAttendanceNotePayload,
 } from "@/lib/domain/attendance";
-import { localTodayCalendarKey } from "@/lib/domain/billing";
 import { hasAccess } from "@/lib/domain/permissions";
 import { useGymCodes, useSettings } from "@/hooks/use-data";
 import { useIsMobile } from "@/hooks/use-is-mobile";
@@ -67,7 +67,7 @@ export function LateArrivalNoteHost() {
 
   const closeModal = (markDismissed = true) => {
     if (markDismissed && user?.id) {
-      markDismissedToday(user.id, localTodayCalendarKey());
+      markDismissedToday(user.id, attendanceTodayCalendarKey());
     }
     setLateNoteOpen(false);
     setError("");
@@ -77,7 +77,7 @@ export function LateArrivalNoteHost() {
 
   useEffect(() => {
     if (!user?.id || !notesEnabled || !canSubmit || lateNoteOpen) return;
-    const today = localTodayCalendarKey();
+    const today = attendanceTodayCalendarKey();
     if (wasDismissedToday(user.id, today)) {
       if (justLoggedInAt) setJustLoggedInAt(null);
       return;
@@ -160,7 +160,7 @@ export function LateArrivalNoteHost() {
       setSaving(true);
       await attendanceApi.addNote({
         ...payload,
-        attendanceDate: localTodayCalendarKey(),
+        attendanceDate: attendanceTodayCalendarKey(),
       });
       toast.success("Late note saved");
       closeModal(true);
