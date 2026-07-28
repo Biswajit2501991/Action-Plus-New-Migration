@@ -99,6 +99,9 @@ router.get('/:gymCode/view', rateLimit, async (req, res) => {
   <meta charset="utf-8"/>
   <meta name="viewport" content="width=device-width,initial-scale=1"/>
   <meta name="robots" content="noindex"/>
+  <meta name="apple-mobile-web-app-capable" content="yes"/>
+  <meta name="mobile-web-app-capable" content="yes"/>
+  <meta name="apple-mobile-web-app-title" content="Punch QR"/>
   <title>Always-on Punch QR · ${label}</title>
   <style>
     :root { color-scheme: dark; }
@@ -122,7 +125,7 @@ router.get('/:gymCode/view', rateLimit, async (req, res) => {
 <body>
   <p class="eyebrow">Always-on punch QR</p>
   <h1>Staff: scan to enable today&rsquo;s Time In</h1>
-  <p>This tablet stays signed out. The code refreshes automatically.</p>
+  <p>No staff login on this tablet. Bookmark or Add to Home Screen <strong>from this page</strong> for 24/7 use. The code refreshes automatically.</p>
   <div class="card"><img id="qr" alt="Punch QR" width="320" height="320"/></div>
   <div class="timer-wrap">
     <p class="timer-label">Code valid for</p>

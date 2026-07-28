@@ -1575,7 +1575,8 @@ export function SettingsPage() {
             <div className="rounded-xl border border-emerald-200/70 bg-emerald-50/40 p-3 dark:border-emerald-900/40 dark:bg-emerald-950/20">
               <p className="text-xs font-semibold text-foreground">Always-on punch QR kiosk</p>
               <p className="mt-1 text-xs text-muted-foreground">
-                Wall tablet URL with a device token — keeps rotating punch QR after logout. No staff login session required.
+                Opens a public wall-tablet URL (device token, no staff login). Bookmark or Add to Home
+                Screen from that kiosk page so it stays available 24/7 for attendance scans.
               </p>
               <div className="mt-2 flex flex-wrap gap-2">
                 <button
@@ -1598,7 +1599,7 @@ export function SettingsPage() {
                       const path = String(created.kioskUrl || "").trim();
                       const token = String(created.token || "").trim();
                       const fallback =
-                        `/public/attendance-kiosk/${encodeURIComponent(gymCode)}?device=${encodeURIComponent(token)}`;
+                        `/api/public/attendance-kiosk/${encodeURIComponent(gymCode)}/view?device=${encodeURIComponent(token)}`;
                       const relative = path.startsWith("http") ? "" : (path || fallback);
                       const url = path.startsWith("http")
                         ? path
@@ -1607,7 +1608,7 @@ export function SettingsPage() {
                         await navigator.clipboard.writeText(url);
                       } catch { /* ignore */ }
                       window.open(url, "_blank", "noopener,noreferrer");
-                      toast.success("Kiosk opened — URL copied to clipboard");
+                      toast.success("Kiosk opened — URL copied. Bookmark that page for 24/7 use.");
                     } catch (e) {
                       toast.error(e instanceof Error ? e.message : "Could not open punch QR kiosk");
                     } finally {

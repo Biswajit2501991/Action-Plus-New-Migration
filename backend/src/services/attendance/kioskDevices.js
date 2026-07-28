@@ -69,7 +69,8 @@ export async function createAttendanceKioskDevice({
     const pathCode = encodeURIComponent(code || branchId);
     return {
       token,
-      kioskUrl: `/public/attendance-kiosk/${pathCode}?device=${encodeURIComponent(token)}`,
+      // Self-contained HTML — no React shell / no staff session (safe for Home Screen bookmarks).
+      kioskUrl: `/api/public/attendance-kiosk/${pathCode}/view?device=${encodeURIComponent(token)}`,
       device: {
         id,
         gymCodeId: data?.gym_code_id || branchId,
@@ -98,7 +99,8 @@ export async function createAttendanceKioskDevice({
   const pathCode = encodeURIComponent(code || branchId);
   return {
     token,
-    kioskUrl: `/public/attendance-kiosk/${pathCode}?device=${encodeURIComponent(token)}`,
+    // Self-contained HTML — no React shell / no staff session (safe for Home Screen bookmarks).
+    kioskUrl: `/api/public/attendance-kiosk/${pathCode}/view?device=${encodeURIComponent(token)}`,
     device: {
       id: device.id,
       gymCodeId: device.gymCodeId,
