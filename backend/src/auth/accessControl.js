@@ -123,6 +123,7 @@ export function normalizeAccess(access) {
       membersExpand: access?.mobile?.membersExpand !== false,
       leaveCreate: access?.mobile?.leaveCreate !== false,
       leaveApprove: access?.mobile?.leaveApprove !== false,
+      submitOwnLateNote: access?.mobile?.submitOwnLateNote !== false,
       moreFinance: access?.mobile?.moreFinance !== false,
       moreWhatsapp: access?.mobile?.moreWhatsapp !== false,
       morePortalVerify: access?.mobile?.morePortalVerify !== false,

@@ -165,6 +165,10 @@ export const MOBILE_FEATURE_PERMISSIONS: AccessChildPermission[] = [
   },
   { key: "leaveCreate", label: "Leave — Create request" },
   { key: "leaveApprove", label: "Leave — Approve / reject" },
+  {
+    key: "submitOwnLateNote",
+    label: "Add Late Note (late arrival — same as desktop)",
+  },
 ];
 
 /** Modules listed under mobile More (separate from web section access). */

@@ -24,8 +24,9 @@ import {
   switchableBranchesForUser,
 } from "@/lib/domain/branch-access";
 import { staffRoleDisplayLabel } from "@/lib/domain/staff-role-label";
+import { isAttendanceNotesEnabled } from "@/lib/domain/attendance";
 import { useAuth } from "@/hooks/use-auth";
-import { useGymCodes } from "@/hooks/use-data";
+import { useGymCodes, useSettings } from "@/hooks/use-data";
 import { useUiStore } from "@/stores";
 import { BranchLogo } from "@/components/branding/branch-logo";
 import { Button } from "@/components/ui/button";
@@ -50,7 +51,8 @@ export function MobileShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
   const { user, changeBranch, isAuthenticated } = useAuth();
   const { data: gymCodes } = useGymCodes();
-  const { setCommandOpen, addMemberOpen, setAddMemberOpen } = useUiStore();
+  const { data: settings } = useSettings();
+  const { setCommandOpen, addMemberOpen, setAddMemberOpen, setLateNoteOpen } = useUiStore();
   const { setTheme, resolvedTheme } = useTheme();
 
   const brand = useMemo(
@@ -70,6 +72,12 @@ export function MobileShell({ children }: { children: React.ReactNode }) {
 
   const tabs = MOBILE_TABS.filter((t) => hasAccess(user, "mobile", t.mobileKey));
   const showMore = hasAccess(user, "mobile", "viewMore");
+  const notesEnabled = isAttendanceNotesEnabled(settings as Record<string, unknown>);
+  const canLateNote =
+    Boolean(user) &&
+    notesEnabled &&
+    hasAccess(user, "attendance", "submitOwnLateNote") &&
+    hasAccess(user, "mobile", "submitOwnLateNote");
   const fabVisible =
     Boolean(user) &&
     hasAccess(user, "mobile", "viewMembers") &&
@@ -147,6 +155,17 @@ export function MobileShell({ children }: { children: React.ReactNode }) {
             </Select>
           ) : null}
         </div>
+        {canLateNote ? (
+          <div className="mt-2">
+            <button
+              type="button"
+              onClick={() => setLateNoteOpen(true)}
+              className="inline-flex h-9 items-center rounded-xl border border-amber-200/80 bg-amber-50/80 px-3 text-[11px] font-semibold text-amber-900 transition hover:bg-amber-100 dark:border-amber-500/25 dark:bg-amber-950/35 dark:text-amber-200 dark:hover:bg-amber-950/55"
+            >
+              Add Late Note
+            </button>
+          </div>
+        ) : null}
       </header>
 
       <main className="mx-auto max-w-lg px-4 pb-[calc(5.5rem+env(safe-area-inset-bottom))] pt-4">

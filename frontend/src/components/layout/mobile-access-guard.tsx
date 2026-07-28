@@ -46,6 +46,7 @@ export function useMobileFeatureAccess() {
     membersExpand: hasAccess(user, "mobile", "membersExpand"),
     leaveCreate: hasAccess(user, "mobile", "leaveCreate"),
     leaveApprove: hasAccess(user, "mobile", "leaveApprove"),
+    submitOwnLateNote: hasAccess(user, "mobile", "submitOwnLateNote"),
     viewMore: hasAccess(user, "mobile", "viewMore"),
   };
 }

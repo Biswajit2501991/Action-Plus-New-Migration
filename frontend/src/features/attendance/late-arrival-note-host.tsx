@@ -18,6 +18,7 @@ import {
 import { localTodayCalendarKey } from "@/lib/domain/billing";
 import { hasAccess } from "@/lib/domain/permissions";
 import { useGymCodes, useSettings } from "@/hooks/use-data";
+import { useIsMobile } from "@/hooks/use-is-mobile";
 import { useAuthStore, useUiStore } from "@/stores";
 
 function dismissedKey(userId: string, dateKey: string) {
@@ -54,8 +55,15 @@ export function LateArrivalNoteHost() {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
 
+  const isMobile = useIsMobile();
   const notesEnabled = isAttendanceNotesEnabled(settings as Record<string, unknown>);
-  const canSubmit = Boolean(user) && hasAccess(user, "attendance", "submitOwnLateNote");
+  // Desktop: web Attendance → submitOwnLateNote.
+  // Mobile: also requires Mobile view → Add Late Note (API still uses web permission).
+  const canSubmit =
+    Boolean(user) &&
+    isMobile !== null &&
+    hasAccess(user, "attendance", "submitOwnLateNote") &&
+    (isMobile ? hasAccess(user, "mobile", "submitOwnLateNote") : true);
 
   const closeModal = (markDismissed = true) => {
     if (markDismissed && user?.id) {
@@ -139,6 +147,7 @@ export function LateArrivalNoteHost() {
     gymCodes,
     setJustLoggedInAt,
     setLateNoteOpen,
+    isMobile,
   ]);
 
   const submit = async () => {
