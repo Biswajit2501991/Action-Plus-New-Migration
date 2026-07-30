@@ -832,6 +832,8 @@ export function SettingsPage() {
       const payloadAccess = normalizePortalAccessByStatus(portalAccessByStatus);
       let data: {
         ok?: boolean;
+        accessChanged?: boolean;
+        syncResults?: Record<string, { allowed: boolean; updated: number }> | null;
         settings?: {
           basic_workout_options?: BasicWorkoutOption[];
           portal_sections?: PortalSections;
@@ -842,6 +844,8 @@ export function SettingsPage() {
       try {
         data = await apiFetch<{
           ok?: boolean;
+          accessChanged?: boolean;
+          syncResults?: Record<string, { allowed: boolean; updated: number }> | null;
           settings?: {
             basic_workout_options?: BasicWorkoutOption[];
             portal_sections?: PortalSections;
@@ -865,6 +869,8 @@ export function SettingsPage() {
         try {
           data = await apiFetch<{
             ok?: boolean;
+            accessChanged?: boolean;
+            syncResults?: Record<string, { allowed: boolean; updated: number }> | null;
             settings?: {
               basic_workout_options?: BasicWorkoutOption[];
               portal_sections?: PortalSections;
@@ -927,7 +933,15 @@ export function SettingsPage() {
       setPortalUiDirty(false);
       await qc.invalidateQueries({ queryKey: ["settings"] });
       await qc.invalidateQueries({ queryKey: ["members"] });
-      toast.success("Member Portal settings saved");
+      if (data?.accessChanged && data.syncResults) {
+        const total = Object.values(data.syncResults).reduce(
+          (sum, row) => sum + Number(row?.updated || 0),
+          0,
+        );
+        toast.success(`Member Portal settings saved · updated ${total} member(s)`);
+      } else {
+        toast.success("Member Portal settings saved");
+      }
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Could not save portal settings");
     } finally {

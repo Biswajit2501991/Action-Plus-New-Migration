@@ -176,47 +176,68 @@ async function syncMembersPortalAccessByStatus(
   accessByStatus: PortalAccessByStatus,
 ) {
   const map = normalizePortalAccessByStatus(accessByStatus);
+  const results: Record<string, { allowed: boolean; updated: number }> = {};
+
+  async function patchMembers(filter: string, body: Record<string, unknown>) {
+    const res = await sbFetch(
+      cfg,
+      `members?gym_id=eq.${encodeURIComponent(cfg.gymId)}&${filter}&deleted_at=is.null`,
+      {
+        method: "PATCH",
+        headers: {
+          "Content-Type": "application/json",
+          Prefer: "return=representation",
+        },
+        body: JSON.stringify(body),
+      },
+    );
+    if (!res.ok) {
+      const text = await res.text();
+      throw new Error(text || `portal-access-sync-failed (${res.status})`);
+    }
+    const rows = (await res.json().catch(() => [])) as unknown[];
+    return Array.isArray(rows) ? rows.length : 0;
+  }
+
   for (const [statusKey, allowed] of Object.entries(map)) {
     const now = new Date().toISOString();
+    // Case-insensitive status match (Active/active/ACTIVE).
+    const statusFilter = `status=ilike.${encodeURIComponent(statusKey)}`;
     if (allowed) {
-      await sbFetch(
-        cfg,
-        `members?gym_id=eq.${encodeURIComponent(cfg.gymId)}&status=eq.${encodeURIComponent(statusKey)}&deleted_at=is.null&portal_status=eq.disabled`,
+      const withPin = await patchMembers(
+        `${statusFilter}&portal_status=eq.disabled&pin_hash=not.is.null`,
         {
-          method: "PATCH",
-          headers: { "Content-Type": "application/json", Prefer: "return=minimal" },
-          body: JSON.stringify({
-            portal_enabled: true,
-            portal_status: "pending",
-            updated_at: now,
-          }),
+          portal_enabled: true,
+          portal_status: "active",
+          updated_at: now,
         },
       );
-      await sbFetch(
-        cfg,
-        `members?gym_id=eq.${encodeURIComponent(cfg.gymId)}&status=eq.${encodeURIComponent(statusKey)}&deleted_at=is.null&portal_status=neq.disabled`,
+      const noPin = await patchMembers(
+        `${statusFilter}&portal_status=eq.disabled&pin_hash=is.null`,
         {
-          method: "PATCH",
-          headers: { "Content-Type": "application/json", Prefer: "return=minimal" },
-          body: JSON.stringify({ portal_enabled: true, updated_at: now }),
+          portal_enabled: true,
+          portal_status: "pending",
+          updated_at: now,
         },
       );
+      const others = await patchMembers(
+        `${statusFilter}&portal_status=neq.disabled`,
+        { portal_enabled: true, updated_at: now },
+      );
+      results[statusKey] = {
+        allowed: true,
+        updated: withPin + noPin + others,
+      };
     } else {
-      await sbFetch(
-        cfg,
-        `members?gym_id=eq.${encodeURIComponent(cfg.gymId)}&status=eq.${encodeURIComponent(statusKey)}&deleted_at=is.null`,
-        {
-          method: "PATCH",
-          headers: { "Content-Type": "application/json", Prefer: "return=minimal" },
-          body: JSON.stringify({
-            portal_enabled: false,
-            portal_status: "disabled",
-            updated_at: now,
-          }),
-        },
-      );
+      const updated = await patchMembers(statusFilter, {
+        portal_enabled: false,
+        portal_status: "disabled",
+        updated_at: now,
+      });
+      results[statusKey] = { allowed: false, updated };
     }
   }
+  return results;
 }
 
 function publicSettingsPayload(
@@ -375,17 +396,16 @@ export async function PUT(req: Request) {
     const savedRows = (await res.json()) as Array<Record<string, unknown>>;
     const saved = Array.isArray(savedRows) && savedRows[0] ? savedRows[0] : row;
     await persistHomeTileMarker(cfg, portalSections);
+    let syncResults: Record<string, { allowed: boolean; updated: number }> | null = null;
     if (accessChanged) {
-      try {
-        await syncMembersPortalAccessByStatus(cfg, portalAccessByStatus);
-      } catch (syncErr) {
-        console.error("syncMembersPortalAccessByStatus", syncErr);
-      }
+      syncResults = await syncMembersPortalAccessByStatus(cfg, portalAccessByStatus);
     }
     const exerciseTypes = await loadExerciseTypeMarkers(cfg);
-    return NextResponse.json(
-      publicSettingsPayload(saved as Record<string, unknown>, exerciseTypes),
-    );
+    return NextResponse.json({
+      ...publicSettingsPayload(saved as Record<string, unknown>, exerciseTypes),
+      syncResults,
+      accessChanged,
+    });
   } catch (err) {
     return NextResponse.json(
       {

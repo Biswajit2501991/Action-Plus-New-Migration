@@ -37,74 +37,88 @@ export function isPortalAccessAllowedForStatus(status, accessByStatus) {
   return map[key] === true;
 }
 
+function countRows(data) {
+  return Array.isArray(data) ? data.length : 0;
+}
+
 /**
  * Bulk-apply portal_enabled / portal_status for each status key in the map.
- * Does not delete PIN/QR. Returns counts per status.
+ * Does not delete PIN/QR. Status match is case-insensitive (Active/active).
+ * Returns counts per status.
  */
 export async function syncMembersPortalAccessByStatus(sb, gymId, accessByStatus) {
   const map = normalizePortalAccessByStatus(accessByStatus);
   const results = {};
-  for (const [statusKey, allowed] of Object.entries(map)) {
-    const patch = allowed
-      ? {
-          portal_enabled: true,
-          // Re-open disabled access; leave active/pending as-is via two-step would be complex —
-          // set pending when previously disabled, else keep status with a SQL-friendly approach:
-          portal_status: "pending",
-        }
-      : {
-          portal_enabled: false,
-          portal_status: "disabled",
-        };
+  const now = new Date().toISOString();
 
+  for (const [statusKey, allowed] of Object.entries(map)) {
     if (allowed) {
-      // Enable: turn on for this status; restore pending only when disabled.
-      const { data: disabledRows } = await sb
+      // Re-open disabled members who already have a PIN → active
+      const { data: withPin, error: withPinErr } = await sb
         .from("members")
         .update({
           portal_enabled: true,
-          portal_status: "pending",
-          updated_at: new Date().toISOString(),
+          portal_status: "active",
+          updated_at: now,
         })
         .eq("gym_id", gymId)
-        .eq("status", statusKey)
+        .ilike("status", statusKey)
         .is("deleted_at", null)
         .eq("portal_status", "disabled")
+        .not("pin_hash", "is", null)
         .select("id");
+      if (withPinErr) throw withPinErr;
 
-      const { data: otherRows } = await sb
+      // Re-open disabled members without a PIN → pending (must enroll)
+      const { data: noPin, error: noPinErr } = await sb
         .from("members")
         .update({
           portal_enabled: true,
-          updated_at: new Date().toISOString(),
+          portal_status: "pending",
+          updated_at: now,
         })
         .eq("gym_id", gymId)
-        .eq("status", statusKey)
+        .ilike("status", statusKey)
+        .is("deleted_at", null)
+        .eq("portal_status", "disabled")
+        .is("pin_hash", null)
+        .select("id");
+      if (noPinErr) throw noPinErr;
+
+      // Ensure portal stays enabled for already-open members of this status
+      const { data: others, error: othersErr } = await sb
+        .from("members")
+        .update({
+          portal_enabled: true,
+          updated_at: now,
+        })
+        .eq("gym_id", gymId)
+        .ilike("status", statusKey)
         .is("deleted_at", null)
         .neq("portal_status", "disabled")
         .select("id");
+      if (othersErr) throw othersErr;
 
       results[statusKey] = {
         allowed: true,
-        updated:
-          (Array.isArray(disabledRows) ? disabledRows.length : 0) +
-          (Array.isArray(otherRows) ? otherRows.length : 0),
+        updated: countRows(withPin) + countRows(noPin) + countRows(others),
       };
     } else {
       const { data: rows, error } = await sb
         .from("members")
         .update({
-          ...patch,
-          updated_at: new Date().toISOString(),
+          portal_enabled: false,
+          portal_status: "disabled",
+          updated_at: now,
         })
         .eq("gym_id", gymId)
-        .eq("status", statusKey)
+        .ilike("status", statusKey)
         .is("deleted_at", null)
         .select("id");
       if (error) throw error;
       results[statusKey] = {
         allowed: false,
-        updated: Array.isArray(rows) ? rows.length : 0,
+        updated: countRows(rows),
       };
     }
   }

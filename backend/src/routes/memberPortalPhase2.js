@@ -665,15 +665,11 @@ export function registerMemberPortalPhase2Routes(app, { appendAuditLog }) {
 
       let syncResults = null;
       if (accessChanged) {
-        try {
-          syncResults = await syncMembersPortalAccessByStatus(
-            sb,
-            gid,
-            portalAccessByStatus,
-          );
-        } catch (syncErr) {
-          console.error("syncMembersPortalAccessByStatus", syncErr);
-        }
+        syncResults = await syncMembersPortalAccessByStatus(
+          sb,
+          gid,
+          portalAccessByStatus,
+        );
       }
 
       const splitSaved = splitWorkoutOptionsAndHomeTiles(data?.basic_workout_options);
@@ -692,6 +688,7 @@ export function registerMemberPortalPhase2Routes(app, { appendAuditLog }) {
           ),
         },
         syncResults,
+        accessChanged,
       });
     } catch (err) {
       return res.status(500).json({ error: err?.message || "save-failed" });
