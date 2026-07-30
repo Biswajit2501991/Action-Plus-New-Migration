@@ -234,7 +234,7 @@ function DesktopShell({ children }: { children: React.ReactNode }) {
             </Button>
           </div>
 
-          <nav className="flex-1 space-y-5 overflow-y-auto px-3 pb-4">
+          <nav className="flex-1 space-y-5 overflow-y-auto px-3 pb-4 pt-4">
             {groups.map((group) => {
               const theme = SIDEBAR_GROUP_THEME[group] || SIDEBAR_GROUP_THEME.SYSTEM;
               const sectionActive = activeGroup === group;
