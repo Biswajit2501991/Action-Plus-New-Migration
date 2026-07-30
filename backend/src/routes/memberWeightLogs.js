@@ -2,8 +2,9 @@ import { Access } from "../auth/accessControl.js";
 import { requireAccess } from "../middleware/permissions.js";
 
 /**
- * Weight logs for any member (Basic portal + staff).
- * Stored in member_measurements — independent of PT plan_json.weightLogs.
+ * Shared weight logs for Basic + PT (portal, Members → Workout, PT → Weight Progress).
+ * Source of truth: member_measurements.
+ * Legacy PT plan_json.weightLogs are migrated into member_measurements on read (no data loss).
  */
 export function registerMemberWeightLogRoutes(app, { appendAuditLog }) {
   function normalizeDate(input) {
@@ -24,7 +25,7 @@ export function registerMemberWeightLogRoutes(app, { appendAuditLog }) {
     if (/^[0-9a-f-]{36}$/i.test(key)) {
       const { data } = await sb
         .from("members")
-        .select("member_uuid, member_code, full_name, status, plan_name")
+        .select("id, member_uuid, member_code, full_name, status, plan_name")
         .eq("gym_id", gid)
         .eq("member_uuid", key)
         .is("deleted_at", null)
@@ -33,7 +34,7 @@ export function registerMemberWeightLogRoutes(app, { appendAuditLog }) {
     }
     const { data } = await sb
       .from("members")
-      .select("member_uuid, member_code, full_name, status, plan_name")
+      .select("id, member_uuid, member_code, full_name, status, plan_name")
       .eq("gym_id", gid)
       .eq("member_code", key)
       .is("deleted_at", null)
@@ -43,7 +44,7 @@ export function registerMemberWeightLogRoutes(app, { appendAuditLog }) {
     if (Number.isFinite(asNum) && asNum > 0) {
       const { data: byId } = await sb
         .from("members")
-        .select("member_uuid, member_code, full_name, status, plan_name")
+        .select("id, member_uuid, member_code, full_name, status, plan_name")
         .eq("gym_id", gid)
         .eq("id", asNum)
         .is("deleted_at", null)
@@ -53,9 +54,92 @@ export function registerMemberWeightLogRoutes(app, { appendAuditLog }) {
     return null;
   }
 
+  function mapLogs(rows) {
+    return (rows || []).map((row) => ({
+      id: String(row.id),
+      date: String(row.measured_at || "").slice(0, 10),
+      weightKg: row.weight_kg != null ? Number(row.weight_kg) : null,
+      notes: row.notes ? String(row.notes) : "",
+      recordedBy: row.recorded_by ? String(row.recorded_by) : "",
+      createdAt: row.created_at ? String(row.created_at) : "",
+    }));
+  }
+
+  /**
+   * Copy legacy PT plan_json.weightLogs into member_measurements once.
+   * Idempotent: skips date+weight pairs already present.
+   */
+  async function migrateLegacyPtWeightLogs(sb, gid, member) {
+    if (!member?.id || !member?.member_uuid) return 0;
+    const { data: profileRow } = await sb
+      .from("pt_client_profiles")
+      .select("plan_json")
+      .eq("gym_id", gid)
+      .eq("member_id", member.id)
+      .maybeSingle();
+
+    const legacy = Array.isArray(profileRow?.plan_json?.weightLogs)
+      ? profileRow.plan_json.weightLogs
+      : [];
+    if (!legacy.length) return 0;
+
+    const { data: existing } = await sb
+      .from("member_measurements")
+      .select("measured_at, weight_kg")
+      .eq("gym_id", gid)
+      .eq("member_uuid", member.member_uuid)
+      .not("weight_kg", "is", null)
+      .limit(200);
+
+    const seen = new Set(
+      (existing || []).map(
+        (r) =>
+          `${String(r.measured_at || "").slice(0, 10)}:${Number(r.weight_kg)}`,
+      ),
+    );
+
+    const toInsert = [];
+    for (const entry of legacy) {
+      const date = normalizeDate(entry?.date);
+      const weightKg = normalizeWeightKg(entry?.weight ?? entry?.weightKg);
+      if (!date || weightKg == null) continue;
+      const key = `${date}:${weightKg}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      toInsert.push({
+        gym_id: gid,
+        member_uuid: member.member_uuid,
+        measured_at: date,
+        weight_kg: weightKg,
+        notes: null,
+        metrics_json: {
+          source: "migrated_plan_json",
+          legacyId: entry?.id ? String(entry.id) : null,
+        },
+        recorded_by: "trainer",
+        created_at: entry?.createdAt
+          ? String(entry.createdAt)
+          : new Date().toISOString(),
+      });
+    }
+
+    if (!toInsert.length) return 0;
+    const { error } = await sb.from("member_measurements").insert(toInsert);
+    if (error) {
+      console.error("migrateLegacyPtWeightLogs", error);
+      return 0;
+    }
+    return toInsert.length;
+  }
+
+  const canReadWeight = (a) =>
+    Access.membersRead(a) || Access.ptClientsRead(a);
+  const canWriteWeight = (a) =>
+    Access.membersWrite(a) || Access.ptClientsWriteWorkout(a);
+
   app.get(
     "/api/member-weight-logs/:memberKey",
-    requireAccess(Access.membersRead),
+    requireAccess(canReadWeight),
     async (req, res) => {
       try {
         const { getSupabase, gymId } = await import("../db/supabase/client.js");
@@ -64,6 +148,8 @@ export function registerMemberWeightLogRoutes(app, { appendAuditLog }) {
         if (!sb || !gid) return res.status(500).json({ error: "supabase-unavailable" });
         const member = await resolveMemberUuid(sb, gid, req.params.memberKey);
         if (!member?.member_uuid) return res.status(404).json({ error: "member-not-found" });
+
+        await migrateLegacyPtWeightLogs(sb, gid, member);
 
         const { data, error } = await sb
           .from("member_measurements")
@@ -77,20 +163,20 @@ export function registerMemberWeightLogRoutes(app, { appendAuditLog }) {
 
         if (error) return res.status(500).json({ error: error.message || "weight-load-failed" });
 
-        const logs = (data || []).map((row) => ({
-          id: String(row.id),
-          date: String(row.measured_at || "").slice(0, 10),
-          weightKg: row.weight_kg != null ? Number(row.weight_kg) : null,
-          notes: row.notes ? String(row.notes) : "",
-          recordedBy: row.recorded_by ? String(row.recorded_by) : "",
-          createdAt: row.created_at ? String(row.created_at) : "",
-        }));
-
+        const logs = mapLogs(data);
         const currentKg = logs[0]?.weightKg ?? null;
         const previousKg = logs[1]?.weightKg ?? null;
         const changeKg =
           currentKg != null && previousKg != null
             ? Math.round((currentKg - previousKg) * 10) / 10
+            : null;
+
+        // Start → latest (oldest first) for PT trend card / celebration parity.
+        const chronological = [...logs].reverse();
+        const startKg = chronological[0]?.weightKg ?? null;
+        const fromStartKg =
+          startKg != null && currentKg != null
+            ? Math.round((currentKg - startKg) * 10) / 10
             : null;
 
         return res.json({
@@ -102,6 +188,8 @@ export function registerMemberWeightLogRoutes(app, { appendAuditLog }) {
           currentKg,
           previousKg,
           changeKg,
+          startKg,
+          fromStartKg,
         });
       } catch (err) {
         return res.status(500).json({ error: err?.message || "weight-load-failed" });
@@ -111,7 +199,7 @@ export function registerMemberWeightLogRoutes(app, { appendAuditLog }) {
 
   app.post(
     "/api/member-weight-logs/:memberKey",
-    requireAccess(Access.membersWrite),
+    requireAccess(canWriteWeight),
     async (req, res) => {
       try {
         const { getSupabase, gymId } = await import("../db/supabase/client.js");

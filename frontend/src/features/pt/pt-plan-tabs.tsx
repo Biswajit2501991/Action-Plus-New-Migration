@@ -1,6 +1,7 @@
 "use client";
 
-import { useState } from "react";
+import { useCallback, useEffect, useState } from "react";
+import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Input, Label, Textarea } from "@/components/ui/input";
 import {
@@ -11,6 +12,7 @@ import { fileToAttachmentDataUrl, MAX_IMAGE_FILE_BYTES } from "@/lib/image-uploa
 import { formatDate } from "@/lib/utils";
 import { formatDateTimeTz } from "@/lib/domain/member-actions";
 import { isoDate } from "@/lib/domain/member-dates";
+import { apiFetch } from "@/services/api/client";
 import type { PtClientProfile, PtDietDraft } from "@/types/pt";
 
 export function PtWorkoutPlanTab({
@@ -354,32 +356,71 @@ export function PtSessionsTab({
 }
 
 export function PtWeightTab({
-  profile,
+  memberId,
   canEdit,
-  sectionSaving,
-  onAddWeight,
 }: {
-  profile: PtClientProfile;
+  memberId: string;
   canEdit: boolean;
-  sectionSaving: Record<string, boolean>;
-  onAddWeight: (entry: { date: string; weight: number }) => Promise<boolean>;
 }) {
   const [weightDraft, setWeightDraft] = useState({ date: isoDate(new Date()), weight: "" });
+  const [logs, setLogs] = useState<
+    Array<{ id: string; date: string; weightKg: number | null; recordedBy?: string }>
+  >([]);
+  const [loading, setLoading] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [fromStartKg, setFromStartKg] = useState<number | null>(null);
+  const [currentKg, setCurrentKg] = useState<number | null>(null);
 
-  const weightLogs = (profile.weightLogs || [])
-    .slice()
-    .sort((a, b) => String(a.date || "").localeCompare(String(b.date || "")));
-  const firstWeight = weightLogs[0]?.weight ?? null;
-  const latestWeight = weightLogs[weightLogs.length - 1]?.weight ?? null;
-  const weightDelta =
-    firstWeight != null && latestWeight != null ? latestWeight - firstWeight : null;
+  const load = useCallback(async () => {
+    const key = String(memberId || "").trim();
+    if (!key) {
+      setLogs([]);
+      setCurrentKg(null);
+      setFromStartKg(null);
+      return;
+    }
+    setLoading(true);
+    try {
+      const data = await apiFetch<{
+        ok?: boolean;
+        logs?: Array<{ id: string; date: string; weightKg: number | null; recordedBy?: string }>;
+        currentKg?: number | null;
+        fromStartKg?: number | null;
+      }>(`/member-weight-logs/${encodeURIComponent(key)}`);
+      setLogs(Array.isArray(data.logs) ? data.logs : []);
+      setCurrentKg(data.currentKg ?? null);
+      setFromStartKg(data.fromStartKg ?? null);
+    } catch {
+      setLogs([]);
+      setCurrentKg(null);
+      setFromStartKg(null);
+    } finally {
+      setLoading(false);
+    }
+  }, [memberId]);
+
+  useEffect(() => {
+    void load();
+  }, [load]);
 
   const addWeightLog = async () => {
-    if (!weightDraft.date || !weightDraft.weight.trim() || sectionSaving.weight) return;
+    if (!weightDraft.date || !weightDraft.weight.trim() || saving || !canEdit) return;
     const val = Number(weightDraft.weight);
     if (Number.isNaN(val) || val <= 0) return;
-    const ok = await onAddWeight({ date: weightDraft.date, weight: val });
-    if (ok) setWeightDraft((v) => ({ ...v, weight: "" }));
+    setSaving(true);
+    try {
+      await apiFetch(`/member-weight-logs/${encodeURIComponent(memberId)}`, {
+        method: "POST",
+        body: JSON.stringify({ date: weightDraft.date, weightKg: val }),
+      });
+      setWeightDraft((v) => ({ ...v, weight: "" }));
+      toast.success("Weight saved successfully");
+      await load();
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Could not save weight");
+    } finally {
+      setSaving(false);
+    }
   };
 
   return (
@@ -392,7 +433,7 @@ export function PtWeightTab({
             className="mt-1"
             value={weightDraft.date}
             onChange={(e) => setWeightDraft((v) => ({ ...v, date: e.target.value }))}
-            disabled={!canEdit}
+            disabled={!canEdit || saving}
           />
         </div>
         <div>
@@ -401,32 +442,43 @@ export function PtWeightTab({
             className="mt-1"
             value={weightDraft.weight}
             onChange={(e) => setWeightDraft((v) => ({ ...v, weight: e.target.value }))}
-            disabled={!canEdit}
+            disabled={!canEdit || saving}
           />
         </div>
         <div className="md:self-end">
-          <Button className="w-full" onClick={() => void addWeightLog()} disabled={!canEdit || sectionSaving.weight}>
-            {sectionSaving.weight ? "Saving…" : "Add Weight"}
+          <Button
+            className="w-full"
+            onClick={() => void addWeightLog()}
+            disabled={!canEdit || saving}
+          >
+            {saving ? "Saving…" : "Add Weight"}
           </Button>
         </div>
       </div>
       <div className="text-sm">
         Current:{" "}
-        <span className="font-semibold">{latestWeight == null ? "NA" : `${latestWeight} kg`}</span> • Change:{" "}
+        <span className="font-semibold">{currentKg == null ? "NA" : `${currentKg} kg`}</span> • Change
+        from start:{" "}
         <span className="font-semibold">
-          {weightDelta == null ? "NA" : `${weightDelta > 0 ? "+" : ""}${weightDelta.toFixed(1)} kg`}
+          {fromStartKg == null
+            ? "NA"
+            : `${fromStartKg > 0 ? "+" : ""}${fromStartKg.toFixed(1)} kg`}
         </span>
       </div>
       <div className="space-y-1">
-        {weightLogs
-          .slice()
-          .reverse()
-          .map((w) => (
-            <div key={w.id} className="rounded-lg border border-border px-3 py-2 text-sm">
-              {formatDate(w.date)}: <span className="font-medium">{w.weight} kg</span>
-            </div>
-          ))}
-        {!weightLogs.length ? (
+        {loading && !logs.length ? (
+          <div className="text-sm text-muted-foreground">Loading…</div>
+        ) : null}
+        {logs.map((w) => (
+          <div key={w.id} className="rounded-lg border border-border px-3 py-2 text-sm">
+            {formatDate(w.date)}:{" "}
+            <span className="font-medium">{w.weightKg != null ? `${w.weightKg} kg` : "—"}</span>
+            {w.recordedBy ? (
+              <span className="ml-2 text-xs text-muted-foreground">({w.recordedBy})</span>
+            ) : null}
+          </div>
+        ))}
+        {!loading && !logs.length ? (
           <div className="text-sm text-muted-foreground">No weight logs yet.</div>
         ) : null}
       </div>

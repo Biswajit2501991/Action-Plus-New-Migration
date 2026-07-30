@@ -385,7 +385,7 @@ const HOME_TILE_META: {
   {
     key: "homeWeightTracker",
     label: "Weight Tracker",
-    description: "Basic-member weight log (hidden for PT plans regardless).",
+    description: "Weight log for all members (Basic and PT). Shared with PT Weight Progress.",
   },
   { key: "homeBook", label: "Book", description: "Class / slot bookings." },
   { key: "homePerks", label: "Perks", description: "Member perks and offers." },

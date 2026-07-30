@@ -24,6 +24,7 @@ import {
 } from "@/lib/domain/pt-drafts";
 import { isoDate } from "@/lib/domain/member-dates";
 import { normalizeAccess } from "@/lib/domain/permissions";
+import { apiFetch } from "@/services/api/client";
 import { cn, formatDate } from "@/lib/utils";
 import { useAuthStore } from "@/stores";
 import type { PtClientProfile } from "@/types/pt";
@@ -114,13 +115,28 @@ export function PtPage() {
   );
 
   const sessionsToday = (profile.sessions || []).filter((s) => isoDate(s.date) === isoDate(new Date()));
-  const weightLogs = (profile.weightLogs || [])
-    .slice()
-    .sort((a, b) => String(a.date || "").localeCompare(String(b.date || "")));
-  const firstWeight = weightLogs[0]?.weight ?? null;
-  const latestWeight = weightLogs[weightLogs.length - 1]?.weight ?? null;
-  const weightDelta =
-    firstWeight != null && latestWeight != null ? latestWeight - firstWeight : null;
+
+  const [weightTrend, setWeightTrend] = useState<number | null>(null);
+  useEffect(() => {
+    const key = String(selectedMemberId || "").trim();
+    if (!key) {
+      setWeightTrend(null);
+      return;
+    }
+    let cancelled = false;
+    void apiFetch<{ fromStartKg?: number | null }>(
+      `/member-weight-logs/${encodeURIComponent(key)}`,
+    )
+      .then((data) => {
+        if (!cancelled) setWeightTrend(data.fromStartKg ?? null);
+      })
+      .catch(() => {
+        if (!cancelled) setWeightTrend(null);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedMemberId, activeSubTab]);
 
   const selectPtClient = (memberId: string) => {
     const nextId = String(memberId || "").trim();
@@ -162,7 +178,11 @@ export function PtPage() {
         <StatCard label="Today's Sessions" value={String(sessionsToday.length)} tone="teal" />
         <StatCard
           label="Weight Trend"
-          value={weightDelta == null ? "NA" : `${weightDelta > 0 ? "+" : ""}${weightDelta.toFixed(1)} kg`}
+          value={
+            weightTrend == null
+              ? "NA"
+              : `${weightTrend > 0 ? "+" : ""}${weightTrend.toFixed(1)} kg`
+          }
           tone="emerald"
         />
       </div>
@@ -380,33 +400,7 @@ export function PtPage() {
               ) : null}
 
               {activeSubTab === "Weight Progress" ? (
-                <PtWeightTab
-                  profile={profile}
-                  canEdit={canEditPtWorkout}
-                  sectionSaving={sectionSaving}
-                  onAddWeight={async ({ date, weight }) => {
-                    const next = [
-                      {
-                        id: crypto.randomUUID(),
-                        date,
-                        weight,
-                        createdAt: new Date().toISOString(),
-                      },
-                      ...(profile.weightLogs || []),
-                    ]
-                      .sort((a, b) => String(b.date || "").localeCompare(String(a.date || "")))
-                      .slice(0, 200);
-                    return Boolean(
-                      await saveProfilePatch(
-                        memberId,
-                        { weightLogs: next },
-                        "workout",
-                        "weight",
-                        "Weight saved successfully",
-                      ),
-                    );
-                  }}
-                />
+                <PtWeightTab memberId={memberId} canEdit={canEditPtWorkout} />
               ) : null}
             </div>
           )}
