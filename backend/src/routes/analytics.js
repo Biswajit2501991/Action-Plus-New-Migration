@@ -11,12 +11,7 @@ import { requireAccess } from "../middleware/permissions.js";
  * Never writes members, payments, portal, or audit tables.
  */
 export function registerAnalyticsRoutes(app) {
-  const analyticsRead = (a) =>
-    Access.membersRead(a) ||
-    Access.financeRead(a) ||
-    a.logs?.viewLogs === true ||
-    a.dashboard?.viewDashboardCore !== false ||
-    a.dashboard?.viewMembershipTrends !== false;
+  const analyticsRead = (a) => Access.analyticsRead(a);
 
   function todayKeyLocal() {
     const d = new Date();

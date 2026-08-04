@@ -29,6 +29,7 @@ import {
   countByStatus,
   expiringSoon,
 } from "@/lib/domain/members";
+import { canAccessSection } from "@/lib/domain/permissions";
 import { analyticsApi } from "@/services/api";
 import { STALE } from "@/lib/query-cache";
 import { useAuthStore } from "@/stores";
@@ -74,6 +75,8 @@ function SparseNote({ message }: { message?: string | null }) {
 }
 
 export function AnalyticsPage() {
+  const user = useAuthStore((s) => s.user);
+  const canView = canAccessSection(user, "Analytics");
   const [tab, setTab] = useState<TabId>("overview");
   const branchId = useAuthStore((s) =>
     String(s.user?.activeBranchId || s.user?.gymCodeId || ""),
@@ -95,36 +98,37 @@ export function AnalyticsPage() {
   const overviewQ = useQuery({
     queryKey: ["analytics", "overview", branchId || "all"],
     queryFn: analyticsApi.overview,
+    enabled: canView,
     ...analyticsQueryOpts,
   });
   const portalQ = useQuery({
     queryKey: ["analytics", "portal", branchId || "all"],
     queryFn: analyticsApi.portal,
-    enabled: tab === "portal" || tab === "overview",
+    enabled: canView && (tab === "portal" || tab === "overview"),
     ...analyticsQueryOpts,
   });
   const opsQ = useQuery({
     queryKey: ["analytics", "operations", branchId || "all"],
     queryFn: analyticsApi.operations,
-    enabled: tab === "operations",
+    enabled: canView && tab === "operations",
     ...analyticsQueryOpts,
   });
   const ptQ = useQuery({
     queryKey: ["analytics", "pt", branchId || "all"],
     queryFn: analyticsApi.pt,
-    enabled: tab === "pt",
+    enabled: canView && tab === "pt",
     ...analyticsQueryOpts,
   });
   const websiteQ = useQuery({
     queryKey: ["analytics", "website", branchId || "all"],
     queryFn: analyticsApi.website,
-    enabled: tab === "website",
+    enabled: canView && tab === "website",
     ...analyticsQueryOpts,
   });
   const growthQ = useQuery({
     queryKey: ["analytics", "growth", branchId || "all"],
     queryFn: analyticsApi.growth,
-    enabled: tab === "growth",
+    enabled: canView && tab === "growth",
     ...analyticsQueryOpts,
   });
 
@@ -246,6 +250,18 @@ export function AnalyticsPage() {
   const footfallByDay = Array.isArray(growthFootfall.byDay)
     ? (growthFootfall.byDay as Array<{ day: string; count: number }>)
     : [];
+
+  if (!canView) {
+    return (
+      <div className="space-y-4">
+        <PageHeader title="Analytics" description="System analytics and trends." />
+        <p className="text-sm text-muted-foreground">
+          You do not have permission to view Analytics. Ask the owner to grant access under Staff →
+          Web view — sections & access.
+        </p>
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-5">

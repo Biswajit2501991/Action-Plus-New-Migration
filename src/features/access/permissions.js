@@ -10,6 +10,7 @@ export const ALL_SECTIONS = [
   'Attendance',
   'Leave Tracker',
   'Settings',
+  'Analytics',
   'Logs',
   'Support',
   'Backend',
@@ -120,6 +121,10 @@ export const WEBSITE_CHILD_PERMISSIONS = [
   { key: 'viewWebsite', label: 'Open Website CMS / Admin' },
 ];
 
+export const ANALYTICS_CHILD_PERMISSIONS = [
+  { key: 'viewAnalytics', label: 'View Analytics' },
+];
+
 export const PAYMENT_QR_CHILD_PERMISSIONS = [
   { key: 'viewPaymentQr', label: 'View Payment QR (Members toolbar)' },
   { key: 'managePaymentSettings', label: 'Manage Payment Settings (Owner)' },
@@ -215,6 +220,9 @@ export const DEFAULT_ACCESS = {
   website: {
     viewWebsite: false,
   },
+  analytics: {
+    viewAnalytics: true,
+  },
   paymentQr: {
     viewPaymentQr: true,
     managePaymentSettings: false,
@@ -243,6 +251,7 @@ export const DEFAULT_ACCESS = {
     moreMemberCheckin: true,
     moreSettings: true,
     moreLogs: true,
+    moreAnalytics: true,
     moreSupport: true,
     moreBackend: true,
     moreWebsite: true,
@@ -358,6 +367,10 @@ export function normalizeAccess(access) {
       // Opt-in: staff only see Website when explicitly granted
       viewWebsite: access?.website?.viewWebsite === true,
     },
+    analytics: {
+      // Opt-in: staff only see Analytics when explicitly granted
+      viewAnalytics: access?.analytics?.viewAnalytics === true,
+    },
     paymentQr: {
       viewPaymentQr: access?.paymentQr?.viewPaymentQr !== false,
       managePaymentSettings: access?.paymentQr?.managePaymentSettings === true,
@@ -386,10 +399,25 @@ export function normalizeAccess(access) {
       moreMemberCheckin: access?.mobile?.moreMemberCheckin !== false,
       moreSettings: access?.mobile?.moreSettings !== false,
       moreLogs: access?.mobile?.moreLogs !== false,
+      moreAnalytics: access?.mobile?.moreAnalytics !== false,
       moreSupport: access?.mobile?.moreSupport !== false,
       moreBackend: access?.mobile?.moreBackend !== false,
       moreWebsite: access?.mobile?.moreWebsite !== false,
     },
+  };
+}
+
+/** Preserve Analytics for staff who already had the section before viewAnalytics existed. */
+export function normalizeAccessForStaff(sections, access) {
+  const normalized = normalizeAccess(access);
+  const list = Array.isArray(sections) ? sections : [];
+  if (!list.includes('Analytics')) return normalized;
+  if (access?.analytics && Object.prototype.hasOwnProperty.call(access.analytics, 'viewAnalytics')) {
+    return normalized;
+  }
+  return {
+    ...normalized,
+    analytics: { ...normalized.analytics, viewAnalytics: true },
   };
 }
 
@@ -398,12 +426,14 @@ export function sectionsWithRoleDefaults(user) {
   const current = Array.isArray(user.sections) ? user.sections : [];
   let required = [];
   if (user.id === 'owner') required = [...ALL_SECTIONS];
-  if (user.id === 'manager') required = ['Dashboard', 'Members', 'PT Clients', 'Finance', 'Staff', 'Attendance', 'Leave Tracker', 'Settings', 'Logs'];
+  if (user.id === 'manager') required = ['Dashboard', 'Members', 'PT Clients', 'Finance', 'Staff', 'Attendance', 'Leave Tracker', 'Settings', 'Analytics', 'Logs'];
   if (user.id === 'trainer') required = ['Dashboard', 'Members', 'PT Clients', 'Attendance'];
-  if (!required.length) return { ...user, access: normalizeAccess(user.access) };
+  const sections = required.length ? Array.from(new Set([...current, ...required])) : current;
+  const access = normalizeAccessForStaff(sections, user.access);
+  if (!required.length) return { ...user, access };
   return {
     ...user,
-    sections: Array.from(new Set([...current, ...required])),
-    access: normalizeAccess(user.access),
+    sections,
+    access,
   };
 }

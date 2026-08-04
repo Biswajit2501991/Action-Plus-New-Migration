@@ -104,6 +104,9 @@ export function normalizeAccess(access) {
     website: {
       viewWebsite: access?.website?.viewWebsite === true,
     },
+    analytics: {
+      viewAnalytics: access?.analytics?.viewAnalytics === true,
+    },
     paymentQr: {
       viewPaymentQr: access?.paymentQr?.viewPaymentQr !== false,
       managePaymentSettings: access?.paymentQr?.managePaymentSettings === true,
@@ -132,6 +135,7 @@ export function normalizeAccess(access) {
       moreMemberCheckin: access?.mobile?.moreMemberCheckin !== false,
       moreSettings: access?.mobile?.moreSettings !== false,
       moreLogs: access?.mobile?.moreLogs !== false,
+      moreAnalytics: access?.mobile?.moreAnalytics !== false,
       moreSupport: access?.mobile?.moreSupport !== false,
       moreBackend: access?.mobile?.moreBackend !== false,
       moreWebsite: access?.mobile?.moreWebsite !== false,
@@ -194,6 +198,8 @@ export const Access = {
   paymentQrManage: (a) => a.__owner || a.paymentQr?.managePaymentSettings === true,
   leaveBalanceView: (a) => a.__owner || a.leave?.viewAnnualLeaveBalance !== false,
   leaveBalanceManage: (a) => a.__owner,
+  /** System Analytics — opt-in like Website. */
+  analyticsRead: (a) => a.__owner || a.analytics?.viewAnalytics === true,
 };
 
 export function invalidateStaffAccessCache(staffLoginId) {
@@ -220,7 +226,19 @@ export async function getStaffAccessForUser(staffLoginId) {
   const user = await getStaffAppUser(staffLoginId);
   if (!user || user.blocked) return null;
 
-  const access = normalizeAccess(user.access || {});
+  let access = normalizeAccess(user.access || {});
+  const sections = Array.isArray(user.sections) ? user.sections : [];
+  // Soft-preserve: staff who already had Analytics in sections keep API access until
+  // viewAnalytics is explicitly set false in access_json.
+  if (
+    sections.includes('Analytics')
+    && !(user.access?.analytics && Object.prototype.hasOwnProperty.call(user.access.analytics, 'viewAnalytics'))
+  ) {
+    access = {
+      ...access,
+      analytics: { ...access.analytics, viewAnalytics: true },
+    };
+  }
   accessCache.set(key, { access, at: Date.now() });
   return access;
 }

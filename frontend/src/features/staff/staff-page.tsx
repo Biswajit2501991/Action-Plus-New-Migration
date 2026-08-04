@@ -21,6 +21,7 @@ import {
   isBranchAdminUser,
   isMasterOwnerUser,
   normalizeAccess,
+  normalizeAccessForStaff,
   type RoleTemplate,
 } from "@/lib/domain/permissions";
 import { StaffSectionsAccessEditor } from "@/features/staff/staff-sections-access";
@@ -225,7 +226,10 @@ export function StaffPage() {
       assignedBranchIds: assigned.length ? assigned : defaultBranch ? [defaultBranch] : [],
       sections: Array.isArray(u.sections) ? [...u.sections] : [],
       blocked: Boolean(u.blocked),
-      access: normalizeAccess(u.access),
+      access: normalizeAccessForStaff(
+        Array.isArray(u.sections) ? u.sections : [],
+        u.access,
+      ),
       photoDataUrl: "",
     });
   };

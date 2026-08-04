@@ -137,6 +137,11 @@ export const WEBSITE_CHILD_PERMISSIONS: AccessChildPermission[] = [
   { key: "viewWebsite", label: "Open Website CMS / Admin" },
 ];
 
+/** Opt-in — Analytics stays off unless the owner grants it (same pattern as Website). */
+export const ANALYTICS_CHILD_PERMISSIONS: AccessChildPermission[] = [
+  { key: "viewAnalytics", label: "View Analytics" },
+];
+
 export const PAYMENT_QR_CHILD_PERMISSIONS: AccessChildPermission[] = [
   { key: "viewPaymentQr", label: "View Payment QR (Members toolbar)" },
   { key: "managePaymentSettings", label: "Manage Payment Settings (Owner)" },
@@ -258,6 +263,7 @@ export const SECTION_ACCESS_CONFIG: SectionAccessConfig[] = [
   },
   { section: "Leave Tracker", accessGroup: "leave", children: LEAVE_CHILD_PERMISSIONS },
   { section: "Settings", accessGroup: "settings", children: SETTINGS_CHILD_PERMISSIONS },
+  { section: "Analytics", accessGroup: "analytics", children: ANALYTICS_CHILD_PERMISSIONS },
   { section: "Logs", accessGroup: "logs", children: LOGS_CHILD_PERMISSIONS },
   { section: "Support", accessGroup: "support", children: SUPPORT_CHILD_PERMISSIONS },
   { section: "Backend", accessGroup: "backend", children: BACKEND_CHILD_PERMISSIONS },
@@ -463,6 +469,7 @@ export function toggleAllSectionsAccess(form: StaffAccessFormSlice): StaffAccess
         submitOwnLateNote: true,
       },
       logs: { viewLogs: false, exportLogs: false, clearLogs: false },
+      analytics: { viewAnalytics: false },
       support: { viewSupportTemplates: false, editSupportTemplates: false },
       backend: { viewBackendPage: false, controlBackendProcesses: false },
       website: { viewWebsite: false },
@@ -479,6 +486,9 @@ export function isAccessChildEnabled(access: AccessMap, group: keyof AccessMap, 
   }
   if (group === "website" && key === "viewWebsite") {
     return normalized.website?.viewWebsite === true;
+  }
+  if (group === "analytics" && key === "viewAnalytics") {
+    return normalized.analytics?.viewAnalytics === true;
   }
   if (group === "staff" && key === "manageStaff") {
     return normalized.staff?.manageStaff === true;
@@ -585,6 +595,10 @@ export const DEFAULT_ACCESS: AccessMap = {
   website: {
     viewWebsite: false,
   },
+  analytics: {
+    /** On in DEFAULT so role presets / Select All that include Analytics grant the child key. */
+    viewAnalytics: true,
+  },
   paymentQr: {
     viewPaymentQr: true,
     managePaymentSettings: false,
@@ -689,6 +703,10 @@ export function normalizeAccess(access?: AccessMap | null): AccessMap {
     website: {
       viewWebsite: a.website?.viewWebsite === true,
     },
+    analytics: {
+      // Opt-in: staff only see Analytics when explicitly granted
+      viewAnalytics: a.analytics?.viewAnalytics === true,
+    },
     paymentQr: {
       viewPaymentQr: a.paymentQr?.viewPaymentQr !== false,
       managePaymentSettings: a.paymentQr?.managePaymentSettings === true,
@@ -697,6 +715,37 @@ export function normalizeAccess(access?: AccessMap | null): AccessMap {
       ALL_MOBILE_PERMISSIONS.map((p) => [p.key, a.mobile?.[p.key] !== false]),
     ),
   };
+}
+
+/**
+ * Staff who already had "Analytics" in sections (before this control existed) keep access
+ * until the owner explicitly turns View Analytics off. Missing key ≠ explicit false.
+ */
+function withAnalyticsSectionPreserve(
+  sections: string[],
+  rawAccess: AccessMap | null | undefined,
+  normalized: AccessMap,
+): AccessMap {
+  if (!sections.includes("Analytics")) return normalized;
+  if (rawAccess?.analytics && Object.prototype.hasOwnProperty.call(rawAccess.analytics, "viewAnalytics")) {
+    return normalized;
+  }
+  return {
+    ...normalized,
+    analytics: { ...normalized.analytics, viewAnalytics: true },
+  };
+}
+
+/** Normalize access for a staff row, preserving legacy Analytics section grants. */
+export function normalizeAccessForStaff(
+  sections: string[] | null | undefined,
+  access?: AccessMap | null,
+): AccessMap {
+  return withAnalyticsSectionPreserve(
+    Array.isArray(sections) ? sections : [],
+    access,
+    normalizeAccess(access),
+  );
 }
 
 export function sectionsWithRoleDefaults(user: AuthUser | null | undefined): AuthUser | null {
@@ -719,12 +768,10 @@ export function sectionsWithRoleDefaults(user: AuthUser | null | undefined): Aut
     ];
   }
   if (user.id === "trainer") required = ["Dashboard", "Members", "PT Clients", "Attendance"];
-  if (!required.length) return { ...user, access: normalizeAccess(user.access) };
-  return {
-    ...user,
-    sections: Array.from(new Set([...current, ...required])),
-    access: normalizeAccess(user.access),
-  };
+  const sections = required.length ? Array.from(new Set([...current, ...required])) : current;
+  const access = normalizeAccessForStaff(sections, user.access);
+  if (!required.length) return { ...user, access };
+  return { ...user, sections, access };
 }
 
 function isOwnerLikeRole(user: AuthUser) {
@@ -765,7 +812,7 @@ export function canAccessSection(user: AuthUser | null | undefined, section: str
   }
 
   const sections = Array.isArray(user.sections) ? user.sections : [];
-  const listed = sections.includes(section) || section === "Support" || section === "Logs" || section === "Analytics";
+  const listed = sections.includes(section) || section === "Support" || section === "Logs";
   if (!listed) return false;
 
   if (section === "Attendance") {
@@ -776,16 +823,7 @@ export function canAccessSection(user: AuthUser | null | undefined, section: str
   }
   if (section === "Staff") return hasAccess(user, "staff", "viewStaff");
   if (section === "Logs") return hasAccess(user, "logs", "viewLogs");
-  if (section === "Analytics") {
-    return (
-      hasAccess(user, "members", "viewMembers") ||
-      hasAccess(user, "finance", "viewRevenueAutoMembers") ||
-      hasAccess(user, "finance", "viewYtdCollected") ||
-      hasAccess(user, "dashboard", "viewDashboardCore") ||
-      hasAccess(user, "dashboard", "viewMembershipTrends") ||
-      hasAccess(user, "logs", "viewLogs")
-    );
-  }
+  if (section === "Analytics") return hasAccess(user, "analytics", "viewAnalytics");
   if (section === "Support") return hasAccess(user, "support", "viewSupportTemplates");
   if (section === "Backend") return hasAccess(user, "backend", "viewBackendPage");
   return true;
@@ -814,6 +852,9 @@ export function hasAccess(
   }
   if (group === "website" && key === "viewWebsite") {
     return access.website?.viewWebsite === true;
+  }
+  if (group === "analytics" && key === "viewAnalytics") {
+    return access.analytics?.viewAnalytics === true;
   }
   if (group === "staff" && key === "manageStaff") {
     return access.staff?.manageStaff === true;
@@ -921,6 +962,13 @@ export function canAccessMobilePath(
   if (user.id === "owner" || isMasterOwnerUser(user)) return true;
   const key = mobileAccessKeyForPath(pathname);
   if (!key) return true;
+  if (key === "moreAnalytics") {
+    return (
+      canAccessSection(user, "Analytics") &&
+      hasAccess(user, "mobile", "viewMore") &&
+      hasAccess(user, "mobile", "moreAnalytics")
+    );
+  }
   if (key.startsWith("more") && key !== "viewMore") {
     return hasAccess(user, "mobile", "viewMore") && hasAccess(user, "mobile", key);
   }
