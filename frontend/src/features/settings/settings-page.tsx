@@ -324,6 +324,8 @@ type PortalSections = {
   homeWeightTracker: boolean;
   homeBook: boolean;
   homePerks: boolean;
+  /** Inside Perks: show/allow "Request locker" (not a home tile itself). */
+  perksRequestLocker: boolean;
   homeBiometric: boolean;
   basicDailyWorkouts: boolean;
   basicNotes: boolean;
@@ -358,6 +360,7 @@ const DEFAULT_PORTAL_SECTIONS: PortalSections = {
   homeWeightTracker: true,
   homeBook: true,
   homePerks: true,
+  perksRequestLocker: true,
   homeBiometric: true,
   basicDailyWorkouts: true,
   basicNotes: true,
@@ -389,6 +392,11 @@ const HOME_TILE_META: {
   },
   { key: "homeBook", label: "Book", description: "Class / slot bookings." },
   { key: "homePerks", label: "Perks", description: "Member perks and offers." },
+  {
+    key: "perksRequestLocker",
+    label: "Request locker",
+    description: "Inside Perks: show the Request locker button. Off hides it (existing locker assignments stay).",
+  },
   { key: "homeBiometric", label: "Biometric", description: "Face ID / fingerprint login setup." },
 ];
 

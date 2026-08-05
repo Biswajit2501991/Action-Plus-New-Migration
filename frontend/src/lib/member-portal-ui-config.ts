@@ -14,6 +14,8 @@ export type PortalSections = {
   homeWeightTracker: boolean;
   homeBook: boolean;
   homePerks: boolean;
+  /** Inside Perks: show/allow "Request locker" (not a home tile itself). */
+  perksRequestLocker: boolean;
   homeBiometric: boolean;
   basicDailyWorkouts: boolean;
   basicNotes: boolean;
@@ -48,6 +50,7 @@ export const DEFAULT_PORTAL_SECTIONS: PortalSections = {
   homeWeightTracker: true,
   homeBook: true,
   homePerks: true,
+  perksRequestLocker: true,
   homeBiometric: true,
   basicDailyWorkouts: true,
   basicNotes: true,

@@ -25,6 +25,8 @@ export const DEFAULT_PORTAL_SECTIONS = {
   homeWeightTracker: true,
   homeBook: true,
   homePerks: true,
+  /** Inside Perks: show/allow "Request locker" (not a home tile itself). */
+  perksRequestLocker: true,
   homeBiometric: true,
   // Training internals
   basicDailyWorkouts: true,
