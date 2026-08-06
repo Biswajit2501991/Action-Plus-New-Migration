@@ -76,6 +76,16 @@ export function PtPage() {
   const profile: PtClientProfile =
     (selectedMemberId && profiles[selectedMemberId]) || EMPTY_PT_PROFILE;
 
+  const chatTrainerHasNew = useMemo(() => {
+    const msgs = profile.chat || [];
+    const latestMember = msgs.find((m) => m.from === "member");
+    const ts = latestMember?.ts || profile.lastMemberChatAt;
+    if (!ts) return false;
+    const ms = Date.parse(String(ts));
+    if (!Number.isFinite(ms)) return false;
+    return Date.now() - ms >= 0 && Date.now() - ms < 24 * 60 * 60 * 1000;
+  }, [profile.chat, profile.lastMemberChatAt]);
+
   // Sync drafts when the selected client (or their saved profile) changes.
   // Bail out of setState when values are unchanged to avoid update-depth loops
   // if settings/profile object identity churns between renders.
@@ -196,13 +206,20 @@ export function PtPage() {
                 type="button"
                 onClick={() => setActiveSubTab(tab)}
                 className={cn(
-                  "rounded-full border px-3 py-2 text-xs font-medium transition-colors",
+                  "relative rounded-full border px-3 py-2 text-xs font-medium transition-colors",
                   activeSubTab === tab
                     ? "border-sky-600 bg-sky-600 text-white"
-                    : "border-border bg-background text-muted-foreground hover:bg-accent hover:text-foreground",
+                    : tab === "Chat Trainer" && chatTrainerHasNew
+                      ? "border-amber-500 bg-amber-100 text-amber-950 ring-2 ring-amber-400/70 dark:border-amber-500 dark:bg-amber-950/50 dark:text-amber-50"
+                      : "border-border bg-background text-muted-foreground hover:bg-accent hover:text-foreground",
                 )}
               >
                 {tab}
+                {tab === "Chat Trainer" && chatTrainerHasNew ? (
+                  <span className="ml-1 inline-flex rounded-full bg-amber-500 px-1.5 py-0.5 text-[9px] font-bold uppercase text-white">
+                    New
+                  </span>
+                ) : null}
               </button>
             ))}
           </div>
@@ -308,6 +325,7 @@ export function PtPage() {
                           protein: dietDraft.protein,
                           water: dietDraft.water,
                           dietPlan: dietDraft.dietPlan,
+                          lastDietAt: new Date().toISOString(),
                         },
                         "plan",
                         "dietPlan",
@@ -322,7 +340,10 @@ export function PtPage() {
                     const next = await buildDietAttachmentsFromFiles(files, profile.dietAttachments);
                     await saveProfilePatch(
                       memberId,
-                      { dietAttachments: next },
+                      {
+                        dietAttachments: next,
+                        lastDietAt: new Date().toISOString(),
+                      },
                       "plan",
                       "dietDocs",
                       "Diet document saved successfully",
@@ -334,7 +355,10 @@ export function PtPage() {
                     const next = (profile.dietAttachments || []).filter((item) => item.id !== id);
                     await saveProfilePatch(
                       memberId,
-                      { dietAttachments: next },
+                      {
+                        dietAttachments: next,
+                        lastDietAt: new Date().toISOString(),
+                      },
                       "plan",
                       "dietDocs",
                       "Diet document removed",
@@ -349,23 +373,30 @@ export function PtPage() {
                   canEdit={canEditPtWorkout}
                   sectionSaving={sectionSaving}
                   actorName={actorName}
+                  hasNewMemberChat={chatTrainerHasNew}
                   onAddMessage={async (text) => {
+                    const nowIso = new Date().toISOString();
                     const next = [
                       {
                         id: crypto.randomUUID(),
                         by: actorName || "Staff",
                         text,
-                        ts: new Date().toISOString(),
+                        ts: nowIso,
+                        from: "trainer" as const,
                       },
                       ...(profile.chat || []),
                     ].slice(0, 100);
                     return Boolean(
                       await saveProfilePatch(
                         memberId,
-                        { chat: next, lastChatAt: new Date().toISOString() },
+                        {
+                          chat: next,
+                          lastChatAt: nowIso,
+                          lastTrainerChatAt: nowIso,
+                        },
                         "workout",
                         "chat",
-                        "Trainer note saved successfully",
+                        "Message sent to member",
                       ),
                     );
                   }}

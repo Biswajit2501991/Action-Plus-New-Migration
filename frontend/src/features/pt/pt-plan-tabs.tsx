@@ -211,12 +211,14 @@ export function PtChatTab({
   sectionSaving,
   actorName,
   onAddMessage,
+  hasNewMemberChat = false,
 }: {
   profile: PtClientProfile;
   canEdit: boolean;
   sectionSaving: Record<string, boolean>;
   actorName: string;
   onAddMessage: (text: string) => Promise<boolean>;
+  hasNewMemberChat?: boolean;
 }) {
   const [chatDraft, setChatDraft] = useState("");
 
@@ -226,36 +228,63 @@ export function PtChatTab({
     if (ok) setChatDraft("");
   };
 
+  const messages = [...(profile.chat || [])].reverse();
+
   return (
     <div className="space-y-3">
+      {hasNewMemberChat ? (
+        <div className="rounded-xl border border-amber-300 bg-amber-50 px-3 py-2 text-xs font-medium text-amber-900 dark:border-amber-700 dark:bg-amber-950/40 dark:text-amber-100">
+          New message from member — reply below.
+        </div>
+      ) : null}
+      <div className="max-h-80 space-y-2 overflow-y-auto rounded-xl border border-border bg-muted/30 p-3">
+        {messages.map((msg) => {
+          const fromMember = msg.from === "member";
+          return (
+            <div
+              key={msg.id}
+              className={`rounded-xl border px-3 py-2 text-sm ${
+                fromMember
+                  ? "border-amber-300/70 bg-amber-50 dark:border-amber-700 dark:bg-amber-950/30"
+                  : "border-border bg-background"
+              }`}
+            >
+              <div className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+                {fromMember ? "Member" : msg.by || actorName || "Trainer"}
+              </div>
+              <div className="mt-0.5 whitespace-pre-wrap">{msg.text}</div>
+              <div className="mt-1 text-xs text-muted-foreground">
+                {formatDateTimeTz(msg.ts, "IST")} <span className="text-[10px] uppercase">IST</span>
+              </div>
+            </div>
+          );
+        })}
+        {!messages.length ? (
+          <div className="text-sm text-muted-foreground">
+            No chat yet. Member messages from the portal appear here.
+          </div>
+        ) : null}
+      </div>
       <div className="flex gap-2">
         <Input
           value={chatDraft}
           onChange={(e) => setChatDraft(e.target.value)}
-          placeholder="Enter trainer update / member concern..."
+          placeholder="Reply to member…"
           disabled={sectionSaving.chat}
           className="flex-1"
+          onKeyDown={(e) => {
+            if (e.key === "Enter" && !e.shiftKey) {
+              e.preventDefault();
+              void addChatMessage();
+            }
+          }}
         />
         <Button
           onClick={() => void addChatMessage()}
           disabled={!canEdit || !chatDraft.trim() || sectionSaving.chat}
         >
-          {sectionSaving.chat ? "Saving…" : "Save Note"}
+          {sectionSaving.chat ? "Sending…" : "Send"}
         </Button>
-      </div>
-      <div className="space-y-2">
-        {(profile.chat || []).slice(0, 10).map((msg) => (
-          <div key={msg.id} className="rounded-xl border border-border bg-muted/40 px-3 py-2 text-sm">
-            <div className="font-medium">{msg.by || actorName}</div>
-            <div>{msg.text}</div>
-            <div className="mt-1 text-xs text-muted-foreground">
-              {formatDateTimeTz(msg.ts, "IST")} <span className="text-[10px] uppercase">IST</span>
-            </div>
-          </div>
-        ))}
-        {!profile.chat?.length ? (
-          <div className="text-sm text-muted-foreground">No trainer notes yet.</div>
-        ) : null}
       </div>
     </div>
   );
