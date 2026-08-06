@@ -3,10 +3,41 @@
 import { useCallback, useRef, useState } from "react";
 import { useQueryClient, type QueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
+import { withMergedPtChat } from "@/lib/domain/pt-chat-merge";
 import { buildPtProfilePatch } from "@/lib/domain/pt-drafts";
 import { ptApi } from "@/services/api";
 import type { AppSettings } from "@/types";
 import type { PtClientProfile, PtSaveMode } from "@/types/pt";
+
+/** Keys sent for chat-only saves — keeps diet photo payloads off the wire. */
+const CHAT_PATCH_KEYS = [
+  "chat",
+  "lastChatAt",
+  "lastMemberChatAt",
+  "lastTrainerChatAt",
+  "updatedAt",
+  "updatedBy",
+] as const;
+
+function toBackendProfilePayload(
+  profile: PtClientProfile,
+  patch: Partial<PtClientProfile>,
+  sectionKey?: string,
+): Record<string, unknown> {
+  if (sectionKey === "chat") {
+    const body: Record<string, unknown> = {};
+    for (const key of CHAT_PATCH_KEYS) {
+      if (profile[key] !== undefined) body[key] = profile[key];
+    }
+    return body;
+  }
+  // Diet attachments are large base64 blobs; omit unless this save explicitly changes them.
+  if (!Object.prototype.hasOwnProperty.call(patch, "dietAttachments")) {
+    const { dietAttachments: _omit, ...rest } = profile;
+    return rest as Record<string, unknown>;
+  }
+  return profile as Record<string, unknown>;
+}
 
 const BACKEND_DEBOUNCE_MS = 2500;
 
@@ -24,19 +55,23 @@ function mergePtProfileResponse(
     savedTs >= localTs
       ? { ...(local.focusByDate || {}), ...(saved.focusByDate || {}) }
       : { ...(saved.focusByDate || {}), ...(local.focusByDate || {}) };
-  return {
-    ...winner,
-    focusByDate,
-    // Never drop plan text fields if one side briefly omits them during a race.
-    dietPlan: winner.dietPlan ?? local.dietPlan ?? saved.dietPlan,
-    calories: winner.calories ?? local.calories ?? saved.calories,
-    protein: winner.protein ?? local.protein ?? saved.protein,
-    water: winner.water ?? local.water ?? saved.water,
-    workoutPlan: winner.workoutPlan ?? local.workoutPlan ?? saved.workoutPlan,
-    ptWorkoutNotes: winner.ptWorkoutNotes ?? local.ptWorkoutNotes ?? saved.ptWorkoutNotes,
-    updatedAt:
-      savedTs >= localTs ? saved.updatedAt || local.updatedAt : local.updatedAt || saved.updatedAt,
-  };
+  const withChat = withMergedPtChat(
+    {
+      ...winner,
+      focusByDate,
+      // Never drop plan text fields if one side briefly omits them during a race.
+      dietPlan: winner.dietPlan ?? local.dietPlan ?? saved.dietPlan,
+      calories: winner.calories ?? local.calories ?? saved.calories,
+      protein: winner.protein ?? local.protein ?? saved.protein,
+      water: winner.water ?? local.water ?? saved.water,
+      workoutPlan: winner.workoutPlan ?? local.workoutPlan ?? saved.workoutPlan,
+      ptWorkoutNotes: winner.ptWorkoutNotes ?? local.ptWorkoutNotes ?? saved.ptWorkoutNotes,
+      updatedAt:
+        savedTs >= localTs ? saved.updatedAt || local.updatedAt : local.updatedAt || saved.updatedAt,
+    },
+    savedTs >= localTs ? local : saved,
+  );
+  return withChat;
 }
 
 function ptSaveErrorMessage(err: unknown) {
@@ -101,10 +136,17 @@ export function usePtProfile(actorName = "") {
       memberId: string,
       profile: PtClientProfile,
       mode: PtSaveMode,
-      opts: { immediate?: boolean; waitForBackend?: boolean; silentErrors?: boolean } = {},
+      opts: {
+        immediate?: boolean;
+        waitForBackend?: boolean;
+        silentErrors?: boolean;
+        patch?: Partial<PtClientProfile>;
+        sectionKey?: string;
+      } = {},
     ) => {
       const runSave = async () => {
-        const resp = await ptApi.patchProfile(memberId, profile, mode);
+        const wire = toBackendProfilePayload(profile, opts.patch || {}, opts.sectionKey);
+        const resp = await ptApi.patchProfile(memberId, wire, mode);
         const saved = (resp?.profile || null) as PtClientProfile | null;
         if (!saved) throw new Error("empty_profile_response");
         // Drop in-flight settings GETs that may still carry pre-save PT profiles.
@@ -146,7 +188,7 @@ export function usePtProfile(actorName = "") {
       const prevProfile = readCachedPtProfile(qc, memberId);
       const nextProfile = buildPtProfilePatch(prevProfile, patch, actorName);
       writeCachedPtProfile(qc, memberId, nextProfile);
-      scheduleBackendSave(memberId, nextProfile, mode);
+      scheduleBackendSave(memberId, nextProfile, mode, { patch });
     },
     [actorName, qc, scheduleBackendSave],
   );
@@ -169,6 +211,8 @@ export function usePtProfile(actorName = "") {
           immediate: true,
           waitForBackend: true,
           silentErrors: true,
+          patch,
+          sectionKey,
         });
         toast.success(successMessage);
         return (saved as PtClientProfile) || nextProfile;
@@ -182,11 +226,28 @@ export function usePtProfile(actorName = "") {
     [actorName, qc, scheduleBackendSave, sectionSaving],
   );
 
+  /** Merge a lightweight chat slice from the server into all settings caches. */
+  const applyChatSlice = useCallback(
+    (
+      memberId: string,
+      slice: Pick<
+        PtClientProfile,
+        "chat" | "lastChatAt" | "lastMemberChatAt" | "lastTrainerChatAt" | "updatedAt"
+      >,
+    ) => {
+      if (!memberId) return;
+      const local = readCachedPtProfile(qc, memberId);
+      writeCachedPtProfile(qc, memberId, withMergedPtChat({ ...local, ...slice }, local));
+    },
+    [qc],
+  );
+
   return {
     persistProfile,
     saveProfilePatch,
     updateLocalProfile,
     scheduleBackendSave,
+    applyChatSlice,
     sectionSaving,
   };
 }

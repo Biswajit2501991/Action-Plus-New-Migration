@@ -32,4 +32,25 @@ describe('mergePtProfilePlanJson', () => {
     const merged = mergePtProfilePlanJson(prev, { focusByDate: {} });
     expect(merged.focusByDate).toEqual({});
   });
+
+  it('unions chat by id so stale trainer saves cannot wipe member messages', () => {
+    const prev = {
+      chat: [
+        { id: 'm1', from: 'member', text: 'Hi', ts: '2026-08-06T10:00:00.000Z' },
+      ],
+      lastMemberChatAt: '2026-08-06T10:00:00.000Z',
+    };
+    const incoming = {
+      chat: [
+        { id: 't1', from: 'trainer', text: 'Reply', ts: '2026-08-06T10:01:00.000Z' },
+      ],
+      lastTrainerChatAt: '2026-08-06T10:01:00.000Z',
+      ptWorkoutNotes: 'note',
+    };
+    const merged = mergePtProfilePlanJson(prev, incoming);
+    expect(merged.chat.map((m) => m.id)).toEqual(['t1', 'm1']);
+    expect(merged.lastMemberChatAt).toBe('2026-08-06T10:00:00.000Z');
+    expect(merged.lastTrainerChatAt).toBe('2026-08-06T10:01:00.000Z');
+    expect(merged.ptWorkoutNotes).toBe('note');
+  });
 });

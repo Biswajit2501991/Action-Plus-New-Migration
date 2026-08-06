@@ -2221,17 +2221,67 @@ async function writePtProfiles(settings, gid) {
 }
 
 /** Replace focusByDate when the patch includes it; spread-merge cannot express day deletions. */
+export function mergePtChatLists(a, b) {
+  const byId = new Map();
+  for (const list of [a, b]) {
+    if (!Array.isArray(list)) continue;
+    for (const row of list) {
+      if (!row || typeof row !== 'object') continue;
+      const id = String(row.id || '').trim();
+      if (!id) continue;
+      const prev = byId.get(id);
+      byId.set(id, prev ? { ...prev, ...row, id } : { ...row, id });
+    }
+  }
+  return [...byId.values()]
+    .sort((x, y) => {
+      const tx = Date.parse(String(x.ts || '')) || 0;
+      const ty = Date.parse(String(y.ts || '')) || 0;
+      return ty - tx;
+    })
+    .slice(0, 100);
+}
+
+function maxIsoTimestamp(...values) {
+  let best = '';
+  let bestMs = -Infinity;
+  for (const value of values) {
+    const raw = String(value || '').trim();
+    if (!raw) continue;
+    const ms = Date.parse(raw);
+    if (!Number.isFinite(ms) || ms <= bestMs) continue;
+    bestMs = ms;
+    best = raw;
+  }
+  return best || undefined;
+}
+
 export function mergePtProfilePlanJson(prev, incomingProfile) {
   const prevObj = prev && typeof prev === 'object' ? prev : {};
   const incoming = incomingProfile && typeof incomingProfile === 'object' ? incomingProfile : {};
   const mergedFocus = Object.prototype.hasOwnProperty.call(incoming, 'focusByDate')
     ? { ...(incoming.focusByDate && typeof incoming.focusByDate === 'object' ? incoming.focusByDate : {}) }
     : { ...(prevObj.focusByDate || {}) };
-  return {
+  const merged = {
     ...prevObj,
     ...incoming,
     focusByDate: mergedFocus,
   };
+  if (Object.prototype.hasOwnProperty.call(incoming, 'chat')) {
+    merged.chat = mergePtChatLists(prevObj.chat, incoming.chat);
+  }
+  const lastMemberChatAt = maxIsoTimestamp(prevObj.lastMemberChatAt, incoming.lastMemberChatAt);
+  const lastTrainerChatAt = maxIsoTimestamp(prevObj.lastTrainerChatAt, incoming.lastTrainerChatAt);
+  const lastChatAt = maxIsoTimestamp(
+    prevObj.lastChatAt,
+    incoming.lastChatAt,
+    lastMemberChatAt,
+    lastTrainerChatAt,
+  );
+  if (lastMemberChatAt) merged.lastMemberChatAt = lastMemberChatAt;
+  if (lastTrainerChatAt) merged.lastTrainerChatAt = lastTrainerChatAt;
+  if (lastChatAt) merged.lastChatAt = lastChatAt;
+  return merged;
 }
 
 /** Surgical PT profile save — shared by staff PATCH and owner bulk sync paths. */
@@ -2321,6 +2371,61 @@ export async function patchPtClientProfile(memberCode, incomingProfile, meta = {
 
   notifyCollectionChange('settings');
   return merged;
+}
+
+/** Lightweight chat fields only (avoids shipping dietAttachments base64). */
+export async function getPtClientChatSlice(memberCode) {
+  const code = String(memberCode || '').trim();
+  if (!code) throw new Error('member_code_required');
+
+  const sb = getSupabase();
+  const gid = gymId();
+  const { data: memberRows, error: memberErr } = await sb
+    .from(T.members)
+    .select('id')
+    .eq('gym_id', gid)
+    .eq('member_code', code)
+    .order('updated_at', { ascending: false })
+    .limit(1);
+  if (memberErr) throw memberErr;
+  const memberRow = Array.isArray(memberRows) && memberRows.length ? memberRows[0] : null;
+  if (!memberRow?.id) throw new Error('member_not_found');
+
+  // Pull only chat-related jsonb paths — not the full plan_json (diet photos).
+  const { data: existingRows, error: existingErr } = await sb
+    .from(T.pt_client_profiles)
+    .select(`
+      updated_at,
+      chat:plan_json->chat,
+      lastChatAt:plan_json->lastChatAt,
+      lastMemberChatAt:plan_json->lastMemberChatAt,
+      lastTrainerChatAt:plan_json->lastTrainerChatAt,
+      planUpdatedAt:plan_json->updatedAt
+    `)
+    .eq('gym_id', gid)
+    .eq('member_id', memberRow.id)
+    .order('updated_at', { ascending: false })
+    .limit(1);
+  if (existingErr) throw existingErr;
+  const row = Array.isArray(existingRows) && existingRows.length ? existingRows[0] : null;
+  if (!row) {
+    return {
+      memberId: code,
+      chat: [],
+      lastChatAt: undefined,
+      lastMemberChatAt: undefined,
+      lastTrainerChatAt: undefined,
+      updatedAt: undefined,
+    };
+  }
+  return {
+    memberId: code,
+    chat: Array.isArray(row.chat) ? row.chat : [],
+    lastChatAt: row.lastChatAt ? String(row.lastChatAt) : undefined,
+    lastMemberChatAt: row.lastMemberChatAt ? String(row.lastMemberChatAt) : undefined,
+    lastTrainerChatAt: row.lastTrainerChatAt ? String(row.lastTrainerChatAt) : undefined,
+    updatedAt: String(row.planUpdatedAt || row.updated_at || '') || undefined,
+  };
 }
 
 async function readVisitors(scope, branchScope = null) {

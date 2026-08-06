@@ -222,8 +222,10 @@ export function PtChatTab({
 
   const addChatMessage = async () => {
     if (!chatDraft.trim() || sectionSaving.chat) return;
-    const ok = await onAddMessage(chatDraft.trim());
-    if (ok) setChatDraft("");
+    const text = chatDraft.trim();
+    setChatDraft("");
+    const ok = await onAddMessage(text);
+    if (!ok) setChatDraft(text);
   };
 
   const messages = [...(profile.chat || [])].reverse();

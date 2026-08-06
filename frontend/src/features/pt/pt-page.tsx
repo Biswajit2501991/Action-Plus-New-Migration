@@ -25,9 +25,10 @@ import {
 import { isoDate } from "@/lib/domain/member-dates";
 import { normalizeAccess } from "@/lib/domain/permissions";
 import { apiFetch } from "@/services/api/client";
+import { ptApi } from "@/services/api";
 import { cn, formatDate } from "@/lib/utils";
 import { useAuthStore } from "@/stores";
-import type { PtClientProfile } from "@/types/pt";
+import type { PtChatMessage, PtClientProfile } from "@/types/pt";
 
 const EMPTY_PT_PROFILE: PtClientProfile = {};
 const EMPTY_PT_PROFILES: Record<string, PtClientProfile> = {};
@@ -38,7 +39,7 @@ export function PtPage() {
   const { data: members = [], isLoading: membersLoading } = useMembers();
   const { data: users = [] } = useUsers();
   const { data: settings, isLoading: settingsLoading } = useSettings();
-  const { persistProfile, saveProfilePatch, sectionSaving } = usePtProfile(actorName);
+  const { persistProfile, saveProfilePatch, sectionSaving, applyChatSlice } = usePtProfile(actorName);
 
   const access = normalizeAccess(user?.access);
   const canViewPtClients = access.ptClients?.viewPtClients !== false;
@@ -79,12 +80,43 @@ export function PtPage() {
   const chatTrainerHasNew = useMemo(() => {
     const msgs = profile.chat || [];
     const latestMember = msgs.find((m) => m.from === "member");
+    // Prefer a visible member message; fall back to timestamp so "New" still
+    // appears while the lightweight chat sync is filling in the array.
     const ts = latestMember?.ts || profile.lastMemberChatAt;
     if (!ts) return false;
     const ms = Date.parse(String(ts));
     if (!Number.isFinite(ms)) return false;
     return Date.now() - ms >= 0 && Date.now() - ms < 24 * 60 * 60 * 1000;
   }, [profile.chat, profile.lastMemberChatAt]);
+
+  // Fast chat sync while Chat Trainer is open (chat-only payload, no diet photos).
+  useEffect(() => {
+    if (activeSubTab !== "Chat Trainer" || !selectedMemberId) return;
+    let cancelled = false;
+    const pull = async () => {
+      try {
+        const slice = await ptApi.getChat(selectedMemberId);
+        if (cancelled || !slice) return;
+        applyChatSlice(selectedMemberId, {
+          chat: (Array.isArray(slice.chat) ? slice.chat : []) as PtChatMessage[],
+          lastChatAt: slice.lastChatAt,
+          lastMemberChatAt: slice.lastMemberChatAt,
+          lastTrainerChatAt: slice.lastTrainerChatAt,
+          updatedAt: slice.updatedAt,
+        });
+      } catch {
+        /* keep cached chat; tab remains usable */
+      }
+    };
+    void pull();
+    const id = window.setInterval(() => {
+      if (document.visibilityState === "visible") void pull();
+    }, 8_000);
+    return () => {
+      cancelled = true;
+      window.clearInterval(id);
+    };
+  }, [activeSubTab, selectedMemberId, applyChatSlice]);
 
   // Sync drafts when the selected client (or their saved profile) changes.
   // Bail out of setState when values are unchanged to avoid update-depth loops
@@ -375,16 +407,14 @@ export function PtPage() {
                   hasNewMemberChat={chatTrainerHasNew}
                   onAddMessage={async (text) => {
                     const nowIso = new Date().toISOString();
-                    const next = [
-                      {
-                        id: crypto.randomUUID(),
-                        by: "Trainer",
-                        text,
-                        ts: nowIso,
-                        from: "trainer" as const,
-                      },
-                      ...(profile.chat || []),
-                    ].slice(0, 100);
+                    const nextMsg = {
+                      id: crypto.randomUUID(),
+                      by: "Trainer",
+                      text,
+                      ts: nowIso,
+                      from: "trainer" as const,
+                    };
+                    const next = [nextMsg, ...(profile.chat || [])].slice(0, 100);
                     return Boolean(
                       await saveProfilePatch(
                         memberId,

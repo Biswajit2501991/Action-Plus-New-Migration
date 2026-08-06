@@ -1,5 +1,6 @@
 import type { AppSettings } from "@/types";
 import type { PtClientProfile } from "@/types/pt";
+import { maxIsoTimestamp, withMergedPtChat } from "@/lib/domain/pt-chat-merge";
 
 function profileUpdatedAtMs(profile: PtClientProfile | null | undefined) {
   return Date.parse(String(profile?.updatedAt || "")) || 0;
@@ -8,6 +9,9 @@ function profileUpdatedAtMs(profile: PtClientProfile | null | undefined) {
 /**
  * Prefer the newer profile per member (by updatedAt) so a stale settings refetch
  * cannot wipe a diet/workout save that already landed in cache / DB.
+ *
+ * Chat is always unioned by message id so a newer local notes save cannot hide
+ * member portal messages that arrived with an older/equal updatedAt, and vice versa.
  *
  * Only members present in `next` are kept (preserves trainer/branch filtering).
  */
@@ -35,19 +39,24 @@ export function preferNewerPtProfiles(
     }
     const localTs = profileUpdatedAtMs(local);
     const remoteTs = profileUpdatedAtMs(remote);
-    if (localTs > remoteTs) {
-      out[memberId] = {
-        ...remote,
-        ...local,
-        focusByDate: { ...(remote.focusByDate || {}), ...(local.focusByDate || {}) },
-      };
-    } else {
-      out[memberId] = {
-        ...local,
-        ...remote,
-        focusByDate: { ...(local.focusByDate || {}), ...(remote.focusByDate || {}) },
-      };
-    }
+    const base =
+      localTs > remoteTs
+        ? {
+            ...remote,
+            ...local,
+            focusByDate: { ...(remote.focusByDate || {}), ...(local.focusByDate || {}) },
+          }
+        : {
+            ...local,
+            ...remote,
+            focusByDate: { ...(local.focusByDate || {}), ...(remote.focusByDate || {}) },
+          };
+    const withChat = withMergedPtChat(base, localTs > remoteTs ? remote : local);
+    out[memberId] = {
+      ...withChat,
+      updatedAt:
+        maxIsoTimestamp(local.updatedAt, remote.updatedAt) || base.updatedAt || withChat.updatedAt,
+    };
   }
   return out;
 }

@@ -70,6 +70,7 @@ import {
   deleteVisitor,
   writeRoleTemplates,
   patchPtClientProfileValue,
+  getPtClientChatSliceValue,
   upsertFinanceExpenseRow,
   deleteFinanceExpenseRow,
 } from './db/dataStore.js';
@@ -2207,6 +2208,25 @@ app.patch(/^\/api\/pt-client-profiles\/(.+)$/, requireAccess(Access.ptClientsRea
   const suffix = req.params[0];
   req.params = { memberId: suffix };
   return handlePatchPtClientProfile(req, res);
+});
+
+/** Lightweight chat sync for Chat Trainer (avoids full settings + dietAttachments). */
+app.get('/api/pt-client-profiles-chat', requireAccess(Access.ptClientsRead), async (req, res) => {
+  try {
+    const memberId = String(req.query?.memberId || '').trim();
+    if (!memberId) return res.status(400).json({ error: 'member-id-required' });
+    const slice = await getPtClientChatSliceValue(memberId);
+    return res.json({ ok: true, ...slice });
+  } catch (error) {
+    const msg = String(error?.message || error);
+    if (msg === 'member_not_found' || msg === 'member_code_required') {
+      return res.status(404).json({ error: 'member-not-found' });
+    }
+    return res.status(500).json({
+      error: 'pt-client-chat-load-failed',
+      message: msg,
+    });
+  }
 });
 
 app.get('/api/attendance/records', requireAccess((a) => a.attendance?.viewAttendance !== false), async (req, res) => {

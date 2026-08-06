@@ -1117,14 +1117,32 @@ export async function patchPtClientProfileValue(memberCode, profile, meta = {}) 
   const prev = prevAll[code] && typeof prevAll[code] === 'object' ? prevAll[code] : {};
   const nowIso = new Date().toISOString();
   const merged = {
-    ...prev,
-    ...(profile && typeof profile === 'object' ? profile : {}),
+    ...supabaseStore.mergePtProfilePlanJson(prev, profile),
     updatedAt: nowIso,
     updatedBy: String(meta.updatedBy || profile?.updatedBy || '').trim() || prev.updatedBy || '',
   };
   settings.ptClientProfiles = { ...prevAll, [code]: merged };
   await writeJsonValue('apg.settings', settings, null);
   return merged;
+}
+
+/** Chat-only slice for PT Clients Chat Trainer (no diet attachments). */
+export async function getPtClientChatSliceValue(memberCode) {
+  if (useSupabase()) return supabaseStore.getPtClientChatSlice(memberCode);
+  const settings = (await readJsonValue('apg.settings', {}, null)) || {};
+  const prevAll = settings.ptClientProfiles && typeof settings.ptClientProfiles === 'object'
+    ? settings.ptClientProfiles
+    : {};
+  const code = String(memberCode || '').trim();
+  const profile = prevAll[code] && typeof prevAll[code] === 'object' ? prevAll[code] : {};
+  return {
+    memberId: code,
+    chat: Array.isArray(profile.chat) ? profile.chat : [],
+    lastChatAt: profile.lastChatAt,
+    lastMemberChatAt: profile.lastMemberChatAt,
+    lastTrainerChatAt: profile.lastTrainerChatAt,
+    updatedAt: profile.updatedAt,
+  };
 }
 
 export async function pingDataStore() {

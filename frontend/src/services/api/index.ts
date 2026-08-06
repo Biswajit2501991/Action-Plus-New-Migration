@@ -665,6 +665,16 @@ export const ptApi = {
         body: JSON.stringify({ memberId, profile, mode }),
       },
     ),
+  getChat: (memberId: string) =>
+    apiFetch<{
+      ok?: boolean;
+      memberId?: string;
+      chat?: unknown[];
+      lastChatAt?: string;
+      lastMemberChatAt?: string;
+      lastTrainerChatAt?: string;
+      updatedAt?: string;
+    }>(`/pt-client-profiles-chat?memberId=${encodeURIComponent(memberId)}`),
 };
 
 export const gymCodesApi = {
