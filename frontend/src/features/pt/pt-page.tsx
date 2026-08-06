@@ -372,14 +372,13 @@ export function PtPage() {
                   profile={profile}
                   canEdit={canEditPtWorkout}
                   sectionSaving={sectionSaving}
-                  actorName={actorName}
                   hasNewMemberChat={chatTrainerHasNew}
                   onAddMessage={async (text) => {
                     const nowIso = new Date().toISOString();
                     const next = [
                       {
                         id: crypto.randomUUID(),
-                        by: actorName || "Staff",
+                        by: "Trainer",
                         text,
                         ts: nowIso,
                         from: "trainer" as const,

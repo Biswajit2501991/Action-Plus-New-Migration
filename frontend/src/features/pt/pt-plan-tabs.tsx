@@ -209,14 +209,12 @@ export function PtChatTab({
   profile,
   canEdit,
   sectionSaving,
-  actorName,
   onAddMessage,
   hasNewMemberChat = false,
 }: {
   profile: PtClientProfile;
   canEdit: boolean;
   sectionSaving: Record<string, boolean>;
-  actorName: string;
   onAddMessage: (text: string) => Promise<boolean>;
   hasNewMemberChat?: boolean;
 }) {
@@ -250,7 +248,7 @@ export function PtChatTab({
               }`}
             >
               <div className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
-                {fromMember ? "Member" : msg.by || actorName || "Trainer"}
+                {fromMember ? "Member" : "Trainer"}
               </div>
               <div className="mt-0.5 whitespace-pre-wrap">{msg.text}</div>
               <div className="mt-1 text-xs text-muted-foreground">
