@@ -311,6 +311,12 @@ export async function PUT(req: Request) {
     basic_workout_options?: unknown;
     portal_sections?: unknown;
     portal_access_by_status?: unknown;
+    billing_push_enabled?: unknown;
+    billing_push_title?: unknown;
+    billing_push_body?: unknown;
+    billing_push_overdue_title?: unknown;
+    billing_push_overdue_body?: unknown;
+    billing_push_hour_ist?: unknown;
   } = {};
   try {
     body = (await req.json()) as typeof body;
@@ -350,21 +356,44 @@ export async function PUT(req: Request) {
     const accessChanged =
       JSON.stringify(previousAccess) !== JSON.stringify(portalAccessByStatus);
 
+    const pushHourRaw =
+      body.billing_push_hour_ist !== undefined
+        ? Number(body.billing_push_hour_ist)
+        : Number(existing?.billing_push_hour_ist ?? 8);
+    const billingPushHourIst =
+      Number.isFinite(pushHourRaw) && pushHourRaw >= 0 && pushHourRaw <= 23
+        ? Math.floor(pushHourRaw)
+        : 8;
+
     const row = {
       gym_id: cfg.gymId,
-      billing_push_enabled: Boolean(existing?.billing_push_enabled ?? true),
-      billing_push_title: String(existing?.billing_push_title || "Billing reminder").slice(
-        0,
-        120,
+      billing_push_enabled: Boolean(
+        body.billing_push_enabled !== undefined
+          ? body.billing_push_enabled
+          : (existing?.billing_push_enabled ?? true),
       ),
+      billing_push_title: String(
+        body.billing_push_title ??
+          existing?.billing_push_title ??
+          "Billing date reminder",
+      ).slice(0, 120),
       billing_push_body: String(
-        existing?.billing_push_body ||
-          "Your membership billing date is today. Please renew at the gym.",
+        body.billing_push_body ??
+          existing?.billing_push_body ??
+          "Today is your billing date. Please clear your payment within one week to avoid a fine.",
       ).slice(0, 500),
-      billing_match_field:
-        existing?.billing_match_field === "billing_date"
-          ? "billing_date"
-          : "next_payment_date",
+      billing_push_overdue_title: String(
+        body.billing_push_overdue_title ??
+          existing?.billing_push_overdue_title ??
+          "Late payment notice",
+      ).slice(0, 120),
+      billing_push_overdue_body: String(
+        body.billing_push_overdue_body ??
+          existing?.billing_push_overdue_body ??
+          "A fine has been added to your plan. Please clear within 1 week to avoid deactivation or membership cancellation, or reach out to the gym if there is any issue.",
+      ).slice(0, 500),
+      billing_push_hour_ist: billingPushHourIst,
+      billing_match_field: "billing_date",
       chat_retention_days: Number(existing?.chat_retention_days ?? 7) || 7,
       auth_method:
         existing?.auth_method === "auto_identity" ? "auto_identity" : "whatsapp_staff",

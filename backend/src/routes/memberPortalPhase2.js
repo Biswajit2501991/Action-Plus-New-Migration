@@ -539,10 +539,14 @@ export function registerMemberPortalPhase2Routes(app, { appendAuditLog }) {
       const settings = data || {
         gym_id: gid,
         billing_push_enabled: true,
-        billing_push_title: "Billing reminder",
+        billing_push_title: "Billing date reminder",
         billing_push_body:
-          "Your membership billing date is today. Please renew at the gym.",
-        billing_match_field: "next_payment_date",
+          "Today is your billing date. Please clear your payment within one week to avoid a fine.",
+        billing_push_overdue_title: "Late payment notice",
+        billing_push_overdue_body:
+          "A fine has been added to your plan. Please clear within 1 week to avoid deactivation or membership cancellation, or reach out to the gym if there is any issue.",
+        billing_push_hour_ist: 8,
+        billing_match_field: "billing_date",
         chat_retention_days: 7,
         auth_method: "whatsapp_staff",
         basic_workout_options: DEFAULT_BASIC_WORKOUT_OPTIONS,
@@ -632,23 +636,43 @@ export function registerMemberPortalPhase2Routes(app, { appendAuditLog }) {
       const accessChanged =
         JSON.stringify(previousAccess) !== JSON.stringify(portalAccessByStatus);
 
+      const pushHourRaw =
+        req.body?.billing_push_hour_ist !== undefined
+          ? Number(req.body.billing_push_hour_ist)
+          : Number(existing?.billing_push_hour_ist ?? 8);
+      const billingPushHourIst =
+        Number.isFinite(pushHourRaw) && pushHourRaw >= 0 && pushHourRaw <= 23
+          ? Math.floor(pushHourRaw)
+          : 8;
+
       const row = {
         gym_id: gid,
         billing_push_enabled: Boolean(
           req.body?.billing_push_enabled ?? existing?.billing_push_enabled ?? true,
         ),
         billing_push_title: String(
-          req.body?.billing_push_title || existing?.billing_push_title || "Billing reminder",
+          req.body?.billing_push_title ||
+            existing?.billing_push_title ||
+            "Billing date reminder",
         ).slice(0, 120),
         billing_push_body: String(
           req.body?.billing_push_body ||
             existing?.billing_push_body ||
-            "Your membership billing date is today. Please renew at the gym.",
+            "Today is your billing date. Please clear your payment within one week to avoid a fine.",
         ).slice(0, 500),
-        billing_match_field:
-          (req.body?.billing_match_field || existing?.billing_match_field) === "billing_date"
-            ? "billing_date"
-            : "next_payment_date",
+        billing_push_overdue_title: String(
+          req.body?.billing_push_overdue_title ||
+            existing?.billing_push_overdue_title ||
+            "Late payment notice",
+        ).slice(0, 120),
+        billing_push_overdue_body: String(
+          req.body?.billing_push_overdue_body ||
+            existing?.billing_push_overdue_body ||
+            "A fine has been added to your plan. Please clear within 1 week to avoid deactivation or membership cancellation, or reach out to the gym if there is any issue.",
+        ).slice(0, 500),
+        billing_push_hour_ist: billingPushHourIst,
+        // Push cron now uses billing_date + payment_by overdue (kept for compatibility).
+        billing_match_field: "billing_date",
         chat_retention_days: chatRetentionDays,
         auth_method: authMethod,
         basic_workout_options: basicWorkoutOptions,

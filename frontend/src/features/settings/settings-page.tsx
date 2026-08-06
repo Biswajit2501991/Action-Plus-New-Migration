@@ -726,6 +726,18 @@ export function SettingsPage() {
   const [newBasicOption, setNewBasicOption] = useState("");
   const [portalUiBusy, setPortalUiBusy] = useState(false);
   const [portalUiDirty, setPortalUiDirty] = useState(false);
+  const [billingPushEnabled, setBillingPushEnabled] = useState(true);
+  const [billingPushHourIst, setBillingPushHourIst] = useState(8);
+  const [billingPushTitle, setBillingPushTitle] = useState("Billing date reminder");
+  const [billingPushBody, setBillingPushBody] = useState(
+    "Today is your billing date. Please clear your payment within one week to avoid a fine.",
+  );
+  const [billingPushOverdueTitle, setBillingPushOverdueTitle] = useState(
+    "Late payment notice",
+  );
+  const [billingPushOverdueBody, setBillingPushOverdueBody] = useState(
+    "A fine has been added to your plan. Please clear within 1 week to avoid deactivation or membership cancellation, or reach out to the gym if there is any issue.",
+  );
 
   const canFine = hasAccess(user, "settings", "manageFineRule");
   const canAppearance = hasAccess(user, "settings", "viewAppearance");
@@ -752,6 +764,12 @@ export function SettingsPage() {
             basic_workout_options?: BasicWorkoutOption[];
             portal_sections?: PortalSections;
             portal_access_by_status?: PortalAccessByStatus;
+            billing_push_enabled?: boolean;
+            billing_push_hour_ist?: number;
+            billing_push_title?: string;
+            billing_push_body?: string;
+            billing_push_overdue_title?: string;
+            billing_push_overdue_body?: string;
           };
         }>("/portal-ui-settings");
         if (cancelled) return;
@@ -775,6 +793,23 @@ export function SettingsPage() {
             setPortalAccessByStatus(
               normalizePortalAccessByStatus(data.settings?.portal_access_by_status),
             );
+            setBillingPushEnabled(data.settings?.billing_push_enabled !== false);
+            const hour = Number(data.settings?.billing_push_hour_ist);
+            setBillingPushHourIst(
+              Number.isFinite(hour) && hour >= 0 && hour <= 23 ? Math.floor(hour) : 8,
+            );
+            if (data.settings?.billing_push_title) {
+              setBillingPushTitle(String(data.settings.billing_push_title));
+            }
+            if (data.settings?.billing_push_body) {
+              setBillingPushBody(String(data.settings.billing_push_body));
+            }
+            if (data.settings?.billing_push_overdue_title) {
+              setBillingPushOverdueTitle(String(data.settings.billing_push_overdue_title));
+            }
+            if (data.settings?.billing_push_overdue_body) {
+              setBillingPushOverdueBody(String(data.settings.billing_push_overdue_body));
+            }
             return false;
           });
         }
@@ -865,6 +900,12 @@ export function SettingsPage() {
             basic_workout_options: payloadOptions,
             portal_sections: payloadSections,
             portal_access_by_status: payloadAccess,
+            billing_push_enabled: billingPushEnabled,
+            billing_push_hour_ist: billingPushHourIst,
+            billing_push_title: billingPushTitle,
+            billing_push_body: billingPushBody,
+            billing_push_overdue_title: billingPushOverdueTitle,
+            billing_push_overdue_body: billingPushOverdueBody,
           }),
         });
         savedViaNext = Boolean(data?.ok !== false && data?.settings);
@@ -890,6 +931,12 @@ export function SettingsPage() {
               basic_workout_options: payloadOptions,
               portal_sections: payloadSections,
               portal_access_by_status: payloadAccess,
+              billing_push_enabled: billingPushEnabled,
+              billing_push_hour_ist: billingPushHourIst,
+              billing_push_title: billingPushTitle,
+              billing_push_body: billingPushBody,
+              billing_push_overdue_title: billingPushOverdueTitle,
+              billing_push_overdue_body: billingPushOverdueBody,
             }),
           });
           savedViaNext = Boolean(data?.ok !== false && data?.settings);
@@ -1873,6 +1920,105 @@ export function SettingsPage() {
                     }}
                   />
                 ))}
+              </div>
+            </div>
+
+            <div className="space-y-3 rounded-2xl border border-amber-200/70 bg-gradient-to-b from-amber-50/40 to-white p-4 dark:border-amber-900/40 dark:from-amber-950/20 dark:to-card">
+              <div>
+                <p className="text-sm font-medium text-foreground">Billing push notifications</p>
+                <p className="mt-0.5 text-[11px] leading-relaxed text-muted-foreground">
+                  Phone reminders for members who enabled billing-day push. Sends on{" "}
+                  <span className="font-medium text-foreground">billing date</span> and again when{" "}
+                  <span className="font-medium text-foreground">Payment By</span> is overdue (once
+                  per cycle). Trigger time uses India Standard Time. Members can be logged out.
+                </p>
+              </div>
+              <SettingsToggle
+                checked={billingPushEnabled}
+                disabled={portalUiBusy}
+                label="Enable billing push"
+                description="Turn off to pause all billing and Payment By overdue phone pushes."
+                onChange={(next) => {
+                  setBillingPushEnabled(next);
+                  setPortalUiDirty(true);
+                }}
+              />
+              <div className="space-y-1.5">
+                <Label htmlFor="billing-push-hour">Trigger time (IST)</Label>
+                <select
+                  id="billing-push-hour"
+                  disabled={portalUiBusy || !billingPushEnabled}
+                  value={billingPushHourIst}
+                  onChange={(e) => {
+                    setBillingPushHourIst(Number(e.target.value));
+                    setPortalUiDirty(true);
+                  }}
+                  className="flex h-10 w-full max-w-xs rounded-xl border border-input bg-background px-3 text-sm outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50"
+                >
+                  {Array.from({ length: 24 }, (_, h) => (
+                    <option key={h} value={h}>
+                      {String(h).padStart(2, "0")}:00 IST
+                    </option>
+                  ))}
+                </select>
+                <p className="text-[11px] text-muted-foreground">
+                  Example: 08:00 IST sends around 8 AM India time each day (only to members due that
+                  day).
+                </p>
+              </div>
+              <div className="grid gap-3 lg:grid-cols-2">
+                <div className="space-y-2 rounded-xl border border-black/[0.06] bg-white/70 p-3 dark:border-white/10 dark:bg-white/[0.03]">
+                  <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                    On billing date
+                  </p>
+                  <Input
+                    value={billingPushTitle}
+                    disabled={portalUiBusy || !billingPushEnabled}
+                    maxLength={120}
+                    placeholder="Title"
+                    onChange={(e) => {
+                      setBillingPushTitle(e.target.value);
+                      setPortalUiDirty(true);
+                    }}
+                  />
+                  <textarea
+                    value={billingPushBody}
+                    disabled={portalUiBusy || !billingPushEnabled}
+                    maxLength={500}
+                    rows={4}
+                    className="w-full rounded-xl border border-input bg-background px-3 py-2 text-sm outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50"
+                    onChange={(e) => {
+                      setBillingPushBody(e.target.value);
+                      setPortalUiDirty(true);
+                    }}
+                  />
+                </div>
+                <div className="space-y-2 rounded-xl border border-black/[0.06] bg-white/70 p-3 dark:border-white/10 dark:bg-white/[0.03]">
+                  <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                    When Payment By is overdue
+                  </p>
+                  <Input
+                    value={billingPushOverdueTitle}
+                    disabled={portalUiBusy || !billingPushEnabled}
+                    maxLength={120}
+                    placeholder="Title"
+                    onChange={(e) => {
+                      setBillingPushOverdueTitle(e.target.value);
+                      setPortalUiDirty(true);
+                    }}
+                  />
+                  <textarea
+                    value={billingPushOverdueBody}
+                    disabled={portalUiBusy || !billingPushEnabled}
+                    maxLength={500}
+                    rows={4}
+                    className="w-full rounded-xl border border-input bg-background px-3 py-2 text-sm outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50"
+                    onChange={(e) => {
+                      setBillingPushOverdueBody(e.target.value);
+                      setPortalUiDirty(true);
+                    }}
+                  />
+                </div>
               </div>
             </div>
 
