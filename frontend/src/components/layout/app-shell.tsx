@@ -6,7 +6,6 @@ import { useEffect, useMemo, useState } from "react";
 import {
   ChevronLeft,
   ChevronRight,
-  LogOut,
   Moon,
   Pin,
   Plus,
@@ -45,6 +44,7 @@ import { AppSectionTabs } from "@/components/layout/section-tabs";
 import { MobileShell } from "@/components/layout/mobile-shell";
 import { MembersTodayVisitorBadge } from "@/components/layout/members-today-visitor-badge";
 import { PortalChatUnreadBadge } from "@/components/layout/portal-chat-unread-badge";
+import { SignOutGlassButton } from "@/components/layout/sign-out-glass-button";
 import { Skeleton } from "@/components/ui/misc";
 
 const SIDEBAR_GROUP_THEME: Record<
@@ -344,10 +344,10 @@ function DesktopShell({ children }: { children: React.ReactNode }) {
           </nav>
 
           <div className="border-t border-border/70 p-3">
-            <Button variant="ghost" className="w-full justify-start gap-2" onClick={() => void logout()}>
-              <LogOut className="h-4 w-4" />
-              {!sidebarCollapsed ? "Sign out" : null}
-            </Button>
+            <SignOutGlassButton
+              collapsed={sidebarCollapsed}
+              onClick={() => void logout()}
+            />
           </div>
         </aside>
 

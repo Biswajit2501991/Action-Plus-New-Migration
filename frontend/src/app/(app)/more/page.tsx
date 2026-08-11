@@ -1,8 +1,8 @@
 "use client";
 
 import Link from "next/link";
-import { LogOut } from "lucide-react";
 import { MobileHero, MobilePanel } from "@/components/layout/mobile-ui";
+import { SignOutGlassButton } from "@/components/layout/sign-out-glass-button";
 import { NAV_GROUP_ORDER, NAV_ITEMS } from "@/lib/nav";
 import {
   canAccessNavItem,
@@ -147,17 +147,11 @@ export default function MorePage() {
             );
           })}
         </div>
-        <MobilePanel>
-          <button
-            type="button"
+        <MobilePanel className="p-2">
+          <SignOutGlassButton
+            className="justify-center py-3.5 text-sm"
             onClick={() => void logout()}
-            className={cn(
-              "flex w-full items-center justify-center gap-2 px-4 py-4 text-sm font-semibold text-rose-600 dark:text-rose-400",
-            )}
-          >
-            <LogOut className="h-4 w-4" />
-            Sign out
-          </button>
+          />
         </MobilePanel>
       </div>
     );
