@@ -5,6 +5,7 @@ import { useQueryClient, type QueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { withMergedPtChat } from "@/lib/domain/pt-chat-merge";
 import { buildPtProfilePatch } from "@/lib/domain/pt-drafts";
+import { ptSaveErrorMessage } from "@/lib/domain/pt-save-errors";
 import { ptApi } from "@/services/api";
 import type { AppSettings } from "@/types";
 import type { PtClientProfile, PtSaveMode } from "@/types/pt";
@@ -72,21 +73,6 @@ function mergePtProfileResponse(
     savedTs >= localTs ? local : saved,
   );
   return withChat;
-}
-
-function ptSaveErrorMessage(err: unknown) {
-  const e = err as { message?: string; status?: number };
-  const msg = String(e?.message || "");
-  if (msg.includes("edit PT plans") || msg.includes("edit PT workouts")) {
-    return msg.replace(/^backend-403:?/i, "").trim() || "You do not have permission to edit PT clients.";
-  }
-  if (e?.status === 403) {
-    return "Save blocked (403). Ask owner to refresh your PT permissions, then log out and back in.";
-  }
-  if (e?.status === 404) {
-    return "PT client member not found on server.";
-  }
-  return "Could not save PT client changes. Try again or contact owner.";
 }
 
 function readCachedPtProfile(qc: QueryClient, memberId: string): PtClientProfile {
