@@ -12,6 +12,7 @@ export type PortalSections = {
   homeChat: boolean;
   homeTraining: boolean;
   homeWeightTracker: boolean;
+  homeWorkoutPlan: boolean;
   homeBook: boolean;
   homePerks: boolean;
   /** Inside Perks: show/allow "Request locker" (not a home tile itself). */
@@ -48,6 +49,7 @@ export const DEFAULT_PORTAL_SECTIONS: PortalSections = {
   homeChat: true,
   homeTraining: true,
   homeWeightTracker: true,
+  homeWorkoutPlan: true,
   homeBook: true,
   homePerks: true,
   perksRequestLocker: true,
@@ -77,6 +79,7 @@ export const HOME_TILE_KEYS: (keyof PortalSections)[] = [
   "homeBook",
   "homePerks",
   "homeBiometric",
+  "homeWorkoutPlan",
 ];
 
 export function normalizeBasicWorkoutOptions(input: unknown): BasicWorkoutOption[] {

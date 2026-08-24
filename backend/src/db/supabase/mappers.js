@@ -70,6 +70,7 @@ export function memberRowToApp(row, children = {}, options = {}) {
     hasPhoto: Boolean(String(row.photo_path || '').trim() || String(row.photo_url || '').trim()),
     memberUuid: row.member_uuid || null,
     portalEnabled: row.portal_enabled !== false,
+    portalWorkoutPlanEnabled: row.portal_workout_plan_enabled !== false,
     portalStatus: row.portal_status || 'pending',
     portalActivatedAt: row.portal_activated_at || null,
     lastPortalLoginAt: row.last_portal_login_at || null,
@@ -194,6 +195,9 @@ export function appMemberToRow(m, gymId, options = {}) {
   };
   if (Object.prototype.hasOwnProperty.call(m, 'portalEnabled')) {
     row.portal_enabled = Boolean(m.portalEnabled);
+  }
+  if (Object.prototype.hasOwnProperty.call(m, 'portalWorkoutPlanEnabled')) {
+    row.portal_workout_plan_enabled = Boolean(m.portalWorkoutPlanEnabled);
   }
   if (Object.prototype.hasOwnProperty.call(m, 'portalStatus')) {
     const st = String(m.portalStatus || 'pending').trim().toLowerCase();

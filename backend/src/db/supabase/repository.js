@@ -1097,6 +1097,7 @@ const MEMBER_PATCH_KEY_MAP = {
   lastSmsSent: 'last_sms_sent_json',
   assignedGymCodeId: 'assigned_gym_code_id',
   portalEnabled: 'portal_enabled',
+  portalWorkoutPlanEnabled: 'portal_workout_plan_enabled',
   portalStatus: 'portal_status',
 };
 

@@ -40,6 +40,7 @@ export type Member = {
   hasPhoto?: boolean;
   memberUuid?: string | null;
   portalEnabled?: boolean;
+  portalWorkoutPlanEnabled?: boolean;
   portalStatus?: string;
   portalActivatedAt?: string | null;
   lastPortalLoginAt?: string | null;

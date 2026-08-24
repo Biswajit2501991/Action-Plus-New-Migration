@@ -15,6 +15,8 @@ import {
   mergePortalSections,
   normalizeBasicWorkoutOptions,
   normalizePortalSections,
+  normalizeWorkoutPlanByStatus,
+  normalizeWorkoutPlanTesterNames,
   splitWorkoutOptionsAndHomeTiles,
 } from "../lib/memberPortalUiConfig.js";
 
@@ -678,13 +680,35 @@ export function registerMemberPortalPhase2Routes(app, { appendAuditLog }) {
         basic_workout_options: basicWorkoutOptions,
         portal_sections: portalSections,
         portal_access_by_status: portalAccessByStatus,
+        workout_plan_by_status: normalizeWorkoutPlanByStatus(
+          req.body?.workout_plan_by_status !== undefined
+            ? req.body.workout_plan_by_status
+            : existing?.workout_plan_by_status,
+        ),
+        workout_plan_tester_names: normalizeWorkoutPlanTesterNames(
+          req.body?.workout_plan_tester_names !== undefined
+            ? req.body.workout_plan_tester_names
+            : existing?.workout_plan_tester_names,
+        ),
         updated_at: new Date().toISOString(),
       };
-      const { data, error } = await sb
+      let { data, error } = await sb
         .from("member_portal_settings")
         .upsert(row, { onConflict: "gym_id" })
         .select("*")
         .maybeSingle();
+      if (error) {
+        const { workout_plan_by_status, workout_plan_tester_names, ...baseRow } = row;
+        void workout_plan_by_status;
+        void workout_plan_tester_names;
+        const retry = await sb
+          .from("member_portal_settings")
+          .upsert(baseRow, { onConflict: "gym_id" })
+          .select("*")
+          .maybeSingle();
+        data = retry.data;
+        error = retry.error;
+      }
       if (error) return res.status(500).json({ error: error.message });
 
       let syncResults = null;

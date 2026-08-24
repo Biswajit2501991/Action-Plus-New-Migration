@@ -23,6 +23,7 @@ export const DEFAULT_PORTAL_SECTIONS = {
   homeChat: true,
   homeTraining: true,
   homeWeightTracker: true,
+  homeWorkoutPlan: true,
   homeBook: true,
   homePerks: true,
   /** Inside Perks: show/allow "Request locker" (not a home tile itself). */
@@ -38,6 +39,35 @@ export const DEFAULT_PORTAL_SECTIONS = {
   ptDiet: false,
   ptWorkoutDetails: false,
 };
+
+export const DEFAULT_WORKOUT_PLAN_TESTER_NAMES = ["Bis Test"];
+
+export const DEFAULT_WORKOUT_PLAN_BY_STATUS = {
+  Active: true,
+  Hold: false,
+  Deactivated: false,
+  Cancelled: false,
+};
+
+export function normalizeWorkoutPlanByStatus(input) {
+  const src = input && typeof input === "object" && !Array.isArray(input) ? input : {};
+  const out = { ...DEFAULT_WORKOUT_PLAN_BY_STATUS };
+  for (const key of Object.keys(DEFAULT_WORKOUT_PLAN_BY_STATUS)) {
+    const lower = key.toLowerCase();
+    if (key in src) out[key] = Boolean(src[key]);
+    else if (lower in src) out[key] = Boolean(src[lower]);
+  }
+  return out;
+}
+
+export function normalizeWorkoutPlanTesterNames(input) {
+  if (input == null) return [...DEFAULT_WORKOUT_PLAN_TESTER_NAMES];
+  if (!Array.isArray(input)) {
+    const one = String(input || "").trim();
+    return one ? [one] : [...DEFAULT_WORKOUT_PLAN_TESTER_NAMES];
+  }
+  return input.map((v) => String(v || "").trim()).filter(Boolean).slice(0, 40);
+}
 
 /** Sentinel labels stored inside basic_workout_options so home-tile toggles
  *  survive older API builds that strip unknown portal_sections keys. */
@@ -56,6 +86,7 @@ export const HOME_TILE_KEYS = [
   "homeBook",
   "homePerks",
   "homeBiometric",
+  "homeWorkoutPlan",
 ];
 
 export function isHomeTileOptionLabel(label) {

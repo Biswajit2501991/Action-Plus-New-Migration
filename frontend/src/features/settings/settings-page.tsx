@@ -42,6 +42,15 @@ import {
   PORTAL_ACCESS_STATUS_META,
   type PortalAccessByStatus,
 } from "@/lib/member-portal-access-by-status";
+import {
+  DEFAULT_WORKOUT_PLAN_BY_STATUS,
+  DEFAULT_WORKOUT_PLAN_TESTER_NAMES,
+  normalizeWorkoutPlanByStatus,
+  normalizeWorkoutPlanTesterNames,
+  testerNamesFromText,
+  testerNamesToText,
+  type WorkoutPlanByStatus,
+} from "@/lib/member-portal-workout-plan";
 
 function readFileAsDataUrl(file: File) {
   return new Promise<string>((resolve, reject) => {
@@ -322,6 +331,7 @@ type PortalSections = {
   homeChat: boolean;
   homeTraining: boolean;
   homeWeightTracker: boolean;
+  homeWorkoutPlan: boolean;
   homeBook: boolean;
   homePerks: boolean;
   /** Inside Perks: show/allow "Request locker" (not a home tile itself). */
@@ -358,6 +368,7 @@ const DEFAULT_PORTAL_SECTIONS: PortalSections = {
   homeChat: true,
   homeTraining: true,
   homeWeightTracker: true,
+  homeWorkoutPlan: true,
   homeBook: true,
   homePerks: true,
   perksRequestLocker: true,
@@ -389,6 +400,12 @@ const HOME_TILE_META: {
     key: "homeWeightTracker",
     label: "Weight Tracker",
     description: "Weight log for all members (Basic and PT). Shared with PT Weight Progress.",
+  },
+  {
+    key: "homeWorkoutPlan",
+    label: "Workout Plan",
+    description:
+      "Self-guided 12-week program for Basic members. Hidden for PT plans. Tester names below still limit who sees it.",
   },
   { key: "homeBook", label: "Book", description: "Class / slot bookings." },
   { key: "homePerks", label: "Perks", description: "Member perks and offers." },
@@ -513,6 +530,7 @@ const HOME_TILE_KEYS: (keyof PortalSections)[] = [
   "homeBook",
   "homePerks",
   "homeBiometric",
+  "homeWorkoutPlan",
 ];
 
 function isHomeTileOptionLabel(label: string) {
@@ -723,6 +741,12 @@ export function SettingsPage() {
   const [portalAccessByStatus, setPortalAccessByStatus] = useState<PortalAccessByStatus>(
     () => ({ ...DEFAULT_PORTAL_ACCESS_BY_STATUS }),
   );
+  const [workoutPlanByStatus, setWorkoutPlanByStatus] = useState<WorkoutPlanByStatus>(
+    () => ({ ...DEFAULT_WORKOUT_PLAN_BY_STATUS }),
+  );
+  const [workoutPlanTesterText, setWorkoutPlanTesterText] = useState(
+    testerNamesToText(DEFAULT_WORKOUT_PLAN_TESTER_NAMES),
+  );
   const [newBasicOption, setNewBasicOption] = useState("");
   const [portalUiBusy, setPortalUiBusy] = useState(false);
   const [portalUiDirty, setPortalUiDirty] = useState(false);
@@ -764,6 +788,8 @@ export function SettingsPage() {
             basic_workout_options?: BasicWorkoutOption[];
             portal_sections?: PortalSections;
             portal_access_by_status?: PortalAccessByStatus;
+            workout_plan_by_status?: WorkoutPlanByStatus;
+            workout_plan_tester_names?: string[];
             billing_push_enabled?: boolean;
             billing_push_hour_ist?: number;
             billing_push_title?: string;
@@ -792,6 +818,14 @@ export function SettingsPage() {
             setPortalSections(hydrated.portalSections);
             setPortalAccessByStatus(
               normalizePortalAccessByStatus(data.settings?.portal_access_by_status),
+            );
+            setWorkoutPlanByStatus(
+              normalizeWorkoutPlanByStatus(data.settings?.workout_plan_by_status),
+            );
+            setWorkoutPlanTesterText(
+              testerNamesToText(
+                normalizeWorkoutPlanTesterNames(data.settings?.workout_plan_tester_names),
+              ),
             );
             setBillingPushEnabled(data.settings?.billing_push_enabled !== false);
             const hour = Number(data.settings?.billing_push_hour_ist);
@@ -873,6 +907,8 @@ export function SettingsPage() {
 
       // Prefer Next/Supabase (writes portal_sections + __pht__ marker when configured).
       const payloadAccess = normalizePortalAccessByStatus(portalAccessByStatus);
+      const payloadWorkoutByStatus = normalizeWorkoutPlanByStatus(workoutPlanByStatus);
+      const payloadTesterNames = testerNamesFromText(workoutPlanTesterText);
       let data: {
         ok?: boolean;
         accessChanged?: boolean;
@@ -900,6 +936,8 @@ export function SettingsPage() {
             basic_workout_options: payloadOptions,
             portal_sections: payloadSections,
             portal_access_by_status: payloadAccess,
+            workout_plan_by_status: payloadWorkoutByStatus,
+            workout_plan_tester_names: payloadTesterNames,
             billing_push_enabled: billingPushEnabled,
             billing_push_hour_ist: billingPushHourIst,
             billing_push_title: billingPushTitle,
@@ -931,6 +969,8 @@ export function SettingsPage() {
               basic_workout_options: payloadOptions,
               portal_sections: payloadSections,
               portal_access_by_status: payloadAccess,
+              workout_plan_by_status: payloadWorkoutByStatus,
+              workout_plan_tester_names: payloadTesterNames,
               billing_push_enabled: billingPushEnabled,
               billing_push_hour_ist: billingPushHourIst,
               billing_push_title: billingPushTitle,
@@ -983,6 +1023,18 @@ export function SettingsPage() {
       setPortalAccessByStatus(
         normalizePortalAccessByStatus(
           data?.settings?.portal_access_by_status ?? payloadAccess,
+        ),
+      );
+      setWorkoutPlanByStatus(
+        normalizeWorkoutPlanByStatus(
+          data?.settings?.workout_plan_by_status ?? payloadWorkoutByStatus,
+        ),
+      );
+      setWorkoutPlanTesterText(
+        testerNamesToText(
+          normalizeWorkoutPlanTesterNames(
+            data?.settings?.workout_plan_tester_names ?? payloadTesterNames,
+          ),
         ),
       );
       setPortalUiDirty(false);
@@ -1920,6 +1972,50 @@ export function SettingsPage() {
                     }}
                   />
                 ))}
+              </div>
+            </div>
+
+            <div className="space-y-3 rounded-2xl border border-sky-200/70 bg-gradient-to-b from-sky-50/40 to-white p-4 dark:border-sky-900/40 dark:from-sky-950/20 dark:to-card">
+              <div>
+                <p className="text-sm font-medium text-foreground">Workout Plan by status</p>
+                <p className="mt-0.5 text-[11px] leading-relaxed text-muted-foreground">
+                  Separate from portal login. Active is on by default. PT members never see this tile.
+                </p>
+              </div>
+              <div className="grid gap-2 lg:grid-cols-2">
+                {PORTAL_ACCESS_STATUS_META.map((meta) => (
+                  <SettingsToggle
+                    key={`wp-${meta.key}`}
+                    checked={workoutPlanByStatus[meta.key]}
+                    disabled={portalUiBusy}
+                    label={meta.label}
+                    description={`Show Workout Plan for ${meta.label.toLowerCase()}.`}
+                    onChange={(next) => {
+                      setWorkoutPlanByStatus((prev) => ({ ...prev, [meta.key]: next }));
+                      setPortalUiDirty(true);
+                    }}
+                  />
+                ))}
+              </div>
+              <div className="space-y-1.5">
+                <Label htmlFor="workout-plan-testers">Tester names (rollout)</Label>
+                <textarea
+                  id="workout-plan-testers"
+                  disabled={portalUiBusy}
+                  value={workoutPlanTesterText}
+                  onChange={(e) => {
+                    setWorkoutPlanTesterText(e.target.value);
+                    setPortalUiDirty(true);
+                  }}
+                  rows={3}
+                  className="w-full rounded-xl border border-input bg-background px-3 py-2 text-sm outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50"
+                  placeholder="Bis Test"
+                />
+                <p className="text-[11px] leading-relaxed text-muted-foreground">
+                  One member name or code per line. Matching is case-insensitive. Leave empty and
+                  save to enable Workout Plan for every eligible member. Current tester default is
+                  Bis Test only.
+                </p>
               </div>
             </div>
 

@@ -545,6 +545,7 @@ export function MemberExpandedDetails({
   const [holdSel, setHoldSel] = useState(holdOptions[0] || "1 Month");
   const [monthFilter, setMonthFilter] = useState("");
   const portalAccessOn = m.portalEnabled !== false;
+  const workoutPlanOn = m.portalWorkoutPlanEnabled !== false;
 
   const { data: referralInfo } = useQuery({
     queryKey: ["member-referral-credits", m.memberId],
@@ -1084,6 +1085,42 @@ export function MemberExpandedDetails({
               </label>
             ) : null}
           </div>
+          {canEdit ? (
+            <label className="flex items-center justify-between gap-2">
+              <span>
+                Workout Plan tile
+                <span className="block text-muted-foreground">
+                  Off hides Workout Plan for this member. PT plans hide it automatically.
+                </span>
+              </span>
+              <input
+                type="checkbox"
+                checked={workoutPlanOn}
+                disabled={portalBusy}
+                onChange={(e) => {
+                  void (async () => {
+                    setPortalBusy(true);
+                    setPortalMsg(null);
+                    try {
+                      await membersApi.patch(String(m.memberId), {
+                        portalWorkoutPlanEnabled: e.target.checked,
+                      });
+                      await queryClient.invalidateQueries({ queryKey: ["members"] });
+                      setPortalMsg(
+                        e.target.checked
+                          ? "Workout Plan enabled for this member"
+                          : "Workout Plan hidden for this member",
+                      );
+                    } catch (err) {
+                      setPortalMsg(err instanceof Error ? err.message : "Update failed");
+                    } finally {
+                      setPortalBusy(false);
+                    }
+                  })();
+                }}
+              />
+            </label>
+          ) : null}
           {canEdit ? (
             <div className="flex flex-wrap gap-2">
               <Button

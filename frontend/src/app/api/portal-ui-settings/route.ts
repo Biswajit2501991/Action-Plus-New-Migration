@@ -14,6 +14,10 @@ import {
   normalizePortalAccessByStatus,
   type PortalAccessByStatus,
 } from "@/lib/member-portal-access-by-status";
+import {
+  normalizeWorkoutPlanByStatus,
+  normalizeWorkoutPlanTesterNames,
+} from "@/lib/member-portal-workout-plan";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -311,6 +315,8 @@ export async function PUT(req: Request) {
     basic_workout_options?: unknown;
     portal_sections?: unknown;
     portal_access_by_status?: unknown;
+    workout_plan_by_status?: unknown;
+    workout_plan_tester_names?: unknown;
     billing_push_enabled?: unknown;
     billing_push_title?: unknown;
     billing_push_body?: unknown;
@@ -400,21 +406,36 @@ export async function PUT(req: Request) {
       basic_workout_options: basicWorkoutOptions,
       portal_sections: portalSections,
       portal_access_by_status: portalAccessByStatus,
+      workout_plan_by_status: normalizeWorkoutPlanByStatus(
+        body.workout_plan_by_status !== undefined
+          ? body.workout_plan_by_status
+          : existing?.workout_plan_by_status,
+      ),
+      workout_plan_tester_names: normalizeWorkoutPlanTesterNames(
+        body.workout_plan_tester_names !== undefined
+          ? body.workout_plan_tester_names
+          : existing?.workout_plan_tester_names,
+      ),
       updated_at: new Date().toISOString(),
     };
 
-    const res = await sbFetch(
-      cfg,
-      `member_portal_settings?on_conflict=gym_id`,
-      {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Prefer: "resolution=merge-duplicates,return=representation",
-      },
-      body: JSON.stringify(row),
-    },
-    );
+    const persist = (payload: Record<string, unknown>) =>
+      sbFetch(cfg, `member_portal_settings?on_conflict=gym_id`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Prefer: "resolution=merge-duplicates,return=representation",
+        },
+        body: JSON.stringify(payload),
+      });
+
+    let res = await persist(row);
+    if (!res.ok) {
+      const { workout_plan_by_status, workout_plan_tester_names, ...baseRow } = row;
+      void workout_plan_by_status;
+      void workout_plan_tester_names;
+      res = await persist(baseRow);
+    }
     if (!res.ok) {
       const text = await res.text();
       return NextResponse.json(
