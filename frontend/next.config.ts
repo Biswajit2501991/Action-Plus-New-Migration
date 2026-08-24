@@ -26,6 +26,11 @@ const nextConfig: NextConfig = {
       },
     ];
   },
+  experimental: {
+    serverActions: {
+      bodySizeLimit: "55mb",
+    },
+  },
   async rewrites() {
     // Use fallback so App Router handlers (portal-ui-settings, referrals,
     // next-form-number, etc.) win; everything else proxies to Express.

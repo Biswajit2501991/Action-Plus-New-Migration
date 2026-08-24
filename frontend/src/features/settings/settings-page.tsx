@@ -22,6 +22,7 @@ import {
   KeyRound,
   LayoutDashboard,
   Plus,
+  Dumbbell,
 } from "lucide-react";
 import { PageHeader, Skeleton } from "@/components/ui/misc";
 import { Button } from "@/components/ui/button";
@@ -51,6 +52,7 @@ import {
   testerNamesToText,
   type WorkoutPlanByStatus,
 } from "@/lib/member-portal-workout-plan";
+import { WorkoutPlanVideosPanel } from "@/features/settings/workout-plan-videos-panel";
 
 function readFileAsDataUrl(file: File) {
   return new Promise<string>((resolve, reject) => {
@@ -717,6 +719,7 @@ export function SettingsPage() {
     features: false,
     portalAuth: false,
     portalUi: false,
+    workoutPlan: false,
     business: false,
     member: false,
     recovery: false,
@@ -2140,6 +2143,19 @@ export function SettingsPage() {
               ) : null}
             </div>
           </div>
+        </SettingsSectionShell>
+      ) : null}
+
+      {canPortalUi ? (
+        <SettingsSectionShell
+          title="Workout Plan"
+          description="Exercise demo videos for the Member Portal Workout Plan tile"
+          open={Boolean(openCat.workoutPlan)}
+          onToggle={() => toggleCat("workoutPlan")}
+          accent={SECTION_ACCENTS.portal}
+          icon={<Dumbbell className="h-4 w-4" />}
+        >
+          <WorkoutPlanVideosPanel />
         </SettingsSectionShell>
       ) : null}
 
