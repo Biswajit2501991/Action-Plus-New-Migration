@@ -917,6 +917,8 @@ export function SettingsPage() {
           basic_workout_options?: BasicWorkoutOption[];
           portal_sections?: PortalSections;
           portal_access_by_status?: PortalAccessByStatus;
+          workout_plan_by_status?: WorkoutPlanByStatus;
+          workout_plan_tester_names?: string[];
         };
       } | null = null;
       let savedViaNext = false;
@@ -929,6 +931,8 @@ export function SettingsPage() {
             basic_workout_options?: BasicWorkoutOption[];
             portal_sections?: PortalSections;
             portal_access_by_status?: PortalAccessByStatus;
+            workout_plan_by_status?: WorkoutPlanByStatus;
+            workout_plan_tester_names?: string[];
           };
         }>("/portal-ui-settings", {
           method: "PUT",
@@ -962,6 +966,8 @@ export function SettingsPage() {
               basic_workout_options?: BasicWorkoutOption[];
               portal_sections?: PortalSections;
               portal_access_by_status?: PortalAccessByStatus;
+              workout_plan_by_status?: WorkoutPlanByStatus;
+              workout_plan_tester_names?: string[];
             };
           }>("/portal-settings", {
             method: "PUT",
