@@ -67,64 +67,61 @@ export function WorkoutPlanVideosPanel() {
     }
     setBusyKey(row.exerciseKey);
     try {
-      let data: { ok?: boolean; exercise?: MediaRow } | null = null;
-      let uploadedDirect = false;
-      try {
-        const signed = await apiFetch<{
-          uploadUrl?: string;
-          token?: string;
-          storagePath?: string;
-        }>("/portal-workout-exercise-media", {
+      const signed = await apiFetch<{
+        uploadUrl?: string;
+        token?: string;
+        storagePath?: string;
+        message?: string;
+      }>("/portal-workout-exercise-media", {
+        method: "POST",
+        body: JSON.stringify({
+          action: "sign",
+          exerciseKey: row.exerciseKey,
+          fileSize: file.size,
+        }),
+      });
+      if (!signed.uploadUrl || !signed.storagePath) {
+        throw new Error(signed.message || "Could not start upload");
+      }
+      const putHeaders: Record<string, string> = {
+        "Content-Type": file.type || "video/mp4",
+        "x-upsert": "true",
+      };
+      if (signed.token) putHeaders.Authorization = `Bearer ${signed.token}`;
+      const put = await fetch(signed.uploadUrl, {
+        method: "PUT",
+        headers: putHeaders,
+        body: file,
+      });
+      if (!put.ok) {
+        const detail = await put.text().catch(() => "");
+        throw new Error(detail || `Storage upload failed (${put.status})`);
+      }
+      const data = await apiFetch<{ ok?: boolean; exercise?: MediaRow }>(
+        "/portal-workout-exercise-media",
+        {
           method: "POST",
           body: JSON.stringify({
-            action: "sign",
+            action: "commit",
             exerciseKey: row.exerciseKey,
-            fileSize: file.size,
+            storagePath: signed.storagePath,
           }),
-        });
-        if (!signed.uploadUrl || !signed.storagePath) throw new Error("Could not start upload");
-        const put = await fetch(signed.uploadUrl, {
-          method: "PUT",
-          headers: {
-            "Content-Type": file.type || "video/mp4",
-            ...(signed.token ? { Authorization: `Bearer ${signed.token}` } : {}),
-          },
-          body: file,
-        });
-        if (!put.ok) {
-          const detail = await put.text().catch(() => "");
-          throw new Error(detail || `Storage upload failed (${put.status})`);
-        }
-        uploadedDirect = true;
-        data = await apiFetch<{ ok?: boolean; exercise?: MediaRow }>(
-          "/portal-workout-exercise-media",
-          {
-            method: "POST",
-            body: JSON.stringify({
-              action: "commit",
-              exerciseKey: row.exerciseKey,
-              storagePath: signed.storagePath,
-            }),
-          },
-        );
-      } catch (directErr) {
-        if (uploadedDirect) throw directErr;
-        const body = new FormData();
-        body.set("exerciseKey", row.exerciseKey);
-        body.set("file", file);
-        data = await apiFetch<{ ok?: boolean; exercise?: MediaRow }>(
-          "/portal-workout-exercise-media",
-          { method: "POST", body },
-        );
-      }
+        },
+      );
       if (data?.exercise) {
         setRows((prev) =>
-          prev.map((item) => (item.exerciseKey === row.exerciseKey ? data!.exercise! : item)),
+          prev.map((item) => (item.exerciseKey === row.exerciseKey ? data.exercise! : item)),
         );
       }
       toast.success(`${row.name} video saved`);
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Upload failed");
+      const raw = err instanceof Error ? err.message : "Upload failed";
+      const network = /failed to fetch|networkerror|load failed/i.test(raw);
+      toast.error(
+        network
+          ? "Could not upload this MP4. Use a file under 50 MB and try again."
+          : raw,
+      );
     } finally {
       setBusyKey(null);
     }

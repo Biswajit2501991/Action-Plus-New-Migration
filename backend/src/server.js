@@ -120,6 +120,7 @@ import publicAttendanceKioskRouter from './routes/publicAttendanceKiosk.js';
 import attendancePresenceRouter from './routes/attendancePresence.js';
 import attendanceKioskRouter from './routes/attendanceKiosk.js';
 import { registerMemberPortalPhase2Routes } from './routes/memberPortalPhase2.js';
+import { registerWorkoutPlanExerciseMediaRoutes } from './routes/workoutPlanExerciseMedia.js';
 import { registerMemberDailyWorkoutRoutes } from './routes/memberDailyWorkouts.js';
 import { registerMemberWeightLogRoutes } from './routes/memberWeightLogs.js';
 import { registerMemberReferralRoutes } from './routes/memberReferrals.js';
@@ -543,6 +544,7 @@ app.use('/api/attendance-kiosk', attendanceKioskRouter);
 
 // Member Portal Phase 2: member QR check-in, portal chat, billing push settings
 registerMemberPortalPhase2Routes(app, { appendAuditLog });
+registerWorkoutPlanExerciseMediaRoutes(app);
 // Basic + PT member daily workout logs (separate from pt_client_profiles)
 registerMemberDailyWorkoutRoutes(app, { appendAuditLog });
 registerMemberWeightLogRoutes(app, { appendAuditLog });
