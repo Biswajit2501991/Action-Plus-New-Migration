@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import {
   deletePaymentQrSetting,
+  extractUpiId,
   paymentQrRowToApp,
 } from '../backend/src/services/paymentQr/paymentQrService.js';
 import { isMissingDbTableError } from '../backend/src/db/supabase/utils.js';
@@ -24,6 +25,30 @@ describe('paymentQr', () => {
     expect(app.branchLabel).toBe('Action Plus Adra (APA)');
     expect(app.displayOrder).toBe(2);
     expect(app.isActive).toBe(true);
+    expect(app.showInMemberPortal).toBe(false);
+    expect(app.upiId).toBe('');
+  });
+
+  it('paymentQrRowToApp maps Member Portal flag and UPI ID', () => {
+    const app = paymentQrRowToApp(
+      {
+        id: 'x',
+        gym_code_id: 'y',
+        qr_name: 'Google Pay',
+        show_in_member_portal: true,
+        upi_id: 'gymactionplus-@okicici',
+      },
+      { code: 'AP01', name: 'Adra' },
+    );
+    expect(app.showInMemberPortal).toBe(true);
+    expect(app.upiId).toBe('gymactionplus-@okicici');
+  });
+
+  it('extractUpiId reads labeled QR names', () => {
+    expect(extractUpiId('', 'Phone Pay UPI ID: 7047157510-3@axl')).toBe(
+      '7047157510-3@axl',
+    );
+    expect(extractUpiId('direct@ybl', 'ignored')).toBe('direct@ybl');
   });
 
   it('paymentQrRowToApp handles inactive flag', () => {

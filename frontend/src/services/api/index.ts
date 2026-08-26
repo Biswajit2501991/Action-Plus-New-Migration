@@ -789,6 +789,8 @@ export type PaymentQrItem = {
   qrImageUrl?: string;
   isActive?: boolean;
   displayOrder?: number;
+  showInMemberPortal?: boolean;
+  upiId?: string;
   [key: string]: unknown;
 };
 

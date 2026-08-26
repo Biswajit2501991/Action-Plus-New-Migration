@@ -30,6 +30,8 @@ type Draft = {
   gymCodeId: string;
   displayOrder: string;
   isActive: boolean;
+  showInMemberPortal: boolean;
+  upiId: string;
   imageDataUrl: string;
 };
 
@@ -38,6 +40,8 @@ const EMPTY: Draft = {
   gymCodeId: "",
   displayOrder: "0",
   isActive: true,
+  showInMemberPortal: false,
+  upiId: "",
   imageDataUrl: "",
 };
 
@@ -83,6 +87,8 @@ export function PaymentQrSettingsPanel() {
           gymCodeId: draft.gymCodeId,
           displayOrder: Number(draft.displayOrder) || 0,
           isActive: draft.isActive,
+          showInMemberPortal: draft.showInMemberPortal,
+          upiId: draft.upiId.trim(),
         });
         id = String(created?.item?.id || created?.item?.["id"] || "").trim();
         if (!id) {
@@ -99,6 +105,8 @@ export function PaymentQrSettingsPanel() {
           gymCodeId: draft.gymCodeId,
           displayOrder: Number(draft.displayOrder) || 0,
           isActive: draft.isActive,
+          showInMemberPortal: draft.showInMemberPortal,
+          upiId: draft.upiId.trim(),
         });
         if (draft.imageDataUrl) {
           await paymentQrApi.uploadImage(id, draft.imageDataUrl, draft.gymCodeId);
@@ -127,6 +135,26 @@ export function PaymentQrSettingsPanel() {
       await qc.invalidateQueries({ queryKey: ["payment-qr"] });
     },
     onError: (e: Error) => toast.error(e.message || "Could not delete payment QR"),
+  });
+
+  const togglePortal = useMutation({
+    mutationFn: async (item: PaymentQrItem) => {
+      const id = String(item.id || "").trim();
+      if (!id) throw new Error("Missing payment QR id");
+      return paymentQrApi.update(id, {
+        gymCodeId: String(item.gymCodeId || "").trim(),
+        showInMemberPortal: item.showInMemberPortal !== true,
+      });
+    },
+    onSuccess: async (_, item) => {
+      toast.success(
+        item.showInMemberPortal === true
+          ? "Hidden from Member Portal"
+          : "Shown in Member Portal",
+      );
+      await qc.invalidateQueries({ queryKey: ["payment-qr-manage"] });
+    },
+    onError: (e: Error) => toast.error(e.message || "Could not update Member Portal flag"),
   });
 
   function confirmDelete(item: PaymentQrItem) {
@@ -213,6 +241,16 @@ export function PaymentQrSettingsPanel() {
                     {item.isActive === false ? "Inactive" : "Active"}
                   </Badge>
                 </div>
+                <label className="flex cursor-pointer items-center gap-2 text-xs text-slate-600 dark:text-slate-300">
+                  <input
+                    type="checkbox"
+                    className="h-4 w-4 accent-teal-600"
+                    checked={item.showInMemberPortal === true}
+                    disabled={togglePortal.isPending}
+                    onChange={() => togglePortal.mutate(item)}
+                  />
+                  Show in Member Portal
+                </label>
                 <div
                   className={cn(
                     "flex h-40 items-center justify-center overflow-hidden rounded-xl border border-slate-200 bg-slate-50 dark:border-white/10 dark:bg-white/[0.03]",
@@ -241,6 +279,8 @@ export function PaymentQrSettingsPanel() {
                         gymCodeId: String(item.gymCodeId || ""),
                         displayOrder: String(item.displayOrder ?? 0),
                         isActive: item.isActive !== false,
+                        showInMemberPortal: item.showInMemberPortal === true,
+                        upiId: String(item.upiId || ""),
                         imageDataUrl: "",
                       });
                       setFormOpen(true);
@@ -345,6 +385,26 @@ export function PaymentQrSettingsPanel() {
               </Select>
             </div>
           </div>
+          <div>
+            <Label>UPI ID (optional)</Label>
+            <Input
+              className="mt-1"
+              value={draft.upiId}
+              onChange={(e) => setDraft({ ...draft, upiId: e.target.value })}
+              placeholder="name@okicici"
+            />
+          </div>
+          <label className="flex items-center gap-2 text-sm text-slate-700 dark:text-slate-200">
+            <input
+              type="checkbox"
+              className="h-4 w-4 accent-teal-600"
+              checked={draft.showInMemberPortal}
+              onChange={(e) =>
+                setDraft({ ...draft, showInMemberPortal: e.target.checked })
+              }
+            />
+            Show in Member Portal
+          </label>
           <div>
             <Label>QR image {draft.id ? "(optional replace)" : "*"}</Label>
             <Input

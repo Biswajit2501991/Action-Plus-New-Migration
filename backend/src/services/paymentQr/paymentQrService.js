@@ -52,6 +52,21 @@ export function assertValidPaymentQrId(id) {
   return safe;
 }
 
+export function extractUpiId(upiId, qrName) {
+  const direct = String(upiId || '').trim();
+  if (direct) return direct.slice(0, 120);
+  const name = String(qrName || '');
+  const labeled = name.match(/upi\s*id\s*:?\s*([^\s,]+)/i);
+  if (labeled?.[1]) return labeled[1].trim().slice(0, 120);
+  const at = name.match(/([a-zA-Z0-9._\-]{2,}@[a-zA-Z0-9.\-]{2,})/);
+  return at?.[1] ? at[1].slice(0, 120) : '';
+}
+
+function isMissingPortalColumnError(error) {
+  const msg = `${error?.message || ''} ${error?.details || ''}`;
+  return /show_in_member_portal|upi_id/i.test(msg) && /column|schema cache|does not exist/i.test(msg);
+}
+
 function normalizeQrName(name) {
   const safe = String(name || '').trim();
   if (!safe) {
@@ -92,6 +107,8 @@ export function paymentQrRowToApp(row, branchMeta = null) {
     imageVersion: Number(row.image_version || 0),
     displayOrder: Number(row.display_order || 0),
     isActive: row.is_active !== false,
+    showInMemberPortal: row.show_in_member_portal === true,
+    upiId: String(row.upi_id || '').trim(),
     createdBy: row.created_by == null ? null : String(row.created_by),
     createdAt: row.created_at || null,
     updatedAt: row.updated_at || null,
@@ -228,22 +245,37 @@ export async function createPaymentQrSetting(auth, payload, meta = {}) {
     ? Math.max(0, Math.floor(Number(payload.displayOrder ?? payload.display_order)))
     : await nextDisplayOrder(sb, gid, branchId);
   const isActive = payload?.isActive !== false && payload?.is_active !== false;
+  const showInMemberPortal =
+    payload?.showInMemberPortal === true || payload?.show_in_member_portal === true;
+  const upiId = extractUpiId(payload?.upiId || payload?.upi_id, qrName);
 
-  const { data, error } = await sb
+  const insertRow = {
+    gym_id: gid,
+    gym_code_id: branchId,
+    qr_name: qrName,
+    display_order: displayOrder,
+    is_active: isActive,
+    show_in_member_portal: showInMemberPortal,
+    upi_id: upiId || null,
+    image_version: 0,
+    created_by: String(meta.createdBy || auth?.userId || '').trim() || null,
+    created_at: nowIso,
+    updated_at: nowIso,
+  };
+
+  let { data, error } = await sb
     .from(T.payment_qr_settings)
-    .insert({
-      gym_id: gid,
-      gym_code_id: branchId,
-      qr_name: qrName,
-      display_order: displayOrder,
-      is_active: isActive,
-      image_version: 0,
-      created_by: String(meta.createdBy || auth?.userId || '').trim() || null,
-      created_at: nowIso,
-      updated_at: nowIso,
-    })
+    .insert(insertRow)
     .select('*')
     .single();
+
+  if (error && isMissingPortalColumnError(error)) {
+    delete insertRow.show_in_member_portal;
+    delete insertRow.upi_id;
+    const retry = await sb.from(T.payment_qr_settings).insert(insertRow).select('*').single();
+    data = retry.data;
+    error = retry.error;
+  }
 
   if (error) rethrowPaymentQrDbError(error);
   const [item] = await enrichPaymentQrRows([data], { signImages: false });
@@ -275,8 +307,15 @@ export async function updatePaymentQrSetting(auth, qrId, payload) {
   if (payload?.isActive != null || payload?.is_active != null) {
     patch.is_active = payload?.isActive !== false && payload?.is_active !== false;
   }
+  if (payload?.showInMemberPortal != null || payload?.show_in_member_portal != null) {
+    patch.show_in_member_portal =
+      payload?.showInMemberPortal === true || payload?.show_in_member_portal === true;
+  }
+  if (payload?.upiId != null || payload?.upi_id != null) {
+    patch.upi_id = extractUpiId(payload?.upiId ?? payload?.upi_id, patch.qr_name || existing.qr_name) || null;
+  }
 
-  const { data, error } = await sb
+  let { data, error } = await sb
     .from(T.payment_qr_settings)
     .update(patch)
     .eq('gym_id', gid)
@@ -284,6 +323,22 @@ export async function updatePaymentQrSetting(auth, qrId, payload) {
     .eq('id', safeId)
     .select('*')
     .single();
+
+  if (error && isMissingPortalColumnError(error)) {
+    const retryPatch = { ...patch };
+    delete retryPatch.show_in_member_portal;
+    delete retryPatch.upi_id;
+    const retry = await sb
+      .from(T.payment_qr_settings)
+      .update(retryPatch)
+      .eq('gym_id', gid)
+      .eq('gym_code_id', branchId)
+      .eq('id', safeId)
+      .select('*')
+      .single();
+    data = retry.data;
+    error = retry.error;
+  }
 
   if (error) rethrowPaymentQrDbError(error);
 
