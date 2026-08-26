@@ -77,6 +77,23 @@ function catalogRow(exerciseKey) {
   return CATALOG.find((row) => row.key === exerciseKey) || null;
 }
 
+async function resolveExerciseMeta(sb, gid, exerciseKey) {
+  const fromCatalog = catalogRow(exerciseKey);
+  if (fromCatalog) return fromCatalog;
+  const { data } = await sb
+    .from("portal_workout_day_exercises")
+    .select("exercise_key, name")
+    .eq("gym_id", gid)
+    .eq("exercise_key", exerciseKey)
+    .eq("is_active", true)
+    .limit(1)
+    .maybeSingle();
+  if (data?.exercise_key) {
+    return { key: String(data.exercise_key), name: String(data.name || data.exercise_key) };
+  }
+  return null;
+}
+
 export function registerWorkoutPlanExerciseMediaRoutes(app) {
   app.get("/api/portal-workout-exercise-media", requireAccess(Access.membersWrite), async (_req, res) => {
     try {
@@ -90,7 +107,30 @@ export function registerWorkoutPlanExerciseMediaRoutes(app) {
         return res.status(500).json({ ok: false, error: "load-failed", message: error.message });
       }
       const byKey = new Map((data || []).map((row) => [String(row.exercise_key || ""), row]));
-      const exercises = CATALOG.map((ex) => {
+
+      /** Include staff-added custom keys so videos can be uploaded for them too. */
+      const extraKeys = new Map();
+      try {
+        const extras = await sb
+          .from("portal_workout_day_exercises")
+          .select("exercise_key, name")
+          .eq("gym_id", gid)
+          .eq("is_active", true);
+        for (const row of extras.data || []) {
+          const key = String(row.exercise_key || "").trim();
+          if (!key || KEYS.has(key) || extraKeys.has(key)) continue;
+          extraKeys.set(key, String(row.name || key));
+        }
+      } catch {
+        /* table optional */
+      }
+
+      const catalogPlus = [
+        ...CATALOG,
+        ...[...extraKeys.entries()].map(([key, name]) => ({ key, name })),
+      ];
+
+      const exercises = catalogPlus.map((ex) => {
         const row = byKey.get(ex.key);
         const mp4Url = String(row?.mp4_url || "").trim() || null;
         return {
@@ -114,12 +154,12 @@ export function registerWorkoutPlanExerciseMediaRoutes(app) {
     try {
       const action = String(req.body?.action || "").trim();
       const exerciseKey = String(req.body?.exerciseKey || "").trim();
-      const catalog = catalogRow(exerciseKey);
-      if (!catalog || !KEYS.has(exerciseKey)) {
-        return res.status(400).json({ ok: false, error: "unknown-exercise" });
-      }
       const sb = getSupabase();
       const gid = gymId();
+      const catalog = await resolveExerciseMeta(sb, gid, exerciseKey);
+      if (!catalog) {
+        return res.status(400).json({ ok: false, error: "unknown-exercise" });
+      }
 
       if (action === "sign") {
         const fileSize = Number(req.body?.fileSize || 0);
