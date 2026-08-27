@@ -88,5 +88,13 @@ export async function switchActiveBranch(gymCodeId: string) {
 }
 
 export async function refreshSession() {
-  return apiFetch<{ token?: string; user?: AuthUser }>("/auth/refresh", { method: "POST" });
+  const data = await apiFetch<{ ok?: boolean; token?: string; user?: AuthUser }>(
+    "/auth/refresh",
+    { method: "POST" },
+  );
+  if (data.token) {
+    const session = readAuthSession();
+    if (session?.userId) writeAuthSession(session.userId, data.token);
+  }
+  return data;
 }

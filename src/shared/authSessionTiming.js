@@ -45,3 +45,19 @@ export function resolveAuthSessionTiming(jwtExpiresIn, idleOverrideMs) {
   idleMs = Math.min(idleMs, ttlMs);
   return { jwtExpiresIn: jwt, ttlMs, idleMs };
 }
+
+/**
+ * Client session expiry: absolute TTL and/or idle since lastActivityAt.
+ * @param {{ expiresAt?: number, lastActivityAt?: number } | null | undefined} parsed
+ * @param {number} [now]
+ * @param {number} [idleMs]
+ */
+export function isAuthSessionExpired(parsed, now = Date.now(), idleMs = DEFAULT_AUTH_SESSION_IDLE_MS) {
+  if (!parsed || typeof parsed !== 'object') return true;
+  const expiresAt = Number(parsed.expiresAt || 0);
+  const lastActivityAt = Number(parsed.lastActivityAt || parsed.expiresAt || 0);
+  if (!Number.isFinite(expiresAt) || expiresAt <= 0) return true;
+  if (now > expiresAt) return true;
+  if (Number.isFinite(lastActivityAt) && lastActivityAt > 0 && now - lastActivityAt > idleMs) return true;
+  return false;
+}

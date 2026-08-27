@@ -2,21 +2,8 @@ import { describe, expect, it } from 'vitest';
 import {
   DEFAULT_AUTH_SESSION_IDLE_MS,
   DEFAULT_AUTH_SESSION_TTL_MS,
+  isAuthSessionExpired,
 } from '../src/shared/authSessionTiming.js';
-
-/**
- * Mirrors the session TTL constants/logic shipped in index.html so we catch
- * accidental regressions back to the 15-minute client cap.
- */
-function isAuthSessionExpired(parsed, now = Date.now()) {
-  if (!parsed || typeof parsed !== 'object') return true;
-  const expiresAt = Number(parsed.expiresAt || 0);
-  const lastActivityAt = Number(parsed.lastActivityAt || parsed.expiresAt || 0);
-  if (!Number.isFinite(expiresAt) || expiresAt <= 0) return true;
-  if (now > expiresAt) return true;
-  if (Number.isFinite(lastActivityAt) && lastActivityAt > 0 && now - lastActivityAt > DEFAULT_AUTH_SESSION_IDLE_MS) return true;
-  return false;
-}
 
 describe('staff session TTL alignment', () => {
   it('uses a 2h absolute cap with 90m idle (not 15m)', () => {
@@ -39,6 +26,12 @@ describe('staff session TTL alignment', () => {
       lastActivityAt: now - DEFAULT_AUTH_SESSION_IDLE_MS - 1,
     };
     expect(isAuthSessionExpired(idle, now)).toBe(true);
+
+    const absolute = {
+      expiresAt: now - 1,
+      lastActivityAt: now,
+    };
+    expect(isAuthSessionExpired(absolute, now)).toBe(true);
   });
 
   it('compares staff ids case-insensitively', () => {

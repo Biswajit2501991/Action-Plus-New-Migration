@@ -24,6 +24,7 @@ import {
 } from "@/lib/domain/branch-access";
 import { staffRoleDisplayLabel } from "@/lib/domain/staff-role-label";
 import { useAuth } from "@/hooks/use-auth";
+import { useAuthSessionKeepalive } from "@/hooks/use-auth-session-keepalive";
 import { useRealtimeSync } from "@/hooks/use-realtime";
 import { useGymCodes } from "@/hooks/use-data";
 import { useStaffPhotoHydration } from "@/hooks/use-staff-photo-hydration";
@@ -500,6 +501,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const { user, isAuthenticated } = useAuth();
   const isMobile = useIsMobile();
 
+  useAuthSessionKeepalive(isAuthenticated);
   useRealtimeSync(isAuthenticated);
   useStaffPhotoHydration(user ? [user] : []);
   useWarmAppDataCache(isAuthenticated);

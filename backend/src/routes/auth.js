@@ -88,9 +88,6 @@ router.post('/logout', (req, res) => {
 
 router.post('/refresh', async (req, res) => {
   if (!useSupabase()) return res.status(503).json({ error: 'auth-requires-supabase' });
-  if (!isAuthCookieModeEnabled()) {
-    return res.status(404).json({ error: 'auth-cookie-mode-disabled' });
-  }
   const token = tokenFromReq(req);
   const claims = verifyStaffToken(token);
   if (!claims?.userId) return res.status(401).json({ error: 'unauthorized' });
@@ -104,6 +101,7 @@ router.post('/refresh', async (req, res) => {
       ...(profile.tokenCtx || {}),
       activeBranchId: profile.activeBranchId,
     });
+    // Cookie mode: rotate HttpOnly cookie. Bearer mode: return token in JSON body.
     setAccessTokenCookie(res, nextToken);
     const legacyBody = shouldReturnTokenInBody(req);
     return res.json(legacyBody ? { ok: true, token: nextToken } : { ok: true });
