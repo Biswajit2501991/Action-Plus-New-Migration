@@ -122,6 +122,7 @@ import attendanceKioskRouter from './routes/attendanceKiosk.js';
 import { registerMemberPortalPhase2Routes } from './routes/memberPortalPhase2.js';
 import { registerWorkoutPlanExerciseMediaRoutes } from './routes/workoutPlanExerciseMedia.js';
 import { registerWorkoutPlanDayExerciseRoutes } from './routes/workoutPlanDayExercises.js';
+import { registerWorkoutPlanExerciseLabelRoutes } from './routes/workoutPlanExerciseLabels.js';
 import { registerMemberDailyWorkoutRoutes } from './routes/memberDailyWorkouts.js';
 import { registerMemberWeightLogRoutes } from './routes/memberWeightLogs.js';
 import { registerMemberReferralRoutes } from './routes/memberReferrals.js';
@@ -547,6 +548,7 @@ app.use('/api/attendance-kiosk', attendanceKioskRouter);
 registerMemberPortalPhase2Routes(app, { appendAuditLog });
 registerWorkoutPlanExerciseMediaRoutes(app);
 registerWorkoutPlanDayExerciseRoutes(app);
+registerWorkoutPlanExerciseLabelRoutes(app);
 // Basic + PT member daily workout logs (separate from pt_client_profiles)
 registerMemberDailyWorkoutRoutes(app, { appendAuditLog });
 registerMemberWeightLogRoutes(app, { appendAuditLog });

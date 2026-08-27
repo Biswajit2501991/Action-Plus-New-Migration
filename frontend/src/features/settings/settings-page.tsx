@@ -2023,8 +2023,9 @@ export function SettingsPage() {
                 />
                 <p className="text-[11px] leading-relaxed text-muted-foreground">
                   One member name or code per line. Matching is case-insensitive. Leave empty and
-                  save to enable Workout Plan for every eligible member. Current tester default is
-                  Bis Test only.
+                  save to enable Workout Plan for every eligible member who also has the per-member
+                  switch ON (default OFF). Current tester default is Bis Test only — testers can see
+                  the tile even if their per-member switch is off.
                 </p>
               </div>
             </div>

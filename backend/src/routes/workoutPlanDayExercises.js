@@ -413,4 +413,68 @@ export function registerWorkoutPlanDayExerciseRoutes(app) {
       });
     }
   });
+
+  app.patch("/api/portal-workout-day-exercises/:id", requireAccess(Access.membersWrite), async (req, res) => {
+    try {
+      const id = String(req.params.id || "").trim();
+      if (!/^[0-9a-f-]{36}$/i.test(id)) {
+        return res.status(400).json({ ok: false, error: "invalid-id" });
+      }
+      const patch = { updated_at: new Date().toISOString() };
+      if (req.body?.name != null) {
+        const name = String(req.body.name || "").trim().slice(0, 80);
+        if (!name) return res.status(400).json({ ok: false, error: "name-required" });
+        patch.name = name;
+      }
+      if (req.body?.muscle != null) patch.muscle = String(req.body.muscle || "").trim().slice(0, 80);
+      if (req.body?.setsReps != null || req.body?.sets_reps != null) {
+        patch.sets_reps =
+          String(req.body?.setsReps ?? req.body?.sets_reps || "3×10–12").trim().slice(0, 40) ||
+          "3×10–12";
+      }
+      if (req.body?.rest != null) {
+        patch.rest = String(req.body.rest || "60–90s").trim().slice(0, 40) || "60–90s";
+      }
+      if (Object.keys(patch).length <= 1) {
+        return res.status(400).json({ ok: false, error: "nothing-to-update" });
+      }
+
+      const sb = getSupabase();
+      const gid = gymId();
+      const { data, error } = await sb
+        .from(TABLE)
+        .update(patch)
+        .eq("gym_id", gid)
+        .eq("id", id)
+        .eq("is_active", true)
+        .select("*")
+        .maybeSingle();
+      if (error) {
+        return res.status(500).json({ ok: false, error: "save-failed", message: error.message });
+      }
+      if (!data) return res.status(404).json({ ok: false, error: "not-found" });
+
+      if (patch.name) {
+        await sb
+          .from("portal_workout_exercise_labels")
+          .upsert(
+            {
+              gym_id: gid,
+              exercise_key: String(data.exercise_key),
+              display_name: patch.name,
+              updated_at: new Date().toISOString(),
+            },
+            { onConflict: "gym_id,exercise_key" },
+          );
+      }
+
+      return res.json({ ok: true, item: rowToApp(data) });
+    } catch (err) {
+      return res.status(500).json({
+        ok: false,
+        error: "save-failed",
+        message: err instanceof Error ? err.message : "Could not update exercise",
+      });
+    }
+  });
 }

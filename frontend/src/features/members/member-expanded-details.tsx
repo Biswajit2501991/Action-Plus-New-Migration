@@ -545,7 +545,7 @@ export function MemberExpandedDetails({
   const [holdSel, setHoldSel] = useState(holdOptions[0] || "1 Month");
   const [monthFilter, setMonthFilter] = useState("");
   const portalAccessOn = m.portalEnabled !== false;
-  const workoutPlanOn = m.portalWorkoutPlanEnabled !== false;
+  const workoutPlanOn = m.portalWorkoutPlanEnabled === true;
 
   const { data: referralInfo } = useQuery({
     queryKey: ["member-referral-credits", m.memberId],
@@ -1090,7 +1090,8 @@ export function MemberExpandedDetails({
               <span>
                 Workout Plan tile
                 <span className="block text-muted-foreground">
-                  Off hides Workout Plan for this member. PT plans hide it automatically.
+                  Off by default. Turn on so this member sees Workout Plan (Bis Test
+                  can still see it via the tester list). PT plans hide it for non-testers.
                 </span>
               </span>
               <input

@@ -17,10 +17,10 @@ COMMENT ON COLUMN public.member_portal_settings.workout_plan_tester_names IS
   'Non-empty JSON array of member names/codes allowed to see Workout Plan. Empty array = all eligible members. NULL = default testers.';
 
 ALTER TABLE public.members
-  ADD COLUMN IF NOT EXISTS portal_workout_plan_enabled boolean NOT NULL DEFAULT true;
+  ADD COLUMN IF NOT EXISTS portal_workout_plan_enabled boolean NOT NULL DEFAULT false;
 
 COMMENT ON COLUMN public.members.portal_workout_plan_enabled IS
-  'Per-member Workout Plan tile switch. Default ON; PT plans still hide the tile at runtime.';
+  'Per-member Workout Plan tile switch. Default OFF. Testers may still see via workout_plan_tester_names.';
 
 CREATE TABLE IF NOT EXISTS public.member_workout_program_progress (
   gym_id uuid NOT NULL,
