@@ -8,7 +8,7 @@ import { Input } from "@/components/ui/input";
 import { apiFetch } from "@/services/api/client";
 import { cn } from "@/lib/utils";
 
-const MAX_BYTES = 250 * 1024 * 1024;
+const MAX_BYTES = 500 * 1024 * 1024;
 
 type MusicRow = {
   title: string;
@@ -46,7 +46,7 @@ export function WorkoutPlanMusicPanel() {
 
   async function upload(file: File) {
     if (file.size > MAX_BYTES) {
-      toast.error("Music file must be 250 MB or smaller.");
+      toast.error("Music file must be 500 MB or smaller.");
       return;
     }
     const lower = file.name.toLowerCase();
@@ -159,7 +159,7 @@ export function WorkoutPlanMusicPanel() {
       <div>
         <p className="text-sm font-medium text-foreground">Music Portal</p>
         <p className="mt-1 text-xs text-muted-foreground">
-          Upload one gym-wide MP4 music track (max 250 MB). Members with Workout Plan see a music
+          Upload one gym-wide MP4 music track (max 500 MB). Members with Workout Plan see a music
           icon under Change program and can play it in a popup. Many members can stream at once.
         </p>
       </div>

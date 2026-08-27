@@ -5,7 +5,7 @@ import { env } from "../config/env.js";
 
 const TABLE = "portal_workout_music";
 const MEDIA_BUCKET = "website-media";
-const MAX_BYTES = 250 * 1024 * 1024;
+const MAX_BYTES = 500 * 1024 * 1024;
 
 function isMissingTableError(error) {
   const msg = `${error?.message || ""} ${error?.details || ""}`;
@@ -75,7 +75,7 @@ export function registerWorkoutPlanMusicRoutes(app) {
           return res.status(400).json({
             ok: false,
             error: "too-large",
-            message: "Music file must be 250 MB or smaller.",
+            message: "Music file must be 500 MB or smaller.",
           });
         }
         const storagePath = `workout-plan-music/${gid}/track-${Date.now()}.mp4`;
