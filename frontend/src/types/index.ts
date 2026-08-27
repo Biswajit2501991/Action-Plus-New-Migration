@@ -41,6 +41,8 @@ export type Member = {
   memberUuid?: string | null;
   portalEnabled?: boolean;
   portalWorkoutPlanEnabled?: boolean;
+  /** Staff explicitly hid Workout Plan (overrides auto rollout). */
+  portalWorkoutPlanHidden?: boolean;
   portalStatus?: string;
   portalActivatedAt?: string | null;
   lastPortalLoginAt?: string | null;

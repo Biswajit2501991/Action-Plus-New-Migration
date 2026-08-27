@@ -545,11 +545,13 @@ export function MemberExpandedDetails({
   const [holdSel, setHoldSel] = useState(holdOptions[0] || "1 Month");
   const [monthFilter, setMonthFilter] = useState("");
   const portalAccessOn = m.portalEnabled !== false;
-  const [workoutPlanOn, setWorkoutPlanOn] = useState(m.portalWorkoutPlanEnabled === true);
+  const [workoutPlanOn, setWorkoutPlanOn] = useState(
+    m.portalWorkoutPlanEnabled === true && m.portalWorkoutPlanHidden !== true,
+  );
 
   useEffect(() => {
-    setWorkoutPlanOn(m.portalWorkoutPlanEnabled === true);
-  }, [m.memberId, m.portalWorkoutPlanEnabled]);
+    setWorkoutPlanOn(m.portalWorkoutPlanEnabled === true && m.portalWorkoutPlanHidden !== true);
+  }, [m.memberId, m.portalWorkoutPlanEnabled, m.portalWorkoutPlanHidden]);
 
   const { data: referralInfo } = useQuery({
     queryKey: ["member-referral-credits", m.memberId],
@@ -1095,8 +1097,8 @@ export function MemberExpandedDetails({
                 Workout Plan tile
                 <span className="block text-muted-foreground">
                   When Home tiles → Workout Plan is OFF, turn this on to show Workout Plan for this
-                  member (must match Workout Plan by status, non-PT). When Home tiles is ON, eligible
-                  statuses see it automatically — this switch is not used.
+                  member (must match Workout Plan by status, non-PT). Turn off to hide even when
+                  auto rollout is on. PT plans never see this tile.
                 </span>
               </span>
               <input
@@ -1112,9 +1114,16 @@ export function MemberExpandedDetails({
                     try {
                       const res = await membersApi.patch(String(m.memberId), {
                         portalWorkoutPlanEnabled: next,
+                        portalWorkoutPlanHidden: !next,
                       });
-                      if (res.member?.portalWorkoutPlanEnabled !== undefined) {
-                        setWorkoutPlanOn(res.member.portalWorkoutPlanEnabled === true);
+                      if (
+                        res.member?.portalWorkoutPlanEnabled !== undefined ||
+                        res.member?.portalWorkoutPlanHidden !== undefined
+                      ) {
+                        setWorkoutPlanOn(
+                          res.member?.portalWorkoutPlanEnabled === true &&
+                            res.member?.portalWorkoutPlanHidden !== true,
+                        );
                       }
                       await queryClient.invalidateQueries({ queryKey: ["members"] });
                       setPortalMsg(
@@ -1123,7 +1132,9 @@ export function MemberExpandedDetails({
                           : "Workout Plan hidden for this member",
                       );
                     } catch (err) {
-                      setWorkoutPlanOn(m.portalWorkoutPlanEnabled === true);
+                      setWorkoutPlanOn(
+                        m.portalWorkoutPlanEnabled === true && m.portalWorkoutPlanHidden !== true,
+                      );
                       setPortalMsg(err instanceof Error ? err.message : "Update failed");
                     } finally {
                       setPortalBusy(false);
