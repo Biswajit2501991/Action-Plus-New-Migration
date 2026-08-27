@@ -408,7 +408,7 @@ const HOME_TILE_META: {
     key: "homeWorkoutPlan",
     label: "Workout Plan",
     description:
-      "OFF = manual: enable member-by-member below. ON = auto: show for statuses enabled under Workout Plan by status. Hidden for PT plans.",
+      "OFF = manual: enable member-by-member. ON = auto by Workout Plan by status. PT stays hidden unless that member’s Workout Plan tile is ON.",
   },
   { key: "homeBook", label: "Book", description: "Class / slot bookings." },
   { key: "homePerks", label: "Perks", description: "Member perks and offers." },
@@ -1990,7 +1990,8 @@ export function SettingsPage() {
                 <p className="text-sm font-medium text-foreground">Workout Plan by status</p>
                 <p className="mt-0.5 text-[11px] leading-relaxed text-muted-foreground">
                   Used when Home tiles → Workout Plan is ON (auto rollout). Separate from portal
-                  login. Active is on by default. PT members never see this tile.
+                  login. Active is on by default. PT members stay hidden unless staff turns on that
+                  member’s Workout Plan tile.
                 </p>
               </div>
               <div className="grid gap-2 lg:grid-cols-2">

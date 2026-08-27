@@ -1096,9 +1096,9 @@ export function MemberExpandedDetails({
               <span>
                 Workout Plan tile
                 <span className="block text-muted-foreground">
-                  When Home tiles → Workout Plan is OFF, turn this on to show Workout Plan for this
-                  member (must match Workout Plan by status, non-PT). Turn off to hide even when
-                  auto rollout is on. PT plans never see this tile.
+                  Turn on to show Workout Plan for this member (must match Workout Plan by status).
+                  Works for Basic and PT — PT is off by default until you enable this. Turn off to
+                  hide even when auto rollout is on. Training tile is separate and unchanged.
                 </span>
               </span>
               <input
