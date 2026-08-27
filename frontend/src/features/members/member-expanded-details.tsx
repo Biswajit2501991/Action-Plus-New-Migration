@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { MessageCircle, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -545,7 +545,11 @@ export function MemberExpandedDetails({
   const [holdSel, setHoldSel] = useState(holdOptions[0] || "1 Month");
   const [monthFilter, setMonthFilter] = useState("");
   const portalAccessOn = m.portalEnabled !== false;
-  const workoutPlanOn = m.portalWorkoutPlanEnabled === true;
+  const [workoutPlanOn, setWorkoutPlanOn] = useState(m.portalWorkoutPlanEnabled === true);
+
+  useEffect(() => {
+    setWorkoutPlanOn(m.portalWorkoutPlanEnabled === true);
+  }, [m.memberId, m.portalWorkoutPlanEnabled]);
 
   const { data: referralInfo } = useQuery({
     queryKey: ["member-referral-credits", m.memberId],
@@ -1101,19 +1105,25 @@ export function MemberExpandedDetails({
                 disabled={portalBusy}
                 onChange={(e) => {
                   void (async () => {
+                    const next = e.target.checked;
+                    setWorkoutPlanOn(next);
                     setPortalBusy(true);
                     setPortalMsg(null);
                     try {
-                      await membersApi.patch(String(m.memberId), {
-                        portalWorkoutPlanEnabled: e.target.checked,
+                      const res = await membersApi.patch(String(m.memberId), {
+                        portalWorkoutPlanEnabled: next,
                       });
+                      if (res.member?.portalWorkoutPlanEnabled !== undefined) {
+                        setWorkoutPlanOn(res.member.portalWorkoutPlanEnabled === true);
+                      }
                       await queryClient.invalidateQueries({ queryKey: ["members"] });
                       setPortalMsg(
-                        e.target.checked
+                        next
                           ? "Workout Plan enabled for this member"
                           : "Workout Plan hidden for this member",
                       );
                     } catch (err) {
+                      setWorkoutPlanOn(m.portalWorkoutPlanEnabled === true);
                       setPortalMsg(err instanceof Error ? err.message : "Update failed");
                     } finally {
                       setPortalBusy(false);

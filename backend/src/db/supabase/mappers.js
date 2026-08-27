@@ -14,7 +14,7 @@ export const MEMBER_LIST_COLUMNS = [
   'parent_guardian_dob', 'family_group_id', 'family_primary_member_id', 'last_sms_sent_json',
   'updated_by', 'assigned_gym_code_id', 'created_at', 'updated_at',
   'photo_version', 'photo_path', 'photo_url',
-  'member_uuid', 'portal_enabled', 'portal_status', 'qr_token', 'pin_hash',
+  'member_uuid', 'portal_enabled', 'portal_workout_plan_enabled', 'portal_status', 'qr_token', 'pin_hash',
   'portal_activated_at', 'last_portal_login_at',
 ].join(',');
 
