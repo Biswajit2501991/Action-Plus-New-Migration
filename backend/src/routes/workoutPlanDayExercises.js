@@ -455,17 +455,33 @@ export function registerWorkoutPlanDayExerciseRoutes(app) {
       if (!data) return res.status(404).json({ ok: false, error: "not-found" });
 
       if (patch.name) {
-        await sb
-          .from("portal_workout_exercise_labels")
-          .upsert(
-            {
-              gym_id: gid,
-              exercise_key: String(data.exercise_key),
+        try {
+          await sb
+            .from("portal_workout_exercise_labels")
+            .upsert(
+              {
+                gym_id: gid,
+                exercise_key: String(data.exercise_key),
+                display_name: patch.name,
+                updated_at: new Date().toISOString(),
+              },
+              { onConflict: "gym_id,exercise_key" },
+            );
+        } catch {
+          /* labels optional */
+        }
+        try {
+          await sb
+            .from("portal_workout_exercise_media")
+            .update({
               display_name: patch.name,
               updated_at: new Date().toISOString(),
-            },
-            { onConflict: "gym_id,exercise_key" },
-          );
+            })
+            .eq("gym_id", gid)
+            .eq("exercise_key", String(data.exercise_key));
+        } catch {
+          /* media optional */
+        }
       }
 
       return res.json({ ok: true, item: rowToApp(data) });

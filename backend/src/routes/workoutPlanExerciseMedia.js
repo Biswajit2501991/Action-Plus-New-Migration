@@ -79,7 +79,21 @@ function catalogRow(exerciseKey) {
 
 async function resolveExerciseMeta(sb, gid, exerciseKey) {
   const fromCatalog = catalogRow(exerciseKey);
-  if (fromCatalog) return fromCatalog;
+  let labelName = "";
+  try {
+    const { data: label } = await sb
+      .from("portal_workout_exercise_labels")
+      .select("display_name")
+      .eq("gym_id", gid)
+      .eq("exercise_key", exerciseKey)
+      .maybeSingle();
+    labelName = String(label?.display_name || "").trim();
+  } catch {
+    /* labels optional */
+  }
+  if (fromCatalog) {
+    return { key: fromCatalog.key, name: labelName || fromCatalog.name };
+  }
   const { data } = await sb
     .from("portal_workout_day_exercises")
     .select("exercise_key, name")
@@ -89,7 +103,10 @@ async function resolveExerciseMeta(sb, gid, exerciseKey) {
     .limit(1)
     .maybeSingle();
   if (data?.exercise_key) {
-    return { key: String(data.exercise_key), name: String(data.name || data.exercise_key) };
+    return {
+      key: String(data.exercise_key),
+      name: labelName || String(data.name || data.exercise_key),
+    };
   }
   return null;
 }
@@ -107,6 +124,22 @@ export function registerWorkoutPlanExerciseMediaRoutes(app) {
         return res.status(500).json({ ok: false, error: "load-failed", message: error.message });
       }
       const byKey = new Map((data || []).map((row) => [String(row.exercise_key || ""), row]));
+
+      /** Gym-wide rename labels (display-only). */
+      const labelByKey = new Map();
+      try {
+        const labels = await sb
+          .from("portal_workout_exercise_labels")
+          .select("exercise_key, display_name")
+          .eq("gym_id", gid);
+        for (const row of labels.data || []) {
+          const key = String(row.exercise_key || "").trim();
+          const name = String(row.display_name || "").trim();
+          if (key && name) labelByKey.set(key, name);
+        }
+      } catch {
+        /* table optional */
+      }
 
       /** Include staff-added custom keys so videos can be uploaded for them too. */
       const extraKeys = new Map();
@@ -133,9 +166,13 @@ export function registerWorkoutPlanExerciseMediaRoutes(app) {
       const exercises = catalogPlus.map((ex) => {
         const row = byKey.get(ex.key);
         const mp4Url = String(row?.mp4_url || "").trim() || null;
+        const renamed =
+          labelByKey.get(ex.key) ||
+          String(row?.display_name || "").trim() ||
+          ex.name;
         return {
           exerciseKey: ex.key,
-          name: ex.name,
+          name: renamed,
           mp4Url,
           hasVideo: Boolean(mp4Url),
         };

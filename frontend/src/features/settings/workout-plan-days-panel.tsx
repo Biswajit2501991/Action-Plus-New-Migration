@@ -179,6 +179,9 @@ export function WorkoutPlanDaysPanel() {
       });
       toast.success("Name updated everywhere this exercise appears");
       await Promise.all([reloadLabels(), reload()]);
+      if (typeof window !== "undefined") {
+        window.dispatchEvent(new CustomEvent("apg-workout-plan-labels-changed"));
+      }
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Could not rename");
     } finally {
@@ -201,6 +204,9 @@ export function WorkoutPlanDaysPanel() {
       toast.success("Exercise updated");
       setEditId(null);
       await Promise.all([reload(), reloadLabels()]);
+      if (typeof window !== "undefined") {
+        window.dispatchEvent(new CustomEvent("apg-workout-plan-labels-changed"));
+      }
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Could not update");
     } finally {

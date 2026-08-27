@@ -45,6 +45,11 @@ export function WorkoutPlanVideosPanel() {
     void reload().catch(() => {
       /* catalog still shows even if table/API is not ready */
     });
+    const onLabels = () => {
+      void reload().catch(() => null);
+    };
+    window.addEventListener("apg-workout-plan-labels-changed", onLabels);
+    return () => window.removeEventListener("apg-workout-plan-labels-changed", onLabels);
   }, [reload]);
 
   const visible = useMemo(() => {
@@ -254,13 +259,19 @@ export function WorkoutPlanVideosPanel() {
                 <X className="h-4 w-4" />
               </Button>
             </div>
-            <video
-              src={preview.mp4Url}
-              controls
-              playsInline
-              autoPlay
-              className="max-h-[70vh] w-full rounded-xl bg-black"
-            />
+            <div
+              className="overflow-hidden rounded-xl bg-black"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <video
+                src={preview.mp4Url}
+                controls
+                playsInline
+                preload="metadata"
+                autoPlay
+                className="max-h-[70vh] min-h-[220px] w-full bg-black"
+              />
+            </div>
           </div>
         </div>
       ) : null}

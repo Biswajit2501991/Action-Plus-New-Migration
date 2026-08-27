@@ -87,12 +87,27 @@ export function registerWorkoutPlanExerciseLabelRoutes(app) {
       }
 
       // Keep staff-added day rows in sync for the same key.
-      await sb
-        .from("portal_workout_day_exercises")
-        .update({ name: displayName, updated_at: new Date().toISOString() })
-        .eq("gym_id", gid)
-        .eq("exercise_key", exerciseKey)
-        .eq("is_active", true);
+      try {
+        await sb
+          .from("portal_workout_day_exercises")
+          .update({ name: displayName, updated_at: new Date().toISOString() })
+          .eq("gym_id", gid)
+          .eq("exercise_key", exerciseKey)
+          .eq("is_active", true);
+      } catch {
+        /* day extras optional */
+      }
+
+      // Keep video library display names in sync (additive update; no delete).
+      try {
+        await sb
+          .from("portal_workout_exercise_media")
+          .update({ display_name: displayName, updated_at: new Date().toISOString() })
+          .eq("gym_id", gid)
+          .eq("exercise_key", exerciseKey);
+      } catch {
+        /* media optional — rename label still saved */
+      }
 
       return res.json({
         ok: true,
