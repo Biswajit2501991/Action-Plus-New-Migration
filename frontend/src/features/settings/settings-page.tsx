@@ -54,6 +54,7 @@ import {
 } from "@/lib/member-portal-workout-plan";
 import { WorkoutPlanVideosPanel } from "@/features/settings/workout-plan-videos-panel";
 import { WorkoutPlanDaysPanel } from "@/features/settings/workout-plan-days-panel";
+import { WorkoutPlanMusicPanel } from "@/features/settings/workout-plan-music-panel";
 
 function readFileAsDataUrl(file: File) {
   return new Promise<string>((resolve, reject) => {
@@ -2151,7 +2152,7 @@ export function SettingsPage() {
       {canPortalUi ? (
         <SettingsSectionShell
           title="Workout Plan"
-          description="Add exercises to Beginner / Intermediate / Advanced days and upload demo videos for the Member Portal"
+          description="Add exercises, Music Portal track, and demo videos for the Member Portal"
           open={Boolean(openCat.workoutPlan)}
           onToggle={() => toggleCat("workoutPlan")}
           accent={SECTION_ACCENTS.portal}
@@ -2159,6 +2160,9 @@ export function SettingsPage() {
         >
           <div className="space-y-8">
             <WorkoutPlanDaysPanel />
+            <div className="border-t border-slate-200 pt-6 dark:border-white/10">
+              <WorkoutPlanMusicPanel />
+            </div>
             <div className="border-t border-slate-200 pt-6 dark:border-white/10">
               <p className="mb-3 text-sm font-medium text-foreground">Exercise demo videos</p>
               <WorkoutPlanVideosPanel />
