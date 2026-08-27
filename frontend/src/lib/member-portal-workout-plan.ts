@@ -2,7 +2,7 @@ import type { PortalAccessStatusKey } from "@/lib/member-portal-access-by-status
 
 export type WorkoutPlanByStatus = Record<PortalAccessStatusKey, boolean>;
 
-/** Non-empty = only these members see Workout Plan. Empty array = all eligible members. */
+/** Legacy QA list — no longer used for tile visibility (kept for settings API compat). */
 export const DEFAULT_WORKOUT_PLAN_TESTER_NAMES = ["Bis Test"];
 
 export const DEFAULT_WORKOUT_PLAN_BY_STATUS: WorkoutPlanByStatus = {
@@ -27,8 +27,8 @@ export function normalizeWorkoutPlanByStatus(input: unknown): WorkoutPlanByStatu
 }
 
 /**
- * null/undefined → tester-only default (Bis Test).
- * [] → every member who passes gym tile / status / PT / member switch.
+ * Legacy — stored in settings but not used for visibility gating.
+ * Visibility: Home tiles Workout Plan OFF → per-member switch; ON → Workout Plan by status.
  */
 export function normalizeWorkoutPlanTesterNames(input: unknown): string[] {
   if (input == null) return [...DEFAULT_WORKOUT_PLAN_TESTER_NAMES];

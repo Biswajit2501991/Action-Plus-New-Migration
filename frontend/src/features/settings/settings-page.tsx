@@ -408,7 +408,7 @@ const HOME_TILE_META: {
     key: "homeWorkoutPlan",
     label: "Workout Plan",
     description:
-      "Self-guided 12-week program for Basic members. Hidden for PT plans. Tester names below still limit who sees it.",
+      "OFF = manual: enable member-by-member below. ON = auto: show for statuses enabled under Workout Plan by status. Hidden for PT plans.",
   },
   { key: "homeBook", label: "Book", description: "Class / slot bookings." },
   { key: "homePerks", label: "Perks", description: "Member perks and offers." },
@@ -1989,7 +1989,8 @@ export function SettingsPage() {
               <div>
                 <p className="text-sm font-medium text-foreground">Workout Plan by status</p>
                 <p className="mt-0.5 text-[11px] leading-relaxed text-muted-foreground">
-                  Separate from portal login. Active is on by default. PT members never see this tile.
+                  Used when Home tiles → Workout Plan is ON (auto rollout). Separate from portal
+                  login. Active is on by default. PT members never see this tile.
                 </p>
               </div>
               <div className="grid gap-2 lg:grid-cols-2">
@@ -2022,10 +2023,8 @@ export function SettingsPage() {
                   placeholder="Bis Test"
                 />
                 <p className="text-[11px] leading-relaxed text-muted-foreground">
-                  One member name or code per line. Matching is case-insensitive. Leave empty and
-                  save to enable Workout Plan for every eligible member who also has the per-member
-                  switch ON (default OFF). Current tester default is Bis Test only — testers can see
-                  the tile even if their per-member switch is off.
+                  Legacy field — no longer controls who sees Workout Plan. Use Home tiles → Workout
+                  Plan (OFF = per-member switch, ON = by status above).
                 </p>
               </div>
             </div>

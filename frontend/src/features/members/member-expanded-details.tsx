@@ -1090,8 +1090,9 @@ export function MemberExpandedDetails({
               <span>
                 Workout Plan tile
                 <span className="block text-muted-foreground">
-                  Off by default. Turn on so this member sees Workout Plan (Bis Test
-                  can still see it via the tester list). PT plans hide it for non-testers.
+                  When Home tiles → Workout Plan is OFF, turn this on to show Workout Plan for this
+                  member (must match Workout Plan by status, non-PT). When Home tiles is ON, eligible
+                  statuses see it automatically — this switch is not used.
                 </span>
               </span>
               <input
