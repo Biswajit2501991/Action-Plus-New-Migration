@@ -429,7 +429,7 @@ export function registerWorkoutPlanDayExerciseRoutes(app) {
       if (req.body?.muscle != null) patch.muscle = String(req.body.muscle || "").trim().slice(0, 80);
       if (req.body?.setsReps != null || req.body?.sets_reps != null) {
         patch.sets_reps =
-          String(req.body?.setsReps ?? req.body?.sets_reps || "3×10–12").trim().slice(0, 40) ||
+          String((req.body?.setsReps ?? req.body?.sets_reps) || "3×10–12").trim().slice(0, 40) ||
           "3×10–12";
       }
       if (req.body?.rest != null) {
