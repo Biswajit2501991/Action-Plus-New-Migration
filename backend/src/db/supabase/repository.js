@@ -1000,10 +1000,8 @@ async function updateMemberFields(memberCode, patch, branchScope = null) {
     .single();
   if (refErr) throw new Error(`member reload: ${refErr.message}`);
 
-  if (Object.prototype.hasOwnProperty.call(patch, 'plan') && !isPtPlanName(refreshed?.plan_name)) {
-    await safeDeleteByMemberIds(sb, T.pt_client_profiles, [existingRow.id]);
-    notifyCollectionChange('settings');
-  }
+  // Keep pt_client_profiles when leaving PT (Basic/etc.) so diet plan + documents
+  // restore when the member returns to a PT plan. PT Clients UI still filters by plan name.
 
   let children = await loadMemberChildren(sb, gid, [refreshed.id]);
   const hasInjuryLogPatch = Object.prototype.hasOwnProperty.call(patch, 'medicalAnswers')
@@ -1305,14 +1303,8 @@ async function writeMembers(members, scope, options = {}) {
   const refreshed = await fetchAll((from, to) => sb.from(T.members).select('id, member_code').eq('gym_id', gid).range(from, to));
   codeToId = new Map((refreshed || []).map((r) => [String(r.member_code), r.id]));
 
-  // Batch PT profile cleanup for non-PT members (was one DELETE per member → 504 on large branches).
-  const nonPtMemberPks = [];
-  for (const m of incoming) {
-    if (!m?.memberId || isPtPlanName(m.plan)) continue;
-    const memberPk = codeToId.get(String(m.memberId));
-    if (memberPk) nonPtMemberPks.push(memberPk);
-  }
-  await safeDeleteByMemberIds(sb, T.pt_client_profiles, nonPtMemberPks);
+  // Do not delete pt_client_profiles for non-PT plans — retain diet/docs for PT return.
+  // Permanent member delete still clears profiles via deleteMemberChildren.
 
   for (const m of incoming) {
     const memberPk = codeToId.get(String(m.memberId));
@@ -1803,20 +1795,13 @@ async function buildPtProfilesFromRows(sb, gid, ptRowsPrefetched) {
       planById.set(row.id, row.plan_name);
     }
   }
-  const orphanMemberPks = [];
   for (const p of ptRows || []) {
     const code = idToCode.get(p.member_id);
     const planName = planById.get(p.member_id);
     if (!code) continue;
-    if (!isPtPlanName(planName)) {
-      orphanMemberPks.push(p.member_id);
-      continue;
-    }
+    // Skip non-PT members in the live PT map, but keep DB rows for diet/docs restore.
+    if (!isPtPlanName(planName)) continue;
     profiles[code] = p.plan_json && typeof p.plan_json === 'object' ? p.plan_json : {};
-  }
-  if (orphanMemberPks.length) {
-    await safeDeleteByMemberIds(sb, T.pt_client_profiles, orphanMemberPks);
-    notifyCollectionChange('settings');
   }
   return profiles;
 }
