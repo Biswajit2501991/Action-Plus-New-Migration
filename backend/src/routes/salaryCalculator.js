@@ -1,11 +1,13 @@
 import { Router } from 'express';
+import crypto from 'node:crypto';
 import { Access } from '../auth/accessControl.js';
 import { requireAccess } from '../middleware/permissions.js';
-import { appendAuditLog } from '../middleware/auditLog.js';
-import { readStaffUsers } from '../db/supabase/staffUsersRead.js';
-import { readStaffAttendanceInRange } from '../db/supabase/repository.js';
-import { listAttendanceNotes } from '../services/attendance/attendanceNotesService.js';
-import { readSandboxScope } from '../db/sandboxScope.js';
+import {
+  appendAuditLogEntry,
+  listAttendanceNotes,
+  readJsonCollection,
+  readStaffAttendanceInRange,
+} from '../db/dataStore.js';
 import { getSupabase, gymId } from '../db/supabase/client.js';
 import { T } from '../db/tables.js';
 import {
@@ -20,6 +22,32 @@ import {
 } from '../services/salary/salaryCalculatorService.js';
 
 const router = Router();
+
+function readSandboxScope(req) {
+  const testProfile = String(req?.headers?.['x-apg-test-profile'] || '').trim() === '1';
+  const sandboxId = String(req?.headers?.['x-apg-sandbox-id'] || '').trim();
+  const userId = String(req?.headers?.['x-apg-user-id'] || '').trim();
+  if (!testProfile || !sandboxId) return null;
+  return { sandboxId, userId };
+}
+
+async function appendAuditLog(req, { action, entityType = '', entityId = '', before = null, after = null }) {
+  try {
+    const entry = {
+      id: crypto.randomUUID(),
+      ts: new Date().toISOString(),
+      actor: String(req?.auth?.userId || 'system'),
+      action,
+      entityType,
+      entityId: String(entityId || ''),
+      before,
+      after,
+    };
+    await appendAuditLogEntry(readSandboxScope(req), entry);
+  } catch (err) {
+    console.error('[apg] appendAuditLog failed in salaryCalculator', err?.message || err);
+  }
+}
 
 /**
  * GET /api/salary-calculator/config
@@ -176,7 +204,7 @@ router.get('/monthly-report', requireAccess(Access.staffRead), async (req, res) 
 
     const scope = readSandboxScope(req);
     const [allUsers, attendanceRecords, notesData, settingsData] = await Promise.all([
-      readStaffUsers(scope).catch(() => []),
+      readJsonCollection('apg.users', [], scope).catch(() => []),
       readStaffAttendanceInRange(scope, { startDate, endDate }).catch(() => []),
       listAttendanceNotes(req.auth, { startDate, endDate }).catch(() => []),
       getStaffSalarySettings().catch(() => ({ profiles: {}, holidays: [], overrides: [] })),
