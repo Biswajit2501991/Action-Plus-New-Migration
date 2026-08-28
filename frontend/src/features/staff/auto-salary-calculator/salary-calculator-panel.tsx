@@ -476,7 +476,17 @@ export function SalaryCalculatorPanel() {
           open={Boolean(configModalStaff)}
           onClose={() => setConfigModalStaff(null)}
           staffUser={configModalStaff}
-          existingProfile={configData?.profiles?.[configModalStaff.id] || null}
+          existingProfile={
+            configData?.profiles?.[configModalStaff.id] ||
+            (configData?.profiles
+              ? Object.values(configData.profiles).find(
+                  (p) =>
+                    p?.staffLoginId?.toLowerCase() === configModalStaff.id?.toLowerCase() ||
+                    p?.staffLoginId?.toLowerCase() === configModalStaff.name?.toLowerCase(),
+                )
+              : null) ||
+            null
+          }
           onSaved={() => {
             void refetch();
           }}

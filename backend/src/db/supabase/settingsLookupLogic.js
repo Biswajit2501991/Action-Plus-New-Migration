@@ -73,6 +73,9 @@ export const SETTINGS_CONFIG_JSON_KEYS = [
   'qrVisitorAttendanceEnabled',
   'attendanceRequirePresenceQr',
   'paymentQrInReminderEnabled',
+  'staffSalaryProfiles',
+  'gymHolidays',
+  'salaryManualOverrides',
 ];
 
 const OPT_IN_BOOL_KEYS = new Set([

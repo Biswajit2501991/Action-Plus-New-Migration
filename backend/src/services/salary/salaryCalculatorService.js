@@ -1,4 +1,6 @@
-import { readJsonValue, writeJsonValue } from '../../db/dataStore.js';
+import { readJsonValue, writeJsonValue, useSupabase } from '../../db/dataStore.js';
+import { getSupabase, gymId } from '../../db/supabase/client.js';
+import { T } from '../../db/tables.js';
 
 export const STORE_KEY_SALARY_CONFIG = 'apg.staff_salary_configs';
 export const STORE_KEY_HOLIDAYS = 'apg.gym_holidays';
@@ -469,7 +471,70 @@ export function calculateStaffMonthlySalary({
 /**
  * Storage helpers for Salary Configurations, Holidays, and Manual Overrides
  */
+async function mutateSupabaseSalaryConfig(updater) {
+  const sb = getSupabase();
+  const gid = gymId();
+  const { data: existingRow, error: selErr } = await sb
+    .from(T.settings_app_config)
+    .select('*')
+    .eq('gym_id', gid)
+    .maybeSingle();
+  if (selErr) throw selErr;
+
+  const currentCfg =
+    existingRow?.config_json && typeof existingRow.config_json === 'object'
+      ? { ...existingRow.config_json }
+      : {};
+
+  const nextCfg = updater(currentCfg);
+
+  if (existingRow) {
+    const { error: updateErr } = await sb
+      .from(T.settings_app_config)
+      .update({
+        config_json: nextCfg,
+        updated_at: new Date().toISOString(),
+      })
+      .eq('gym_id', gid);
+    if (updateErr) throw updateErr;
+  } else {
+    const { error: insertErr } = await sb
+      .from(T.settings_app_config)
+      .insert({
+        gym_id: gid,
+        config_json: nextCfg,
+        updated_at: new Date().toISOString(),
+      });
+    if (insertErr) throw insertErr;
+  }
+  return nextCfg;
+}
+
 export async function getStaffSalarySettings() {
+  if (useSupabase()) {
+    try {
+      const sb = getSupabase();
+      const gid = gymId();
+      const { data, error } = await sb
+        .from(T.settings_app_config)
+        .select('config_json')
+        .eq('gym_id', gid)
+        .maybeSingle();
+      if (error) throw error;
+      const cfg = data?.config_json && typeof data.config_json === 'object' ? data.config_json : {};
+      return {
+        profiles:
+          cfg.staffSalaryProfiles && typeof cfg.staffSalaryProfiles === 'object'
+            ? cfg.staffSalaryProfiles
+            : {},
+        holidays: Array.isArray(cfg.gymHolidays) ? cfg.gymHolidays : [],
+        overrides: Array.isArray(cfg.salaryManualOverrides) ? cfg.salaryManualOverrides : [],
+      };
+    } catch (e) {
+      console.error('[salaryCalculator] Supabase getStaffSalarySettings failed', e?.message || e);
+    }
+  }
+
   const [profiles, holidays, overrides] = await Promise.all([
     readJsonValue(STORE_KEY_SALARY_CONFIG, {}, null),
     readJsonValue(STORE_KEY_HOLIDAYS, [], null),
@@ -486,12 +551,48 @@ export async function getStaffSalarySettings() {
 export async function saveStaffSalaryProfile(staffLoginId, profileData) {
   const staffId = String(staffLoginId || '').trim();
   if (!staffId) throw new Error('staffLoginId is required');
+
+  if (useSupabase()) {
+    let savedProfile = null;
+    await mutateSupabaseSalaryConfig((cfg) => {
+      const existingProfiles =
+        cfg.staffSalaryProfiles && typeof cfg.staffSalaryProfiles === 'object'
+          ? { ...cfg.staffSalaryProfiles }
+          : {};
+      const matchedKey =
+        Object.keys(existingProfiles).find((k) => k.toLowerCase() === staffId.toLowerCase()) || staffId;
+      const updated = {
+        ...(existingProfiles[matchedKey] || {}),
+        ...profileData,
+        monthlySalary: Number(profileData.monthlySalary || 0),
+        staffLoginId: staffId,
+        updatedAt: new Date().toISOString(),
+      };
+      existingProfiles[matchedKey] = updated;
+      existingProfiles[staffId] = updated;
+      cfg.staffSalaryProfiles = existingProfiles;
+      savedProfile = updated;
+      return cfg;
+    });
+    return savedProfile;
+  }
+
   const existing = (await readJsonValue(STORE_KEY_SALARY_CONFIG, {}, null)) || {};
+  const matchedKey =
+    Object.keys(existing).find((k) => k.toLowerCase() === staffId.toLowerCase()) || staffId;
   const updated = {
     ...existing,
-    [staffId]: {
-      ...(existing[staffId] || {}),
+    [matchedKey]: {
+      ...(existing[matchedKey] || {}),
       ...profileData,
+      monthlySalary: Number(profileData.monthlySalary || 0),
+      staffLoginId: staffId,
+      updatedAt: new Date().toISOString(),
+    },
+    [staffId]: {
+      ...(existing[matchedKey] || {}),
+      ...profileData,
+      monthlySalary: Number(profileData.monthlySalary || 0),
       staffLoginId: staffId,
       updatedAt: new Date().toISOString(),
     },
@@ -501,8 +602,6 @@ export async function saveStaffSalaryProfile(staffLoginId, profileData) {
 }
 
 export async function saveGymHoliday(holidayData) {
-  const holidays = (await readJsonValue(STORE_KEY_HOLIDAYS, [], null)) || [];
-  const list = Array.isArray(holidays) ? [...holidays] : [];
   const id = holidayData.id || `hol_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
   const dateStr = String(holidayData.date || '').slice(0, 10);
   if (!/^\d{4}-\d{2}-\d{2}$/.test(dateStr)) throw new Error('Valid date required (YYYY-MM-DD)');
@@ -516,6 +615,24 @@ export async function saveGymHoliday(holidayData) {
     createdAt: holidayData.createdAt || new Date().toISOString(),
   };
 
+  if (useSupabase()) {
+    await mutateSupabaseSalaryConfig((cfg) => {
+      const list = Array.isArray(cfg.gymHolidays) ? [...cfg.gymHolidays] : [];
+      const existingIndex = list.findIndex((h) => h.id === id || h.date === dateStr);
+      if (existingIndex >= 0) {
+        list[existingIndex] = entry;
+      } else {
+        list.push(entry);
+      }
+      list.sort((a, b) => a.date.localeCompare(b.date));
+      cfg.gymHolidays = list;
+      return cfg;
+    });
+    return entry;
+  }
+
+  const holidays = (await readJsonValue(STORE_KEY_HOLIDAYS, [], null)) || [];
+  const list = Array.isArray(holidays) ? [...holidays] : [];
   const existingIndex = list.findIndex((h) => h.id === id || h.date === dateStr);
   if (existingIndex >= 0) {
     list[existingIndex] = entry;
@@ -528,6 +645,16 @@ export async function saveGymHoliday(holidayData) {
 }
 
 export async function deleteGymHoliday(holidayId) {
+  if (useSupabase()) {
+    await mutateSupabaseSalaryConfig((cfg) => {
+      const list = Array.isArray(cfg.gymHolidays) ? [...cfg.gymHolidays] : [];
+      const filtered = list.filter((h) => h.id !== holidayId && h.date !== holidayId);
+      cfg.gymHolidays = filtered;
+      return cfg;
+    });
+    return { ok: true, deleted: holidayId };
+  }
+
   const holidays = (await readJsonValue(STORE_KEY_HOLIDAYS, [], null)) || [];
   const list = Array.isArray(holidays) ? [...holidays] : [];
   const filtered = list.filter((h) => h.id !== holidayId && h.date !== holidayId);
@@ -540,9 +667,6 @@ export async function saveSalaryManualOverride(overrideData, actor = 'owner') {
   const dateStr = String(overrideData.date || '').slice(0, 10);
   if (!staffId || !dateStr) throw new Error('staffLoginId and date required');
 
-  const overrides = (await readJsonValue(STORE_KEY_OVERRIDES, [], null)) || [];
-  const list = Array.isArray(overrides) ? [...overrides] : [];
-
   const entry = {
     id: overrideData.id || `ovr_${staffId}_${dateStr}`,
     staffLoginId: staffId,
@@ -553,6 +677,26 @@ export async function saveSalaryManualOverride(overrideData, actor = 'owner') {
     updatedBy: actor,
     updatedAt: new Date().toISOString(),
   };
+
+  if (useSupabase()) {
+    await mutateSupabaseSalaryConfig((cfg) => {
+      const list = Array.isArray(cfg.salaryManualOverrides) ? [...cfg.salaryManualOverrides] : [];
+      const existingIndex = list.findIndex(
+        (o) => o.staffLoginId.toLowerCase() === staffId.toLowerCase() && o.date === dateStr,
+      );
+      if (existingIndex >= 0) {
+        list[existingIndex] = entry;
+      } else {
+        list.push(entry);
+      }
+      cfg.salaryManualOverrides = list;
+      return cfg;
+    });
+    return entry;
+  }
+
+  const overrides = (await readJsonValue(STORE_KEY_OVERRIDES, [], null)) || [];
+  const list = Array.isArray(overrides) ? [...overrides] : [];
 
   const existingIndex = list.findIndex(
     (o) => o.staffLoginId.toLowerCase() === staffId.toLowerCase() && o.date === dateStr,
@@ -570,6 +714,19 @@ export async function saveSalaryManualOverride(overrideData, actor = 'owner') {
 export async function deleteSalaryManualOverride(staffLoginId, dateStr) {
   const staffId = String(staffLoginId || '').trim();
   const d = String(dateStr || '').slice(0, 10);
+
+  if (useSupabase()) {
+    await mutateSupabaseSalaryConfig((cfg) => {
+      const list = Array.isArray(cfg.salaryManualOverrides) ? [...cfg.salaryManualOverrides] : [];
+      const filtered = list.filter(
+        (o) => !(o.staffLoginId.toLowerCase() === staffId.toLowerCase() && o.date === d),
+      );
+      cfg.salaryManualOverrides = filtered;
+      return cfg;
+    });
+    return { ok: true };
+  }
+
   const overrides = (await readJsonValue(STORE_KEY_OVERRIDES, [], null)) || [];
   const list = Array.isArray(overrides) ? [...overrides] : [];
   const filtered = list.filter(

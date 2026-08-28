@@ -28,7 +28,7 @@ export function SalaryConfigModal({
 }: Props) {
   const qc = useQueryClient();
 
-  const [monthlySalary, setMonthlySalary] = useState<number>(25000);
+  const [monthlySalary, setMonthlySalary] = useState<number>(0);
   const [shiftMode, setShiftMode] = useState<StaffShiftMode>("split");
   const [shift1Start, setShift1Start] = useState("06:30");
   const [shift1End, setShift1End] = useState("11:00");
@@ -43,7 +43,7 @@ export function SalaryConfigModal({
   useEffect(() => {
     if (!open || !staffUser) return;
     if (existingProfile) {
-      setMonthlySalary(existingProfile.monthlySalary || 0);
+      setMonthlySalary(existingProfile.monthlySalary ?? 0);
       setShiftMode(existingProfile.shiftMode || "split");
       setShift1Start(existingProfile.shift1Start || "06:30");
       setShift1End(existingProfile.shift1End || "11:00");
@@ -59,7 +59,7 @@ export function SalaryConfigModal({
       );
       setNotes(existingProfile.notes || "");
     } else {
-      setMonthlySalary(25000);
+      setMonthlySalary(0);
       setShiftMode("split");
       setShift1Start("06:30");
       setShift1End("11:00");

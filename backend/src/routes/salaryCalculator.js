@@ -253,7 +253,21 @@ router.get('/monthly-report', requireAccess(Access.staffRead), async (req, res) 
     const todayDateStr = now.toISOString().slice(0, 10);
     const staffReports = targetUsers.map((u) => {
       const staffId = String(u.id || '').trim();
-      const profile = profiles[staffId] || {
+      const matchedProfile =
+        profiles[staffId] ||
+        Object.entries(profiles).find(([k, v]) => {
+          const kLow = String(k || '').trim().toLowerCase();
+          const vLogin = String(v?.staffLoginId || '').trim().toLowerCase();
+          const targetId = staffId.toLowerCase();
+          const targetName = String(u.name || u.display_name || '').trim().toLowerCase();
+          return (
+            kLow === targetId ||
+            vLogin === targetId ||
+            (targetName && (kLow === targetName || vLogin === targetName))
+          );
+        })?.[1];
+
+      const profile = matchedProfile || {
         staffLoginId: staffId,
         monthlySalary: 0,
         shiftMode: 'split',

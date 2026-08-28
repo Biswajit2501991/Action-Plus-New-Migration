@@ -229,4 +229,48 @@ describe('Salary Calculator Unit Tests', () => {
     expect(day1.dayDeductionAmount).toBe(0);
     expect(day1.shift2ExpectedStart).toBeNull();
   });
+
+  it('persists and retrieves staff salary profile, holidays and manual overrides', async () => {
+    const { query } = await import('../backend/src/db/adapter.js');
+    await query(`
+      create table if not exists app_kv (
+        key text primary key,
+        value_json text not null,
+        updated_at text not null
+      )
+    `);
+
+    const {
+      saveStaffSalaryProfile,
+      getStaffSalarySettings,
+      saveGymHoliday,
+      saveSalaryManualOverride,
+    } = await import('../backend/src/services/salary/salaryCalculatorService.js');
+
+    await saveStaffSalaryProfile('raja', {
+      monthlySalary: 30000,
+      shiftMode: 'split',
+      shift1Start: '06:30',
+      shift1End: '11:00',
+    });
+
+    await saveGymHoliday({
+      date: '2026-08-15',
+      name: 'Independence Day',
+      isPaid: true,
+    });
+
+    await saveSalaryManualOverride({
+      staffLoginId: 'raja',
+      date: '2026-08-05',
+      status: 'waived',
+      reason: 'Owner approved doctor visit',
+    });
+
+    const settings = await getStaffSalarySettings();
+    expect(settings.profiles).toBeDefined();
+    expect(settings.profiles.raja?.monthlySalary).toBe(30000);
+    expect(settings.holidays.some((h) => h.date === '2026-08-15')).toBe(true);
+    expect(settings.overrides.some((o) => o.staffLoginId === 'raja' && o.date === '2026-08-05')).toBe(true);
+  });
 });
