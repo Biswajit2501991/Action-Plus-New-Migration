@@ -4,21 +4,14 @@ import { useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import {
-  AlertCircle,
-  Calendar,
-  CheckCircle2,
-  Clock,
-  DollarSign,
   FileText,
   RotateCcw,
-  Sparkles,
   X,
 } from "lucide-react";
-import { Badge } from "@/components/ui/misc";
 import { Button } from "@/components/ui/button";
 import { Input, Label } from "@/components/ui/input";
 import { salaryCalculatorApi } from "@/services/api";
-import type { DaySalaryBreakdown, StaffMonthlySalaryReport } from "@/types";
+import type { StaffMonthlySalaryReport } from "@/types";
 
 type Props = {
   open: boolean;
@@ -48,8 +41,9 @@ export function StaffDayBreakdownDrawer({ open, onClose, report, onUpdated }: Pr
       void qc.invalidateQueries({ queryKey: ["salary-calculator"] });
       onUpdated?.();
     },
-    onError: (err: any) => {
-      toast.error(err?.message || "Failed to waive deduction.");
+    onError: (err: unknown) => {
+      const msg = err instanceof Error ? err.message : "Failed to waive deduction.";
+      toast.error(msg);
     },
   });
 
@@ -70,8 +64,9 @@ export function StaffDayBreakdownDrawer({ open, onClose, report, onUpdated }: Pr
       void qc.invalidateQueries({ queryKey: ["salary-calculator"] });
       onUpdated?.();
     },
-    onError: (err: any) => {
-      toast.error(err?.message || "Failed to save adjustment.");
+    onError: (err: unknown) => {
+      const msg = err instanceof Error ? err.message : "Failed to save adjustment.";
+      toast.error(msg);
     },
   });
 
@@ -85,8 +80,9 @@ export function StaffDayBreakdownDrawer({ open, onClose, report, onUpdated }: Pr
       void qc.invalidateQueries({ queryKey: ["salary-calculator"] });
       onUpdated?.();
     },
-    onError: (err: any) => {
-      toast.error(err?.message || "Failed to reset override.");
+    onError: (err: unknown) => {
+      const msg = err instanceof Error ? err.message : "Failed to reset override.";
+      toast.error(msg);
     },
   });
 

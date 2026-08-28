@@ -1,41 +1,30 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useQuery } from "@tanstack/react-query";
 import {
-  AlertCircle,
   Calendar,
-  CheckCircle2,
   ChevronLeft,
   ChevronRight,
-  Clock,
-  Download,
   FileSpreadsheet,
-  HelpCircle,
-  Printer,
   Search,
-  Settings,
   SlidersHorizontal,
   Users,
 } from "lucide-react";
-import { Badge, EmptyState, Skeleton } from "@/components/ui/misc";
+import { Skeleton } from "@/components/ui/misc";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Input, Select } from "@/components/ui/input";
 import { salaryCalculatorApi } from "@/services/api";
 import { useGymCodes, useUsers } from "@/hooks/use-data";
-import { useAuthStore, useBranchStore } from "@/stores";
-import { isMasterOwnerUser } from "@/lib/domain/permissions";
+import { useBranchStore } from "@/stores";
 import { SalaryConfigModal } from "./salary-config-modal";
 import { GymHolidaysModal } from "./gym-holidays-modal";
 import { StaffDayBreakdownDrawer } from "./staff-day-breakdown-drawer";
 import type { StaffMonthlySalaryReport, StaffUser } from "@/types";
 
 export function SalaryCalculatorPanel() {
-  const qc = useQueryClient();
-  const user = useAuthStore((s) => s.user);
   const activeBranchId = useBranchStore((s) => s.activeBranchId);
-  const isOwner = isMasterOwnerUser(user);
 
   const now = new Date();
   const [selectedYear, setSelectedYear] = useState<number>(now.getFullYear());
@@ -71,7 +60,7 @@ export function SalaryCalculatorPanel() {
     queryFn: () => salaryCalculatorApi.getConfig(),
   });
 
-  const staffReports = reportData?.staffReports || [];
+  const staffReports = useMemo(() => reportData?.staffReports || [], [reportData?.staffReports]);
   const summary = reportData?.summary;
   const holidays = reportData?.holidays || configData?.holidays || [];
 
@@ -340,8 +329,6 @@ export function SalaryCalculatorPanel() {
                 </thead>
                 <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
                   {filteredReports.map((r) => {
-                    const profile = configData?.profiles?.[r.staffId];
-
                     return (
                       <tr
                         key={r.staffId}

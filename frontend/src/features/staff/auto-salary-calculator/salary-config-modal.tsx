@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
-import { Clock, DollarSign, Settings, ShieldCheck, X } from "lucide-react";
+import { DollarSign, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input, Label, Select } from "@/components/ui/input";
 import { salaryCalculatorApi } from "@/services/api";
@@ -123,8 +123,9 @@ export function SalaryConfigModal({
       onSaved?.();
       onClose();
     },
-    onError: (err: any) => {
-      toast.error(err?.message || "Failed to save salary configuration.");
+    onError: (err: unknown) => {
+      const msg = err instanceof Error ? err.message : "Failed to save salary configuration.";
+      toast.error(msg);
     },
   });
 

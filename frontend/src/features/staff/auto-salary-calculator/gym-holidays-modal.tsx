@@ -39,8 +39,9 @@ export function GymHolidaysModal({ open, onClose, holidays = [], onUpdated }: Pr
       void qc.invalidateQueries({ queryKey: ["salary-calculator"] });
       onUpdated?.();
     },
-    onError: (err: any) => {
-      toast.error(err?.message || "Failed to add holiday.");
+    onError: (err: unknown) => {
+      const msg = err instanceof Error ? err.message : "Failed to add holiday.";
+      toast.error(msg);
     },
   });
 
@@ -51,8 +52,9 @@ export function GymHolidaysModal({ open, onClose, holidays = [], onUpdated }: Pr
       void qc.invalidateQueries({ queryKey: ["salary-calculator"] });
       onUpdated?.();
     },
-    onError: (err: any) => {
-      toast.error(err?.message || "Failed to delete holiday.");
+    onError: (err: unknown) => {
+      const msg = err instanceof Error ? err.message : "Failed to delete holiday.";
+      toast.error(msg);
     },
   });
 
