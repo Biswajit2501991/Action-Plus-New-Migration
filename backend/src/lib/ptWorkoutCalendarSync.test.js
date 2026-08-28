@@ -1,5 +1,4 @@
-import assert from "node:assert/strict";
-import { describe, it } from "node:test";
+import { describe, expect, it } from "vitest";
 import { mergeFocusIntoByDate } from "./ptWorkoutCalendarSync.js";
 
 describe("mergeFocusIntoByDate", () => {
@@ -8,9 +7,9 @@ describe("mergeFocusIntoByDate", () => {
       { "2026-07-01": { exercises: ["Back"], notes: "" } },
       { "2026-07-01": "Chest", "2026-07-02": "Legs" },
     );
-    assert.deepEqual(merged["2026-07-01"].exercises, ["Back"]);
-    assert.deepEqual(merged["2026-07-02"].exercises, ["Legs"]);
-    assert.equal(merged["2026-07-02"].source, "pt_schedule");
+    expect(merged["2026-07-01"].exercises).toEqual(["Back"]);
+    expect(merged["2026-07-02"].exercises).toEqual(["Legs"]);
+    expect(merged["2026-07-02"].source).toBe("pt_schedule");
   });
 
   it("does not overwrite notes-only days exercises when focus present", () => {
@@ -18,8 +17,8 @@ describe("mergeFocusIntoByDate", () => {
       { "2026-07-03": { exercises: [], notes: "sore knee" } },
       { "2026-07-03": "Chest" },
     );
-    assert.deepEqual(merged["2026-07-03"].exercises, ["Chest"]);
-    assert.equal(merged["2026-07-03"].notes, "sore knee");
+    expect(merged["2026-07-03"].exercises).toEqual(["Chest"]);
+    expect(merged["2026-07-03"].notes).toBe("sore knee");
   });
 });
 
@@ -28,12 +27,11 @@ describe("focusLabel helpers via merge gap-fill semantics", () => {
     const merged = mergeFocusIntoByDate(
       {
         "2026-07-13": { exercises: ["PT"], notes: "" },
-        "2026-07-25": { exercises: [], notes: "rest note" },
+        "2026-07-14": { exercises: [], notes: "rest" },
       },
-      { "2026-07-14": "Chest" },
+      { "2026-07-13": "Legs", "2026-07-14": "Arms" },
     );
-    assert.deepEqual(merged["2026-07-13"].exercises, ["PT"]);
-    assert.deepEqual(merged["2026-07-14"].exercises, ["Chest"]);
-    assert.equal(merged["2026-07-25"].notes, "rest note");
+    expect(merged["2026-07-13"].exercises).toEqual(["PT"]);
+    expect(merged["2026-07-14"].exercises).toEqual(["Arms"]);
   });
 });
