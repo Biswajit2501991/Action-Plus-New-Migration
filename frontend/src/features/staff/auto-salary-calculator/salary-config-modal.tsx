@@ -174,10 +174,10 @@ export function SalaryConfigModal({
               <Input
                 type="number"
                 min={0}
-                step={500}
+                step={1}
                 value={monthlySalary}
                 onChange={(e) => setMonthlySalary(Number(e.target.value))}
-                placeholder="25000"
+                placeholder="0"
                 className="pl-8 font-medium"
                 required
               />
