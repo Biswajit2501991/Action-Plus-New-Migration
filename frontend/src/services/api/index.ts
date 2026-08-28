@@ -844,3 +844,5 @@ export const paymentQrApi = {
     );
   },
 };
+
+export { salaryCalculatorApi } from "./salary-calculator";

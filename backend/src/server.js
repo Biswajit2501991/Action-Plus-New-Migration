@@ -112,6 +112,7 @@ import memberPhotosRouter from './routes/memberPhotos.js';
 import staffPhotosRouter from './routes/staffPhotos.js';
 import paymentQrRouter from './routes/paymentQr.js';
 import leaveBalanceRouter from './routes/leaveBalance.js';
+import salaryCalculatorRouter from './routes/salaryCalculator.js';
 import publicPaymentQrRouter from './routes/publicPaymentQr.js';
 import publicVisitorsRouter from './routes/publicVisitors.js';
 import publicMemberStatusRouter from './routes/publicMemberStatus.js';
@@ -1910,6 +1911,7 @@ app.delete('/api/custom-templates/:id', requireAccess(Access.templatesWrite), as
 
 app.use('/api/payment-qr', paymentQrRouter);
 app.use('/api/leave-balance', leaveBalanceRouter);
+app.use('/api/salary-calculator', salaryCalculatorRouter);
 
 // ----------------------------------------------------------------------------
 // Leave Requests — dedicated mutation surface that bypasses the owner-only

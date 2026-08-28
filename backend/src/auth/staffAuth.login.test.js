@@ -8,6 +8,7 @@ vi.mock('../db/supabase/client.js', () => ({
 vi.mock('./passwords.js', () => ({
   verifyPassword: vi.fn(async () => true),
   hashPassword: vi.fn(),
+  isBcryptHash: vi.fn(() => false),
 }));
 
 vi.mock('./tenant/branchAssignments.js', () => ({

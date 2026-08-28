@@ -332,6 +332,124 @@ export type AppSettings = {
   [key: string]: unknown;
 };
 
+export type StaffShiftMode = "split" | "single_evening" | "single_morning" | "custom";
+
+export type StaffSalaryProfile = {
+  staffLoginId: string;
+  monthlySalary: number;
+  shiftMode: StaffShiftMode;
+  shift1Start: string;
+  shift1End: string;
+  shift2Start?: string | null;
+  shift2End?: string | null;
+  graceMinutes?: number;
+  lateStepMinutes?: number;
+  monthlyNoteExemptions?: number;
+  weeklyOffDays?: string[];
+  customDailyHours?: number;
+  notes?: string;
+  updatedAt?: string;
+};
+
+export type GymHoliday = {
+  id: string;
+  date: string;
+  name: string;
+  isPaid?: boolean;
+  gymCodeId?: string | null;
+  createdAt?: string;
+};
+
+export type SalaryManualOverride = {
+  id?: string;
+  staffLoginId: string;
+  date: string;
+  status: "waived" | "custom_deduction";
+  customDeductionAmount?: number;
+  reason?: string;
+  updatedBy?: string;
+  updatedAt?: string;
+};
+
+export type DaySalaryBreakdown = {
+  date: string;
+  dayOfWeek: string;
+  status: string;
+  isFuture: boolean;
+  isWeeklyOff: boolean;
+  isHoliday: boolean;
+  holidayTitle?: string | null;
+  isApprovedLeave: boolean;
+  shift1ExpectedStart?: string | null;
+  shift1PunchTime?: string | null;
+  shift1LateMinutes: number;
+  shift1DeductedMinutes: number;
+  shift2ExpectedStart?: string | null;
+  shift2PunchTime?: string | null;
+  shift2LateMinutes: number;
+  shift2DeductedMinutes: number;
+  totalLateMinutes: number;
+  hasNote: boolean;
+  noteCategory?: string | null;
+  noteText?: string | null;
+  noteExemptionStatus?: string | null;
+  dayDeductionAmount: number;
+  deductionType: "none" | "lateness" | "absence" | "waived" | "custom";
+  overrideStatus?: string | null;
+  overrideReason?: string | null;
+};
+
+export type StaffMonthlySalaryReport = {
+  staffId: string;
+  staffName: string;
+  year: number;
+  month: number;
+  monthlySalary: number;
+  dailyWage: number;
+  perMinuteRate: number;
+  shiftMode: StaffShiftMode;
+  shift1Start: string;
+  shift1End: string;
+  shift2Start?: string | null;
+  shift2End?: string | null;
+  graceMinutes: number;
+  stepMinutes: number;
+  monthlyNoteExemptions: number;
+  noteExemptionsUsed: number;
+  totalDaysInMonth: number;
+  totalPresentDays: number;
+  totalAbsentDays: number;
+  totalWeeklyOffs: number;
+  totalHolidays: number;
+  totalApprovedLeaves: number;
+  totalLateDays: number;
+  totalDeductedLateMinutes: number;
+  totalLatenessDeductionAmount: number;
+  totalAbsenceDeductionAmount: number;
+  totalManualWaivers: number;
+  totalDeductions: number;
+  netPayableSalary: number;
+  dayBreakdown: DaySalaryBreakdown[];
+};
+
+export type MonthlySalaryCalculatorResponse = {
+  ok: boolean;
+  year: number;
+  month: number;
+  startDate: string;
+  endDate: string;
+  summary: {
+    totalStaff: number;
+    totalBasePayroll: number;
+    totalLatenessDeductions: number;
+    totalAbsenceDeductions: number;
+    totalNetPayable: number;
+    totalLateInstances: number;
+  };
+  staffReports: StaffMonthlySalaryReport[];
+  holidays: GymHoliday[];
+};
+
 export type FinanceSummary = {
   collectedRevenue?: number;
   expense?: number;
@@ -341,3 +459,4 @@ export type FinanceSummary = {
   ytdCollected?: number;
   [key: string]: unknown;
 };
+

@@ -3,7 +3,7 @@
 import { Fragment, useMemo, useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
-import { Camera, ChevronDown, ChevronUp, Eye, EyeOff, Plus } from "lucide-react";
+import { Camera, ChevronDown, ChevronUp, Eye, EyeOff, Plus, Calculator, Users as UsersIcon } from "lucide-react";
 import { PageHeader, Badge, Skeleton, EmptyState } from "@/components/ui/misc";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -26,6 +26,7 @@ import {
 } from "@/lib/domain/permissions";
 import { StaffSectionsAccessEditor } from "@/features/staff/staff-sections-access";
 import { RoleTemplatesPanel } from "@/features/staff/role-templates-panel";
+import { SalaryCalculatorPanel } from "@/features/staff/auto-salary-calculator/salary-calculator-panel";
 import { useAuthStore, useBranchStore } from "@/stores";
 import { cn } from "@/lib/utils";
 import type { AccessMap, GymCode, StaffUser } from "@/types";
@@ -134,6 +135,7 @@ export function StaffPage() {
   const [expandedStaffId, setExpandedStaffId] = useState<string | null>(null);
   /** Blocked / deactivated staff count as "deleted" for this toggle. */
   const [showDeletedStaff, setShowDeletedStaff] = useState(false);
+  const [activeTab, setActiveTab] = useState<"directory" | "salary">("directory");
 
   const deletedStaffCount = useMemo(
     () => users.filter((u) => Boolean(u.blocked)).length,
@@ -440,7 +442,7 @@ export function StaffPage() {
                 ) : null}
               </button>
             ) : null}
-            {canManage ? (
+            {canManage && activeTab === "directory" ? (
               <Button onClick={() => openCreate()}>
                 <Plus className="h-4 w-4" /> Add Staff
               </Button>
@@ -449,7 +451,44 @@ export function StaffPage() {
         }
       />
 
-      <RoleTemplatesPanel onUseTemplate={(role) => openCreate(role)} />
+      {/* Sub-section Switcher */}
+      <div className="flex items-center gap-2 border-b border-slate-200 pb-3 dark:border-slate-800">
+        <button
+          type="button"
+          onClick={() => setActiveTab("directory")}
+          className={cn(
+            "flex items-center gap-2 rounded-xl px-4 py-2 text-xs sm:text-sm font-semibold transition-all",
+            activeTab === "directory"
+              ? "bg-slate-900 text-white shadow-sm dark:bg-slate-100 dark:text-slate-900"
+              : "text-slate-600 hover:bg-slate-100 dark:text-slate-400 dark:hover:bg-slate-800",
+          )}
+        >
+          <UsersIcon className="h-4 w-4" />
+          Staff Directory & Roles
+        </button>
+        <button
+          type="button"
+          onClick={() => setActiveTab("salary")}
+          className={cn(
+            "flex items-center gap-2 rounded-xl px-4 py-2 text-xs sm:text-sm font-semibold transition-all",
+            activeTab === "salary"
+              ? "bg-indigo-600 text-white shadow-sm"
+              : "text-slate-600 hover:bg-slate-100 dark:text-slate-400 dark:hover:bg-slate-800",
+          )}
+        >
+          <Calculator className="h-4 w-4 text-indigo-200" />
+          Auto Salary Calculator
+          <span className="rounded-full bg-indigo-400/20 px-1.5 py-0.5 text-[10px] font-bold text-indigo-100">
+            AUTO
+          </span>
+        </button>
+      </div>
+
+      {activeTab === "salary" ? (
+        <SalaryCalculatorPanel />
+      ) : (
+        <>
+          <RoleTemplatesPanel onUseTemplate={(role) => openCreate(role)} />
 
       <Card className="border-slate-200 shadow-sm dark:border-border">
         <CardContent className="overflow-x-auto p-0">
@@ -625,6 +664,8 @@ export function StaffPage() {
           ) : null}
         </CardContent>
       </Card>
+      </>
+      )}
 
       {creating || editingId ? (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-3 sm:p-4">
