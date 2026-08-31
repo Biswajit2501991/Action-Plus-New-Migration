@@ -2461,6 +2461,7 @@
       { key: 'viewRevenueMonthly', label: 'Total Revenue (Monthly)' },
       { key: 'viewRevenueTrend', label: 'Revenue' },
       { key: 'viewMembershipTrends', label: 'Membership Trends' },
+      { key: 'viewOwnSalary', label: 'Auto Salary Calculator (Self View — Own salary only)' },
     ];
     const SETTINGS_CHILD_PERMISSIONS = [
       { key: 'managePlans', label: 'Plans' },
@@ -2531,6 +2532,7 @@
         viewRevenueMonthly: true,
         viewRevenueTrend: true,
         viewMembershipTrends: true,
+        viewOwnSalary: false,
       },
       finance: {
         viewRevenueAutoMembers: true,
@@ -2612,6 +2614,7 @@
         viewRevenueMonthly: access?.dashboard?.viewRevenueMonthly !== false,
         viewRevenueTrend: access?.dashboard?.viewRevenueTrend !== false,
         viewMembershipTrends: access?.dashboard?.viewMembershipTrends !== false,
+        viewOwnSalary: access?.dashboard?.viewOwnSalary === true,
       },
       finance: {
         viewRevenueAutoMembers: access?.finance?.viewRevenueAutoMembers !== false,

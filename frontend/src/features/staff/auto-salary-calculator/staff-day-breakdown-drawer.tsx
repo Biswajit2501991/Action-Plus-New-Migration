@@ -17,10 +17,17 @@ type Props = {
   open: boolean;
   onClose: () => void;
   report: StaffMonthlySalaryReport | null;
+  readOnly?: boolean;
   onUpdated?: () => void;
 };
 
-export function StaffDayBreakdownDrawer({ open, onClose, report, onUpdated }: Props) {
+export function StaffDayBreakdownDrawer({
+  open,
+  onClose,
+  report,
+  readOnly = false,
+  onUpdated,
+}: Props) {
   const qc = useQueryClient();
   const [customModalDate, setCustomModalDate] = useState<string | null>(null);
   const [customAmount, setCustomAmount] = useState<number>(0);
@@ -334,7 +341,15 @@ export function StaffDayBreakdownDrawer({ open, onClose, report, onUpdated }: Pr
 
                     {/* Actions */}
                     <td className="py-3 text-right">
-                      {isOverridden ? (
+                      {readOnly ? (
+                        isOverridden ? (
+                          <span className="text-[10px] font-semibold text-emerald-600 dark:text-emerald-400">
+                            {d.overrideStatus === "waived" ? "Owner Waived" : "Custom Adjusted"}
+                          </span>
+                        ) : (
+                          <span className="text-slate-400">—</span>
+                        )
+                      ) : isOverridden ? (
                         <div className="flex items-center justify-end gap-1">
                           <span className="text-[10px] text-emerald-600 dark:text-emerald-400">
                             {d.overrideStatus === "waived" ? "Owner Waived" : "Custom Adjusted"}

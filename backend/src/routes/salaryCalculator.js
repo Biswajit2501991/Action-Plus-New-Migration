@@ -327,4 +327,128 @@ router.get('/monthly-report', requireAccess(Access.staffRead), async (req, res) 
   }
 });
 
+/**
+ * GET /api/salary-calculator/my-report
+ * Self-service monthly salary breakdown and deductions for the logged-in staff member.
+ */
+router.get('/my-report', requireAccess(Access.salaryReadOwn), async (req, res) => {
+  try {
+    const myUserId = String(req.auth?.userId || '').trim();
+    if (!myUserId) return res.status(401).json({ error: 'unauthorized_staff_id_missing' });
+
+    const now = new Date();
+    const year = parseInt(req.query?.year, 10) || now.getFullYear();
+    const month = parseInt(req.query?.month, 10) || (now.getMonth() + 1);
+
+    const days = getDaysInMonthList(year, month);
+    const startDate = days[0];
+    const endDate = days[days.length - 1];
+
+    const scope = readSandboxScope(req);
+    const [allUsers, attendanceRecords, notesData, settingsData] = await Promise.all([
+      readJsonCollection('apg.users', [], scope).catch(() => []),
+      readStaffAttendanceInRange(scope, { startDate, endDate }).catch(() => []),
+      listAttendanceNotes(req.auth, { startDate, endDate }).catch(() => []),
+      getStaffSalarySettings().catch(() => ({ profiles: {}, holidays: [], overrides: [] })),
+    ]);
+
+    const { profiles, holidays, overrides } = settingsData;
+
+    // Load approved leaves for this staff member
+    let leaveRequests = [];
+    try {
+      const sb = getSupabase();
+      const gid = gymId();
+      const { data: leaves } = await sb
+        .from(T.leave_requests)
+        .select('*')
+        .eq('gym_id', gid)
+        .eq('status', 'Approved')
+        .ilike('staff_login_id', myUserId)
+        .lte('start_date', endDate)
+        .gte('end_date', startDate);
+      if (Array.isArray(leaves)) {
+        leaveRequests = leaves.map((l) => ({
+          userId: l.staff_login_id,
+          startDate: l.start_date,
+          endDate: l.end_date,
+          status: l.status,
+        }));
+      }
+    } catch {
+      leaveRequests = [];
+    }
+
+    const matchedUser =
+      (allUsers || []).find((u) => String(u.id || '').toLowerCase() === myUserId.toLowerCase()) || {
+        id: myUserId,
+        name: myUserId,
+      };
+
+    const matchedProfile =
+      profiles[myUserId] ||
+      Object.entries(profiles).find(([k, v]) => {
+        const kLow = String(k || '').trim().toLowerCase();
+        const vLogin = String(v?.staffLoginId || '').trim().toLowerCase();
+        const targetId = myUserId.toLowerCase();
+        const targetName = String(matchedUser.name || matchedUser.display_name || '').trim().toLowerCase();
+        return (
+          kLow === targetId ||
+          vLogin === targetId ||
+          (targetName && (kLow === targetName || vLogin === targetName))
+        );
+      })?.[1];
+
+    const profile = matchedProfile || {
+      staffLoginId: myUserId,
+      monthlySalary: 0,
+      shiftMode: 'split',
+      shift1Start: '06:30',
+      shift1End: '11:00',
+      shift2Start: '17:00',
+      shift2End: '20:00',
+      graceMinutes: 15,
+      lateStepMinutes: 15,
+      monthlyNoteExemptions: 2,
+      weeklyOffDays: ['Sunday'],
+    };
+
+    const todayDateStr = now.toISOString().slice(0, 10);
+    const staffReport = calculateStaffMonthlySalary({
+      staffUser: matchedUser,
+      profile,
+      year,
+      month,
+      attendanceRecords,
+      attendanceNotes: notesData,
+      gymHolidays: holidays,
+      leaveRequests,
+      manualOverrides: overrides,
+      todayDateStr,
+    });
+
+    return res.json({
+      ok: true,
+      year,
+      month,
+      startDate,
+      endDate,
+      report: staffReport,
+      summary: {
+        monthlySalary: staffReport.monthlySalary,
+        totalLatenessDeductions: staffReport.totalLatenessDeductionAmount,
+        totalAbsenceDeductions: staffReport.totalAbsenceDeductionAmount,
+        netPayableSalary: staffReport.netPayableSalary,
+        totalLateDays: staffReport.totalLateDays,
+      },
+      holidays,
+    });
+  } catch (error) {
+    return res.status(500).json({
+      error: 'my_salary_report_failed',
+      message: String(error?.message || error),
+    });
+  }
+});
+
 export default router;

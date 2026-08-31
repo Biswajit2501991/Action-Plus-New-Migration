@@ -16,6 +16,7 @@ export function normalizeAccess(access) {
       viewRevenueMonthly: access?.dashboard?.viewRevenueMonthly !== false,
       viewRevenueTrend: access?.dashboard?.viewRevenueTrend !== false,
       viewMembershipTrends: access?.dashboard?.viewMembershipTrends !== false,
+      viewOwnSalary: access?.dashboard?.viewOwnSalary === true,
     },
     finance: {
       viewRevenueAutoMembers: access?.finance?.viewRevenueAutoMembers !== false,
@@ -198,6 +199,8 @@ export const Access = {
   paymentQrManage: (a) => a.__owner || a.paymentQr?.managePaymentSettings === true,
   leaveBalanceView: (a) => a.__owner || a.leave?.viewAnnualLeaveBalance !== false,
   leaveBalanceManage: (a) => a.__owner,
+  /** Self-service salary view for staff. */
+  salaryReadOwn: (a) => a.__owner || a.dashboard?.viewOwnSalary === true,
   /** System Analytics — opt-in like Website. */
   analyticsRead: (a) => a.__owner || a.analytics?.viewAnalytics === true,
 };

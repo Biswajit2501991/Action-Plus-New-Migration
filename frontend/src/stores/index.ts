@@ -25,6 +25,7 @@ type UiState = {
   commandOpen: boolean;
   addMemberOpen: boolean;
   lateNoteOpen: boolean;
+  selfSalaryModalOpen: boolean;
   /** ISO timestamp set right after a successful login punch — triggers late-note auto prompt. */
   justLoggedInAt: string | null;
   /** Visitor being converted — seeds Add Member wizard identity fields. */
@@ -36,6 +37,7 @@ type UiState = {
   setCommandOpen: (v: boolean) => void;
   setAddMemberOpen: (v: boolean) => void;
   setLateNoteOpen: (v: boolean) => void;
+  setSelfSalaryModalOpen: (v: boolean) => void;
   setJustLoggedInAt: (v: string | null) => void;
   setConvertVisitor: (v: Visitor | null) => void;
   openConvertVisitor: (v: Visitor) => void;
@@ -51,6 +53,7 @@ export const useUiStore = create<UiState>()(
       commandOpen: false,
       addMemberOpen: false,
       lateNoteOpen: false,
+      selfSalaryModalOpen: false,
       justLoggedInAt: null,
       convertVisitor: null,
       favorites: [],
@@ -60,6 +63,7 @@ export const useUiStore = create<UiState>()(
       setCommandOpen: (commandOpen) => set({ commandOpen }),
       setAddMemberOpen: (addMemberOpen) => set({ addMemberOpen }),
       setLateNoteOpen: (lateNoteOpen) => set({ lateNoteOpen }),
+      setSelfSalaryModalOpen: (selfSalaryModalOpen) => set({ selfSalaryModalOpen }),
       setJustLoggedInAt: (justLoggedInAt) => set({ justLoggedInAt }),
       setConvertVisitor: (convertVisitor) => set({ convertVisitor }),
       openConvertVisitor: (visitor) =>

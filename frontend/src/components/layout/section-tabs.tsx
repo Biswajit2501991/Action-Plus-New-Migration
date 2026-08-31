@@ -25,9 +25,12 @@ export function AppSectionTabs() {
   const user = useAuthStore((s) => s.user);
   const { data: settings } = useSettings();
   const setLateNoteOpen = useUiStore((s) => s.setLateNoteOpen);
+  const setSelfSalaryModalOpen = useUiStore((s) => s.setSelfSalaryModalOpen);
 
   const tabs = useMemo(() => visibleSectionTabs(user), [user]);
 
+  const canViewOwnSalary =
+    Boolean(user) && (user?.__owner || hasAccess(user, "dashboard", "viewOwnSalary"));
   const notesEnabled = isAttendanceNotesEnabled(settings as Record<string, unknown>);
   const canLateNote =
     Boolean(user) && notesEnabled && hasAccess(user, "attendance", "submitOwnLateNote");
@@ -101,6 +104,15 @@ export function AppSectionTabs() {
             </Link>
           );
         })}
+        {canViewOwnSalary ? (
+          <button
+            type="button"
+            onClick={() => setSelfSalaryModalOpen(true)}
+            className="ml-0.5 inline-flex h-9 shrink-0 items-center rounded-xl border border-indigo-200/80 bg-indigo-50/80 px-3 text-[11px] font-semibold text-indigo-900 transition hover:bg-indigo-100 dark:border-indigo-500/25 dark:bg-indigo-950/35 dark:text-indigo-200 dark:hover:bg-indigo-950/55"
+          >
+            Auto Salary Calculator
+          </button>
+        ) : null}
         {canLateNote ? (
           <button
             type="button"

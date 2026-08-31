@@ -2,6 +2,7 @@ import { apiFetch } from "@/services/api/client";
 import type {
   GymHoliday,
   MonthlySalaryCalculatorResponse,
+  MySalaryCalculatorResponse,
   SalaryManualOverride,
   StaffSalaryProfile,
 } from "@/types";
@@ -68,6 +69,16 @@ export const salaryCalculatorApi = {
     if (params.gymCodeId) q.set("gymCodeId", params.gymCodeId);
     return apiFetch<MonthlySalaryCalculatorResponse>(
       `/salary-calculator/monthly-report?${q.toString()}`,
+    );
+  },
+
+  getMyReport: (params?: { year?: number; month?: number }) => {
+    const q = new URLSearchParams();
+    if (params?.year) q.set("year", String(params.year));
+    if (params?.month) q.set("month", String(params.month));
+    const qs = q.toString();
+    return apiFetch<MySalaryCalculatorResponse>(
+      `/salary-calculator/my-report${qs ? `?${qs}` : ""}`,
     );
   },
 };

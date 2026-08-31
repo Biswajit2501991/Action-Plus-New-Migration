@@ -36,6 +36,7 @@ import { AddMemberHost } from "@/features/members/add-member-host";
 import { HistoryControls } from "@/components/layout/history-controls";
 import { NotificationCenter } from "@/features/notifications/notification-center";
 import { LateArrivalNoteHost } from "@/features/attendance/late-arrival-note-host";
+import { StaffSelfSalaryHost } from "@/features/staff/auto-salary-calculator/staff-self-salary-host";
 import { MobileAccessGuard } from "@/components/layout/mobile-access-guard";
 import { MembersTodayVisitorBadge } from "@/components/layout/members-today-visitor-badge";
 
@@ -52,7 +53,13 @@ export function MobileShell({ children }: { children: React.ReactNode }) {
   const { user, changeBranch, isAuthenticated } = useAuth();
   const { data: gymCodes } = useGymCodes();
   const { data: settings } = useSettings();
-  const { setCommandOpen, addMemberOpen, setAddMemberOpen, setLateNoteOpen } = useUiStore();
+  const {
+    setCommandOpen,
+    addMemberOpen,
+    setAddMemberOpen,
+    setLateNoteOpen,
+    setSelfSalaryModalOpen,
+  } = useUiStore();
   const { setTheme, resolvedTheme } = useTheme();
 
   const brand = useMemo(
@@ -72,6 +79,8 @@ export function MobileShell({ children }: { children: React.ReactNode }) {
 
   const tabs = MOBILE_TABS.filter((t) => hasAccess(user, "mobile", t.mobileKey));
   const showMore = hasAccess(user, "mobile", "viewMore");
+  const canViewOwnSalary =
+    Boolean(user) && (user?.__owner || hasAccess(user, "dashboard", "viewOwnSalary"));
   const notesEnabled = isAttendanceNotesEnabled(settings as Record<string, unknown>);
   const canLateNote =
     Boolean(user) &&
@@ -155,15 +164,26 @@ export function MobileShell({ children }: { children: React.ReactNode }) {
             </Select>
           ) : null}
         </div>
-        {canLateNote ? (
-          <div className="mt-2">
-            <button
-              type="button"
-              onClick={() => setLateNoteOpen(true)}
-              className="inline-flex h-9 items-center rounded-xl border border-amber-200/80 bg-amber-50/80 px-3 text-[11px] font-semibold text-amber-900 transition hover:bg-amber-100 dark:border-amber-500/25 dark:bg-amber-950/35 dark:text-amber-200 dark:hover:bg-amber-950/55"
-            >
-              Add Late Note
-            </button>
+        {(canViewOwnSalary || canLateNote) ? (
+          <div className="mt-2 flex flex-wrap items-center gap-2">
+            {canViewOwnSalary ? (
+              <button
+                type="button"
+                onClick={() => setSelfSalaryModalOpen(true)}
+                className="inline-flex h-9 items-center rounded-xl border border-indigo-200/80 bg-indigo-50/80 px-3 text-[11px] font-semibold text-indigo-900 transition hover:bg-indigo-100 dark:border-indigo-500/25 dark:bg-indigo-950/35 dark:text-indigo-200 dark:hover:bg-indigo-950/55"
+              >
+                Auto Salary Calculator
+              </button>
+            ) : null}
+            {canLateNote ? (
+              <button
+                type="button"
+                onClick={() => setLateNoteOpen(true)}
+                className="inline-flex h-9 items-center rounded-xl border border-amber-200/80 bg-amber-50/80 px-3 text-[11px] font-semibold text-amber-900 transition hover:bg-amber-100 dark:border-amber-500/25 dark:bg-amber-950/35 dark:text-amber-200 dark:hover:bg-amber-950/55"
+              >
+                Add Late Note
+              </button>
+            ) : null}
           </div>
         ) : null}
       </header>
@@ -216,6 +236,7 @@ export function MobileShell({ children }: { children: React.ReactNode }) {
       <CommandPalette />
       <AddMemberHost />
       <LateArrivalNoteHost />
+      <StaffSelfSalaryHost />
     </div>
   );
 }

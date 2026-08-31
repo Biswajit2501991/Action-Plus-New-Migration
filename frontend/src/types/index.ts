@@ -450,6 +450,23 @@ export type MonthlySalaryCalculatorResponse = {
   holidays: GymHoliday[];
 };
 
+export type MySalaryCalculatorResponse = {
+  ok: boolean;
+  year: number;
+  month: number;
+  startDate: string;
+  endDate: string;
+  report: StaffMonthlySalaryReport;
+  summary: {
+    monthlySalary: number;
+    totalLatenessDeductions: number;
+    totalAbsenceDeductions: number;
+    netPayableSalary: number;
+    totalLateDays: number;
+  };
+  holidays: GymHoliday[];
+};
+
 export type FinanceSummary = {
   collectedRevenue?: number;
   expense?: number;

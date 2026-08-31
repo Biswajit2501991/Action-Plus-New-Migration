@@ -273,4 +273,24 @@ describe('Salary Calculator Unit Tests', () => {
     expect(settings.holidays.some((h) => h.date === '2026-08-15')).toBe(true);
     expect(settings.overrides.some((o) => o.staffLoginId === 'raja' && o.date === '2026-08-05')).toBe(true);
   });
+
+  it('correctly handles viewOwnSalary permissions and Access.salaryReadOwn rule', async () => {
+    const { normalizeAccess, Access } = await import('../backend/src/auth/accessControl.js');
+
+    // Default access should have viewOwnSalary: false
+    const defaultNormalized = normalizeAccess({});
+    expect(defaultNormalized.dashboard.viewOwnSalary).toBe(false);
+    expect(Access.salaryReadOwn(defaultNormalized)).toBe(false);
+
+    // Explicitly enabled viewOwnSalary
+    const grantedNormalized = normalizeAccess({
+      dashboard: { viewOwnSalary: true },
+    });
+    expect(grantedNormalized.dashboard.viewOwnSalary).toBe(true);
+    expect(Access.salaryReadOwn(grantedNormalized)).toBe(true);
+
+    // Owner should always have access
+    const ownerAccess = { __owner: true };
+    expect(Access.salaryReadOwn(ownerAccess)).toBe(true);
+  });
 });

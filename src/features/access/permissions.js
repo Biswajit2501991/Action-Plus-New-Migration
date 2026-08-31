@@ -22,6 +22,7 @@ export const DASHBOARD_CHILD_PERMISSIONS = [
   { key: 'viewRevenueMonthly', label: 'Total Revenue (Monthly)' },
   { key: 'viewRevenueTrend', label: 'Revenue' },
   { key: 'viewMembershipTrends', label: 'Membership Trends' },
+  { key: 'viewOwnSalary', label: 'Auto Salary Calculator (Self View — Own salary only)' },
 ];
 
 export const FINANCE_CHILD_PERMISSIONS = [
@@ -137,6 +138,7 @@ export const DEFAULT_ACCESS = {
     viewRevenueMonthly: true,
     viewRevenueTrend: true,
     viewMembershipTrends: true,
+    viewOwnSalary: false,
   },
   finance: {
     viewRevenueAutoMembers: true,
@@ -283,6 +285,7 @@ export function normalizeAccess(access) {
       viewRevenueMonthly: access?.dashboard?.viewRevenueMonthly !== false,
       viewRevenueTrend: access?.dashboard?.viewRevenueTrend !== false,
       viewMembershipTrends: access?.dashboard?.viewMembershipTrends !== false,
+      viewOwnSalary: access?.dashboard?.viewOwnSalary === true,
     },
     finance: {
       viewRevenueAutoMembers: access?.finance?.viewRevenueAutoMembers !== false,
