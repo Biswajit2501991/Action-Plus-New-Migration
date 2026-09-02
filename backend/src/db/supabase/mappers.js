@@ -14,7 +14,9 @@ export const MEMBER_LIST_COLUMNS = [
   'parent_guardian_dob', 'family_group_id', 'family_primary_member_id', 'last_sms_sent_json',
   'updated_by', 'assigned_gym_code_id', 'created_at', 'updated_at',
   'photo_version', 'photo_path', 'photo_url',
-  'member_uuid', 'portal_enabled', 'portal_workout_plan_enabled', 'portal_workout_plan_hidden', 'portal_status', 'qr_token', 'pin_hash',
+  'member_uuid', 'portal_enabled', 'portal_workout_plan_enabled', 'portal_workout_plan_hidden',
+  'portal_workout_plan_enabled_from', 'portal_workout_plan_enabled_until',
+  'portal_status', 'qr_token', 'pin_hash',
   'portal_activated_at', 'last_portal_login_at',
 ].join(',');
 
@@ -72,6 +74,8 @@ export function memberRowToApp(row, children = {}, options = {}) {
     portalEnabled: row.portal_enabled !== false,
     portalWorkoutPlanEnabled: row.portal_workout_plan_enabled === true,
     portalWorkoutPlanHidden: row.portal_workout_plan_hidden === true,
+    portalWorkoutPlanEnabledFrom: row.portal_workout_plan_enabled_from || null,
+    portalWorkoutPlanEnabledUntil: row.portal_workout_plan_enabled_until || null,
     portalStatus: row.portal_status || 'pending',
     portalActivatedAt: row.portal_activated_at || null,
     lastPortalLoginAt: row.last_portal_login_at || null,
@@ -202,6 +206,12 @@ export function appMemberToRow(m, gymId, options = {}) {
   }
   if (Object.prototype.hasOwnProperty.call(m, 'portalWorkoutPlanHidden')) {
     row.portal_workout_plan_hidden = Boolean(m.portalWorkoutPlanHidden);
+  }
+  if (Object.prototype.hasOwnProperty.call(m, 'portalWorkoutPlanEnabledFrom')) {
+    row.portal_workout_plan_enabled_from = toDate(m.portalWorkoutPlanEnabledFrom) || null;
+  }
+  if (Object.prototype.hasOwnProperty.call(m, 'portalWorkoutPlanEnabledUntil')) {
+    row.portal_workout_plan_enabled_until = toDate(m.portalWorkoutPlanEnabledUntil) || null;
   }
   if (Object.prototype.hasOwnProperty.call(m, 'portalStatus')) {
     const st = String(m.portalStatus || 'pending').trim().toLowerCase();

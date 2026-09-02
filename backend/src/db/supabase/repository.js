@@ -1097,6 +1097,8 @@ const MEMBER_PATCH_KEY_MAP = {
   portalEnabled: 'portal_enabled',
   portalWorkoutPlanEnabled: 'portal_workout_plan_enabled',
   portalWorkoutPlanHidden: 'portal_workout_plan_hidden',
+  portalWorkoutPlanEnabledFrom: 'portal_workout_plan_enabled_from',
+  portalWorkoutPlanEnabledUntil: 'portal_workout_plan_enabled_until',
   portalStatus: 'portal_status',
 };
 

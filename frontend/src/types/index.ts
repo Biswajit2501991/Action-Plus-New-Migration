@@ -43,6 +43,10 @@ export type Member = {
   portalWorkoutPlanEnabled?: boolean;
   /** Staff explicitly hid Workout Plan (overrides auto rollout). */
   portalWorkoutPlanHidden?: boolean;
+  /** Optional inclusive start date (YYYY-MM-DD) for Workout Plan tile visibility. */
+  portalWorkoutPlanEnabledFrom?: string | null;
+  /** Optional inclusive end date (YYYY-MM-DD); tile auto-hides after this day (IST). */
+  portalWorkoutPlanEnabledUntil?: string | null;
   portalStatus?: string;
   portalActivatedAt?: string | null;
   lastPortalLoginAt?: string | null;

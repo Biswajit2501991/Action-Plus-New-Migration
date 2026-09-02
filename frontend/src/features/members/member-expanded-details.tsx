@@ -4,8 +4,8 @@ import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { MessageCircle, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { Select } from "@/components/ui/input";
-import { paymentByDateKey, localCalendarDateKey, inactiveDurationLabel, isHoldOrDeactivated, monthsBetweenCalendarDates } from "@/lib/domain/billing";
+import { Input, Select } from "@/components/ui/input";
+import { paymentByDateKey, localCalendarDateKey, localTodayCalendarKey, inactiveDurationLabel, isHoldOrDeactivated, monthsBetweenCalendarDates } from "@/lib/domain/billing";
 import { familyMembersInGroup } from "@/lib/domain/family-link";
 import { nextPaymentDateFromBillingDate } from "@/lib/domain/member-dates";
 import { getSmsSentInfoText, primaryMessageActionForMember } from "@/lib/domain/member-actions";
@@ -21,6 +21,11 @@ import {
   isCustomTemplatesEnabled,
   memberProfileCustomTemplateActions,
 } from "@/lib/domain/custom-templates";
+import {
+  normalizeWorkoutPlanScheduleDate,
+  validateWorkoutPlanScheduleRange,
+  workoutPlanScheduleStatusLabel,
+} from "@/lib/domain/portal-workout-plan-schedule";
 
 type DetailsViewMode = "full" | "compact";
 /** Built-in keys plus `custom:{code}` for WhatsApp Template buttons. */
@@ -548,10 +553,21 @@ export function MemberExpandedDetails({
   const [workoutPlanOn, setWorkoutPlanOn] = useState(
     m.portalWorkoutPlanEnabled === true && m.portalWorkoutPlanHidden !== true,
   );
+  const [workoutPlanFrom, setWorkoutPlanFrom] = useState(
+    normalizeWorkoutPlanScheduleDate(m.portalWorkoutPlanEnabledFrom),
+  );
+  const [workoutPlanUntil, setWorkoutPlanUntil] = useState(
+    normalizeWorkoutPlanScheduleDate(m.portalWorkoutPlanEnabledUntil),
+  );
 
   useEffect(() => {
     setWorkoutPlanOn(m.portalWorkoutPlanEnabled === true && m.portalWorkoutPlanHidden !== true);
   }, [m.memberId, m.portalWorkoutPlanEnabled, m.portalWorkoutPlanHidden]);
+
+  useEffect(() => {
+    setWorkoutPlanFrom(normalizeWorkoutPlanScheduleDate(m.portalWorkoutPlanEnabledFrom));
+    setWorkoutPlanUntil(normalizeWorkoutPlanScheduleDate(m.portalWorkoutPlanEnabledUntil));
+  }, [m.memberId, m.portalWorkoutPlanEnabledFrom, m.portalWorkoutPlanEnabledUntil]);
 
   const { data: referralInfo } = useQuery({
     queryKey: ["member-referral-credits", m.memberId],
@@ -563,6 +579,48 @@ export function MemberExpandedDetails({
   const referredByCode = String(referralInfo?.referredBy?.code || "").trim();
 
   const canWhatsApp = Boolean(String(m.mobile || "").trim());
+
+  const workoutPlanScheduleStatus = workoutPlanScheduleStatusLabel({
+    enabledFrom: workoutPlanFrom || m.portalWorkoutPlanEnabledFrom,
+    enabledUntil: workoutPlanUntil || m.portalWorkoutPlanEnabledUntil,
+    todayYmd: localTodayCalendarKey(),
+  });
+
+  const saveWorkoutPlanSchedule = async (from: string, until: string) => {
+    const rangeError = validateWorkoutPlanScheduleRange(from, until);
+    if (rangeError) {
+      setPortalMsg(rangeError);
+      return;
+    }
+    setPortalBusy(true);
+    setPortalMsg(null);
+    try {
+      const res = await membersApi.patch(String(m.memberId), {
+        portalWorkoutPlanEnabledFrom: from || null,
+        portalWorkoutPlanEnabledUntil: until || null,
+      });
+      if (res.member) {
+        setWorkoutPlanFrom(
+          normalizeWorkoutPlanScheduleDate(res.member.portalWorkoutPlanEnabledFrom),
+        );
+        setWorkoutPlanUntil(
+          normalizeWorkoutPlanScheduleDate(res.member.portalWorkoutPlanEnabledUntil),
+        );
+      }
+      await queryClient.invalidateQueries({ queryKey: ["members"] });
+      setPortalMsg(
+        from || until
+          ? "Workout Plan schedule saved"
+          : "Workout Plan schedule cleared (no date limit)",
+      );
+    } catch (err) {
+      setWorkoutPlanFrom(normalizeWorkoutPlanScheduleDate(m.portalWorkoutPlanEnabledFrom));
+      setWorkoutPlanUntil(normalizeWorkoutPlanScheduleDate(m.portalWorkoutPlanEnabledUntil));
+      setPortalMsg(err instanceof Error ? err.message : "Schedule update failed");
+    } finally {
+      setPortalBusy(false);
+    }
+  };
 
   /** Per-member portal login gate (independent of Settings home-tile toggles). */
   const setPortalAccess = async (enabled: boolean) => {
@@ -1099,6 +1157,7 @@ export function MemberExpandedDetails({
                   Turn on to show Workout Plan for this member (must match Workout Plan by status).
                   Works for Basic and PT — PT is off by default until you enable this. Turn off to
                   hide even when auto rollout is on. Training tile is separate and unchanged.
+                  Optional dates auto-hide the tile after the end date (portal uses IST).
                 </span>
               </span>
               <input
@@ -1143,6 +1202,74 @@ export function MemberExpandedDetails({
                 }}
               />
             </label>
+          ) : null}
+          {canEdit ? (
+            <div className="rounded-lg border border-border/70 bg-muted/20 p-3">
+              <div className="font-semibold">Workout Plan schedule (optional)</div>
+              <p className="mt-1 text-muted-foreground">
+                Leave both empty for no date limit. After the end date the tile hides automatically
+                on the member portal (progress is kept).
+              </p>
+              <div className="mt-3 grid gap-3 sm:grid-cols-2">
+                <label className="block space-y-1">
+                  <span className="text-muted-foreground">Show from</span>
+                  <Input
+                    type="date"
+                    value={workoutPlanFrom}
+                    disabled={portalBusy}
+                    onChange={(e) => setWorkoutPlanFrom(e.target.value)}
+                    className="h-9 text-xs"
+                  />
+                </label>
+                <label className="block space-y-1">
+                  <span className="text-muted-foreground">Show until</span>
+                  <Input
+                    type="date"
+                    value={workoutPlanUntil}
+                    disabled={portalBusy}
+                    onChange={(e) => setWorkoutPlanUntil(e.target.value)}
+                    className="h-9 text-xs"
+                  />
+                </label>
+              </div>
+              {workoutPlanScheduleStatus ? (
+                <p className="mt-2 text-[10px] font-medium text-indigo-700 dark:text-indigo-300">
+                  {workoutPlanScheduleStatus}
+                </p>
+              ) : null}
+              <div className="mt-3 flex flex-wrap gap-2">
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="outline"
+                  disabled={portalBusy}
+                  onClick={() =>
+                    void saveWorkoutPlanSchedule(workoutPlanFrom, workoutPlanUntil)
+                  }
+                >
+                  Save schedule
+                </Button>
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="ghost"
+                  disabled={
+                    portalBusy ||
+                    (!workoutPlanFrom &&
+                      !workoutPlanUntil &&
+                      !m.portalWorkoutPlanEnabledFrom &&
+                      !m.portalWorkoutPlanEnabledUntil)
+                  }
+                  onClick={() => {
+                    setWorkoutPlanFrom("");
+                    setWorkoutPlanUntil("");
+                    void saveWorkoutPlanSchedule("", "");
+                  }}
+                >
+                  Clear dates
+                </Button>
+              </div>
+            </div>
           ) : null}
           {canEdit ? (
             <div className="flex flex-wrap gap-2">
