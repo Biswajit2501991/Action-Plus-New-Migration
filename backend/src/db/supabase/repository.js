@@ -3220,8 +3220,19 @@ async function readLogs(scope, options = {}, branchScope = null) {
   const limit = Math.min(Math.max(Number(options.limit) || 500, 1), 50000);
   const offset = Math.max(Number(options.offset) || 0, 0);
   const days = Math.min(Math.max(Number(options.days) || 90, 1), 2555);
-  const startIso = toTs(options.startDate);
-  const endIso = toTs(options.endDate);
+  // Date-only YYYY-MM-DD → inclusive IST day bounds (avoids UTC-midnight truncating end day).
+  const auditBoundIso = (value, endOfDay = false) => {
+    const raw = String(value || '').trim();
+    if (!raw) return null;
+    if (/^\d{4}-\d{2}-\d{2}$/.test(raw)) {
+      const suffix = endOfDay ? 'T23:59:59.999+05:30' : 'T00:00:00.000+05:30';
+      const d = new Date(`${raw}${suffix}`);
+      return Number.isNaN(d.getTime()) ? null : d.toISOString();
+    }
+    return toTs(raw);
+  };
+  const startIso = auditBoundIso(options.startDate, false);
+  const endIso = auditBoundIso(options.endDate, true);
   const pageSize = 1000;
 
   const buildPagedQuery = () => {

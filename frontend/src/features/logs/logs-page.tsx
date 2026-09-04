@@ -21,6 +21,13 @@ import {
   logTimestamp,
   prettyDiffValue,
 } from "@/lib/domain/audit-logs";
+import {
+  defaultLogsFetchRange,
+  logsRangeLabel,
+  resolveLogsFetchRange,
+  validateLogsCustomRange,
+  type LogsRangePreset,
+} from "@/lib/domain/logs-range";
 import { hasAccess, isMasterOwnerUser } from "@/lib/domain/permissions";
 import { useAuthStore } from "@/stores";
 import type { AuditLog } from "@/types";
@@ -46,7 +53,6 @@ function formatLogTime(value?: string) {
 export function LogsPage() {
   const user = useAuthStore((s) => s.user);
   const qc = useQueryClient();
-  const { data: logs = [], isLoading, isFetching, refetch } = useLogs();
 
   const canView = hasAccess(user, "logs", "viewLogs");
   const canExport = hasAccess(user, "logs", "exportLogs");
@@ -54,17 +60,22 @@ export function LogsPage() {
   const isOwner = isMasterOwnerUser(user);
 
   const todayIso = isoDate();
-  const sevenDaysAgoIso = (() => {
-    const d = new Date();
-    d.setDate(d.getDate() - 7);
-    return isoDate(d);
-  })();
+  const defaultRange = useMemo(() => defaultLogsFetchRange(), []);
+  const sevenDaysAgoIso = defaultRange.startDate.slice(0, 10);
 
   const [filter, setFilter] = useState("");
   const [actorFilter, setActorFilter] = useState("");
   const [actionFilter, setActionFilter] = useState("");
   const [entityFilter, setEntityFilter] = useState("");
-  const [timeRange, setTimeRange] = useState("all");
+  const [preset, setPreset] = useState<LogsRangePreset>("7d");
+  const [customDraft, setCustomDraft] = useState({
+    start: defaultRange.startDate.slice(0, 10),
+    end: defaultRange.endDate.slice(0, 10),
+  });
+  const [appliedCustom, setAppliedCustom] = useState({
+    start: defaultRange.startDate.slice(0, 10),
+    end: defaultRange.endDate.slice(0, 10),
+  });
   const [page, setPage] = useState(1);
   const [expandedId, setExpandedId] = useState("");
   const [expandedDetail, setExpandedDetail] = useState<
@@ -79,12 +90,22 @@ export function LogsPage() {
     endDate?: string;
   } | null>(null);
 
-  const sinceTs = useMemo(() => {
-    if (timeRange === "24h") return Date.now() - 24 * 60 * 60 * 1000;
-    if (timeRange === "7d") return Date.now() - 7 * 24 * 60 * 60 * 1000;
-    if (timeRange === "30d") return Date.now() - 30 * 24 * 60 * 60 * 1000;
-    return 0;
-  }, [timeRange]);
+  const fetchRange = useMemo(
+    () => resolveLogsFetchRange(preset, appliedCustom),
+    [preset, appliedCustom],
+  );
+
+  const {
+    data: logs = [],
+    isLoading,
+    isFetching,
+    isPending,
+    refetch,
+  } = useLogs({
+    startDate: fetchRange.startDate,
+    endDate: fetchRange.endDate,
+    enabled: canView,
+  });
 
   const actors = useMemo(
     () => Array.from(new Set(logs.map((l) => logActor(l)).filter((v) => v && v !== "system"))),
@@ -102,8 +123,6 @@ export function LogsPage() {
   const filtered = useMemo(() => {
     const q = filter.toLowerCase().trim();
     return dedupeAuditLogs(logs).filter((l) => {
-      const ts = logTimestamp(l);
-      if (sinceTs && ts && new Date(ts).getTime() < sinceTs) return false;
       if (actorFilter && logActor(l) !== actorFilter) return false;
       if (actionFilter && l.action !== actionFilter) return false;
       if (entityFilter && l.entityType !== entityFilter) return false;
@@ -120,11 +139,11 @@ export function LogsPage() {
         .toLowerCase();
       return blob.includes(q);
     });
-  }, [logs, filter, actorFilter, actionFilter, entityFilter, sinceTs]);
+  }, [logs, filter, actorFilter, actionFilter, entityFilter]);
 
   useEffect(() => {
     setPage(1);
-  }, [filter, actorFilter, actionFilter, entityFilter, timeRange, logs.length]);
+  }, [filter, actorFilter, actionFilter, entityFilter, fetchRange.startDate, fetchRange.endDate]);
 
   const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
   const safePage = page > totalPages ? 1 : page;
@@ -198,6 +217,19 @@ export function LogsPage() {
     onError: (e: Error) => toast.error(e.message),
   });
 
+  const applyCustomRange = () => {
+    const err = validateLogsCustomRange(customDraft.start, customDraft.end);
+    if (err) {
+      toast.error(err);
+      return;
+    }
+    setAppliedCustom({
+      start: customDraft.start.slice(0, 10),
+      end: customDraft.end.slice(0, 10),
+    });
+    setPreset("custom");
+  };
+
   const exportCsv = () => {
     if (!canExport) return;
     const header = ["Time", "Actor", "Action", "Entity Type", "Entity ID", "Before", "After"];
@@ -224,13 +256,15 @@ export function LogsPage() {
     );
   }
 
-  if (isLoading) return <Skeleton className="h-96" />;
+  if (isPending && !logs.length) return <Skeleton className="h-96" />;
 
   return (
     <div className="space-y-5">
       <PageHeader
         title="Audit Command Center"
-        description={`Log Health: Operational · Total (${timeRange}): ${filtered.length} · Security Alerts: ${alertCount}`}
+        description={`Log Health: Operational · ${logsRangeLabel(fetchRange)}: ${filtered.length} · Security Alerts: ${alertCount}${
+          isFetching && !isLoading ? " · Updating…" : ""
+        }`}
         actions={
           <>
             <Button
@@ -310,13 +344,55 @@ export function LogsPage() {
               </option>
             ))}
           </Select>
-          <Select value={timeRange} onChange={(e) => setTimeRange(e.target.value)}>
-            <option value="all">All time</option>
+          <Select
+            value={preset}
+            onChange={(e) => {
+              const next = e.target.value as LogsRangePreset;
+              setPreset(next);
+              if (next !== "custom") {
+                const resolved = resolveLogsFetchRange(next);
+                setCustomDraft({
+                  start: String(resolved.startDate).slice(0, 10),
+                  end: String(resolved.endDate).slice(0, 10),
+                });
+              }
+            }}
+          >
             <option value="24h">Last 24 hours</option>
             <option value="7d">Last 7 days</option>
             <option value="30d">Last 30 days</option>
+            <option value="custom">Custom range</option>
           </Select>
         </CardContent>
+        {preset === "custom" ? (
+          <CardContent className="flex flex-wrap items-end gap-2 border-t border-slate-100 px-4 pb-4 pt-0 dark:border-border">
+            <label className="text-xs">
+              From
+              <Input
+                type="date"
+                className="mt-1"
+                value={customDraft.start}
+                onChange={(e) => setCustomDraft((r) => ({ ...r, start: e.target.value }))}
+              />
+            </label>
+            <label className="text-xs">
+              To
+              <Input
+                type="date"
+                className="mt-1"
+                value={customDraft.end}
+                onChange={(e) => setCustomDraft((r) => ({ ...r, end: e.target.value }))}
+              />
+            </label>
+            <Button size="sm" variant="outline" onClick={applyCustomRange}>
+              Apply range
+            </Button>
+            <p className="w-full text-[11px] text-muted-foreground">
+              Fetches only this window from the server (max 90 days). Actor / action filters apply
+              after load.
+            </p>
+          </CardContent>
+        ) : null}
       </Card>
 
       <Card className="overflow-hidden border-slate-200 shadow-sm dark:border-border">

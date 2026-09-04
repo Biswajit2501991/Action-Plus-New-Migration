@@ -5,12 +5,14 @@ import { useEffect, useRef } from "react";
 import {
   financeApi,
   gymCodesApi,
+  logsApi,
   membersApi,
   settingsApi,
   usersApi,
 } from "@/services/api";
 import { formatMonthKey } from "@/lib/utils";
 import { STALE } from "@/lib/query-cache";
+import { defaultLogsFetchRange, LOGS_RANGE_FETCH_LIMIT } from "@/lib/domain/logs-range";
 import { useAuthStore } from "@/stores";
 
 /**
@@ -33,6 +35,7 @@ export function useWarmAppDataCache(enabled: boolean) {
     warmed.current = true;
 
     const month = formatMonthKey();
+    const logsWindow = defaultLogsFetchRange();
     void Promise.allSettled([
       qc.prefetchQuery({
         queryKey: ["members", branchId],
@@ -63,6 +66,16 @@ export function useWarmAppDataCache(enabled: boolean) {
           ]);
           return { transactions: list, summary };
         },
+        staleTime: STALE.finance,
+      }),
+      qc.prefetchQuery({
+        queryKey: ["logs", logsWindow.startDate, logsWindow.endDate],
+        queryFn: () =>
+          logsApi.listAll({
+            startDate: logsWindow.startDate,
+            endDate: logsWindow.endDate,
+            limit: LOGS_RANGE_FETCH_LIMIT,
+          }),
         staleTime: STALE.finance,
       }),
     ]);

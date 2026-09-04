@@ -21,6 +21,7 @@ import {
   attendanceTodayCalendarKey,
 } from "@/lib/domain/attendance";
 import { calendarDateKeyInTimeZone } from "@/lib/domain/today-visitors-nav";
+import { LOGS_RANGE_FETCH_LIMIT } from "@/lib/domain/logs-range";
 
 export function useMembers() {
   const user = useAuthStore((s) => s.user);
@@ -117,13 +118,26 @@ export function useFinanceYearSummary(year?: number) {
   });
 }
 
-export function useLogs() {
+export function useLogs(opts?: {
+  startDate?: string;
+  endDate?: string;
+  enabled?: boolean;
+}) {
   const authed = Boolean(useAuthStore((s) => s.user));
+  const startDate = String(opts?.startDate || "").trim();
+  const endDate = String(opts?.endDate || "").trim();
+  const rangeReady = Boolean(startDate && endDate);
   return useQuery({
-    queryKey: ["logs"],
-    queryFn: () => logsApi.listAll(),
-    enabled: authed,
-    staleTime: STALE.volatile,
+    queryKey: ["logs", startDate, endDate],
+    queryFn: () =>
+      logsApi.listAll({
+        startDate,
+        endDate,
+        limit: LOGS_RANGE_FETCH_LIMIT,
+      }),
+    enabled: authed && rangeReady && opts?.enabled !== false,
+    staleTime: STALE.finance,
+    placeholderData: (prev) => prev,
   });
 }
 

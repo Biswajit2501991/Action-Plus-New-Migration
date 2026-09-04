@@ -534,18 +534,32 @@ export const logsApi = {
     days?: number;
     limit?: number;
     offset?: number;
+    startDate?: string;
+    endDate?: string;
   }) => {
     const q = new URLSearchParams();
     q.set("view", params?.view || "list");
-    q.set("days", String(params?.days ?? 2555));
+    if (params?.startDate) q.set("startDate", params.startDate);
+    if (params?.endDate) q.set("endDate", params.endDate);
+    // Only send days when no explicit window — avoids accidental wide pulls.
+    if (!params?.startDate && !params?.endDate) {
+      q.set("days", String(params?.days ?? 7));
+    }
     q.set("limit", String(params?.limit ?? AUDIT_LOGS_LIST_LIMIT));
     if (params?.offset != null) q.set("offset", String(params.offset));
     return apiFetch<AuditLog[]>(`/logs?${q.toString()}`);
   },
-  /** Paginated fetch matching prod Audit Command Center load. */
-  listAll: async (opts?: { days?: number; limit?: number }) => {
+  /** Paginated fetch for a scoped window (prefer startDate/endDate). */
+  listAll: async (opts?: {
+    days?: number;
+    limit?: number;
+    startDate?: string;
+    endDate?: string;
+  }) => {
     const requestedLimit = Math.min(opts?.limit ?? AUDIT_LOGS_LIST_LIMIT, 50000);
-    const days = opts?.days ?? 2555;
+    const days = opts?.days ?? 7;
+    const startDate = opts?.startDate ? String(opts.startDate).trim() : undefined;
+    const endDate = opts?.endDate ? String(opts.endDate).trim() : undefined;
     const pageSize = AUDIT_LOGS_PAGE_SIZE;
     const maxPages = Math.ceil(requestedLimit / pageSize) + 1;
     let offset = 0;
@@ -555,6 +569,8 @@ export const logsApi = {
       const batch = await logsApi.list({
         view: "list",
         days,
+        startDate,
+        endDate,
         limit: pageSize,
         offset,
       });
