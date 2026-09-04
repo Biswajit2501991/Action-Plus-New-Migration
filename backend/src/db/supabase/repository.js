@@ -3502,6 +3502,32 @@ function attendanceRowToApp(r) {
   };
 }
 
+/** Prefer newest row when accidental duplicate staff+day rows exist (maybeSingle throws PGRST116). */
+function pickFirstAttendanceRow(rows) {
+  return Array.isArray(rows) && rows.length ? rows[0] : null;
+}
+
+/**
+ * One staff + attendance day — never use maybeSingle here (duplicates → punch/logout toast).
+ * Prefer newest updated_at; keep first_login preference for stable day summary when ordered in SQL.
+ */
+async function findStaffAttendanceDayRow(sb, gid, { staffLoginId, attendanceDate, columns = '*' }) {
+  const uid = String(staffLoginId || '').trim();
+  const day = String(attendanceDate || '').slice(0, 10);
+  if (!uid || !day) return null;
+  const { data, error } = await sb
+    .from(T.staff_attendance_records)
+    .select(columns)
+    .eq('gym_id', gid)
+    .eq('staff_login_id', uid)
+    .eq('attendance_date', day)
+    .order('updated_at', { ascending: false })
+    .order('id', { ascending: false })
+    .limit(1);
+  if (error) throw error;
+  return pickFirstAttendanceRow(data);
+}
+
 async function upsertAttendanceRow(sb, gid, appRecord) {
   const row = attendanceAppToRow(gid, appRecord);
   const { error } = await sb.from(T.staff_attendance_records).upsert(row, {
@@ -3511,15 +3537,15 @@ async function upsertAttendanceRow(sb, gid, appRecord) {
   // Preserve internal row id to avoid cascading deletes in child tables (attendance_notes FK).
   const patch = { ...row };
   delete patch.created_at;
-  const { data: updated, error: updErr } = await sb
+  const { data: updatedRows, error: updErr } = await sb
     .from(T.staff_attendance_records)
     .update(patch)
     .eq('gym_id', gid)
     .eq('external_record_id', row.external_record_id)
     .select('id')
-    .maybeSingle();
+    .limit(1);
   if (updErr) throw new Error(`staff_attendance_records: ${updErr.message}`);
-  if (updated?.id) return;
+  if (pickFirstAttendanceRow(updatedRows)?.id) return;
   const { error: insErr } = await sb.from(T.staff_attendance_records).insert(row);
   if (insErr) throw new Error(`staff_attendance_records: ${insErr.message}`);
 }
@@ -3693,18 +3719,23 @@ async function resolveAttendanceInternalId(sb, gid, { externalRecordId, staffLog
       .select('id')
       .eq('gym_id', gid)
       .eq('external_record_id', String(externalRecordId))
-      .maybeSingle();
-    if (!error && data?.id) return data.id;
+      .order('updated_at', { ascending: false })
+      .limit(1);
+    if (!error) {
+      const row = pickFirstAttendanceRow(data);
+      if (row?.id) return row.id;
+    }
   }
-  const { data, error } = await sb
-    .from(T.staff_attendance_records)
-    .select('id')
-    .eq('gym_id', gid)
-    .eq('staff_login_id', String(staffLoginId || '').trim())
-    .eq('attendance_date', String(attendanceDate || '').slice(0, 10))
-    .maybeSingle();
-  if (error) return null;
-  return data?.id || null;
+  try {
+    const row = await findStaffAttendanceDayRow(sb, gid, {
+      staffLoginId,
+      attendanceDate,
+      columns: 'id',
+    });
+    return row?.id || null;
+  } catch {
+    return null;
+  }
 }
 
 /**
@@ -3722,14 +3753,11 @@ export async function punchStaffAttendance(_scope, { userId, punchType, atIso, t
   const actor = actorName || uid;
   const nowIso = at;
 
-  const { data: existing, error: selErr } = await sb
-    .from(T.staff_attendance_records)
-    .select('*')
-    .eq('gym_id', gid)
-    .eq('staff_login_id', uid)
-    .eq('attendance_date', today)
-    .maybeSingle();
-  if (selErr) throw selErr;
+  const existing = await findStaffAttendanceDayRow(sb, gid, {
+    staffLoginId: uid,
+    attendanceDate: today,
+    columns: '*',
+  });
 
   let appRecord;
   if (punchType === 'logout') {
@@ -3869,14 +3897,12 @@ export async function readStaffAttendanceForUserToday(_scope, userId) {
   const uid = String(userId || '').trim();
   if (!uid) return null;
   const today = attendanceTodayCalendarKey() || new Date().toISOString().slice(0, 10);
-  const { data, error } = await sb
-    .from(T.staff_attendance_records)
-    .select(ATTENDANCE_LIST_COLUMNS)
-    .eq('gym_id', gid)
-    .eq('staff_login_id', uid)
-    .eq('attendance_date', today)
-    .maybeSingle();
-  if (error) throw new Error(`staff_attendance_records self today: ${error.message}`);
+  // Duplicate staff+day rows must not throw (PGRST116) — take newest.
+  const data = await findStaffAttendanceDayRow(sb, gid, {
+    staffLoginId: uid,
+    attendanceDate: today,
+    columns: ATTENDANCE_LIST_COLUMNS,
+  });
   return data ? attendanceRowToApp(data) : null;
 }
 
