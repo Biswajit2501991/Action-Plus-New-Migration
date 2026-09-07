@@ -5,12 +5,16 @@
 
 import { requireOwner } from "../middleware/requireOwner.js";
 
+/** Production Member Portal / Gym Website origin (override with MEMBER_PORTAL_SITE_URL). */
+const DEFAULT_PORTAL_SITE_URL = "https://www.actionplusgym.com";
+
 function portalSiteBase() {
   return String(
     process.env.MEMBER_PORTAL_SITE_URL
       || process.env.GYM_WEBSITE_URL
       || process.env.NEXT_PUBLIC_MEMBER_PORTAL_URL
-      || "",
+      || process.env.NEXT_PUBLIC_SITE_URL
+      || DEFAULT_PORTAL_SITE_URL,
   )
     .trim()
     .replace(/\/+$/, "");
@@ -33,7 +37,7 @@ async function callWebsiteBroadcast(method, payload) {
   }
   if (!secret) {
     const err = new Error(
-      "MEMBER_PORTAL_CRON_SECRET is not set on Gym Manager (must match Website).",
+      "MEMBER_PORTAL_CRON_SECRET is not set on Gym Manager (must match Website MEMBER_PORTAL_CRON_SECRET).",
     );
     err.status = 503;
     err.code = "portal-cron-secret-missing";

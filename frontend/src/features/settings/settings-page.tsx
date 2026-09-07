@@ -1239,7 +1239,13 @@ export function SettingsPage() {
   });
 
   const toggleCat = (key: string) =>
-    setOpenCat((prev) => ({ ...prev, [key]: !prev[key] }));
+    setOpenCat((prev) => {
+      const opening = !prev[key];
+      const next: Record<string, boolean> = {};
+      for (const k of Object.keys(prev)) next[k] = false;
+      next[key] = opening;
+      return next;
+    });
 
   const renderLookupCard = (cat: {
     key: LookupKey;
