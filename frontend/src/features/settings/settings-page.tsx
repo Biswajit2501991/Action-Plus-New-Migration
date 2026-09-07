@@ -56,6 +56,7 @@ import { WorkoutPlanVideosPanel } from "@/features/settings/workout-plan-videos-
 import { WorkoutPlanDaysPanel } from "@/features/settings/workout-plan-days-panel";
 import { WorkoutPlanMusicPanel } from "@/features/settings/workout-plan-music-panel";
 import { BranchPortalAccessPanel } from "@/features/settings/branch-portal-access-panel";
+import { PortalPushBroadcastPanel } from "@/features/settings/portal-push-broadcast-panel";
 
 function readFileAsDataUrl(file: File) {
   return new Promise<string>((resolve, reject) => {
@@ -2131,6 +2132,8 @@ export function SettingsPage() {
                 </div>
               </div>
             </div>
+
+            {isOwner ? <PortalPushBroadcastPanel /> : null}
 
             <div className="flex flex-wrap items-center gap-2">
               <Button
