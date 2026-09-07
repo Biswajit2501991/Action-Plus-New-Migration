@@ -197,6 +197,11 @@ export const Access = {
   ptClientsWritePlan: (a) => a.ptClients.editPtPlan !== false,
   paymentQrView: (a) => a.__owner || a.paymentQr?.viewPaymentQr !== false,
   paymentQrManage: (a) => a.__owner || a.paymentQr?.managePaymentSettings === true,
+  /** Per-branch Member Portal soft gates — owner or manageGymBranches. */
+  portalBranchSettingsRead: (a) =>
+    a.__owner || a.settings?.manageGymBranches === true,
+  portalBranchSettingsWrite: (a) =>
+    a.__owner || a.settings?.manageGymBranches === true,
   leaveBalanceView: (a) => a.__owner || a.leave?.viewAnnualLeaveBalance !== false,
   leaveBalanceManage: (a) => a.__owner,
   /** Self-service salary view for staff. */

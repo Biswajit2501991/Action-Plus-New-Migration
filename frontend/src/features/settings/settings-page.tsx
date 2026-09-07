@@ -55,6 +55,7 @@ import {
 import { WorkoutPlanVideosPanel } from "@/features/settings/workout-plan-videos-panel";
 import { WorkoutPlanDaysPanel } from "@/features/settings/workout-plan-days-panel";
 import { WorkoutPlanMusicPanel } from "@/features/settings/workout-plan-music-panel";
+import { BranchPortalAccessPanel } from "@/features/settings/branch-portal-access-panel";
 
 function readFileAsDataUrl(file: File) {
   return new Promise<string>((resolve, reject) => {
@@ -721,6 +722,7 @@ export function SettingsPage() {
     features: false,
     portalAuth: false,
     portalUi: false,
+    portalBranch: false,
     workoutPlan: false,
     business: false,
     member: false,
@@ -2145,6 +2147,21 @@ export function SettingsPage() {
                 </span>
               ) : null}
             </div>
+          </div>
+        </SettingsSectionShell>
+      ) : null}
+
+      {canBranches ? (
+        <SettingsSectionShell
+          title="Member Portal by branch"
+          description="Enable or disable Member Portal and home tiles per branch (soft gates)"
+          open={Boolean(openCat.portalBranch)}
+          onToggle={() => toggleCat("portalBranch")}
+          accent={SECTION_ACCENTS.portal}
+          icon={<Building2 className="h-4 w-4" />}
+        >
+          <div className="rounded-2xl border border-teal-200/70 bg-gradient-to-b from-teal-50/50 to-white p-4 dark:border-teal-900/40 dark:from-teal-950/25 dark:to-card">
+            <BranchPortalAccessPanel gymCodes={gymCodes as GymCode[]} />
           </div>
         </SettingsSectionShell>
       ) : null}

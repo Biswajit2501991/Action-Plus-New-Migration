@@ -576,6 +576,186 @@ export function registerMemberPortalPhase2Routes(app, { appendAuditLog }) {
     }
   });
 
+  /**
+   * Per-branch Member Portal soft gates (owner / manageGymBranches).
+   * Missing row → portal allowed + inherit gym-wide sections.
+   * Does not rewrite members.portal_enabled.
+   */
+  app.get(
+    "/api/portal-branch-settings",
+    requireAccess(Access.portalBranchSettingsRead),
+    async (req, res) => {
+      try {
+        const { getSupabase, gymId } = await import("../db/supabase/client.js");
+        const {
+          loadBranchPortalSettingsRow,
+          isBranchPortalAllowed,
+          effectivePortalSections,
+        } = await import("../lib/memberPortalBranchSettings.js");
+        const { authIsOwner } = await import("../auth/branchFilter.js");
+        const { resolveReadBranchIds } = await import("../auth/tenant/scopedAuth.js");
+        const sb = getSupabase();
+        const gid = gymId() || req.auth?.gymId;
+        if (!sb || !gid) return res.status(500).json({ error: "supabase-unavailable" });
+
+        const gymCodeId = String(
+          req.query?.gymCodeId || req.query?.gym_code_id || "",
+        ).trim();
+        if (!gymCodeId) {
+          return res.status(400).json({ error: "gymCodeId-required" });
+        }
+
+        if (!authIsOwner(req.auth)) {
+          const allowed = resolveReadBranchIds(req.auth);
+          if (Array.isArray(allowed) && allowed.length && !allowed.includes(gymCodeId)) {
+            return res.status(403).json({ error: "branch-forbidden" });
+          }
+        }
+
+        const { data: branch, error: branchErr } = await sb
+          .from("gym_codes")
+          .select("id, code, name, display_name")
+          .eq("gym_id", gid)
+          .eq("id", gymCodeId)
+          .maybeSingle();
+        if (branchErr) return res.status(500).json({ error: branchErr.message });
+        if (!branch) return res.status(404).json({ error: "branch-not-found" });
+
+        const { data: gymWide } = await sb
+          .from("member_portal_settings")
+          .select("portal_sections")
+          .eq("gym_id", gid)
+          .maybeSingle();
+
+        const row = await loadBranchPortalSettingsRow(sb, gid, gymCodeId);
+        const portalSections = effectivePortalSections(
+          gymWide?.portal_sections,
+          row,
+        );
+
+        return res.json({
+          ok: true,
+          gymCodeId,
+          branch: {
+            id: branch.id,
+            code: branch.code,
+            name: branch.display_name || branch.name || branch.code,
+          },
+          hasOverride: Boolean(row),
+          portal_enabled: isBranchPortalAllowed(row),
+          portal_sections: portalSections,
+          inheritsGymWideSections: !row || row.portal_sections == null,
+          updated_at: row?.updated_at || null,
+        });
+      } catch (err) {
+        return res.status(500).json({ error: err?.message || "load-failed" });
+      }
+    },
+  );
+
+  app.put(
+    "/api/portal-branch-settings",
+    requireAccess(Access.portalBranchSettingsWrite),
+    async (req, res) => {
+      try {
+        const { getSupabase, gymId } = await import("../db/supabase/client.js");
+        const {
+          loadBranchPortalSettingsRow,
+          normalizeBranchPortalSettingsPayload,
+          isBranchPortalAllowed,
+          effectivePortalSections,
+        } = await import("../lib/memberPortalBranchSettings.js");
+        const { authIsOwner } = await import("../auth/branchFilter.js");
+        const { resolveReadBranchIds } = await import("../auth/tenant/scopedAuth.js");
+        const sb = getSupabase();
+        const gid = gymId() || req.auth?.gymId;
+        if (!sb || !gid) return res.status(500).json({ error: "supabase-unavailable" });
+
+        const gymCodeId = String(
+          req.body?.gymCodeId || req.body?.gym_code_id || req.query?.gymCodeId || "",
+        ).trim();
+        if (!gymCodeId) {
+          return res.status(400).json({ error: "gymCodeId-required" });
+        }
+
+        if (!authIsOwner(req.auth)) {
+          const allowed = resolveReadBranchIds(req.auth);
+          if (Array.isArray(allowed) && allowed.length && !allowed.includes(gymCodeId)) {
+            return res.status(403).json({ error: "branch-forbidden" });
+          }
+        }
+
+        const { data: branch, error: branchErr } = await sb
+          .from("gym_codes")
+          .select("id, code, name, display_name")
+          .eq("gym_id", gid)
+          .eq("id", gymCodeId)
+          .maybeSingle();
+        if (branchErr) return res.status(500).json({ error: branchErr.message });
+        if (!branch) return res.status(404).json({ error: "branch-not-found" });
+
+        const existing = await loadBranchPortalSettingsRow(sb, gid, gymCodeId);
+        const normalized = normalizeBranchPortalSettingsPayload(req.body, existing);
+        const actor = String(req.auth?.userId || "owner").trim().slice(0, 120);
+
+        const upsertRow = {
+          gym_id: gid,
+          gym_code_id: gymCodeId,
+          portal_enabled: normalized.portal_enabled,
+          portal_sections: normalized.portal_sections,
+          updated_by: actor,
+          updated_at: new Date().toISOString(),
+        };
+
+        const { data, error } = await sb
+          .from("member_portal_branch_settings")
+          .upsert(upsertRow, { onConflict: "gym_id,gym_code_id" })
+          .select("gym_id, gym_code_id, portal_enabled, portal_sections, updated_at, updated_by")
+          .maybeSingle();
+        if (error) return res.status(500).json({ error: error.message });
+
+        const { data: gymWide } = await sb
+          .from("member_portal_settings")
+          .select("portal_sections")
+          .eq("gym_id", gid)
+          .maybeSingle();
+
+        if (typeof appendAuditLog === "function") {
+          await appendAuditLog(req, {
+            action: "portal.branch_settings.updated",
+            entityType: "member_portal_branch_settings",
+            entityId: gymCodeId,
+            after: {
+              gymCodeId,
+              portal_enabled: data?.portal_enabled,
+              hasSectionOverride: data?.portal_sections != null,
+            },
+          });
+        }
+
+        return res.json({
+          ok: true,
+          gymCodeId,
+          branch: {
+            id: branch.id,
+            code: branch.code,
+            name: branch.display_name || branch.name || branch.code,
+          },
+          hasOverride: true,
+          portal_enabled: isBranchPortalAllowed(data),
+          portal_sections: effectivePortalSections(
+            gymWide?.portal_sections,
+            data,
+          ),
+          inheritsGymWideSections: data?.portal_sections == null,
+          updated_at: data?.updated_at || null,
+        });
+      } catch (err) {
+        return res.status(500).json({ error: err?.message || "save-failed" });
+      }
+    },
+  );
+
   app.put("/api/portal-settings", requireAccess(Access.membersWrite), async (req, res) => {
     try {
       const { getSupabase, gymId } = await import("../db/supabase/client.js");
