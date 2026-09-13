@@ -76,6 +76,7 @@ export const SETTINGS_CONFIG_JSON_KEYS = [
   'staffSalaryProfiles',
   'gymHolidays',
   'salaryManualOverrides',
+  'membershipPlansCatalogEnabled',
 ];
 
 const OPT_IN_BOOL_KEYS = new Set([

@@ -12,7 +12,7 @@ import {
   XAxis,
   YAxis,
 } from "recharts";
-import { Plus, Search, SlidersHorizontal, X } from "lucide-react";
+import { Plus, Search, SlidersHorizontal, ScrollText, X } from "lucide-react";
 import { AccentMetricCard, statusAccentTone } from "@/components/ui/accent-metric-card";
 import { Badge, PageHeader, Skeleton } from "@/components/ui/misc";
 import { Button } from "@/components/ui/button";
@@ -322,6 +322,14 @@ export function DashboardPage() {
         actions={
           canCore ? (
             <>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => window.open("/membership-plans", "_blank", "noopener,noreferrer")}
+              >
+                <ScrollText className="h-4 w-4" />
+                Plans
+              </Button>
               <Button variant="outline" size="sm" onClick={() => router.push("/members")}>
                 <SlidersHorizontal className="h-4 w-4" />
                 Filter

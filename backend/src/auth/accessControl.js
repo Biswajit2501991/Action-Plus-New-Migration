@@ -44,6 +44,10 @@ export function normalizeAccess(access) {
       manageSettingsBackup: access?.settings?.manageSettingsBackup === true,
       viewBackendDiskUsage: access?.settings?.viewBackendDiskUsage !== false,
     },
+    membershipPlans: {
+      viewMembershipPlans: access?.membershipPlans?.viewMembershipPlans === true,
+      editMembershipPlans: access?.membershipPlans?.editMembershipPlans === true,
+    },
     whatsapp: {
       viewReminder: access?.whatsapp?.viewReminder !== false,
       viewMonthReminder: access?.whatsapp?.viewMonthReminder !== false,
@@ -197,6 +201,16 @@ export const Access = {
   ptClientsWritePlan: (a) => a.ptClients.editPtPlan !== false,
   paymentQrView: (a) => a.__owner || a.paymentQr?.viewPaymentQr !== false,
   paymentQrManage: (a) => a.__owner || a.paymentQr?.managePaymentSettings === true,
+  /** Membership plan showcase (read). */
+  membershipPlansCatalogRead: (a) =>
+    a.__owner
+    || a.membershipPlans?.viewMembershipPlans === true
+    || a.members?.viewMembers !== false,
+  /** Edit catalog price / inclusions / toggles. */
+  membershipPlansCatalogWrite: (a) =>
+    a.__owner
+    || a.membershipPlans?.editMembershipPlans === true
+    || a.settings?.managePlans !== false,
   /** Per-branch Member Portal soft gates — owner or manageGymBranches. */
   portalBranchSettingsRead: (a) =>
     a.__owner || a.settings?.manageGymBranches === true,

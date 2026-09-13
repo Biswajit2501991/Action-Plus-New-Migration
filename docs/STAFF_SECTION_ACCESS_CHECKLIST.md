@@ -30,6 +30,10 @@ Use **opt-out** (`!== false`) only when the section is broadly needed day-to-day
 
 **Never** do what Analytics used to do: auto-grant a section because the user has Members / Finance / Dashboard.
 
+### Shipped exception (document when used)
+
+- **Membership Plans** (`/membership-plans`) — gated under existing **Members** section for v1 (nav + page). Catalog **edit** uses `settings.managePlans`. Showcase metadata does not change member amounts or Finance.
+
 ---
 
 ## Checklist — new web section `My Section`

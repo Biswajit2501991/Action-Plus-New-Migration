@@ -9,6 +9,7 @@ import {
   Filter,
   MoreHorizontal,
   Plus,
+  ScrollText,
   Search,
   X,
 } from "lucide-react";
@@ -1025,6 +1026,14 @@ export function MembersPage() {
                 Offline queue: {offlinePendingCount}
               </span>
             ) : null}
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => window.open("/membership-plans", "_blank", "noopener,noreferrer")}
+            >
+              <ScrollText className="h-4 w-4" />
+              Membership Plans
+            </Button>
             <Button
               type="button"
               variant="outline"

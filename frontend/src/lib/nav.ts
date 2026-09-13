@@ -14,6 +14,7 @@ import {
   Wallet,
   Plane,
   BarChart3,
+  ScrollText,
   type LucideIcon,
 } from "lucide-react";
 
@@ -52,6 +53,14 @@ export type ProdSection = (typeof SECTION_ORDER)[number];
 export const NAV_ITEMS: NavItem[] = [
   { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard, section: "Dashboard", tier: "A", group: "" },
   { href: "/members", label: "Members", icon: Users, section: "Members", tier: "A", group: "MEMBERS & CLIENTS" },
+  {
+    href: "/membership-plans",
+    label: "Membership Plans",
+    icon: ScrollText,
+    section: "Members",
+    tier: "A",
+    group: "MEMBERS & CLIENTS",
+  },
   { href: "/pt", label: "PT Clients", icon: Dumbbell, section: "PT Clients", tier: "A", group: "MEMBERS & CLIENTS" },
   { href: "/whatsapp", label: "WhatsApp SMS", icon: MessageSquare, section: "WhatsApp SMS", tier: "A", group: "COMMUNICATION" },
   {
