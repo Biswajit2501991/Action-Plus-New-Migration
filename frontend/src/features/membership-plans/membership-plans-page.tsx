@@ -35,6 +35,21 @@ type CatalogResponse = {
   message?: string;
 };
 
+type ExplainLanguage = "original" | "hi" | "bn" | "hinglish";
+
+type ExplainFields = {
+  tagline: string;
+  details: string;
+  inclusions: string[];
+};
+
+const EXPLAIN_OPTIONS: { id: ExplainLanguage; label: string }[] = [
+  { id: "original", label: "Original" },
+  { id: "hi", label: "हिंदी" },
+  { id: "bn", label: "বাংলা" },
+  { id: "hinglish", label: "Hinglish" },
+];
+
 function formatInr(value: number | null | undefined) {
   if (value == null || !Number.isFinite(Number(value))) return null;
   return new Intl.NumberFormat("en-IN", {
@@ -42,6 +57,14 @@ function formatInr(value: number | null | undefined) {
     currency: "INR",
     maximumFractionDigits: 0,
   }).format(Number(value));
+}
+
+function sourceFingerprint(plan: CatalogPlan) {
+  return JSON.stringify({
+    t: plan.tagline || "",
+    d: plan.details || "",
+    i: plan.inclusions || [],
+  });
 }
 
 export function MembershipPlansPage() {
@@ -65,6 +88,13 @@ export function MembershipPlansPage() {
   const [editingPlanName, setEditingPlanName] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [draft, setDraft] = useState<CatalogPlan | null>(null);
+
+  const [explainLang, setExplainLang] = useState<ExplainLanguage>("original");
+  const [explainBusy, setExplainBusy] = useState(false);
+  /** Cache: planName → language → fingerprint → fields */
+  const [explainCache, setExplainCache] = useState<
+    Record<string, Partial<Record<ExplainLanguage, { fp: string; fields: ExplainFields }>>>
+  >({});
 
   const load = async () => {
     setLoading(true);
@@ -90,6 +120,8 @@ export function MembershipPlansPage() {
       );
       setEditingPlanName(null);
       setDraft(null);
+      setExplainLang("original");
+      setExplainCache({});
     } catch (err) {
       const msg = err instanceof Error ? err.message : "Could not load plans";
       if (/select a gym branch|gym-code-id-required|branch-scope/i.test(msg)) {
@@ -117,7 +149,104 @@ export function MembershipPlansPage() {
     return plans.filter((p) => p.isEnabled !== false);
   }, [plans, masterEnabled, canEdit]);
 
+  const translatePlan = async (plan: CatalogPlan, language: ExplainLanguage) => {
+    if (language === "original") return null;
+    const fp = sourceFingerprint(plan);
+    const hit = explainCache[plan.planName]?.[language];
+    if (hit && hit.fp === fp) return hit.fields;
+
+    const res = await apiFetch<{
+      ok?: boolean;
+      tagline?: string;
+      details?: string;
+      inclusions?: string[];
+    }>("/membership-plans-catalog/explain-translate", {
+      method: "POST",
+      body: JSON.stringify({
+        language,
+        tagline: plan.tagline || "",
+        details: plan.details || "",
+        inclusions: plan.inclusions || [],
+      }),
+    });
+    const fields: ExplainFields = {
+      tagline: String(res.tagline || ""),
+      details: String(res.details || ""),
+      inclusions: Array.isArray(res.inclusions)
+        ? res.inclusions.map((s) => String(s || ""))
+        : [],
+    };
+    setExplainCache((prev) => ({
+      ...prev,
+      [plan.planName]: {
+        ...(prev[plan.planName] || {}),
+        [language]: { fp, fields },
+      },
+    }));
+    return fields;
+  };
+
+  const changeExplainLang = async (next: ExplainLanguage) => {
+    if (next === explainLang) return;
+    if (next === "original") {
+      setExplainLang("original");
+      return;
+    }
+    if (editingPlanName) {
+      toast.message("Exit edit mode to use Explain-in languages.");
+      return;
+    }
+    const targets = visibleCards.filter(
+      (p) =>
+        String(p.tagline || "").trim() ||
+        String(p.details || "").trim() ||
+        (p.inclusions || []).some((x) => String(x || "").trim()),
+    );
+    if (!targets.length) {
+      setExplainLang(next);
+      toast.message("Add plan details first — nothing to translate yet.");
+      return;
+    }
+    setExplainBusy(true);
+    try {
+      for (const plan of targets) {
+        const fp = sourceFingerprint(plan);
+        const hit = explainCache[plan.planName]?.[next];
+        if (hit && hit.fp === fp) continue;
+        await translatePlan(plan, next);
+      }
+      setExplainLang(next);
+    } catch (err) {
+      toast.error(
+        err instanceof Error
+          ? err.message
+          : "Could not translate. Showing original text.",
+      );
+      setExplainLang("original");
+    } finally {
+      setExplainBusy(false);
+    }
+  };
+
+  const displayFieldsFor = (plan: CatalogPlan): ExplainFields => {
+    if (explainLang === "original") {
+      return {
+        tagline: plan.tagline || "",
+        details: plan.details || "",
+        inclusions: plan.inclusions || [],
+      };
+    }
+    const hit = explainCache[plan.planName]?.[explainLang];
+    if (hit && hit.fp === sourceFingerprint(plan)) return hit.fields;
+    return {
+      tagline: plan.tagline || "",
+      details: plan.details || "",
+      inclusions: plan.inclusions || [],
+    };
+  };
+
   const startEdit = (plan: CatalogPlan) => {
+    setExplainLang("original");
     setEditingPlanName(plan.planName);
     setDraft({
       ...plan,
@@ -162,6 +291,11 @@ export function MembershipPlansPage() {
       setPlans((prev) =>
         prev.map((p) => (p.planName === draft.planName ? { ...p, ...saved } : p)),
       );
+      setExplainCache((prev) => {
+        const next = { ...prev };
+        delete next[draft.planName];
+        return next;
+      });
       cancelEdit();
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Could not save this plan");
@@ -221,7 +355,7 @@ export function MembershipPlansPage() {
       />
 
       <div className="relative space-y-8 p-5 sm:p-8 lg:p-10">
-        <header className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
+        <header className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
           <div>
             <p className="text-[11px] font-semibold uppercase tracking-[0.22em] text-teal-800/80 dark:text-teal-300/90">
               Action Plus
@@ -231,7 +365,8 @@ export function MembershipPlansPage() {
             </h1>
             <p className="mt-2 max-w-xl text-sm leading-relaxed text-slate-600 dark:text-slate-300">
               Staff sales showcase for this branch only — other gym branches never see these cards.
-              Not shown on the Member Portal. Click the pencil on a plan to edit just that plan.
+              Not shown on the Member Portal. Use Explain in to read plans aloud in another language
+              (display only — saved text is never changed).
             </p>
             {branchLabel ? (
               <p className="mt-2 text-xs font-medium text-teal-800/90 dark:text-teal-300/90">
@@ -239,23 +374,50 @@ export function MembershipPlansPage() {
               </p>
             ) : null}
           </div>
-          {canEdit ? (
-            <button
-              type="button"
-              role="switch"
-              aria-checked={masterEnabled}
-              disabled={saving}
-              onClick={() => void toggleMaster(!masterEnabled)}
-              className={cn(
-                "inline-flex items-center gap-2 rounded-full border px-3 py-1.5 text-xs font-medium",
-                masterEnabled
-                  ? "border-teal-700/30 bg-teal-50 text-teal-900 dark:border-teal-500/40 dark:bg-teal-950/40 dark:text-teal-100"
-                  : "border-slate-300 bg-white text-slate-600 dark:border-border dark:bg-muted",
-              )}
-            >
-              Showcase {masterEnabled ? "On" : "Off"}
-            </button>
-          ) : null}
+          <div className="flex flex-col items-stretch gap-3 sm:items-end">
+            {canEdit ? (
+              <button
+                type="button"
+                role="switch"
+                aria-checked={masterEnabled}
+                disabled={saving}
+                onClick={() => void toggleMaster(!masterEnabled)}
+                className={cn(
+                  "inline-flex items-center justify-center gap-2 rounded-full border px-3 py-1.5 text-xs font-medium",
+                  masterEnabled
+                    ? "border-teal-700/30 bg-teal-50 text-teal-900 dark:border-teal-500/40 dark:bg-teal-950/40 dark:text-teal-100"
+                    : "border-slate-300 bg-white text-slate-600 dark:border-border dark:bg-muted",
+                )}
+              >
+                Showcase {masterEnabled ? "On" : "Off"}
+              </button>
+            ) : null}
+            {!branchRequired && !editingPlanName ? (
+              <div className="rounded-2xl border border-slate-200/90 bg-white/90 p-2 dark:border-border dark:bg-card/80">
+                <p className="px-1 pb-1.5 text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-500">
+                  Explain in {explainBusy ? "· translating…" : ""}
+                </p>
+                <div className="flex flex-wrap gap-1.5">
+                  {EXPLAIN_OPTIONS.map((opt) => (
+                    <button
+                      key={opt.id}
+                      type="button"
+                      disabled={explainBusy}
+                      onClick={() => void changeExplainLang(opt.id)}
+                      className={cn(
+                        "rounded-full px-2.5 py-1 text-xs font-medium transition",
+                        explainLang === opt.id
+                          ? "bg-slate-900 text-white dark:bg-teal-600"
+                          : "bg-slate-100 text-slate-700 hover:bg-slate-200 dark:bg-muted dark:text-slate-200",
+                      )}
+                    >
+                      {opt.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            ) : null}
+          </div>
         </header>
 
         {branchRequired ? (
@@ -282,9 +444,14 @@ export function MembershipPlansPage() {
         {editingPlanName && draft && !branchRequired ? (
           <article className="rounded-3xl border border-teal-200/80 bg-white p-6 shadow-sm dark:border-teal-900/40 dark:bg-card">
             <div className="flex flex-wrap items-start justify-between gap-3">
-              <h2 className="font-serif text-2xl text-slate-900 dark:text-slate-50">
-                Edit · {draft.planName}
-              </h2>
+              <div>
+                <h2 className="font-serif text-2xl text-slate-900 dark:text-slate-50">
+                  Edit · {draft.planName}
+                </h2>
+                <p className="mt-1 text-[11px] text-muted-foreground">
+                  Editing always uses the original saved language (not Explain-in).
+                </p>
+              </div>
               <div className="flex items-center gap-2">
                 <span className="text-xs text-muted-foreground">Show on showcase</span>
                 <button
@@ -399,8 +566,10 @@ export function MembershipPlansPage() {
           <div className="grid gap-5 md:grid-cols-2 xl:grid-cols-3">
             {visibleCards.map((plan, index) => {
               const price = formatInr(plan.listPriceInr);
-              const detailsText = String(plan.details || "").trim();
-              const inclusions = plan.inclusions?.length ? plan.inclusions : [];
+              const shown = displayFieldsFor(plan);
+              const detailsText = String(shown.details || "").trim();
+              const inclusions = shown.inclusions?.length ? shown.inclusions : [];
+              const tagline = String(shown.tagline || "").trim();
               const hidden = plan.isEnabled === false;
               return (
                 <article
@@ -438,14 +607,19 @@ export function MembershipPlansPage() {
                       </p>
                     )}
                   </div>
+                  {explainLang !== "original" ? (
+                    <p className="mt-1 text-[10px] font-medium uppercase tracking-wide text-slate-400">
+                      Explain view · not saved
+                    </p>
+                  ) : null}
                   {hidden && canEdit ? (
                     <p className="mt-2 text-[11px] font-medium text-amber-700 dark:text-amber-300">
                       Hidden from showcase
                     </p>
                   ) : null}
-                  {plan.tagline ? (
+                  {tagline ? (
                     <p className="mt-3 text-sm leading-relaxed text-slate-600 dark:text-slate-300">
-                      {plan.tagline}
+                      {tagline}
                     </p>
                   ) : null}
                   {detailsText ? (
@@ -455,9 +629,9 @@ export function MembershipPlansPage() {
                   ) : null}
                   {inclusions.length ? (
                     <ul className="mt-5 space-y-2.5">
-                      {inclusions.map((item) => (
+                      {inclusions.map((item, i) => (
                         <li
-                          key={item}
+                          key={`${plan.planName}-${i}-${item.slice(0, 24)}`}
                           className="flex gap-2.5 text-sm text-slate-700 dark:text-slate-200"
                         >
                           <span className="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-teal-50 text-teal-800 dark:bg-teal-950/50 dark:text-teal-200">

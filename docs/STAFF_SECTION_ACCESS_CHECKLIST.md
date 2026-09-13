@@ -32,7 +32,7 @@ Use **opt-out** (`!== false`) only when the section is broadly needed day-to-day
 
 ### Shipped exception (document when used)
 
-- **Membership Plans** (`/membership-plans`) — gated under existing **Members** section for v1 (nav + page). Catalog **edit** uses `settings.managePlans`. Showcase rows are **per gym branch** (active branch only; other branches never see them). Showcase metadata does not change member amounts or Finance. Not shown on Member Portal.
+- **Membership Plans** (`/membership-plans`) — gated under existing **Members** section for v1 (nav + page). Catalog **edit** uses `settings.managePlans`. Showcase rows are **per gym branch** (active branch only; other branches never see them). Showcase metadata does not change member amounts or Finance. Not shown on Member Portal. **Explain in** (Original / हिंदी / বাংলা / Hinglish) is display-only machine translation for staff read-aloud — never writes catalog text. Optional `MYMEMORY_EMAIL` raises free translation quota.
 
 ---
 

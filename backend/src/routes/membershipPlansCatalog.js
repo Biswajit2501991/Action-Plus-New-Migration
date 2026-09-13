@@ -9,6 +9,10 @@ import { Access } from "../auth/accessControl.js";
 import { resolveReadBranchScope } from "../auth/branchScope.js";
 import { requireAccess } from "../middleware/permissions.js";
 import { filterLookupRowsForGymCodeId } from "../db/supabase/settingsLookupBranchId.js";
+import {
+  normalizeExplainLanguage,
+  translatePlanExplainFields,
+} from "../services/membershipPlanExplainTranslate.js";
 
 const DETAILS_MAX = 8000;
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -497,6 +501,65 @@ export function registerMembershipPlansCatalogRoutes(app, { appendAuditLog } = {
         return res.status(500).json({
           error: "save-failed",
           message: catalogSaveErrorMessage(err),
+        });
+      }
+    },
+  );
+
+  /**
+   * Display-only explain helper. Does not write catalog or members.
+   */
+  app.post(
+    "/api/membership-plans-catalog/explain-translate",
+    requireAccess(Access.membershipPlansCatalogRead),
+    async (req, res) => {
+      try {
+        const language = normalizeExplainLanguage(req.body?.language);
+        if (!language) {
+          return res.status(400).json({
+            error: "language-required",
+            message: "Choose Hindi, Bengali, Hinglish, or Original.",
+          });
+        }
+        if (language === "original") {
+          return res.json({
+            ok: true,
+            language: "original",
+            tagline: String(req.body?.tagline || ""),
+            details: String(req.body?.details || ""),
+            inclusions: Array.isArray(req.body?.inclusions)
+              ? req.body.inclusions.map((s) => String(s || ""))
+              : [],
+            provider: "none",
+          });
+        }
+
+        const tagline = String(req.body?.tagline || "").slice(0, 200);
+        const details = String(req.body?.details || "").slice(0, 8000);
+        const inclusions = Array.isArray(req.body?.inclusions)
+          ? req.body.inclusions.map((s) => String(s || "").slice(0, 200)).slice(0, 40)
+          : [];
+
+        if (!tagline.trim() && !details.trim() && !inclusions.some((s) => s.trim())) {
+          return res.status(400).json({
+            error: "text-required",
+            message: "Nothing to translate on this plan yet.",
+          });
+        }
+
+        const translated = await translatePlanExplainFields({
+          language,
+          tagline,
+          details,
+          inclusions,
+        });
+        return res.json({ ok: true, ...translated });
+      } catch (err) {
+        return res.status(err.status || 502).json({
+          error: "translate-failed",
+          message:
+            err?.message ||
+            "Could not translate right now. Showing original text.",
         });
       }
     },

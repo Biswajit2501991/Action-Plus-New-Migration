@@ -47,4 +47,6 @@ export const env = {
   /** When true, staff_role branch_owner + staff_branch_assignments are enforced. */
   BRANCH_OWNER_ENABLED:
     process.env.BRANCH_OWNER_ENABLED === 'true' || process.env.BRANCH_OWNER_ENABLED === '1',
+  /** Optional email for MyMemory free quota (Membership Plans Explain-in). */
+  MYMEMORY_EMAIL: String(process.env.MYMEMORY_EMAIL || '').trim(),
 };
