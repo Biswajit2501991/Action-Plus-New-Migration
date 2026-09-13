@@ -15,6 +15,7 @@ export type CatalogPlan = {
   planName: string;
   listPriceInr: number | null;
   tagline: string;
+  details: string;
   inclusions: string[];
   isEnabled: boolean;
   sortOrder: number;
@@ -25,7 +26,6 @@ type CatalogResponse = {
   ok?: boolean;
   masterEnabled?: boolean;
   plans?: CatalogPlan[];
-  error?: string;
 };
 
 function formatInr(value: number | null | undefined) {
@@ -49,9 +49,9 @@ export function MembershipPlansPage() {
   const [loading, setLoading] = useState(true);
   const [masterEnabled, setMasterEnabled] = useState(true);
   const [plans, setPlans] = useState<CatalogPlan[]>([]);
-  const [editMode, setEditMode] = useState(false);
+  const [editingPlanName, setEditingPlanName] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
-  const [drafts, setDrafts] = useState<Record<string, CatalogPlan>>({});
+  const [draft, setDraft] = useState<CatalogPlan | null>(null);
 
   const load = async () => {
     setLoading(true);
@@ -59,16 +59,14 @@ export function MembershipPlansPage() {
       const data = await apiFetch<CatalogResponse>("/membership-plans-catalog");
       setMasterEnabled(data.masterEnabled !== false);
       const list = Array.isArray(data.plans) ? data.plans : [];
-      setPlans(list);
-      const next: Record<string, CatalogPlan> = {};
-      for (const p of list) {
-        next[p.planName] = {
+      setPlans(
+        list.map((p) => ({
           ...p,
+          details: p.details || "",
           inclusions: [...(p.inclusions || [])],
           tagline: p.tagline || "",
-        };
-      }
-      setDrafts(next);
+        })),
+      );
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Could not load plans");
     } finally {
@@ -80,14 +78,30 @@ export function MembershipPlansPage() {
     if (canView) void load();
   }, [canView]);
 
-  const showcasePlans = useMemo(() => {
+  const visibleCards = useMemo(() => {
+    if (canEdit && !masterEnabled) return plans;
     if (!masterEnabled) return [];
+    if (canEdit) return plans;
     return plans.filter((p) => p.isEnabled !== false);
-  }, [plans, masterEnabled]);
+  }, [plans, masterEnabled, canEdit]);
 
-  const savePlan = async (planName: string) => {
-    const draft = drafts[planName];
-    if (!draft) return;
+  const startEdit = (plan: CatalogPlan) => {
+    setEditingPlanName(plan.planName);
+    setDraft({
+      ...plan,
+      details: plan.details || "",
+      inclusions: [...(plan.inclusions || [])],
+      tagline: plan.tagline || "",
+    });
+  };
+
+  const cancelEdit = () => {
+    setEditingPlanName(null);
+    setDraft(null);
+  };
+
+  const savePlan = async () => {
+    if (!draft?.planName) return;
     setSaving(true);
     try {
       const res = await apiFetch<{ ok?: boolean; plan?: CatalogPlan }>(
@@ -95,29 +109,30 @@ export function MembershipPlansPage() {
         {
           method: "PUT",
           body: JSON.stringify({
-            planName,
+            planName: draft.planName,
             listPriceInr: draft.listPriceInr,
             tagline: draft.tagline,
+            details: draft.details,
             inclusions: draft.inclusions,
             isEnabled: draft.isEnabled,
             sortOrder: draft.sortOrder,
           }),
         },
       );
-      toast.success(`Saved ${planName}`);
-      if (res.plan) {
-        setPlans((prev) =>
-          prev.map((p) => (p.planName === planName ? { ...p, ...res.plan! } : p)),
-        );
-        setDrafts((prev) => ({
-          ...prev,
-          [planName]: { ...prev[planName], ...res.plan! },
-        }));
-      } else {
-        await load();
-      }
+      toast.success(`Saved ${draft.planName}`);
+      const saved = res.plan
+        ? {
+            ...res.plan,
+            details: res.plan.details || "",
+            inclusions: [...(res.plan.inclusions || [])],
+          }
+        : draft;
+      setPlans((prev) =>
+        prev.map((p) => (p.planName === draft.planName ? { ...p, ...saved } : p)),
+      );
+      cancelEdit();
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Save failed");
+      toast.error(err instanceof Error ? err.message : "Could not save this plan");
     } finally {
       setSaving(false);
     }
@@ -183,188 +198,189 @@ export function MembershipPlansPage() {
               Membership Plans
             </h1>
             <p className="mt-2 max-w-xl text-sm leading-relaxed text-slate-600 dark:text-slate-300">
-              Clear options for every goal — gym access, guidance, and what is included.
+              Staff sales showcase only — these details are not shown on the Member Portal. Click
+              the pencil on a plan to edit just that plan.
             </p>
           </div>
-          <div className="flex flex-wrap items-center gap-2">
-            {canEdit ? (
-              <>
-                <button
-                  type="button"
-                  role="switch"
-                  aria-checked={masterEnabled}
-                  disabled={saving}
-                  onClick={() => void toggleMaster(!masterEnabled)}
-                  className={cn(
-                    "inline-flex items-center gap-2 rounded-full border px-3 py-1.5 text-xs font-medium",
-                    masterEnabled
-                      ? "border-teal-700/30 bg-teal-50 text-teal-900 dark:border-teal-500/40 dark:bg-teal-950/40 dark:text-teal-100"
-                      : "border-slate-300 bg-white text-slate-600 dark:border-border dark:bg-muted",
-                  )}
-                >
-                  Showcase {masterEnabled ? "On" : "Off"}
-                </button>
-                <Button
-                  type="button"
-                  size="sm"
-                  variant={editMode ? "default" : "outline"}
-                  onClick={() => setEditMode((v) => !v)}
-                >
-                  {editMode ? (
-                    <>
-                      <X className="h-3.5 w-3.5" />
-                      Done editing
-                    </>
-                  ) : (
-                    <>
-                      <Pencil className="h-3.5 w-3.5" />
-                      Edit plans
-                    </>
-                  )}
-                </Button>
-              </>
-            ) : null}
-          </div>
+          {canEdit ? (
+            <button
+              type="button"
+              role="switch"
+              aria-checked={masterEnabled}
+              disabled={saving}
+              onClick={() => void toggleMaster(!masterEnabled)}
+              className={cn(
+                "inline-flex items-center gap-2 rounded-full border px-3 py-1.5 text-xs font-medium",
+                masterEnabled
+                  ? "border-teal-700/30 bg-teal-50 text-teal-900 dark:border-teal-500/40 dark:bg-teal-950/40 dark:text-teal-100"
+                  : "border-slate-300 bg-white text-slate-600 dark:border-border dark:bg-muted",
+              )}
+            >
+              Showcase {masterEnabled ? "On" : "Off"}
+            </button>
+          ) : null}
         </header>
 
-        {!masterEnabled && !editMode ? (
+        {!masterEnabled && !canEdit ? (
           <EmptyState
             title="Plans showcase is turned off"
-            description="Turn Showcase On in Edit plans to show membership options to customers."
+            description="Ask the owner to turn Showcase On."
           />
         ) : null}
 
-        {editMode && canEdit ? (
-          <div className="grid gap-4 lg:grid-cols-2">
-            {plans.map((plan) => {
-              const draft = drafts[plan.planName] || plan;
-              const inclusionsText = (draft.inclusions || []).join("\n");
-              return (
-                <div
-                  key={plan.planName}
-                  className="rounded-2xl border border-slate-200 bg-white/90 p-5 shadow-sm dark:border-border dark:bg-card"
-                >
-                  <div className="flex items-start justify-between gap-3">
-                    <h2 className="text-lg font-semibold text-slate-900 dark:text-slate-50">
-                      {plan.planName}
-                    </h2>
-                    <button
-                      type="button"
-                      role="switch"
-                      aria-checked={draft.isEnabled !== false}
-                      disabled={saving}
-                      onClick={() =>
-                        setDrafts((prev) => ({
-                          ...prev,
-                          [plan.planName]: {
-                            ...draft,
-                            isEnabled: !(draft.isEnabled !== false),
-                          },
-                        }))
-                      }
-                      className={cn(
-                        "relative h-7 w-12 shrink-0 rounded-full transition-colors",
-                        draft.isEnabled !== false
-                          ? "bg-slate-900 dark:bg-teal-600"
-                          : "bg-slate-300 dark:bg-slate-600",
-                      )}
-                    >
-                      <span
-                        className={cn(
-                          "absolute top-0.5 left-0.5 h-6 w-6 rounded-full bg-white shadow-sm transition-transform",
-                          draft.isEnabled !== false && "translate-x-5",
-                        )}
-                      />
-                    </button>
-                  </div>
-                  <div className="mt-3 space-y-3">
-                    <div>
-                      <Label>List price (₹)</Label>
-                      <Input
-                        type="number"
-                        min={0}
-                        step={1}
-                        className="mt-1"
-                        value={draft.listPriceInr ?? ""}
-                        onChange={(e) => {
-                          const v = e.target.value;
-                          setDrafts((prev) => ({
-                            ...prev,
-                            [plan.planName]: {
-                              ...draft,
-                              listPriceInr: v === "" ? null : Number(v),
-                            },
-                          }));
-                        }}
-                      />
-                    </div>
-                    <div>
-                      <Label>Short tagline</Label>
-                      <Input
-                        className="mt-1"
-                        maxLength={200}
-                        value={draft.tagline || ""}
-                        onChange={(e) =>
-                          setDrafts((prev) => ({
-                            ...prev,
-                            [plan.planName]: { ...draft, tagline: e.target.value },
-                          }))
-                        }
-                      />
-                    </div>
-                    <div>
-                      <Label>What is included (one per line)</Label>
-                      <textarea
-                        className="mt-1 min-h-[120px] w-full rounded-xl border border-input bg-background px-3 py-2 text-sm outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                        value={inclusionsText}
-                        onChange={(e) =>
-                          setDrafts((prev) => ({
-                            ...prev,
-                            [plan.planName]: {
-                              ...draft,
-                              inclusions: e.target.value
-                                .split("\n")
-                                .map((s) => s.trim())
-                                .filter(Boolean),
-                            },
-                          }))
-                        }
-                      />
-                    </div>
-                    <Button
-                      size="sm"
-                      disabled={saving}
-                      onClick={() => void savePlan(plan.planName)}
-                    >
-                      Save {plan.planName}
-                    </Button>
-                  </div>
-                </div>
-              );
-            })}
-            {!plans.length ? (
-              <EmptyState
-                title="No plan names yet"
-                description="Add plan names under Settings → Business Configuration → Plans, then return here to add price and details."
-              />
-            ) : null}
-          </div>
+        {!plans.length ? (
+          <EmptyState
+            title="No plan names yet"
+            description="Add plan names under Settings → Business Configuration → Plans, then return here to add price and details."
+          />
         ) : null}
 
-        {masterEnabled && !editMode ? (
+        {editingPlanName && draft ? (
+          <article className="rounded-3xl border border-teal-200/80 bg-white p-6 shadow-sm dark:border-teal-900/40 dark:bg-card">
+            <div className="flex flex-wrap items-start justify-between gap-3">
+              <h2 className="font-serif text-2xl text-slate-900 dark:text-slate-50">
+                Edit · {draft.planName}
+              </h2>
+              <div className="flex items-center gap-2">
+                <span className="text-xs text-muted-foreground">Show on showcase</span>
+                <button
+                  type="button"
+                  role="switch"
+                  aria-checked={draft.isEnabled !== false}
+                  disabled={saving}
+                  onClick={() =>
+                    setDraft((d) =>
+                      d ? { ...d, isEnabled: !(d.isEnabled !== false) } : d,
+                    )
+                  }
+                  className={cn(
+                    "relative h-7 w-12 shrink-0 rounded-full transition-colors",
+                    draft.isEnabled !== false
+                      ? "bg-slate-900 dark:bg-teal-600"
+                      : "bg-slate-300 dark:bg-slate-600",
+                  )}
+                >
+                  <span
+                    className={cn(
+                      "absolute top-0.5 left-0.5 h-6 w-6 rounded-full bg-white shadow-sm transition-transform",
+                      draft.isEnabled !== false && "translate-x-5",
+                    )}
+                  />
+                </button>
+              </div>
+            </div>
+
+            <div className="mt-4 grid gap-4 sm:grid-cols-2">
+              <div>
+                <Label>List price (₹)</Label>
+                <Input
+                  type="number"
+                  min={0}
+                  step={1}
+                  className="mt-1"
+                  value={draft.listPriceInr ?? ""}
+                  onChange={(e) => {
+                    const v = e.target.value;
+                    setDraft((d) =>
+                      d ? { ...d, listPriceInr: v === "" ? null : Number(v) } : d,
+                    );
+                  }}
+                />
+              </div>
+              <div>
+                <Label>Short tagline</Label>
+                <Input
+                  className="mt-1"
+                  maxLength={200}
+                  value={draft.tagline || ""}
+                  onChange={(e) =>
+                    setDraft((d) => (d ? { ...d, tagline: e.target.value } : d))
+                  }
+                />
+              </div>
+            </div>
+
+            <div className="mt-4">
+              <Label>Full plan details</Label>
+              <p className="mt-0.5 text-[11px] text-muted-foreground">
+                Write the complete plan for staff to explain to customers (max 8,000 characters).
+                Not shown on Member Portal.
+              </p>
+              <textarea
+                className="mt-1 min-h-[220px] w-full rounded-xl border border-input bg-background px-3 py-2 text-sm leading-relaxed outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                maxLength={8000}
+                value={draft.details || ""}
+                onChange={(e) =>
+                  setDraft((d) => (d ? { ...d, details: e.target.value } : d))
+                }
+                placeholder="Describe what this plan includes, duration, benefits, fine print…"
+              />
+            </div>
+
+            <div className="mt-4">
+              <Label>Quick checklist (optional, one per line)</Label>
+              <textarea
+                className="mt-1 min-h-[100px] w-full rounded-xl border border-input bg-background px-3 py-2 text-sm outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                value={(draft.inclusions || []).join("\n")}
+                onChange={(e) =>
+                  setDraft((d) =>
+                    d
+                      ? {
+                          ...d,
+                          inclusions: e.target.value
+                            .split("\n")
+                            .map((s) => s.trim())
+                            .filter(Boolean),
+                        }
+                      : d,
+                  )
+                }
+                placeholder={"Gym floor access\nLocker\n…"}
+              />
+            </div>
+
+            <div className="mt-5 flex flex-wrap gap-2">
+              <Button size="sm" disabled={saving} onClick={() => void savePlan()}>
+                {saving ? "Saving…" : "Save plan"}
+              </Button>
+              <Button size="sm" variant="outline" disabled={saving} onClick={cancelEdit}>
+                <X className="h-3.5 w-3.5" />
+                Cancel
+              </Button>
+            </div>
+          </article>
+        ) : null}
+
+        {!editingPlanName && visibleCards.length ? (
           <div className="grid gap-5 md:grid-cols-2 xl:grid-cols-3">
-            {showcasePlans.map((plan, index) => {
+            {visibleCards.map((plan, index) => {
               const price = formatInr(plan.listPriceInr);
-              const inclusions = plan.inclusions?.length
-                ? plan.inclusions
-                : ["Details coming soon — ask the team for the latest inclusions."];
+              const detailsText = String(plan.details || "").trim();
+              const inclusions = plan.inclusions?.length ? plan.inclusions : [];
+              const hidden = plan.isEnabled === false;
               return (
                 <article
                   key={plan.planName}
-                  className="group flex flex-col rounded-3xl border border-slate-200/90 bg-white/95 p-6 shadow-[0_18px_50px_-28px_rgba(15,23,42,0.35)] transition duration-300 hover:-translate-y-0.5 dark:border-border dark:bg-card"
+                  className={cn(
+                    "group relative flex flex-col rounded-3xl border bg-white/95 p-6 shadow-[0_18px_50px_-28px_rgba(15,23,42,0.35)] transition duration-300 hover:-translate-y-0.5 dark:bg-card",
+                    hidden
+                      ? "border-dashed border-slate-300 dark:border-border"
+                      : "border-slate-200/90 dark:border-border",
+                  )}
                   style={{ animationDelay: `${index * 60}ms` }}
                 >
-                  <div className="flex items-baseline justify-between gap-3">
+                  {canEdit ? (
+                    <button
+                      type="button"
+                      className="absolute right-3 top-3 inline-flex h-8 w-8 items-center justify-center rounded-full border border-slate-200 bg-white text-slate-600 shadow-sm hover:bg-slate-50 dark:border-border dark:bg-card dark:hover:bg-muted"
+                      aria-label={`Edit ${plan.planName}`}
+                      onClick={() => startEdit(plan)}
+                    >
+                      <Pencil className="h-3.5 w-3.5" />
+                    </button>
+                  ) : null}
+
+                  <div className="flex items-baseline justify-between gap-3 pr-10">
                     <h2 className="font-serif text-2xl tracking-tight text-slate-900 dark:text-slate-50">
                       {plan.planName}
                     </h2>
@@ -378,37 +394,55 @@ export function MembershipPlansPage() {
                       </p>
                     )}
                   </div>
+                  {hidden && canEdit ? (
+                    <p className="mt-2 text-[11px] font-medium text-amber-700 dark:text-amber-300">
+                      Hidden from showcase
+                    </p>
+                  ) : null}
                   {plan.tagline ? (
                     <p className="mt-3 text-sm leading-relaxed text-slate-600 dark:text-slate-300">
                       {plan.tagline}
                     </p>
                   ) : null}
-                  <ul className="mt-5 flex-1 space-y-2.5">
-                    {inclusions.map((item) => (
-                      <li key={item} className="flex gap-2.5 text-sm text-slate-700 dark:text-slate-200">
-                        <span className="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-teal-50 text-teal-800 dark:bg-teal-950/50 dark:text-teal-200">
-                          <Check className="h-3 w-3" />
-                        </span>
-                        <span>{item}</span>
-                      </li>
-                    ))}
-                  </ul>
+                  {detailsText ? (
+                    <p className="mt-4 whitespace-pre-wrap text-sm leading-relaxed text-slate-700 dark:text-slate-200">
+                      {detailsText}
+                    </p>
+                  ) : null}
+                  {inclusions.length ? (
+                    <ul className="mt-5 space-y-2.5">
+                      {inclusions.map((item) => (
+                        <li
+                          key={item}
+                          className="flex gap-2.5 text-sm text-slate-700 dark:text-slate-200"
+                        >
+                          <span className="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-teal-50 text-teal-800 dark:bg-teal-950/50 dark:text-teal-200">
+                            <Check className="h-3 w-3" />
+                          </span>
+                          <span>{item}</span>
+                        </li>
+                      ))}
+                    </ul>
+                  ) : !detailsText ? (
+                    <p className="mt-5 text-sm text-slate-500">
+                      Details coming soon — ask the team for the latest plan info.
+                    </p>
+                  ) : null}
                 </article>
               );
             })}
-            {!showcasePlans.length ? (
-              <div className="md:col-span-2 xl:col-span-3">
-                <EmptyState
-                  title="No plans to show"
-                  description={
-                    canEdit
-                      ? "Enable at least one plan in Edit plans, or add plan names in Settings."
-                      : "Ask the owner to publish membership plans."
-                  }
-                />
-              </div>
-            ) : null}
           </div>
+        ) : null}
+
+        {!editingPlanName &&
+        masterEnabled &&
+        canEdit &&
+        !plans.some((p) => p.isEnabled !== false) &&
+        plans.length ? (
+          <EmptyState
+            title="No plans visible on showcase"
+            description="Open a plan with the pencil and turn on “Show on showcase”."
+          />
         ) : null}
       </div>
     </div>

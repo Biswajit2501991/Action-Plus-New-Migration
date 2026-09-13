@@ -11,6 +11,7 @@ create table if not exists public.membership_plan_catalog (
 
   list_price_inr numeric(12, 2) null,
   tagline text not null default '',
+  details text not null default '',
   inclusions jsonb not null default '[]'::jsonb,
   is_enabled boolean not null default true,
   sort_order integer not null default 0,
@@ -27,6 +28,9 @@ create table if not exists public.membership_plan_catalog (
   constraint membership_plan_catalog_tagline_len_chk check (
     char_length(tagline) <= 200
   ),
+  constraint membership_plan_catalog_details_len_chk check (
+    char_length(details) <= 8000
+  ),
   constraint membership_plan_catalog_price_chk check (
     list_price_inr is null or list_price_inr >= 0
   )
@@ -40,6 +44,9 @@ comment on table public.membership_plan_catalog is
 
 comment on column public.membership_plan_catalog.list_price_inr is
   'Display list price for sales talk only — not written to members.amount.';
+
+comment on column public.membership_plan_catalog.details is
+  'Full plan write-up for staff sales talk. Not shown on Member Portal.';
 
 comment on column public.membership_plan_catalog.is_enabled is
   'When false, hide from showcase only; plan name remains assignable on members.';

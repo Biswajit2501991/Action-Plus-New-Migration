@@ -1,10 +1,13 @@
 /**
  * Membership plan catalog — showcase metadata for staff sales talk.
  * Does not rewrite members.amount, payments, or settings.plans name list.
+ * Not exposed to Member Portal.
  */
 
 import { Access } from "../auth/accessControl.js";
 import { requireAccess } from "../middleware/permissions.js";
+
+const DETAILS_MAX = 8000;
 
 function normalizeInclusions(input) {
   if (!Array.isArray(input)) {
@@ -23,8 +26,32 @@ function normalizeInclusions(input) {
     .slice(0, 40);
 }
 
+function normalizeDetails(raw) {
+  return String(raw || "").trim().slice(0, DETAILS_MAX);
+}
+
 function normalizePlanName(raw) {
   return String(raw || "").trim().slice(0, 80);
+}
+
+function catalogSaveErrorMessage(err) {
+  const msg = String(err?.message || err || "");
+  if (/no unique or exclusion constraint matching the ON CONFLICT/i.test(msg)) {
+    return "Could not save this plan (database conflict key). Please try again.";
+  }
+  if (/duplicate key|unique constraint/i.test(msg)) {
+    return "A catalog row for this plan name already exists. Refresh and try again.";
+  }
+  if (/violates check constraint.*details/i.test(msg)) {
+    return `Plan details are too long (max ${DETAILS_MAX} characters).`;
+  }
+  if (/violates check constraint.*tagline/i.test(msg)) {
+    return "Tagline is too long (max 200 characters).";
+  }
+  if (/permission|rls|row-level/i.test(msg)) {
+    return "You do not have permission to save plan details.";
+  }
+  return msg || "Could not save plan details.";
 }
 
 function rowToPlan(row, fallbackName, index = 0) {
@@ -40,6 +67,7 @@ function rowToPlan(row, fallbackName, index = 0) {
     planName: name,
     listPriceInr: price,
     tagline: String(row?.tagline || "").slice(0, 200),
+    details: String(row?.details || ""),
     inclusions: normalizeInclusions(row?.inclusions),
     isEnabled: row?.is_enabled !== false,
     sortOrder: Number.isFinite(Number(row?.sort_order))
@@ -58,7 +86,6 @@ async function loadPlanNames(sb, gid) {
     .eq("category", "plans")
     .order("sort_order", { ascending: true });
   if (error) {
-    // Fallback: empty — UI still works with catalog-only rows
     const msg = String(error.message || "");
     if (!/relation|does not exist|schema cache/i.test(msg)) throw error;
     return [];
@@ -87,7 +114,6 @@ async function loadMasterEnabled(sb, gid) {
     data?.config_json && typeof data.config_json === "object"
       ? data.config_json
       : {};
-  // Default ON when unset
   return cfg.membershipPlansCatalogEnabled !== false;
 }
 
@@ -118,6 +144,42 @@ async function saveMasterEnabled(sb, gid, enabled) {
   return liveCfg.membershipPlansCatalogEnabled;
 }
 
+/** Prefer update/insert over upsert — avoids PostgREST ON CONFLICT constraint-name issues. */
+async function saveCatalogRow(sb, gid, upsertRow) {
+  const { data: existing, error: findErr } = await sb
+    .from("membership_plan_catalog")
+    .select("id, list_price_inr, details, tagline, inclusions, is_enabled, sort_order")
+    .eq("gym_id", gid)
+    .eq("plan_name", upsertRow.plan_name)
+    .maybeSingle();
+  if (findErr) throw findErr;
+
+  if (existing?.id) {
+    const patch = { ...upsertRow };
+    delete patch.gym_id;
+    delete patch.plan_name;
+    if (upsertRow.list_price_inr === undefined) {
+      patch.list_price_inr = existing.list_price_inr;
+    }
+    const { data, error } = await sb
+      .from("membership_plan_catalog")
+      .update(patch)
+      .eq("id", existing.id)
+      .select("*")
+      .maybeSingle();
+    if (error) throw error;
+    return data;
+  }
+
+  const { data, error } = await sb
+    .from("membership_plan_catalog")
+    .insert(upsertRow)
+    .select("*")
+    .maybeSingle();
+  if (error) throw error;
+  return data;
+}
+
 export function registerMembershipPlansCatalogRoutes(app, { appendAuditLog } = {}) {
   app.get(
     "/api/membership-plans-catalog",
@@ -144,7 +206,10 @@ export function registerMembershipPlansCatalogRoutes(app, { appendAuditLog } = {
         if (catalogRes.error) {
           const msg = String(catalogRes.error.message || "");
           if (!/relation|does not exist|schema cache/i.test(msg)) {
-            return res.status(500).json({ error: catalogRes.error.message });
+            return res.status(500).json({
+              error: "catalog-load-failed",
+              message: catalogRes.error.message,
+            });
           }
         }
 
@@ -175,7 +240,8 @@ export function registerMembershipPlansCatalogRoutes(app, { appendAuditLog } = {
         });
       } catch (err) {
         return res.status(500).json({
-          error: err?.message || "load-failed",
+          error: "load-failed",
+          message: err?.message || "Could not load membership plans.",
         });
       }
     },
@@ -190,15 +256,22 @@ export function registerMembershipPlansCatalogRoutes(app, { appendAuditLog } = {
         const sb = getSupabase();
         const gid = gymId() || req.auth?.gymId;
         if (!sb || !gid) {
-          return res.status(500).json({ error: "supabase-unavailable" });
+          return res.status(500).json({
+            error: "supabase-unavailable",
+            message: "Database is unavailable. Try again in a moment.",
+          });
         }
 
         const planName = normalizePlanName(req.body?.planName || req.body?.plan_name);
         if (!planName) {
-          return res.status(400).json({ error: "plan-name-required" });
+          return res.status(400).json({
+            error: "plan-name-required",
+            message: "Plan name is required.",
+          });
         }
 
         const inclusions = normalizeInclusions(req.body?.inclusions);
+        const details = normalizeDetails(req.body?.details);
         const tagline = String(req.body?.tagline || "").trim().slice(0, 200);
         const isEnabled =
           req.body?.isEnabled !== undefined
@@ -210,17 +283,20 @@ export function registerMembershipPlansCatalogRoutes(app, { appendAuditLog } = {
           ? Math.floor(Number(req.body?.sortOrder ?? req.body?.sort_order))
           : 0;
 
-        let listPriceInr = null;
-        if (
+        let listPriceInr;
+        const priceProvided =
           req.body?.listPriceInr !== undefined
-          || req.body?.list_price_inr !== undefined
-        ) {
+          || req.body?.list_price_inr !== undefined;
+        if (priceProvided) {
           const raw = req.body?.listPriceInr ?? req.body?.list_price_inr;
           if (raw === null || raw === "") listPriceInr = null;
           else {
             const n = Number(raw);
             if (!Number.isFinite(n) || n < 0) {
-              return res.status(400).json({ error: "invalid-price" });
+              return res.status(400).json({
+                error: "invalid-price",
+                message: "List price must be a number of 0 or more.",
+              });
             }
             listPriceInr = Math.round(n * 100) / 100;
           }
@@ -230,37 +306,17 @@ export function registerMembershipPlansCatalogRoutes(app, { appendAuditLog } = {
         const upsertRow = {
           gym_id: gid,
           plan_name: planName,
-          list_price_inr: listPriceInr,
           tagline,
+          details,
           inclusions,
           is_enabled: isEnabled,
           sort_order: sortOrder,
           updated_by: actor,
           updated_at: new Date().toISOString(),
         };
+        if (priceProvided) upsertRow.list_price_inr = listPriceInr;
 
-        // If price omitted on update of existing row, keep previous price.
-        if (
-          req.body?.listPriceInr === undefined
-          && req.body?.list_price_inr === undefined
-        ) {
-          const { data: existing } = await sb
-            .from("membership_plan_catalog")
-            .select("list_price_inr")
-            .eq("gym_id", gid)
-            .eq("plan_name", planName)
-            .maybeSingle();
-          if (existing) {
-            upsertRow.list_price_inr = existing.list_price_inr;
-          }
-        }
-
-        const { data, error } = await sb
-          .from("membership_plan_catalog")
-          .upsert(upsertRow, { onConflict: "gym_id,plan_name" })
-          .select("*")
-          .maybeSingle();
-        if (error) return res.status(500).json({ error: error.message });
+        const data = await saveCatalogRow(sb, gid, upsertRow);
 
         if (typeof appendAuditLog === "function") {
           await appendAuditLog(req, {
@@ -271,13 +327,17 @@ export function registerMembershipPlansCatalogRoutes(app, { appendAuditLog } = {
               planName,
               listPriceInr: data?.list_price_inr,
               isEnabled: data?.is_enabled !== false,
+              hasDetails: Boolean(String(data?.details || "").trim()),
             },
           });
         }
 
         return res.json({ ok: true, plan: rowToPlan(data, planName) });
       } catch (err) {
-        return res.status(500).json({ error: err?.message || "save-failed" });
+        return res.status(500).json({
+          error: "save-failed",
+          message: catalogSaveErrorMessage(err),
+        });
       }
     },
   );
@@ -291,11 +351,17 @@ export function registerMembershipPlansCatalogRoutes(app, { appendAuditLog } = {
         const sb = getSupabase();
         const gid = gymId() || req.auth?.gymId;
         if (!sb || !gid) {
-          return res.status(500).json({ error: "supabase-unavailable" });
+          return res.status(500).json({
+            error: "supabase-unavailable",
+            message: "Database is unavailable. Try again in a moment.",
+          });
         }
 
         if (req.body?.enabled === undefined && req.body?.masterEnabled === undefined) {
-          return res.status(400).json({ error: "enabled-required" });
+          return res.status(400).json({
+            error: "enabled-required",
+            message: "enabled is required.",
+          });
         }
         const enabled = Boolean(
           req.body?.enabled !== undefined
@@ -315,7 +381,10 @@ export function registerMembershipPlansCatalogRoutes(app, { appendAuditLog } = {
 
         return res.json({ ok: true, masterEnabled });
       } catch (err) {
-        return res.status(500).json({ error: err?.message || "save-failed" });
+        return res.status(500).json({
+          error: "save-failed",
+          message: catalogSaveErrorMessage(err),
+        });
       }
     },
   );
