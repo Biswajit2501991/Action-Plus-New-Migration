@@ -1,13 +1,17 @@
 /**
  * Membership plan catalog — showcase metadata for staff sales talk.
+ * Branch-scoped: each gym_code_id owns its own catalog rows.
  * Does not rewrite members.amount, payments, or settings.plans name list.
  * Not exposed to Member Portal.
  */
 
 import { Access } from "../auth/accessControl.js";
+import { resolveReadBranchScope } from "../auth/branchScope.js";
 import { requireAccess } from "../middleware/permissions.js";
+import { filterLookupRowsForGymCodeId } from "../db/supabase/settingsLookupBranchId.js";
 
 const DETAILS_MAX = 8000;
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 function normalizeInclusions(input) {
   if (!Array.isArray(input)) {
@@ -40,7 +44,7 @@ function catalogSaveErrorMessage(err) {
     return "Could not save this plan (database conflict key). Please try again.";
   }
   if (/duplicate key|unique constraint/i.test(msg)) {
-    return "A catalog row for this plan name already exists. Refresh and try again.";
+    return "A catalog row for this plan name already exists on this branch. Refresh and try again.";
   }
   if (/violates check constraint.*details/i.test(msg)) {
     return `Plan details are too long (max ${DETAILS_MAX} characters).`;
@@ -65,6 +69,7 @@ function rowToPlan(row, fallbackName, index = 0) {
         : null;
   return {
     planName: name,
+    gymCodeId: row?.gym_code_id ? String(row.gym_code_id) : null,
     listPriceInr: price,
     tagline: String(row?.tagline || "").slice(0, 200),
     details: String(row?.details || ""),
@@ -78,21 +83,90 @@ function rowToPlan(row, fallbackName, index = 0) {
   };
 }
 
-async function loadPlanNames(sb, gid) {
+/**
+ * Active branch for catalog reads/writes.
+ * Staff: locked to JWT branch. Owner: active branch (must select one).
+ */
+function resolveCatalogBranchId(req) {
+  const scope = resolveReadBranchScope(req.auth);
+  if (scope?.staffNoBranch) {
+    const err = new Error("branch-scope-missing");
+    err.status = 403;
+    err.message = "Your profile has no gym branch assigned.";
+    throw err;
+  }
+  const fromScope = String(scope?.gymCodeId || "").trim();
+  if (fromScope && UUID_RE.test(fromScope)) return fromScope;
+
+  const fromAuth = String(
+    req.auth?.activeBranchId || req.auth?.gymCodeId || "",
+  ).trim();
+  if (fromAuth && UUID_RE.test(fromAuth)) return fromAuth;
+
+  const err = new Error("gym-code-id-required");
+  err.status = 400;
+  err.message =
+    "Select a gym branch to view or edit that branch’s membership plans.";
+  throw err;
+}
+
+async function loadBranchMeta(sb, gid, gymCodeId) {
+  const { data, error } = await sb
+    .from("gym_codes")
+    .select("id, code, name")
+    .eq("gym_id", gid)
+    .eq("id", gymCodeId)
+    .maybeSingle();
+  if (error) throw error;
+  if (!data?.id) {
+    const err = new Error("branch-not-found");
+    err.status = 404;
+    err.message = "That gym branch was not found.";
+    throw err;
+  }
+  return {
+    gymCodeId: String(data.id),
+    gymCode: String(data.code || ""),
+    branchName: String(data.name || ""),
+    branchLabel:
+      data.code && data.name
+        ? `${data.name} (${data.code})`
+        : String(data.name || data.code || ""),
+  };
+}
+
+async function loadPlanNames(sb, gid, gymCodeId) {
   const { data, error } = await sb
     .from("settings_lookup_values")
-    .select("value, sort_order, is_active")
+    .select("value, sort_order, is_active, created_by_gym_code_id")
     .eq("gym_id", gid)
     .eq("category", "plans")
     .order("sort_order", { ascending: true });
   if (error) {
     const msg = String(error.message || "");
-    if (!/relation|does not exist|schema cache/i.test(msg)) throw error;
+    if (!/relation|does not exist|schema cache|created_by_gym_code_id/i.test(msg)) {
+      throw error;
+    }
+    if (/created_by_gym_code_id/i.test(msg)) {
+      const retry = await sb
+        .from("settings_lookup_values")
+        .select("value, sort_order, is_active")
+        .eq("gym_id", gid)
+        .eq("category", "plans")
+        .order("sort_order", { ascending: true });
+      if (retry.error) throw retry.error;
+      return normalizePlanNameList(retry.data);
+    }
     return [];
   }
+  const scoped = filterLookupRowsForGymCodeId(data || [], gymCodeId);
+  return normalizePlanNameList(scoped);
+}
+
+function normalizePlanNameList(rows) {
   const names = [];
   const seen = new Set();
-  for (const row of data || []) {
+  for (const row of rows || []) {
     if (row?.is_active === false) continue;
     const name = normalizePlanName(row.value);
     if (!name) continue;
@@ -145,11 +219,12 @@ async function saveMasterEnabled(sb, gid, enabled) {
 }
 
 /** Prefer update/insert over upsert — avoids PostgREST ON CONFLICT constraint-name issues. */
-async function saveCatalogRow(sb, gid, upsertRow) {
+async function saveCatalogRow(sb, gid, gymCodeId, upsertRow) {
   const { data: existing, error: findErr } = await sb
     .from("membership_plan_catalog")
     .select("id, list_price_inr, details, tagline, inclusions, is_enabled, sort_order")
     .eq("gym_id", gid)
+    .eq("gym_code_id", gymCodeId)
     .eq("plan_name", upsertRow.plan_name)
     .maybeSingle();
   if (findErr) throw findErr;
@@ -157,6 +232,7 @@ async function saveCatalogRow(sb, gid, upsertRow) {
   if (existing?.id) {
     const patch = { ...upsertRow };
     delete patch.gym_id;
+    delete patch.gym_code_id;
     delete patch.plan_name;
     if (upsertRow.list_price_inr === undefined) {
       patch.list_price_inr = existing.list_price_inr;
@@ -193,13 +269,30 @@ export function registerMembershipPlansCatalogRoutes(app, { appendAuditLog } = {
           return res.status(500).json({ error: "supabase-unavailable" });
         }
 
-        const [planNames, masterEnabled, catalogRes] = await Promise.all([
-          loadPlanNames(sb, gid),
+        let gymCodeId;
+        try {
+          gymCodeId = resolveCatalogBranchId(req);
+        } catch (err) {
+          return res.status(err.status || 400).json({
+            error: err.message === "branch-scope-missing"
+              ? "branch-scope-missing"
+              : "gym-code-id-required",
+            message: err.message,
+            plans: [],
+            masterEnabled: true,
+            branchRequired: true,
+          });
+        }
+
+        const [planNames, masterEnabled, branchMeta, catalogRes] = await Promise.all([
+          loadPlanNames(sb, gid, gymCodeId),
           loadMasterEnabled(sb, gid),
+          loadBranchMeta(sb, gid, gymCodeId),
           sb
             .from("membership_plan_catalog")
             .select("*")
             .eq("gym_id", gid)
+            .eq("gym_code_id", gymCodeId)
             .order("sort_order", { ascending: true }),
         ]);
 
@@ -230,16 +323,20 @@ export function registerMembershipPlansCatalogRoutes(app, { appendAuditLog } = {
 
         const plans = mergedNames.map((name, index) => {
           const row = byName.get(name.toLowerCase()) || null;
-          return rowToPlan(row, name, index);
+          return rowToPlan(row || { gym_code_id: gymCodeId }, name, index);
         });
 
         return res.json({
           ok: true,
           masterEnabled,
+          gymCodeId: branchMeta.gymCodeId,
+          branchName: branchMeta.branchName,
+          gymCode: branchMeta.gymCode,
+          branchLabel: branchMeta.branchLabel,
           plans,
         });
       } catch (err) {
-        return res.status(500).json({
+        return res.status(err.status || 500).json({
           error: "load-failed",
           message: err?.message || "Could not load membership plans.",
         });
@@ -261,6 +358,20 @@ export function registerMembershipPlansCatalogRoutes(app, { appendAuditLog } = {
             message: "Database is unavailable. Try again in a moment.",
           });
         }
+
+        let gymCodeId;
+        try {
+          gymCodeId = resolveCatalogBranchId(req);
+        } catch (err) {
+          return res.status(err.status || 400).json({
+            error: err.message === "branch-scope-missing"
+              ? "branch-scope-missing"
+              : "gym-code-id-required",
+            message: err.message,
+          });
+        }
+
+        await loadBranchMeta(sb, gid, gymCodeId);
 
         const planName = normalizePlanName(req.body?.planName || req.body?.plan_name);
         if (!planName) {
@@ -305,6 +416,7 @@ export function registerMembershipPlansCatalogRoutes(app, { appendAuditLog } = {
         const actor = String(req.auth?.userId || "staff").trim().slice(0, 120);
         const upsertRow = {
           gym_id: gid,
+          gym_code_id: gymCodeId,
           plan_name: planName,
           tagline,
           details,
@@ -316,15 +428,16 @@ export function registerMembershipPlansCatalogRoutes(app, { appendAuditLog } = {
         };
         if (priceProvided) upsertRow.list_price_inr = listPriceInr;
 
-        const data = await saveCatalogRow(sb, gid, upsertRow);
+        const data = await saveCatalogRow(sb, gid, gymCodeId, upsertRow);
 
         if (typeof appendAuditLog === "function") {
           await appendAuditLog(req, {
             action: "membership_plans.catalog.updated",
             entityType: "membership_plan_catalog",
-            entityId: planName,
+            entityId: `${gymCodeId}:${planName}`,
             after: {
               planName,
+              gymCodeId,
               listPriceInr: data?.list_price_inr,
               isEnabled: data?.is_enabled !== false,
               hasDetails: Boolean(String(data?.details || "").trim()),
@@ -332,9 +445,9 @@ export function registerMembershipPlansCatalogRoutes(app, { appendAuditLog } = {
           });
         }
 
-        return res.json({ ok: true, plan: rowToPlan(data, planName) });
+        return res.json({ ok: true, plan: rowToPlan(data, planName), gymCodeId });
       } catch (err) {
-        return res.status(500).json({
+        return res.status(err.status || 500).json({
           error: "save-failed",
           message: catalogSaveErrorMessage(err),
         });

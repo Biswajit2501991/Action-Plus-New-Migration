@@ -8,11 +8,12 @@ import { Input, Label } from "@/components/ui/input";
 import { Skeleton, EmptyState } from "@/components/ui/misc";
 import { apiFetch } from "@/services/api/client";
 import { canAccessSection, hasAccess, isMasterOwnerUser } from "@/lib/domain/permissions";
-import { useAuthStore } from "@/stores";
+import { useAuthStore, useBranchStore } from "@/stores";
 import { cn } from "@/lib/utils";
 
 export type CatalogPlan = {
   planName: string;
+  gymCodeId?: string | null;
   listPriceInr: number | null;
   tagline: string;
   details: string;
@@ -26,6 +27,12 @@ type CatalogResponse = {
   ok?: boolean;
   masterEnabled?: boolean;
   plans?: CatalogPlan[];
+  gymCodeId?: string;
+  branchName?: string;
+  gymCode?: string;
+  branchLabel?: string;
+  branchRequired?: boolean;
+  message?: string;
 };
 
 function formatInr(value: number | null | undefined) {
@@ -39,6 +46,10 @@ function formatInr(value: number | null | undefined) {
 
 export function MembershipPlansPage() {
   const user = useAuthStore((s) => s.user);
+  const storeBranchId = useBranchStore((s) => s.activeBranchId);
+  const activeBranchId = String(
+    storeBranchId || user?.activeBranchId || user?.gymCodeId || "",
+  ).trim();
   const isOwner = isMasterOwnerUser(user);
   const canView =
     isOwner ||
@@ -49,15 +60,25 @@ export function MembershipPlansPage() {
   const [loading, setLoading] = useState(true);
   const [masterEnabled, setMasterEnabled] = useState(true);
   const [plans, setPlans] = useState<CatalogPlan[]>([]);
+  const [branchLabel, setBranchLabel] = useState("");
+  const [branchRequired, setBranchRequired] = useState(false);
   const [editingPlanName, setEditingPlanName] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [draft, setDraft] = useState<CatalogPlan | null>(null);
 
   const load = async () => {
     setLoading(true);
+    setBranchRequired(false);
     try {
       const data = await apiFetch<CatalogResponse>("/membership-plans-catalog");
       setMasterEnabled(data.masterEnabled !== false);
+      setBranchLabel(
+        data.branchLabel ||
+          (data.branchName && data.gymCode
+            ? `${data.branchName} (${data.gymCode})`
+            : data.branchName || data.gymCode || ""),
+      );
+      setBranchRequired(Boolean(data.branchRequired));
       const list = Array.isArray(data.plans) ? data.plans : [];
       setPlans(
         list.map((p) => ({
@@ -67,8 +88,17 @@ export function MembershipPlansPage() {
           tagline: p.tagline || "",
         })),
       );
+      setEditingPlanName(null);
+      setDraft(null);
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Could not load plans");
+      const msg = err instanceof Error ? err.message : "Could not load plans";
+      if (/select a gym branch|gym-code-id-required|branch-scope/i.test(msg)) {
+        setBranchRequired(true);
+        setPlans([]);
+        setBranchLabel("");
+      } else {
+        toast.error(msg);
+      }
     } finally {
       setLoading(false);
     }
@@ -76,7 +106,9 @@ export function MembershipPlansPage() {
 
   useEffect(() => {
     if (canView) void load();
-  }, [canView]);
+    // Reload when staff/owner switches active branch in the shell.
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- intentional branch key
+  }, [canView, activeBranchId]);
 
   const visibleCards = useMemo(() => {
     if (canEdit && !masterEnabled) return plans;
@@ -198,9 +230,14 @@ export function MembershipPlansPage() {
               Membership Plans
             </h1>
             <p className="mt-2 max-w-xl text-sm leading-relaxed text-slate-600 dark:text-slate-300">
-              Staff sales showcase only — these details are not shown on the Member Portal. Click
-              the pencil on a plan to edit just that plan.
+              Staff sales showcase for this branch only — other gym branches never see these cards.
+              Not shown on the Member Portal. Click the pencil on a plan to edit just that plan.
             </p>
+            {branchLabel ? (
+              <p className="mt-2 text-xs font-medium text-teal-800/90 dark:text-teal-300/90">
+                Viewing · {branchLabel}
+              </p>
+            ) : null}
           </div>
           {canEdit ? (
             <button
@@ -221,21 +258,28 @@ export function MembershipPlansPage() {
           ) : null}
         </header>
 
-        {!masterEnabled && !canEdit ? (
+        {branchRequired ? (
+          <EmptyState
+            title="Select a gym branch"
+            description="Use the branch switcher in the header to choose a branch. Each branch has its own membership plan showcase."
+          />
+        ) : null}
+
+        {!branchRequired && !masterEnabled && !canEdit ? (
           <EmptyState
             title="Plans showcase is turned off"
             description="Ask the owner to turn Showcase On."
           />
         ) : null}
 
-        {!plans.length ? (
+        {!branchRequired && !plans.length ? (
           <EmptyState
-            title="No plan names yet"
-            description="Add plan names under Settings → Business Configuration → Plans, then return here to add price and details."
+            title="No plan names yet for this branch"
+            description="Add plan names under Settings → Business Configuration → Plans while this branch is selected, then return here to add price and details."
           />
         ) : null}
 
-        {editingPlanName && draft ? (
+        {editingPlanName && draft && !branchRequired ? (
           <article className="rounded-3xl border border-teal-200/80 bg-white p-6 shadow-sm dark:border-teal-900/40 dark:bg-card">
             <div className="flex flex-wrap items-start justify-between gap-3">
               <h2 className="font-serif text-2xl text-slate-900 dark:text-slate-50">
@@ -351,7 +395,7 @@ export function MembershipPlansPage() {
           </article>
         ) : null}
 
-        {!editingPlanName && visibleCards.length ? (
+        {!editingPlanName && !branchRequired && visibleCards.length ? (
           <div className="grid gap-5 md:grid-cols-2 xl:grid-cols-3">
             {visibleCards.map((plan, index) => {
               const price = formatInr(plan.listPriceInr);
@@ -435,6 +479,7 @@ export function MembershipPlansPage() {
         ) : null}
 
         {!editingPlanName &&
+        !branchRequired &&
         masterEnabled &&
         canEdit &&
         !plans.some((p) => p.isEnabled !== false) &&
