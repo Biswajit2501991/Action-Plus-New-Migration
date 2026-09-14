@@ -124,6 +124,7 @@ import { registerMemberPortalPhase2Routes } from './routes/memberPortalPhase2.js
 import { registerPortalPushBroadcastRoutes } from './routes/portalPushBroadcast.js';
 import { registerMembershipPlansCatalogRoutes } from './routes/membershipPlansCatalog.js';
 import { registerVisitorStaffCommentRoutes } from './routes/visitorStaffComments.js';
+import { registerOffersRoutes } from './routes/offers.js';
 import { registerWorkoutPlanExerciseMediaRoutes } from './routes/workoutPlanExerciseMedia.js';
 import { registerWorkoutPlanDayExerciseRoutes } from './routes/workoutPlanDayExercises.js';
 import { registerWorkoutPlanExerciseLabelRoutes } from './routes/workoutPlanExerciseLabels.js';
@@ -553,6 +554,7 @@ app.use('/api/attendance-kiosk', attendanceKioskRouter);
 registerMemberPortalPhase2Routes(app, { appendAuditLog });
 registerPortalPushBroadcastRoutes(app, { appendAuditLog });
 registerMembershipPlansCatalogRoutes(app, { appendAuditLog });
+registerOffersRoutes(app, { appendAuditLog });
 registerWorkoutPlanExerciseMediaRoutes(app);
 registerWorkoutPlanDayExerciseRoutes(app);
 registerWorkoutPlanExerciseLabelRoutes(app);

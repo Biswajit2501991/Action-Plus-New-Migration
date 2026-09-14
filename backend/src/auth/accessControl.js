@@ -112,6 +112,11 @@ export function normalizeAccess(access) {
     analytics: {
       viewAnalytics: access?.analytics?.viewAnalytics === true,
     },
+    offers: {
+      viewOffers: access?.offers?.viewOffers === true,
+      redeemOffers: access?.offers?.redeemOffers === true,
+      manageOfferSettings: access?.offers?.manageOfferSettings === true,
+    },
     paymentQr: {
       viewPaymentQr: access?.paymentQr?.viewPaymentQr !== false,
       managePaymentSettings: access?.paymentQr?.managePaymentSettings === true,
@@ -141,6 +146,7 @@ export function normalizeAccess(access) {
       moreSettings: access?.mobile?.moreSettings !== false,
       moreLogs: access?.mobile?.moreLogs !== false,
       moreAnalytics: access?.mobile?.moreAnalytics !== false,
+      moreOffers: access?.mobile?.moreOffers !== false,
       moreSupport: access?.mobile?.moreSupport !== false,
       moreBackend: access?.mobile?.moreBackend !== false,
       moreWebsite: access?.mobile?.moreWebsite !== false,
@@ -222,6 +228,16 @@ export const Access = {
   salaryReadOwn: (a) => a.__owner || a.dashboard?.viewOwnSalary === true,
   /** System Analytics — opt-in like Website. */
   analyticsRead: (a) => a.__owner || a.analytics?.viewAnalytics === true,
+  /** Partner Offers desk — opt-in. */
+  offersRead: (a) => a.__owner || a.offers?.viewOffers === true,
+  offersWrite: (a) =>
+    a.__owner
+    || a.offers?.redeemOffers === true
+    || a.offers?.viewOffers === true,
+  offersManage: (a) =>
+    a.__owner
+    || a.offers?.manageOfferSettings === true
+    || a.settings?.manageSystemFeatures === true,
 };
 
 export function invalidateStaffAccessCache(staffLoginId) {

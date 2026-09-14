@@ -10,6 +10,7 @@ export const ALL_SECTIONS = [
   'Attendance',
   'Leave Tracker',
   'Settings',
+  'Offers',
   'Analytics',
   'Logs',
   'Support',
@@ -126,6 +127,12 @@ export const ANALYTICS_CHILD_PERMISSIONS = [
   { key: 'viewAnalytics', label: 'View Analytics' },
 ];
 
+export const OFFERS_CHILD_PERMISSIONS = [
+  { key: 'viewOffers', label: 'View Offers desk' },
+  { key: 'redeemOffers', label: 'Redeem / log offers' },
+  { key: 'manageOfferSettings', label: 'Manage eligible statuses' },
+];
+
 export const PAYMENT_QR_CHILD_PERMISSIONS = [
   { key: 'viewPaymentQr', label: 'View Payment QR (Members toolbar)' },
   { key: 'managePaymentSettings', label: 'Manage Payment Settings (Owner)' },
@@ -225,6 +232,11 @@ export const DEFAULT_ACCESS = {
   analytics: {
     viewAnalytics: true,
   },
+  offers: {
+    viewOffers: true,
+    redeemOffers: true,
+    manageOfferSettings: true,
+  },
   paymentQr: {
     viewPaymentQr: true,
     managePaymentSettings: false,
@@ -254,6 +266,7 @@ export const DEFAULT_ACCESS = {
     moreSettings: true,
     moreLogs: true,
     moreAnalytics: true,
+    moreOffers: true,
     moreSupport: true,
     moreBackend: true,
     moreWebsite: true,
@@ -374,6 +387,11 @@ export function normalizeAccess(access) {
       // Opt-in: staff only see Analytics when explicitly granted
       viewAnalytics: access?.analytics?.viewAnalytics === true,
     },
+    offers: {
+      viewOffers: access?.offers?.viewOffers === true,
+      redeemOffers: access?.offers?.redeemOffers === true,
+      manageOfferSettings: access?.offers?.manageOfferSettings === true,
+    },
     paymentQr: {
       viewPaymentQr: access?.paymentQr?.viewPaymentQr !== false,
       managePaymentSettings: access?.paymentQr?.managePaymentSettings === true,
@@ -403,6 +421,7 @@ export function normalizeAccess(access) {
       moreSettings: access?.mobile?.moreSettings !== false,
       moreLogs: access?.mobile?.moreLogs !== false,
       moreAnalytics: access?.mobile?.moreAnalytics !== false,
+      moreOffers: access?.mobile?.moreOffers !== false,
       moreSupport: access?.mobile?.moreSupport !== false,
       moreBackend: access?.mobile?.moreBackend !== false,
       moreWebsite: access?.mobile?.moreWebsite !== false,

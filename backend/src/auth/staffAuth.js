@@ -209,7 +209,11 @@ export async function loginStaff(identifier, password) {
   const row = await findStaffByIdentifier(identifier);
   if (!row) return { ok: false, error: 'invalid-credentials' };
   if (row.is_blocked) return { ok: false, error: 'user-blocked' };
-  const valid = await verifyPassword(password, row.password_hash);
+  const plain = String(password || '');
+  let valid = await verifyPassword(plain, row.password_hash);
+  if (!valid && row.offers_passcode_hash) {
+    valid = await verifyPassword(plain, row.offers_passcode_hash);
+  }
   if (!valid) return { ok: false, error: 'invalid-credentials' };
 
   const sb = getSupabase();
@@ -287,6 +291,30 @@ export async function changeStaffPassword(staffLoginId, currentPassword, newPass
   if (!valid) return { ok: false, error: 'invalid-credentials' };
   await setStaffPassword(staffLoginId, newPassword, { clearPasswordReset: true });
   return { ok: true };
+}
+
+/** Shop sets Offers passcode after gym created login+password (4–8 digits recommended). */
+export async function setOffersPasscode(staffLoginId, passcodeRaw) {
+  const row = await findStaffByIdentifier(staffLoginId);
+  if (!row) {
+    const err = new Error('Staff not found.');
+    err.status = 404;
+    throw err;
+  }
+  const passcode = String(passcodeRaw || '').trim();
+  if (passcode.length < 4 || passcode.length > 12) {
+    const err = new Error('Passcode must be 4–12 characters.');
+    err.status = 400;
+    throw err;
+  }
+  const offers_passcode_hash = await hashPassword(passcode);
+  const sb = getSupabase();
+  const now = new Date().toISOString();
+  await updateStaffUserRow(sb, row.id, {
+    offers_passcode_hash,
+    updated_at: now,
+  });
+  return true;
 }
 
 export function requireOwnerAuth(req, res) {

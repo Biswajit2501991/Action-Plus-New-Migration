@@ -77,6 +77,7 @@ export const SETTINGS_CONFIG_JSON_KEYS = [
   'gymHolidays',
   'salaryManualOverrides',
   'membershipPlansCatalogEnabled',
+  'offerEligibleStatuses',
 ];
 
 const OPT_IN_BOOL_KEYS = new Set([
@@ -169,6 +170,9 @@ export function buildSettingsAppConfigWriteFromLive(liveConfigRow, incoming, exi
       attendanceRequirePresenceQr: nextCfg.attendanceRequirePresenceQr === true,
       paymentQrInReminderEnabled: nextCfg.paymentQrInReminderEnabled === true,
       membershipPlansCatalogEnabled: nextCfg.membershipPlansCatalogEnabled === true,
+      ...(Array.isArray(nextCfg.offerEligibleStatuses)
+        ? { offerEligibleStatuses: nextCfg.offerEligibleStatuses }
+        : {}),
     },
   };
 }

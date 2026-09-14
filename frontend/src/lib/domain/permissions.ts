@@ -12,6 +12,7 @@ export const ALL_SECTIONS = [
   "Attendance",
   "Leave Tracker",
   "Settings",
+  "Offers",
   "Analytics",
   "Logs",
   "Support",
@@ -143,6 +144,13 @@ export const ANALYTICS_CHILD_PERMISSIONS: AccessChildPermission[] = [
   { key: "viewAnalytics", label: "View Analytics" },
 ];
 
+/** Opt-in — partner shop Offers desk (read member verify + redeem log). */
+export const OFFERS_CHILD_PERMISSIONS: AccessChildPermission[] = [
+  { key: "viewOffers", label: "View Offers desk" },
+  { key: "redeemOffers", label: "Redeem / log offers" },
+  { key: "manageOfferSettings", label: "Manage eligible statuses" },
+];
+
 export const PAYMENT_QR_CHILD_PERMISSIONS: AccessChildPermission[] = [
   { key: "viewPaymentQr", label: "View Payment QR (Members toolbar)" },
   { key: "managePaymentSettings", label: "Manage Payment Settings (Owner)" },
@@ -188,6 +196,7 @@ export const MOBILE_MORE_PERMISSIONS: AccessChildPermission[] = [
   { key: "moreSettings", label: "More — Settings" },
   { key: "moreLogs", label: "More — Logs" },
   { key: "moreAnalytics", label: "More — Analytics" },
+  { key: "moreOffers", label: "More — Offers" },
   { key: "moreSupport", label: "More — Support" },
   { key: "moreBackend", label: "More — Backend" },
   { key: "moreWebsite", label: "More — Website" },
@@ -264,6 +273,7 @@ export const SECTION_ACCESS_CONFIG: SectionAccessConfig[] = [
   },
   { section: "Leave Tracker", accessGroup: "leave", children: LEAVE_CHILD_PERMISSIONS },
   { section: "Settings", accessGroup: "settings", children: SETTINGS_CHILD_PERMISSIONS },
+  { section: "Offers", accessGroup: "offers", children: OFFERS_CHILD_PERMISSIONS },
   { section: "Analytics", accessGroup: "analytics", children: ANALYTICS_CHILD_PERMISSIONS },
   { section: "Logs", accessGroup: "logs", children: LOGS_CHILD_PERMISSIONS },
   { section: "Support", accessGroup: "support", children: SUPPORT_CHILD_PERMISSIONS },
@@ -471,6 +481,7 @@ export function toggleAllSectionsAccess(form: StaffAccessFormSlice): StaffAccess
       },
       logs: { viewLogs: false, exportLogs: false, clearLogs: false },
       analytics: { viewAnalytics: false },
+      offers: { viewOffers: false, redeemOffers: false, manageOfferSettings: false },
       support: { viewSupportTemplates: false, editSupportTemplates: false },
       backend: { viewBackendPage: false, controlBackendProcesses: false },
       website: { viewWebsite: false },
@@ -490,6 +501,9 @@ export function isAccessChildEnabled(access: AccessMap, group: keyof AccessMap, 
   }
   if (group === "analytics" && key === "viewAnalytics") {
     return normalized.analytics?.viewAnalytics === true;
+  }
+  if (group === "offers") {
+    return (normalized.offers as Record<string, boolean> | undefined)?.[key] === true;
   }
   if (group === "staff" && key === "manageStaff") {
     return normalized.staff?.manageStaff === true;
@@ -601,6 +615,11 @@ export const DEFAULT_ACCESS: AccessMap = {
     /** On in DEFAULT so role presets / Select All that include Analytics grant the child key. */
     viewAnalytics: true,
   },
+  offers: {
+    viewOffers: true,
+    redeemOffers: true,
+    manageOfferSettings: true,
+  },
   paymentQr: {
     viewPaymentQr: true,
     managePaymentSettings: false,
@@ -709,6 +728,11 @@ export function normalizeAccess(access?: AccessMap | null): AccessMap {
     analytics: {
       // Opt-in: staff only see Analytics when explicitly granted
       viewAnalytics: a.analytics?.viewAnalytics === true,
+    },
+    offers: {
+      viewOffers: a.offers?.viewOffers === true,
+      redeemOffers: a.offers?.redeemOffers === true,
+      manageOfferSettings: a.offers?.manageOfferSettings === true,
     },
     paymentQr: {
       viewPaymentQr: a.paymentQr?.viewPaymentQr !== false,
@@ -827,6 +851,7 @@ export function canAccessSection(user: AuthUser | null | undefined, section: str
   if (section === "Staff") return hasAccess(user, "staff", "viewStaff");
   if (section === "Logs") return hasAccess(user, "logs", "viewLogs");
   if (section === "Analytics") return hasAccess(user, "analytics", "viewAnalytics");
+  if (section === "Offers") return hasAccess(user, "offers", "viewOffers");
   if (section === "Support") return hasAccess(user, "support", "viewSupportTemplates");
   if (section === "Backend") return hasAccess(user, "backend", "viewBackendPage");
   return true;
@@ -858,6 +883,9 @@ export function hasAccess(
   }
   if (group === "analytics" && key === "viewAnalytics") {
     return access.analytics?.viewAnalytics === true;
+  }
+  if (group === "offers") {
+    return (access.offers as Record<string, boolean> | undefined)?.[key] === true;
   }
   if (group === "staff" && key === "manageStaff") {
     return access.staff?.manageStaff === true;
@@ -975,6 +1003,7 @@ const MOBILE_PATH_ACCESS: Array<{ prefix: string; key: string }> = [
   { prefix: "/settings", key: "moreSettings" },
   { prefix: "/logs", key: "moreLogs" },
   { prefix: "/analytics", key: "moreAnalytics" },
+  { prefix: "/offers", key: "moreOffers" },
   { prefix: "/support", key: "moreSupport" },
   { prefix: "/backend", key: "moreBackend" },
   { prefix: "https://www.actionplusgym.com", key: "moreWebsite" },
@@ -1003,6 +1032,13 @@ export function canAccessMobilePath(
       hasAccess(user, "mobile", "moreAnalytics")
     );
   }
+  if (key === "moreOffers") {
+    return (
+      canAccessSection(user, "Offers") &&
+      hasAccess(user, "mobile", "viewMore") &&
+      hasAccess(user, "mobile", "moreOffers")
+    );
+  }
   if (key.startsWith("more") && key !== "viewMore") {
     return hasAccess(user, "mobile", "viewMore") && hasAccess(user, "mobile", key);
   }
@@ -1010,6 +1046,9 @@ export function canAccessMobilePath(
 }
 
 export function firstAllowedMobileHref(user: AuthUser | null | undefined): string {
+  if (canAccessSection(user, "Offers") && !canAccessSection(user, "Dashboard")) {
+    return "/offers";
+  }
   const order = [
     { href: "/dashboard", key: "viewHome" },
     { href: "/members", key: "viewMembers" },
@@ -1021,7 +1060,36 @@ export function firstAllowedMobileHref(user: AuthUser | null | undefined): strin
   for (const row of order) {
     if (hasAccess(user, "mobile", row.key)) return row.href;
   }
+  if (canAccessSection(user, "Offers")) return "/offers";
   return "/more";
+}
+
+/** First desktop route this staff can open (Offers-only shops land on /offers). */
+export function firstAllowedWebHref(user: AuthUser | null | undefined): string {
+  if (!user) return "/dashboard";
+  if (canAccessSection(user, "Dashboard")) return "/dashboard";
+  if (canAccessSection(user, "Offers")) return "/offers";
+  for (const section of ALL_SECTIONS) {
+    if (canAccessSection(user, section)) {
+      const item = SECTION_ACCESS_CONFIG.find((c) => c.section === section);
+      if (!item) continue;
+      // Prefer nav href when available
+      if (section === "Members") return "/members";
+      if (section === "PT Clients") return "/pt";
+      if (section === "WhatsApp SMS") return "/whatsapp";
+      if (section === "WhatsApp Verification") return "/portal-verify";
+      if (section === "Finance") return "/finance";
+      if (section === "Staff") return "/staff";
+      if (section === "Attendance") return "/attendance";
+      if (section === "Leave Tracker") return "/leave";
+      if (section === "Settings") return "/settings";
+      if (section === "Analytics") return "/analytics";
+      if (section === "Logs") return "/logs";
+      if (section === "Support") return "/support";
+      if (section === "Backend") return "/backend";
+    }
+  }
+  return "/dashboard";
 }
 
 export function isMasterOwnerUser(user: AuthUser | null | undefined) {

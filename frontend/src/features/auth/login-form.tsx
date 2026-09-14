@@ -7,11 +7,13 @@ import { BranchLogo } from "@/components/branding/branch-logo";
 import { useAuth } from "@/hooks/use-auth";
 import { ApiError } from "@/services/api/client";
 import { readAuthSession } from "@/lib/auth-storage";
+import { firstAllowedWebHref } from "@/lib/domain/permissions";
 import {
   DEFAULT_GYM_DISPLAY_NAME,
   DEFAULT_LOGO_PATH,
 } from "@/lib/domain/branch-branding";
 import { cn } from "@/lib/utils";
+import { useAuthStore } from "@/stores";
 
 const REMEMBER_KEY = "apg.auth.remember";
 
@@ -41,7 +43,8 @@ export function LoginForm() {
 
   useEffect(() => {
     if (hydrated && (isAuthenticated || readAuthSession())) {
-      router.replace("/dashboard");
+      const u = useAuthStore.getState().user;
+      router.replace(firstAllowedWebHref(u));
     }
   }, [hydrated, isAuthenticated, router]);
 
@@ -65,7 +68,8 @@ export function LoginForm() {
       } catch {
         // ignore
       }
-      router.replace("/dashboard");
+      const u = useAuthStore.getState().user;
+      router.replace(firstAllowedWebHref(u));
     } catch (err) {
       setError(err instanceof ApiError ? err.message : "Sign in failed");
     } finally {

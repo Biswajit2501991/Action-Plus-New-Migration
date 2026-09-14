@@ -403,6 +403,68 @@ export const analyticsApi = {
   growth: () => apiFetch<Record<string, unknown>>("/analytics/growth"),
 };
 
+export type OfferMember = {
+  memberCode: string;
+  fullName: string;
+  mobile: string;
+  status: string;
+  gymCodeId?: string | null;
+  photoUrl?: string | null;
+  label?: string;
+};
+
+export type OfferRedemption = {
+  id: string;
+  shopStaffLoginId?: string;
+  shopStaffName?: string;
+  memberCode?: string;
+  memberName?: string;
+  memberMobile?: string;
+  memberStatus?: string;
+  offerPercent: number;
+  totalCostInr: number;
+  customerPayInr: number;
+  gymCodeId?: string | null;
+  createdAt?: string | null;
+};
+
+/** Partner Offers desk — member verify + append-only redemption log (not Finance). */
+export const offersApi = {
+  settings: () =>
+    apiFetch<{ ok?: boolean; eligibleStatuses?: string[]; defaults?: string[] }>(
+      "/offers/settings",
+    ),
+  saveSettings: (eligibleStatuses: string[]) =>
+    apiFetch<{ ok?: boolean; eligibleStatuses?: string[] }>("/offers/settings", {
+      method: "PATCH",
+      body: JSON.stringify({ eligibleStatuses }),
+    }),
+  lookupMember: (mobile: string) =>
+    apiFetch<{
+      ok?: boolean;
+      found?: boolean;
+      message?: string;
+      member?: OfferMember;
+    }>(`/offers/lookup-member?mobile=${encodeURIComponent(mobile)}`),
+  redemptions: () =>
+    apiFetch<{ ok?: boolean; redemptions?: OfferRedemption[] }>("/offers/redemptions"),
+  redeem: (body: { mobile: string; offerPercent: number; totalCostInr: number }) =>
+    apiFetch<{
+      ok?: boolean;
+      redemption?: OfferRedemption;
+      recent?: OfferRedemption[];
+      member?: OfferMember;
+    }>("/offers/redeem", {
+      method: "POST",
+      body: JSON.stringify(body),
+    }),
+  setPasscode: (passcode: string) =>
+    apiFetch<{ ok?: boolean }>("/offers/passcode", {
+      method: "POST",
+      body: JSON.stringify({ passcode }),
+    }),
+};
+
 export const attendanceApi = {
   records: (params: { startDate: string; endDate: string }) => {
     const q = new URLSearchParams({
