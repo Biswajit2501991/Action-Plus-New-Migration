@@ -123,6 +123,7 @@ import attendanceKioskRouter from './routes/attendanceKiosk.js';
 import { registerMemberPortalPhase2Routes } from './routes/memberPortalPhase2.js';
 import { registerPortalPushBroadcastRoutes } from './routes/portalPushBroadcast.js';
 import { registerMembershipPlansCatalogRoutes } from './routes/membershipPlansCatalog.js';
+import { registerVisitorStaffCommentRoutes } from './routes/visitorStaffComments.js';
 import { registerWorkoutPlanExerciseMediaRoutes } from './routes/workoutPlanExerciseMedia.js';
 import { registerWorkoutPlanDayExerciseRoutes } from './routes/workoutPlanDayExercises.js';
 import { registerWorkoutPlanExerciseLabelRoutes } from './routes/workoutPlanExerciseLabels.js';
@@ -1299,6 +1300,8 @@ app.get('/api/visitors', requireAccess(Access.visitorsRead), async (req, res) =>
   const visitors = await readBranchScopedCollection(req, 'apg.visitors', []);
   res.json(visitors);
 });
+
+registerVisitorStaffCommentRoutes(app, { appendAuditLog });
 
 app.put('/api/visitors/bulk', requireAccess(Access.visitorsWrite), async (req, res) => {
   const raw = Array.isArray(req.body?.visitors) ? req.body.visitors : [];

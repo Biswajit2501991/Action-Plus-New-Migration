@@ -40,7 +40,10 @@ import {
   planDistributionConicGradient,
 } from "@/lib/domain/plan-distribution";
 import { formatCurrency, formatDate, formatMonthKey, cn } from "@/lib/utils";
-import { hasAccess } from "@/lib/domain/permissions";
+import {
+  canAccessMembershipPlansNav,
+  hasAccess,
+} from "@/lib/domain/permissions";
 import { useAuthStore, useUiStore } from "@/stores";
 import type { Member } from "@/types";
 import { MessagePreviewModal } from "@/features/whatsapp/message-preview-modal";
@@ -155,6 +158,7 @@ export function DashboardPage() {
   const canPlans = hasAccess(user, "dashboard", "viewMembershipTrends");
   const canOverdue = hasAccess(user, "dashboard", "viewOverdueRetentionAlerts");
   const canExpense = hasAccess(user, "finance", "manageExpenses");
+  const canOpenMembershipPlans = canAccessMembershipPlansNav(user, settings);
 
   const summary = (finance?.summary || {}) as {
     collectedRevenue?: number;
@@ -322,14 +326,16 @@ export function DashboardPage() {
         actions={
           canCore ? (
             <>
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => window.open("/membership-plans", "_blank", "noopener,noreferrer")}
-              >
-                <ScrollText className="h-4 w-4" />
-                Plans
-              </Button>
+              {canOpenMembershipPlans ? (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => window.open("/membership-plans", "_blank", "noopener,noreferrer")}
+                >
+                  <ScrollText className="h-4 w-4" />
+                  Plans
+                </Button>
+              ) : null}
               <Button variant="outline" size="sm" onClick={() => router.push("/members")}>
                 <SlidersHorizontal className="h-4 w-4" />
                 Filter

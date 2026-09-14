@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import { useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { Check, Pencil, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -10,6 +11,7 @@ import { apiFetch } from "@/services/api/client";
 import { canAccessSection, hasAccess, isMasterOwnerUser } from "@/lib/domain/permissions";
 import { useAuthStore, useBranchStore } from "@/stores";
 import { cn } from "@/lib/utils";
+import { useSettings } from "@/hooks/use-data";
 
 export type CatalogPlan = {
   planName: string;
@@ -68,17 +70,21 @@ function sourceFingerprint(plan: CatalogPlan) {
 }
 
 export function MembershipPlansPage() {
+  const qc = useQueryClient();
   const user = useAuthStore((s) => s.user);
+  const { data: settings } = useSettings();
   const storeBranchId = useBranchStore((s) => s.activeBranchId);
   const activeBranchId = String(
     storeBranchId || user?.activeBranchId || user?.gymCodeId || "",
   ).trim();
   const isOwner = isMasterOwnerUser(user);
+  const canEdit = isOwner || hasAccess(user, "settings", "managePlans");
+  const catalogEnabledForStaff = settings?.membershipPlansCatalogEnabled === true;
   const canView =
     isOwner ||
-    canAccessSection(user, "Members") ||
-    hasAccess(user, "settings", "managePlans");
-  const canEdit = isOwner || hasAccess(user, "settings", "managePlans");
+    canEdit ||
+    ((canAccessSection(user, "Members") || hasAccess(user, "settings", "managePlans")) &&
+      catalogEnabledForStaff);
 
   const [loading, setLoading] = useState(true);
   const [masterEnabled, setMasterEnabled] = useState(true);
@@ -101,7 +107,7 @@ export function MembershipPlansPage() {
     setBranchRequired(false);
     try {
       const data = await apiFetch<CatalogResponse>("/membership-plans-catalog");
-      setMasterEnabled(data.masterEnabled !== false);
+      setMasterEnabled(data.masterEnabled === true);
       setBranchLabel(
         data.branchLabel ||
           (data.branchName && data.gymCode
@@ -314,8 +320,13 @@ export function MembershipPlansPage() {
           body: JSON.stringify({ enabled: next }),
         },
       );
-      setMasterEnabled(res.masterEnabled !== false);
-      toast.success(next ? "Plans showcase turned on" : "Plans showcase turned off");
+      setMasterEnabled(res.masterEnabled === true);
+      toast.success(
+        next
+          ? "Membership Plans enabled for staff"
+          : "Membership Plans hidden from staff",
+      );
+      await qc.invalidateQueries({ queryKey: ["settings"] });
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Could not update master switch");
     } finally {
@@ -326,7 +337,9 @@ export function MembershipPlansPage() {
   if (!canView) {
     return (
       <div className="rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">
-        Membership Plans access is disabled for this profile.
+        Membership Plans is not enabled for staff yet. Ask the owner to turn on{" "}
+        <span className="font-semibold">Settings → System Features → Membership Plans for staff</span>{" "}
+        after plan details are ready.
       </div>
     );
   }
@@ -366,7 +379,8 @@ export function MembershipPlansPage() {
             <p className="mt-2 max-w-xl text-sm leading-relaxed text-slate-600 dark:text-slate-300">
               Staff sales showcase for this branch only — other gym branches never see these cards.
               Not shown on the Member Portal. Use Explain in to read plans aloud in another language
-              (display only — saved text is never changed).
+              (display only — saved text is never changed). Enable for all staff from Settings →
+              System Features when details are ready.
             </p>
             {branchLabel ? (
               <p className="mt-2 text-xs font-medium text-teal-800/90 dark:text-teal-300/90">
@@ -389,7 +403,7 @@ export function MembershipPlansPage() {
                     : "border-slate-300 bg-white text-slate-600 dark:border-border dark:bg-muted",
                 )}
               >
-                Showcase {masterEnabled ? "On" : "Off"}
+                Showcase {masterEnabled ? "On for staff" : "Off for staff"}
               </button>
             ) : null}
             {!branchRequired && !editingPlanName ? (

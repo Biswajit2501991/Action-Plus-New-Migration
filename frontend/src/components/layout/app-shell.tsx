@@ -26,7 +26,7 @@ import { staffRoleDisplayLabel } from "@/lib/domain/staff-role-label";
 import { useAuth } from "@/hooks/use-auth";
 import { useAuthSessionKeepalive } from "@/hooks/use-auth-session-keepalive";
 import { useRealtimeSync } from "@/hooks/use-realtime";
-import { useGymCodes } from "@/hooks/use-data";
+import { useGymCodes, useSettings } from "@/hooks/use-data";
 import { useStaffPhotoHydration } from "@/hooks/use-staff-photo-hydration";
 import { useWarmAppDataCache } from "@/hooks/use-warm-app-cache";
 import { useIsMobile } from "@/hooks/use-is-mobile";
@@ -121,6 +121,11 @@ function DesktopShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
   const { user, logout, changeBranch } = useAuth();
   const { data: gymCodes } = useGymCodes();
+  const { data: settings } = useSettings();
+  const navOpts = useMemo(
+    () => ({ settings: settings || null }),
+    [settings],
+  );
   const {
     sidebarCollapsed,
     toggleSidebar,
@@ -166,7 +171,7 @@ function DesktopShell({ children }: { children: React.ReactNode }) {
     return () => window.removeEventListener("keydown", onKey);
   }, [setCommandOpen]);
 
-  const visibleNav = NAV_ITEMS.filter((item) => canAccessNavItem(user, item));
+  const visibleNav = NAV_ITEMS.filter((item) => canAccessNavItem(user, item, navOpts));
 
   const groups = NAV_GROUP_ORDER.filter((group) =>
     visibleNav.some((n) => n.group === group),
@@ -176,7 +181,7 @@ function DesktopShell({ children }: { children: React.ReactNode }) {
   const activeGroup = useMemo(() => {
     const matches = NAV_ITEMS.filter(
       (item) =>
-        canAccessNavItem(user, item) &&
+        canAccessNavItem(user, item, navOpts) &&
         !item.external &&
         Boolean(pathname) &&
         (pathname === item.href || pathname.startsWith(`${item.href}/`)),
@@ -185,7 +190,7 @@ function DesktopShell({ children }: { children: React.ReactNode }) {
     // Prefer the longest href match (e.g. nested routes under a longer path).
     matches.sort((a, b) => b.href.length - a.href.length);
     return matches[0].group;
-  }, [pathname, user]);
+  }, [pathname, user, navOpts]);
 
   const brandBlock = (collapsed: boolean) =>
     collapsed ? (

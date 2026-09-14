@@ -192,7 +192,7 @@ async function loadMasterEnabled(sb, gid) {
     data?.config_json && typeof data.config_json === "object"
       ? data.config_json
       : {};
-  return cfg.membershipPlansCatalogEnabled !== false;
+  return cfg.membershipPlansCatalogEnabled === true;
 }
 
 async function saveMasterEnabled(sb, gid, enabled) {

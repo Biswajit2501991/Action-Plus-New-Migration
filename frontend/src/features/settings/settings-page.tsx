@@ -121,6 +121,7 @@ type FeatureFlagState = {
   fineSmsGraceDays: number;
   paymentQrInReminderEnabled: boolean;
   financeUseEstimatedExpense: boolean;
+  membershipPlansCatalogEnabled: boolean;
 };
 
 type LookupKey =
@@ -1104,6 +1105,7 @@ export function SettingsPage() {
       fineSmsGraceDays: Number(settings?.fineSmsGraceDays ?? 0) || 0,
       paymentQrInReminderEnabled: settings?.paymentQrInReminderEnabled === true,
       financeUseEstimatedExpense: settings?.financeUseEstimatedExpense !== false,
+      membershipPlansCatalogEnabled: settings?.membershipPlansCatalogEnabled === true,
     }),
     [settings],
   );
@@ -1171,6 +1173,9 @@ export function SettingsPage() {
     }
     if (flags.paymentQrInReminderEnabled && patch.paymentQrInReminderEnabled === undefined) {
       patch.paymentQrInReminderEnabled = true;
+    }
+    if (flags.membershipPlansCatalogEnabled && patch.membershipPlansCatalogEnabled === undefined) {
+      patch.membershipPlansCatalogEnabled = true;
     }
     saveFlags.mutate(patch);
   };
@@ -1669,7 +1674,7 @@ export function SettingsPage() {
       {canSystemFeatures ? (
         <SettingsSectionShell
           title="System Features"
-          description="Attendance notes, QR flows, custom templates, and finance estimates"
+          description="Attendance notes, QR flows, Membership Plans, custom templates, and finance estimates"
           open={Boolean(openCat.features)}
           onToggle={() => toggleCat("features")}
           accent={SECTION_ACCENTS.features}
@@ -1768,6 +1773,21 @@ export function SettingsPage() {
               description="Enable branch custom templates on WhatsApp SMS."
               onChange={(next) => setFeatureFlags({ customTemplatesEnabled: next })}
             />
+            <SettingsToggle
+              checked={flags.membershipPlansCatalogEnabled}
+              label="Membership Plans for staff"
+              description="Show the Membership Plans showcase in the sidebar for staff (per branch). Keep off until plan prices and details are ready; owners can still open the page to edit."
+              onChange={(next) => setFeatureFlags({ membershipPlansCatalogEnabled: next })}
+            />
+            {flags.membershipPlansCatalogEnabled ? (
+              <div className="rounded-xl border border-teal-200/70 bg-teal-50/40 p-3 text-xs text-muted-foreground dark:border-teal-900/40 dark:bg-teal-950/20">
+                Staff with Members access can open{" "}
+                <a href="/membership-plans" className="font-medium text-foreground underline">
+                  Membership Plans
+                </a>
+                . Each branch only sees its own plans.
+              </div>
+            ) : null}
             <SettingsToggle
               checked={flags.financeUseEstimatedExpense}
               label="Finance 26% expense estimate"

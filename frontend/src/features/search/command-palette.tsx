@@ -28,6 +28,10 @@ export function CommandPalette() {
 
   const canEditMember = hasAccess(user, "members", "editMembers");
   const canReadMembers = hasAccess(user, "members", "viewMembers") || canEditMember;
+  const navOpts = useMemo(
+    () => ({ settings: settings || null }),
+    [settings],
+  );
 
   useEffect(() => {
     if (!commandOpen) {
@@ -41,8 +45,8 @@ export function CommandPalette() {
   }, [commandOpen]);
 
   const nav = useMemo(
-    () => NAV_ITEMS.filter((item) => canAccessNavItem(user, item)),
-    [user],
+    () => NAV_ITEMS.filter((item) => canAccessNavItem(user, item, navOpts)),
+    [user, navOpts],
   );
 
   const memberHits = useMemo(() => {

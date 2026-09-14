@@ -331,6 +331,8 @@ export type AppSettings = {
   fineSmsGraceDays?: number;
   fineSmsImmediateRoles?: string[];
   paymentQrInReminderEnabled?: boolean;
+  /** Staff Membership Plans showcase (Settings → System Features). Default off. */
+  membershipPlansCatalogEnabled?: boolean;
   staffAttendance?: AttendanceRecord[];
   leaveRequests?: LeaveRequest[];
   [key: string]: unknown;

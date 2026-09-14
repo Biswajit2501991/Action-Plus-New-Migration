@@ -68,7 +68,7 @@ import {
   paymentByFromBillingDate,
 } from "@/lib/domain/member-dates";
 import { formatCurrency, formatDate, downloadTextFile, toCsv, cn, formatMonthKey } from "@/lib/utils";
-import { hasAccess, isMasterOwnerUser } from "@/lib/domain/permissions";
+import { canAccessMembershipPlansNav, hasAccess, isMasterOwnerUser } from "@/lib/domain/permissions";
 import { useAuthStore, useUiStore } from "@/stores";
 import type { Member, Payment } from "@/types";
 import { isBillingToday, isNewMember } from "@/lib/domain/member-actions";
@@ -1026,14 +1026,16 @@ export function MembersPage() {
                 Offline queue: {offlinePendingCount}
               </span>
             ) : null}
-            <Button
-              type="button"
-              variant="outline"
-              onClick={() => window.open("/membership-plans", "_blank", "noopener,noreferrer")}
-            >
-              <ScrollText className="h-4 w-4" />
-              Membership Plans
-            </Button>
+            {canAccessMembershipPlansNav(user, settings) ? (
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => window.open("/membership-plans", "_blank", "noopener,noreferrer")}
+              >
+                <ScrollText className="h-4 w-4" />
+                Membership Plans
+              </Button>
+            ) : null}
             <Button
               type="button"
               variant="outline"

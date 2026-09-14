@@ -11,9 +11,11 @@ import {
 } from "@/lib/domain/permissions";
 import { useAuth } from "@/hooks/use-auth";
 import { useIsMobile } from "@/hooks/use-is-mobile";
+import { useSettings } from "@/hooks/use-data";
 import { PageHeader } from "@/components/ui/misc";
 import { useAuthStore } from "@/stores";
 import { cn } from "@/lib/utils";
+import { useMemo } from "react";
 
 const GROUP_THEME: Record<
   string,
@@ -74,10 +76,15 @@ export default function MorePage() {
   const { logout } = useAuth();
   const user = useAuthStore((s) => s.user);
   const isMobile = useIsMobile();
+  const { data: settings } = useSettings();
+  const navOpts = useMemo(
+    () => ({ settings: settings || null }),
+    [settings],
+  );
 
   if (isMobile) {
     const items = NAV_ITEMS.filter((item) => {
-      if (!canAccessNavItem(user, item)) return false;
+      if (!canAccessNavItem(user, item, navOpts)) return false;
       const key = mobileAccessKeyForPath(item.href);
       if (!key) return hasAccess(user, "mobile", "viewMore");
       if (key === "viewMore") return false;
@@ -157,7 +164,7 @@ export default function MorePage() {
     );
   }
 
-  const items = NAV_ITEMS.filter((item) => canAccessNavItem(user, item));
+  const items = NAV_ITEMS.filter((item) => canAccessNavItem(user, item, navOpts));
   const groups = NAV_GROUP_ORDER.filter((g) => items.some((i) => i.group === g));
   return (
     <div>

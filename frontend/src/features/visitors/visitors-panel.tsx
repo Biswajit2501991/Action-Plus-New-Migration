@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Phone, Plus, UserRound } from "lucide-react";
 import { toast } from "sonner";
 import { Badge, EmptyState } from "@/components/ui/misc";
@@ -12,15 +12,16 @@ import {
   type VisitorFormValues,
 } from "@/features/visitors/visitor-form-modal";
 import { VisitorIntakeQrCard } from "@/features/visitors/visitor-intake-qr-card";
+import { VisitorStaffCommentsControl } from "@/features/visitors/visitor-staff-comments-control";
 import {
   websiteVisitorBadge,
   websiteVisitorDetail,
 } from "@/features/visitors/website-intake";
-import { hasAccess } from "@/lib/domain/permissions";
+import { hasAccess, isMasterOwnerUser } from "@/lib/domain/permissions";
 import { isRecordNewWithinHours } from "@/lib/domain/new-record";
 import { isQrVisitorIntakeEnabled } from "@/lib/domain/attendance";
 import { cn, formatDate, uid } from "@/lib/utils";
-import { visitorsApi } from "@/services/api";
+import { visitorsApi, type VisitorStaffComment } from "@/services/api";
 import { useAuthStore, useUiStore } from "@/stores";
 import { useSettings } from "@/hooks/use-data";
 import type { Visitor } from "@/types";
@@ -48,6 +49,7 @@ export function VisitorsPanel({ visitors }: Props) {
   const qc = useQueryClient();
   const { data: settings } = useSettings();
   const qrVisitorEnabled = isQrVisitorIntakeEnabled(settings as Record<string, unknown>);
+  const isOwner = isMasterOwnerUser(user);
   const canWrite =
     hasAccess(user, "members", "addMembers") || hasAccess(user, "members", "editMembers");
   const canDelete =
@@ -61,6 +63,26 @@ export function VisitorsPanel({ visitors }: Props) {
   useEffect(() => {
     void qc.invalidateQueries({ queryKey: ["visitors"] });
   }, [qc]);
+
+  const commentsQuery = useQuery({
+    queryKey: ["visitor-staff-comments"],
+    queryFn: async () => {
+      const res = await visitorsApi.listStaffComments();
+      return Array.isArray(res.comments) ? res.comments : [];
+    },
+  });
+
+  const commentsByVisitor = useMemo(() => {
+    const map = new Map<string, VisitorStaffComment[]>();
+    for (const c of commentsQuery.data || []) {
+      const key = String(c.visitorId || "").trim();
+      if (!key) continue;
+      const list = map.get(key) || [];
+      list.push(c);
+      map.set(key, list);
+    }
+    return map;
+  }, [commentsQuery.data]);
 
   const sorted = useMemo(() => {
     return [...visitors].sort((a, b) => {
@@ -136,6 +158,7 @@ export function VisitorsPanel({ visitors }: Props) {
     onSuccess: async () => {
       toast.success("Visitor removed");
       await qc.invalidateQueries({ queryKey: ["visitors"] });
+      await qc.invalidateQueries({ queryKey: ["visitor-staff-comments"] });
     },
     onError: (e: Error) => toast.error(e.message),
   });
@@ -182,6 +205,7 @@ export function VisitorsPanel({ visitors }: Props) {
                 const isNew = isRecordNewWithinHours(String(v.addedAt || v.visitDate || ""), 48);
                 const websiteBadge = websiteVisitorBadge(v.intakeSource);
                 const websiteDetail = websiteVisitorDetail(v.intakeSource);
+                const visitorComments = commentsByVisitor.get(String(v.id)) || [];
                 return (
                   <div
                     key={v.id}
@@ -194,54 +218,75 @@ export function VisitorsPanel({ visitors }: Props) {
                       converted && "opacity-80",
                     )}
                   >
-                    <button
-                      type="button"
-                      className="flex w-full items-center gap-3 px-4 py-3 text-left"
-                      onClick={() => setExpandedId(expanded ? "" : v.id)}
-                    >
-                      <div
-                        className={cn(
-                          "flex h-10 w-10 items-center justify-center rounded-full",
-                          isNew
-                            ? "bg-rose-100 text-rose-700 dark:bg-rose-900/50 dark:text-rose-200"
-                            : "bg-slate-100 text-slate-600 dark:bg-white/10 dark:text-slate-300",
-                        )}
+                    <div className="flex w-full items-start gap-3 px-4 py-3">
+                      <button
+                        type="button"
+                        className="flex min-w-0 flex-1 items-start gap-3 text-left"
+                        onClick={() => setExpandedId(expanded ? "" : v.id)}
                       >
-                        <UserRound className="h-4 w-4" />
-                      </div>
-                      <div className="min-w-0 flex-1">
-                        <div className="flex flex-wrap items-center gap-2">
-                          <p className="truncate font-semibold text-slate-900 dark:text-slate-50">
-                            {displayName(v)}
-                          </p>
-                          <NewVisitorBadge timestamp={String(v.addedAt || v.visitDate || "")} />
-                          {websiteBadge ? (
-                            <Badge className="border-amber-500/40 bg-amber-500/15 text-amber-700 dark:text-amber-200">
-                              {websiteBadge}
-                            </Badge>
-                          ) : null}
-                          {String(v.intakeSource || "") === "qr_public" ? (
-                            <Badge variant="muted">QR</Badge>
-                          ) : null}
-                          {(() => {
-                            const status = String(v.status || "New").trim() || "New";
-                            if (status.toLowerCase() === "new") return null;
-                            return (
-                              <Badge variant={converted ? "success" : v.callBackRequired ? "warning" : "muted"}>
-                                {status}
-                              </Badge>
-                            );
-                          })()}
-                          {v.callBackRequired && !converted ? (
-                            <Badge variant="warning">Callback</Badge>
-                          ) : null}
+                        <div
+                          className={cn(
+                            "flex h-10 w-10 shrink-0 items-center justify-center rounded-full",
+                            isNew
+                              ? "bg-rose-100 text-rose-700 dark:bg-rose-900/50 dark:text-rose-200"
+                              : "bg-slate-100 text-slate-600 dark:bg-white/10 dark:text-slate-300",
+                          )}
+                        >
+                          <UserRound className="h-4 w-4" />
                         </div>
-                        <p className="truncate text-xs text-slate-500">
-                          {v.mobile || "—"} · {v.email || "—"} · added{" "}
-                          {formatDate(String(v.addedAt || v.visitDate || ""))}
-                        </p>
-                      </div>
-                    </button>
+                        <div className="min-w-0 flex-1">
+                          <div className="flex flex-wrap items-center gap-2">
+                            <p className="truncate font-semibold text-slate-900 dark:text-slate-50">
+                              {displayName(v)}
+                            </p>
+                            <NewVisitorBadge timestamp={String(v.addedAt || v.visitDate || "")} />
+                            {websiteBadge ? (
+                              <Badge className="border-amber-500/40 bg-amber-500/15 text-amber-700 dark:text-amber-200">
+                                {websiteBadge}
+                              </Badge>
+                            ) : null}
+                            {String(v.intakeSource || "") === "qr_public" ? (
+                              <Badge variant="muted">QR</Badge>
+                            ) : null}
+                            {(() => {
+                              const status = String(v.status || "New").trim() || "New";
+                              if (status.toLowerCase() === "new") return null;
+                              return (
+                                <Badge
+                                  variant={
+                                    converted ? "success" : v.callBackRequired ? "warning" : "muted"
+                                  }
+                                >
+                                  {status}
+                                </Badge>
+                              );
+                            })()}
+                            {v.callBackRequired && !converted ? (
+                              <Badge variant="warning">Callback</Badge>
+                            ) : null}
+                          </div>
+                          <p className="truncate text-xs text-slate-500">
+                            {v.mobile || "—"} · {v.email || "—"} · added{" "}
+                            {formatDate(String(v.addedAt || v.visitDate || ""))}
+                          </p>
+                        </div>
+                      </button>
+                    </div>
+                    <div className="px-4 pb-3 pl-[4.25rem]">
+                      <VisitorStaffCommentsControl
+                        visitorId={String(v.id)}
+                        visitorName={displayName(v)}
+                        converted={converted}
+                        canWrite={canWrite}
+                        isOwner={isOwner}
+                        comments={visitorComments}
+                        onChanged={() => {
+                          void qc.invalidateQueries({
+                            queryKey: ["visitor-staff-comments"],
+                          });
+                        }}
+                      />
+                    </div>
                     {expanded ? (
                       <div className="space-y-3 border-t border-slate-100 px-4 py-3 dark:border-white/10">
                         <div className="grid gap-2 text-xs text-slate-600 sm:grid-cols-2 dark:text-slate-300">

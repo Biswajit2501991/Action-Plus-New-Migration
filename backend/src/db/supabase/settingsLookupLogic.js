@@ -86,6 +86,7 @@ const OPT_IN_BOOL_KEYS = new Set([
   'qrVisitorAttendanceEnabled',
   'attendanceRequirePresenceQr',
   'paymentQrInReminderEnabled',
+  'membershipPlansCatalogEnabled',
 ]);
 
 /**
@@ -132,6 +133,7 @@ export function buildSettingsAppConfigWriteFromLive(liveConfigRow, incoming, exi
   nextCfg.qrVisitorAttendanceEnabled = nextCfg.qrVisitorAttendanceEnabled === true;
   nextCfg.attendanceRequirePresenceQr = nextCfg.attendanceRequirePresenceQr === true;
   nextCfg.paymentQrInReminderEnabled = nextCfg.paymentQrInReminderEnabled === true;
+  nextCfg.membershipPlansCatalogEnabled = nextCfg.membershipPlansCatalogEnabled === true;
 
   const fineSmsEnabled = Object.prototype.hasOwnProperty.call(patch, 'fineSmsEnabled')
     ? patch.fineSmsEnabled !== false
@@ -166,6 +168,7 @@ export function buildSettingsAppConfigWriteFromLive(liveConfigRow, incoming, exi
       qrVisitorAttendanceEnabled: nextCfg.qrVisitorAttendanceEnabled === true,
       attendanceRequirePresenceQr: nextCfg.attendanceRequirePresenceQr === true,
       paymentQrInReminderEnabled: nextCfg.paymentQrInReminderEnabled === true,
+      membershipPlansCatalogEnabled: nextCfg.membershipPlansCatalogEnabled === true,
     },
   };
 }

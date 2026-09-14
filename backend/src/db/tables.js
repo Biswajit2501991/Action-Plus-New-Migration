@@ -47,6 +47,7 @@ export const T = {
   member_injury_notes: 'member_injury_notes',
   pt_client_profiles: 'pt_client_profiles',
   visitors: 'visitors',
+  visitor_staff_comments: 'visitor_staff_comments',
   finance_transactions: 'finance_transactions',
   audit_logs: 'audit_logs',
   sms_status_events: 'sms_status_events',

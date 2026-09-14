@@ -237,6 +237,34 @@ export const visitorsApi = {
     }),
   remove: (id: string) =>
     apiFetch<{ ok?: boolean }>(`/visitors/${encodeURIComponent(id)}`, { method: "DELETE" }),
+  listStaffComments: () =>
+    apiFetch<{ ok?: boolean; comments?: VisitorStaffComment[] }>("/visitors/staff-comments"),
+  listStaffCommentsForVisitor: (visitorId: string) =>
+    apiFetch<{
+      ok?: boolean;
+      visitorId?: string;
+      converted?: boolean;
+      canAdd?: boolean;
+      comments?: VisitorStaffComment[];
+    }>(`/visitors/${encodeURIComponent(visitorId)}/staff-comments`),
+  addStaffComment: (visitorId: string, body: string) =>
+    apiFetch<{ ok?: boolean; comment?: VisitorStaffComment }>(
+      `/visitors/${encodeURIComponent(visitorId)}/staff-comments`,
+      {
+        method: "POST",
+        body: JSON.stringify({ body }),
+      },
+    ),
+};
+
+export type VisitorStaffComment = {
+  id: string;
+  visitorId: string;
+  gymCodeId?: string | null;
+  body: string;
+  createdBy: string;
+  createdByName: string;
+  createdAt?: string | null;
 };
 
 export const usersApi = {

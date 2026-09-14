@@ -868,15 +868,46 @@ export function hasAccess(
   return (access[group] as Record<string, boolean> | undefined)?.[key] !== false;
 }
 
+/** Toggle: Membership Plans showcase visible to staff (Settings → System Features). */
+export function isMembershipPlansCatalogEnabled(
+  settings?: { membershipPlansCatalogEnabled?: boolean } | null,
+) {
+  return settings?.membershipPlansCatalogEnabled === true;
+}
+
+/**
+ * Owners / managePlans can always open Membership Plans to edit.
+ * Other staff need Members access + Settings flag enabled.
+ */
+export function canAccessMembershipPlansNav(
+  user: AuthUser | null | undefined,
+  settings?: { membershipPlansCatalogEnabled?: boolean } | null,
+) {
+  if (!user) return false;
+  if (user.id === "owner" || isOwnerLikeRole(user) || isMasterOwnerUser(user)) return true;
+  if (hasAccess(user, "settings", "managePlans")) return true;
+  if (!canAccessSection(user, "Members")) return false;
+  return isMembershipPlansCatalogEnabled(settings);
+}
+
 /** Sidebar / More / command palette — section plus subsection child keys. */
 export function canAccessNavItem(
   user: AuthUser | null | undefined,
   item: { href: string; section?: string },
+  opts?: { settings?: { membershipPlansCatalogEnabled?: boolean } | null },
 ): boolean {
   if (!item.section) return true;
   if (!canAccessSection(user, item.section)) return false;
-  if (!user || user.id === "owner" || isOwnerLikeRole(user)) return true;
+  if (!user || user.id === "owner" || isOwnerLikeRole(user)) {
+    // Still respect membership-plans staff flag for non-owner paths below;
+    // owners always pass.
+    if (item.href === "/membership-plans") return true;
+    return true;
+  }
 
+  if (item.href === "/membership-plans") {
+    return canAccessMembershipPlansNav(user, opts?.settings);
+  }
   if (item.href === "/portal-verify") {
     return (
       hasAccess(user, "whatsappVerification", "viewPortalVerify") ||
