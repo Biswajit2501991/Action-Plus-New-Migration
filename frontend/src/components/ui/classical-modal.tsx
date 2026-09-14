@@ -1,5 +1,7 @@
 "use client";
 
+import { useEffect } from "react";
+import { createPortal } from "react-dom";
 import { X } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -32,11 +34,29 @@ export function ClassicalModal({
   size = "md",
   testId,
 }: ClassicalModalProps) {
-  if (!open) return null;
+  useEffect(() => {
+    if (!open || typeof document === "undefined") return;
+    const prev = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    return () => {
+      document.body.style.overflow = prev;
+    };
+  }, [open]);
 
-  return (
+  useEffect(() => {
+    if (!open) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") onClose();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [open, onClose]);
+
+  if (!open || typeof document === "undefined") return null;
+
+  return createPortal(
     <div
-      className="fixed inset-0 z-[120] flex items-center justify-center bg-slate-950/50 p-4 backdrop-blur-[2px]"
+      className="fixed inset-0 z-[200] flex items-center justify-center overflow-y-auto overscroll-contain bg-slate-950/50 p-4 backdrop-blur-[2px]"
       role="dialog"
       aria-modal="true"
       aria-labelledby="classical-modal-title"
@@ -47,12 +67,12 @@ export function ClassicalModal({
     >
       <div
         className={cn(
-          "relative w-full overflow-hidden rounded-2xl border border-slate-200/90 bg-white shadow-[0_28px_90px_-40px_rgba(15,23,42,0.65)] dark:border-white/10 dark:bg-[#0f141c]",
+          "relative my-auto flex w-full max-h-[min(92vh,880px)] flex-col overflow-hidden rounded-2xl border border-slate-200/90 bg-white shadow-[0_28px_90px_-40px_rgba(15,23,42,0.65)] dark:border-white/10 dark:bg-[#0f141c]",
           SIZE[size],
         )}
       >
         <div className="absolute inset-x-8 top-0 h-px bg-slate-300/80 dark:bg-white/20" />
-        <div className="flex items-start justify-between gap-3 border-b border-slate-200/80 px-5 py-4 dark:border-white/10">
+        <div className="flex shrink-0 items-start justify-between gap-3 border-b border-slate-200/80 px-5 py-4 dark:border-white/10">
           <div className="min-w-0 pr-2">
             <p className="text-[10px] font-semibold uppercase tracking-[0.22em] text-slate-400">
               Action Plus
@@ -78,13 +98,14 @@ export function ClassicalModal({
             <X className="h-4 w-4" />
           </button>
         </div>
-        <div className="max-h-[min(78vh,720px)] overflow-y-auto px-5 py-4">{children}</div>
+        <div className="min-h-0 flex-1 overflow-y-auto px-5 py-4">{children}</div>
         {footer ? (
-          <div className="flex flex-wrap items-center justify-end gap-2 border-t border-slate-200/80 bg-slate-50/80 px-5 py-3.5 dark:border-white/10 dark:bg-black/25">
+          <div className="flex shrink-0 flex-wrap items-center justify-end gap-2 border-t border-slate-200/80 bg-slate-50/80 px-5 py-3.5 dark:border-white/10 dark:bg-black/25">
             {footer}
           </div>
         ) : null}
       </div>
-    </div>
+    </div>,
+    document.body,
   );
 }

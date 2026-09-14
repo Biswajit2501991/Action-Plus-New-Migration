@@ -218,10 +218,32 @@ export function VisitorsPanel({ visitors }: Props) {
                       converted && "opacity-80",
                     )}
                   >
-                    <div className="flex w-full items-start gap-3 px-4 py-3">
+                    <div className="flex w-full items-center gap-2 px-3 py-2.5 sm:gap-3 sm:px-4 sm:py-3">
+                      {(canWrite && (!converted || isOwner)) || visitorComments.length > 0 ? (
+                        <div
+                          className="shrink-0"
+                          onClick={(e) => e.stopPropagation()}
+                          onKeyDown={(e) => e.stopPropagation()}
+                        >
+                          <VisitorStaffCommentsControl
+                            compact
+                            visitorId={String(v.id)}
+                            visitorName={displayName(v)}
+                            converted={converted}
+                            canWrite={canWrite}
+                            isOwner={isOwner}
+                            comments={visitorComments}
+                            onChanged={() => {
+                              void qc.invalidateQueries({
+                                queryKey: ["visitor-staff-comments"],
+                              });
+                            }}
+                          />
+                        </div>
+                      ) : null}
                       <button
                         type="button"
-                        className="flex min-w-0 flex-1 items-start gap-3 text-left"
+                        className="flex min-w-0 flex-1 items-center gap-3 text-left"
                         onClick={() => setExpandedId(expanded ? "" : v.id)}
                       >
                         <div
@@ -271,21 +293,6 @@ export function VisitorsPanel({ visitors }: Props) {
                           </p>
                         </div>
                       </button>
-                    </div>
-                    <div className="px-4 pb-3 pl-[4.25rem]">
-                      <VisitorStaffCommentsControl
-                        visitorId={String(v.id)}
-                        visitorName={displayName(v)}
-                        converted={converted}
-                        canWrite={canWrite}
-                        isOwner={isOwner}
-                        comments={visitorComments}
-                        onChanged={() => {
-                          void qc.invalidateQueries({
-                            queryKey: ["visitor-staff-comments"],
-                          });
-                        }}
-                      />
                     </div>
                     {expanded ? (
                       <div className="space-y-3 border-t border-slate-100 px-4 py-3 dark:border-white/10">

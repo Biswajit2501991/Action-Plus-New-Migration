@@ -6,8 +6,7 @@ import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { ClassicalModal } from "@/components/ui/classical-modal";
 import { visitorsApi, type VisitorStaffComment } from "@/services/api";
-import { formatDate } from "@/lib/utils";
-import { cn } from "@/lib/utils";
+import { formatDate, cn } from "@/lib/utils";
 
 type Props = {
   visitorId: string;
@@ -17,6 +16,8 @@ type Props = {
   isOwner: boolean;
   comments: VisitorStaffComment[];
   onChanged: () => void;
+  /** Compact icon controls for the left side of the visitor row. */
+  compact?: boolean;
 };
 
 export function VisitorStaffCommentsControl({
@@ -27,6 +28,7 @@ export function VisitorStaffCommentsControl({
   isOwner,
   comments,
   onChanged,
+  compact = false,
 }: Props) {
   const [open, setOpen] = useState(false);
   const [draft, setDraft] = useState("");
@@ -68,27 +70,37 @@ export function VisitorStaffCommentsControl({
     }
   };
 
+  if (!canAdd && count === 0) return null;
+
   return (
     <>
-      <div className="flex shrink-0 flex-wrap items-center gap-1.5">
+      <div className="flex shrink-0 items-center gap-1">
         {canAdd ? (
           <button
             type="button"
-            className="inline-flex items-center gap-1 rounded-full border border-slate-300 bg-white px-2 py-1 text-[11px] font-medium text-slate-700 shadow-sm hover:bg-slate-50 dark:border-border dark:bg-card dark:text-slate-200"
+            title="Add Staff comment"
+            aria-label="Add Staff comment"
+            className={cn(
+              "inline-flex items-center justify-center gap-1 rounded-full border border-slate-300 bg-white text-slate-700 shadow-sm hover:bg-slate-50 dark:border-border dark:bg-card dark:text-slate-200",
+              compact ? "h-8 w-8" : "px-2 py-1 text-[11px] font-medium",
+            )}
             onClick={(e) => {
               e.stopPropagation();
               setOpen(true);
             }}
           >
-            <MessageSquarePlus className="h-3 w-3" />
-            Add Staff comment
+            <MessageSquarePlus className="h-3.5 w-3.5" />
+            {compact ? null : <span>Add Staff comment</span>}
           </button>
         ) : null}
         {count > 0 ? (
           <button
             type="button"
+            title={converted ? `View comments (${count})` : `Comments (${count})`}
+            aria-label={converted ? `View comments (${count})` : `Comments (${count})`}
             className={cn(
-              "inline-flex items-center gap-1 rounded-full border px-2 py-1 text-[11px] font-medium",
+              "relative inline-flex items-center justify-center gap-1 rounded-full border font-medium",
+              compact ? "h-8 w-8 text-[10px]" : "px-2 py-1 text-[11px]",
               converted
                 ? "border-slate-200 bg-slate-50 text-slate-600 dark:border-border dark:bg-muted dark:text-slate-300"
                 : "border-teal-200 bg-teal-50 text-teal-900 dark:border-teal-800 dark:bg-teal-950/40 dark:text-teal-100",
@@ -98,8 +110,14 @@ export function VisitorStaffCommentsControl({
               setOpen(true);
             }}
           >
-            <MessagesSquare className="h-3 w-3" />
-            {converted ? `Comments (${count}) · view` : `Comments (${count})`}
+            <MessagesSquare className="h-3.5 w-3.5" />
+            {compact ? (
+              <span className="absolute -right-1 -top-1 flex h-4 min-w-4 items-center justify-center rounded-full bg-slate-900 px-1 text-[9px] font-semibold text-white dark:bg-teal-500">
+                {count > 9 ? "9+" : count}
+              </span>
+            ) : (
+              <span>{converted ? `Comments (${count}) · view` : `Comments (${count})`}</span>
+            )}
           </button>
         ) : null}
       </div>
@@ -148,7 +166,7 @@ export function VisitorStaffCommentsControl({
           {!sorted.length ? (
             <p className="text-sm text-slate-500">No staff comments yet.</p>
           ) : (
-            <ul className="max-h-[340px] space-y-3 overflow-y-auto pr-1">
+            <ul className="max-h-[min(40vh,280px)] space-y-3 overflow-y-auto pr-1">
               {sorted.map((c) => (
                 <li
                   key={c.id}
