@@ -403,6 +403,50 @@ export const analyticsApi = {
   growth: () => apiFetch<Record<string, unknown>>("/analytics/growth"),
 };
 
+export type PtTrainerExpensePending = {
+  id: string;
+  memberCode?: string;
+  memberName?: string;
+  trainerStaffLoginId?: string;
+  trainerName?: string;
+  serviceMonth?: string;
+  monthLabel?: string;
+  amountInr?: number;
+  status?: string;
+  assignedGymCodeId?: string | null;
+  message?: string;
+};
+
+/** PT trainer payout confirmations — expense only after trainer Yes. */
+export const ptTrainerExpenseApi = {
+  pending: () =>
+    apiFetch<{ ok?: boolean; pending?: PtTrainerExpensePending[] }>(
+      "/pt-trainer-expense/pending",
+    ),
+  pendingForViewer: () =>
+    apiFetch<{ ok?: boolean; pending?: PtTrainerExpensePending[] }>(
+      "/pt-trainer-expense/pending-for-viewer",
+    ),
+  confirm: (id: string, method: "cash" | "online") =>
+    apiFetch<{ ok?: boolean; pending?: PtTrainerExpensePending }>("/pt-trainer-expense/confirm", {
+      method: "POST",
+      body: JSON.stringify({ id, method }),
+    }),
+  decline: (id: string) =>
+    apiFetch<{ ok?: boolean; pending?: PtTrainerExpensePending; ownerMessage?: string }>(
+      "/pt-trainer-expense/decline",
+      {
+        method: "POST",
+        body: JSON.stringify({ id }),
+      },
+    ),
+  dismiss: (id: string) =>
+    apiFetch<{ ok?: boolean; pending?: PtTrainerExpensePending }>("/pt-trainer-expense/dismiss", {
+      method: "POST",
+      body: JSON.stringify({ id }),
+    }),
+};
+
 export type OfferMember = {
   memberCode: string;
   fullName: string;

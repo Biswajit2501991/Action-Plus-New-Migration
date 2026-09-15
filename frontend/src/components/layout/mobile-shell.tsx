@@ -37,6 +37,9 @@ import { HistoryControls } from "@/components/layout/history-controls";
 import { NotificationCenter } from "@/features/notifications/notification-center";
 import { LateArrivalNoteHost } from "@/features/attendance/late-arrival-note-host";
 import { StaffSelfSalaryHost } from "@/features/staff/auto-salary-calculator/staff-self-salary-host";
+import { PtTrainerExpensePromptHost } from "@/features/pt/pt-trainer-expense-prompt-host";
+import { PtTrainerExpenseOwnerToastHost } from "@/features/pt/pt-trainer-expense-owner-toast-host";
+import { PtTrainerExpenseStaffToastHost } from "@/features/pt/pt-trainer-expense-staff-toast-host";
 import { MobileAccessGuard } from "@/components/layout/mobile-access-guard";
 import { MembersTodayVisitorBadge } from "@/components/layout/members-today-visitor-badge";
 
@@ -237,6 +240,9 @@ export function MobileShell({ children }: { children: React.ReactNode }) {
       <AddMemberHost />
       <LateArrivalNoteHost />
       <StaffSelfSalaryHost />
+      <PtTrainerExpensePromptHost />
+      <PtTrainerExpenseOwnerToastHost />
+      <PtTrainerExpenseStaffToastHost />
     </div>
   );
 }

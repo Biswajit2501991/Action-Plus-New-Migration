@@ -125,6 +125,7 @@ import { registerPortalPushBroadcastRoutes } from './routes/portalPushBroadcast.
 import { registerMembershipPlansCatalogRoutes } from './routes/membershipPlansCatalog.js';
 import { registerVisitorStaffCommentRoutes } from './routes/visitorStaffComments.js';
 import { registerOffersRoutes } from './routes/offers.js';
+import { registerPtTrainerExpenseRoutes } from './routes/ptTrainerExpense.js';
 import { registerWorkoutPlanExerciseMediaRoutes } from './routes/workoutPlanExerciseMedia.js';
 import { registerWorkoutPlanDayExerciseRoutes } from './routes/workoutPlanDayExercises.js';
 import { registerWorkoutPlanExerciseLabelRoutes } from './routes/workoutPlanExerciseLabels.js';
@@ -555,6 +556,7 @@ registerMemberPortalPhase2Routes(app, { appendAuditLog });
 registerPortalPushBroadcastRoutes(app, { appendAuditLog });
 registerMembershipPlansCatalogRoutes(app, { appendAuditLog });
 registerOffersRoutes(app, { appendAuditLog });
+registerPtTrainerExpenseRoutes(app, { appendAuditLog });
 registerWorkoutPlanExerciseMediaRoutes(app);
 registerWorkoutPlanDayExerciseRoutes(app);
 registerWorkoutPlanExerciseLabelRoutes(app);
@@ -816,8 +818,40 @@ app.patch('/api/members/:memberId', requireAccess(Access.membersWrite), async (r
   if (!patch) return res.status(400).json({ error: 'patch-required' });
   const branchScope = buildBranchScope(req);
   try {
-    const { updateMember } = await import('./db/dataStore.js');
+    const { updateMember, readMember } = await import('./db/dataStore.js');
+    let before = null;
+    if (Object.prototype.hasOwnProperty.call(patch, 'billingDate')) {
+      try {
+        before = await readMember(memberCode, branchScope);
+      } catch {
+        before = null;
+      }
+    }
     const updated = await updateMember(memberCode, patch, branchScope);
+    if (before && Object.prototype.hasOwnProperty.call(patch, 'billingDate')) {
+      try {
+        const { maybeCreatePendingOnBillingAdvance } = await import(
+          './services/ptTrainerExpenseService.js'
+        );
+        await maybeCreatePendingOnBillingAdvance({
+          memberBefore: {
+            billing_date: before.billingDate,
+            billingDate: before.billingDate,
+            plan_name: before.plan,
+            status: before.status,
+            full_name: before.name,
+            mobile: before.mobile,
+            member_code: before.memberId || memberCode,
+            assigned_gym_code_id: before.assignedGymCodeId,
+            assigned_staff: before.staff,
+          },
+          memberAfter: updated,
+          actorAuth: req.auth,
+        });
+      } catch (hookErr) {
+        console.warn('[pt-trainer-expense] billing hook:', hookErr?.message || hookErr);
+      }
+    }
     queueDatabaseBackup('members-patch');
     return res.json({ ok: true, member: updated });
   } catch (err) {

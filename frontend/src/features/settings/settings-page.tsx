@@ -29,7 +29,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Input, Label } from "@/components/ui/input";
 import { BranchLogo } from "@/components/branding/branch-logo";
-import { useGymCodes, useSettings } from "@/hooks/use-data";
+import { useGymCodes, useSettings, useUsers } from "@/hooks/use-data";
 import { attendanceKioskApi, gymCodesApi, settingsApi } from "@/services/api";
 import { apiFetch } from "@/services/api/client";
 import { resolveClientBranchBranding } from "@/lib/domain/branch-branding";
@@ -122,6 +122,11 @@ type FeatureFlagState = {
   paymentQrInReminderEnabled: boolean;
   financeUseEstimatedExpense: boolean;
   membershipPlansCatalogEnabled: boolean;
+  ptTrainerExpenseAutoEnabled: boolean;
+  ptTrainerExpenseDefaultAmount: number;
+  ptTrainerExpenseNotifyStaffEnabled: boolean;
+  ptTrainerExpenseNotifyStaffRoles: string[];
+  ptTrainerExpenseNotifyStaffIds: string[];
 };
 
 type LookupKey =
@@ -709,6 +714,7 @@ export function SettingsPage() {
   const qc = useQueryClient();
   const { data: settings, isLoading } = useSettings();
   const { data: gymCodes = [], isLoading: gymLoading } = useGymCodes();
+  const { data: users = [] } = useUsers();
   const isOwner = isMasterOwnerUser(user);
   const { theme, setTheme, resolvedTheme } = useTheme();
   const [themeReady, setThemeReady] = useState(false);
@@ -722,6 +728,7 @@ export function SettingsPage() {
     branches: false,
     fine: false,
     features: false,
+    ptPayout: false,
     portalAuth: false,
     portalUi: false,
     portalBranch: false,
@@ -1106,6 +1113,23 @@ export function SettingsPage() {
       paymentQrInReminderEnabled: settings?.paymentQrInReminderEnabled === true,
       financeUseEstimatedExpense: settings?.financeUseEstimatedExpense !== false,
       membershipPlansCatalogEnabled: settings?.membershipPlansCatalogEnabled === true,
+      ptTrainerExpenseAutoEnabled: settings?.ptTrainerExpenseAutoEnabled === true,
+      ptTrainerExpenseDefaultAmount:
+        Number.isFinite(Number(settings?.ptTrainerExpenseDefaultAmount))
+          ? Number(settings?.ptTrainerExpenseDefaultAmount)
+          : 1000,
+      ptTrainerExpenseNotifyStaffEnabled:
+        settings?.ptTrainerExpenseNotifyStaffEnabled === true,
+      ptTrainerExpenseNotifyStaffRoles: Array.isArray(
+        settings?.ptTrainerExpenseNotifyStaffRoles,
+      )
+        ? (settings?.ptTrainerExpenseNotifyStaffRoles as string[])
+        : [],
+      ptTrainerExpenseNotifyStaffIds: Array.isArray(
+        settings?.ptTrainerExpenseNotifyStaffIds,
+      )
+        ? (settings?.ptTrainerExpenseNotifyStaffIds as string[])
+        : [],
     }),
     [settings],
   );
@@ -1176,6 +1200,33 @@ export function SettingsPage() {
     }
     if (flags.membershipPlansCatalogEnabled && patch.membershipPlansCatalogEnabled === undefined) {
       patch.membershipPlansCatalogEnabled = true;
+    }
+    if (flags.ptTrainerExpenseAutoEnabled && patch.ptTrainerExpenseAutoEnabled === undefined) {
+      patch.ptTrainerExpenseAutoEnabled = true;
+    }
+    if (
+      flags.ptTrainerExpenseNotifyStaffEnabled &&
+      patch.ptTrainerExpenseNotifyStaffEnabled === undefined
+    ) {
+      patch.ptTrainerExpenseNotifyStaffEnabled = true;
+    }
+    if (
+      patch.ptTrainerExpenseNotifyStaffRoles === undefined &&
+      flags.ptTrainerExpenseNotifyStaffRoles.length
+    ) {
+      patch.ptTrainerExpenseNotifyStaffRoles = flags.ptTrainerExpenseNotifyStaffRoles;
+    }
+    if (
+      patch.ptTrainerExpenseNotifyStaffIds === undefined &&
+      flags.ptTrainerExpenseNotifyStaffIds.length
+    ) {
+      patch.ptTrainerExpenseNotifyStaffIds = flags.ptTrainerExpenseNotifyStaffIds;
+    }
+    if (
+      patch.ptTrainerExpenseDefaultAmount === undefined &&
+      flags.ptTrainerExpenseAutoEnabled
+    ) {
+      patch.ptTrainerExpenseDefaultAmount = flags.ptTrainerExpenseDefaultAmount;
     }
     saveFlags.mutate(patch);
   };
@@ -1794,6 +1845,133 @@ export function SettingsPage() {
               description="Use estimated expense when no expense rows exist."
               onChange={(next) => setFeatureFlags({ financeUseEstimatedExpense: next })}
             />
+          </div>
+        </SettingsSectionShell>
+      ) : null}
+
+      {isOwner ? (
+        <SettingsSectionShell
+          title="PT payout notifications"
+          description="Auto pending trainer payout after billing date advances, and who gets staff alerts"
+          open={Boolean(openCat.ptPayout)}
+          onToggle={() => toggleCat("ptPayout")}
+          accent={SECTION_ACCENTS.features}
+          icon={<Dumbbell className="h-4 w-4" />}
+        >
+          <div className="space-y-4">
+            <SettingsToggle
+              checked={flags.ptTrainerExpenseAutoEnabled}
+              label="Auto-create PT trainer payout pending"
+              description="When billing date moves forward for an Active PT member, create a pending payout for the assigned trainer. No expense until trainer says Yes. Default off."
+              onChange={(next) => setFeatureFlags({ ptTrainerExpenseAutoEnabled: next })}
+            />
+            {flags.ptTrainerExpenseAutoEnabled ? (
+              <div className="space-y-2">
+                <Label htmlFor="pt-payout-default-amount">Default payout amount (₹)</Label>
+                <Input
+                  id="pt-payout-default-amount"
+                  type="number"
+                  min={0}
+                  value={flags.ptTrainerExpenseDefaultAmount}
+                  onChange={(e) => {
+                    const n = Number(e.target.value);
+                    if (!Number.isFinite(n) || n < 0) return;
+                    setFeatureFlags({ ptTrainerExpenseDefaultAmount: n });
+                  }}
+                />
+              </div>
+            ) : null}
+
+            <SettingsToggle
+              checked={flags.ptTrainerExpenseNotifyStaffEnabled}
+              label="Enable staff pending payout notifications"
+              description="Non-owner branch staff (configured below) get a once-per-day login toast while payout is pending or declined. Trainers still get their Yes/No popup only."
+              onChange={(next) =>
+                setFeatureFlags({ ptTrainerExpenseNotifyStaffEnabled: next })
+              }
+            />
+
+            {flags.ptTrainerExpenseNotifyStaffEnabled ? (
+              <div className="space-y-3 rounded-xl border border-border p-3">
+                <p className="text-xs font-medium text-foreground">Who can see</p>
+                <div className="flex flex-wrap gap-2">
+                  {(
+                    [
+                      { id: "branch_owner", label: "Branch Admin" },
+                      { id: "finance", label: "All staff with Finance access" },
+                      { id: "manager", label: "Manager" },
+                      { id: "frontdesk", label: "Front desk" },
+                      ...((Array.isArray(settings?.roleTemplates)
+                        ? settings!.roleTemplates!
+                        : []) as Array<{ id?: string; title?: string }>
+                      )
+                        .map((t) => ({
+                          id: String(t.id || "").trim(),
+                          label: String(t.title || t.id || "").trim(),
+                        }))
+                        .filter((t) => t.id && !["manager", "frontdesk", "trainer"].includes(t.id)),
+                    ] as Array<{ id: string; label: string }>
+                  ).map((opt) => {
+                    const on = flags.ptTrainerExpenseNotifyStaffRoles.includes(opt.id);
+                    return (
+                      <button
+                        key={opt.id}
+                        type="button"
+                        className={cn(
+                          "rounded-lg border px-3 py-1.5 text-xs font-medium transition",
+                          on
+                            ? "border-teal-600 bg-teal-50 text-teal-900 dark:bg-teal-950/40 dark:text-teal-100"
+                            : "border-border bg-background text-muted-foreground",
+                        )}
+                        onClick={() => {
+                          const next = on
+                            ? flags.ptTrainerExpenseNotifyStaffRoles.filter((r) => r !== opt.id)
+                            : [...flags.ptTrainerExpenseNotifyStaffRoles, opt.id];
+                          setFeatureFlags({ ptTrainerExpenseNotifyStaffRoles: next });
+                        }}
+                      >
+                        {opt.label}
+                      </button>
+                    );
+                  })}
+                </div>
+                <div>
+                  <p className="mb-2 text-xs font-medium text-foreground">Specific staff</p>
+                  <div className="max-h-40 space-y-1 overflow-y-auto">
+                    {(users || [])
+                      .filter((u) => String(u.id || "").toLowerCase() !== "owner")
+                      .slice(0, 80)
+                      .map((u) => {
+                        const id = String(u.id || "").trim();
+                        const on = flags.ptTrainerExpenseNotifyStaffIds.includes(id);
+                        return (
+                          <label
+                            key={id}
+                            className="flex cursor-pointer items-center gap-2 text-xs text-muted-foreground"
+                          >
+                            <input
+                              type="checkbox"
+                              checked={on}
+                              onChange={() => {
+                                const next = on
+                                  ? flags.ptTrainerExpenseNotifyStaffIds.filter((x) => x !== id)
+                                  : [...flags.ptTrainerExpenseNotifyStaffIds, id];
+                                setFeatureFlags({ ptTrainerExpenseNotifyStaffIds: next });
+                              }}
+                            />
+                            <span className="text-foreground">{u.name || id}</span>
+                            <span className="opacity-70">({id})</span>
+                          </label>
+                        );
+                      })}
+                  </div>
+                </div>
+                <p className="text-[11px] text-muted-foreground">
+                  Staff only see pendings for their branch. Empty Who-can-see lists mean no
+                  staff toasts (owner still notified).
+                </p>
+              </div>
+            ) : null}
           </div>
         </SettingsSectionShell>
       ) : null}

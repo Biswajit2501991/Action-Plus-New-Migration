@@ -78,6 +78,11 @@ export const SETTINGS_CONFIG_JSON_KEYS = [
   'salaryManualOverrides',
   'membershipPlansCatalogEnabled',
   'offerEligibleStatuses',
+  'ptTrainerExpenseAutoEnabled',
+  'ptTrainerExpenseDefaultAmount',
+  'ptTrainerExpenseNotifyStaffEnabled',
+  'ptTrainerExpenseNotifyStaffRoles',
+  'ptTrainerExpenseNotifyStaffIds',
 ];
 
 const OPT_IN_BOOL_KEYS = new Set([
@@ -88,6 +93,8 @@ const OPT_IN_BOOL_KEYS = new Set([
   'attendanceRequirePresenceQr',
   'paymentQrInReminderEnabled',
   'membershipPlansCatalogEnabled',
+  'ptTrainerExpenseAutoEnabled',
+  'ptTrainerExpenseNotifyStaffEnabled',
 ]);
 
 /**
@@ -135,6 +142,8 @@ export function buildSettingsAppConfigWriteFromLive(liveConfigRow, incoming, exi
   nextCfg.attendanceRequirePresenceQr = nextCfg.attendanceRequirePresenceQr === true;
   nextCfg.paymentQrInReminderEnabled = nextCfg.paymentQrInReminderEnabled === true;
   nextCfg.membershipPlansCatalogEnabled = nextCfg.membershipPlansCatalogEnabled === true;
+  nextCfg.ptTrainerExpenseAutoEnabled = nextCfg.ptTrainerExpenseAutoEnabled === true;
+  nextCfg.ptTrainerExpenseNotifyStaffEnabled = nextCfg.ptTrainerExpenseNotifyStaffEnabled === true;
 
   const fineSmsEnabled = Object.prototype.hasOwnProperty.call(patch, 'fineSmsEnabled')
     ? patch.fineSmsEnabled !== false
@@ -170,8 +179,23 @@ export function buildSettingsAppConfigWriteFromLive(liveConfigRow, incoming, exi
       attendanceRequirePresenceQr: nextCfg.attendanceRequirePresenceQr === true,
       paymentQrInReminderEnabled: nextCfg.paymentQrInReminderEnabled === true,
       membershipPlansCatalogEnabled: nextCfg.membershipPlansCatalogEnabled === true,
+      ptTrainerExpenseAutoEnabled: nextCfg.ptTrainerExpenseAutoEnabled === true,
+      ptTrainerExpenseDefaultAmount:
+        Number.isFinite(Number(nextCfg.ptTrainerExpenseDefaultAmount))
+          ? Number(nextCfg.ptTrainerExpenseDefaultAmount)
+          : 1000,
+      ptTrainerExpenseNotifyStaffEnabled: nextCfg.ptTrainerExpenseNotifyStaffEnabled === true,
+      ...(Array.isArray(nextCfg.ptTrainerExpenseNotifyStaffRoles)
+        ? { ptTrainerExpenseNotifyStaffRoles: nextCfg.ptTrainerExpenseNotifyStaffRoles }
+        : {}),
+      ...(Array.isArray(nextCfg.ptTrainerExpenseNotifyStaffIds)
+        ? { ptTrainerExpenseNotifyStaffIds: nextCfg.ptTrainerExpenseNotifyStaffIds }
+        : {}),
       ...(Array.isArray(nextCfg.offerEligibleStatuses)
         ? { offerEligibleStatuses: nextCfg.offerEligibleStatuses }
+        : {}),
+      ...(nextCfg.staffSalaryProfiles && typeof nextCfg.staffSalaryProfiles === 'object'
+        ? { staffSalaryProfiles: nextCfg.staffSalaryProfiles }
         : {}),
     },
   };

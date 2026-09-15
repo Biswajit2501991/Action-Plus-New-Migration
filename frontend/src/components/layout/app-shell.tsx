@@ -42,6 +42,9 @@ import { NotificationCenter } from "@/features/notifications/notification-center
 import { LateArrivalNoteHost } from "@/features/attendance/late-arrival-note-host";
 import { StaffSelfSalaryHost } from "@/features/staff/auto-salary-calculator/staff-self-salary-host";
 import { PtMemberChatLoginToastHost } from "@/features/pt/pt-member-chat-login-toast-host";
+import { PtTrainerExpensePromptHost } from "@/features/pt/pt-trainer-expense-prompt-host";
+import { PtTrainerExpenseOwnerToastHost } from "@/features/pt/pt-trainer-expense-owner-toast-host";
+import { PtTrainerExpenseStaffToastHost } from "@/features/pt/pt-trainer-expense-staff-toast-host";
 import { AppSectionTabs } from "@/components/layout/section-tabs";
 import { MobileShell } from "@/components/layout/mobile-shell";
 import { MembersTodayVisitorBadge } from "@/components/layout/members-today-visitor-badge";
@@ -478,6 +481,9 @@ function DesktopShell({ children }: { children: React.ReactNode }) {
       <LateArrivalNoteHost />
       <StaffSelfSalaryHost />
       <PtMemberChatLoginToastHost />
+      <PtTrainerExpensePromptHost />
+      <PtTrainerExpenseOwnerToastHost />
+      <PtTrainerExpenseStaffToastHost />
 
       {user &&
       canAccessSection(user, "Members") &&

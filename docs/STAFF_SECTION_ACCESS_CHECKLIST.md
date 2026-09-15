@@ -34,6 +34,7 @@ Use **opt-out** (`!== false`) only when the section is broadly needed day-to-day
 
 - **Membership Plans** (`/membership-plans`) — gated under existing **Members** section for v1 (nav + page). Catalog **edit** uses `settings.managePlans`. Showcase rows are **per gym branch** (active branch only; other branches never see them). Staff visibility is controlled by Settings → System Features → **Membership Plans for staff** (`membershipPlansCatalogEnabled`, default off). Owners / managePlans can still open the page to edit while the flag is off. Showcase metadata does not change member amounts or Finance. Not shown on Member Portal. **Explain in** (Original / हिंदी / বাংলা / Hinglish) is display-only machine translation for staff read-aloud — never writes catalog text. Optional `MYMEMORY_EMAIL` raises free translation quota.
 - **Offers** (`/offers`) — opt-in section (Staff access). Partner shop desk: read-only member verify by mobile (eligible statuses default Active+Hold, owner multi-select), append-only redemption log (last 10), optional shop passcode after gym sets login ID + password. Branch scope = assigned staff branches (multi-select). Does **not** write members, payments, or Finance.
+- **PT trainer expense pending** — Settings → PT payout notifications. Opt-in `ptTrainerExpenseAutoEnabled` creates pending on billing-date forward for Active PT members; expense only after trainer Yes. Staff toasts via `ptTrainerExpenseNotifyStaff*` (branch-scoped). Does not rewrite member amounts.
 
 ---
 
