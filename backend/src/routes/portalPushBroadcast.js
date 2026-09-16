@@ -112,7 +112,7 @@ export function registerPortalPushBroadcastRoutes(app, { appendAuditLog } = {}) 
       const data = await callWebsiteBroadcast("POST", {
         title,
         body,
-        url: typeof req.body?.url === "string" ? req.body.url : "/members",
+        url: typeof req.body?.url === "string" ? req.body.url : "/members?inbox=1",
       });
 
       if (typeof appendAuditLog === "function") {
@@ -187,7 +187,7 @@ export function registerPortalPushBroadcastRoutes(app, { appendAuditLog } = {}) 
       const data = await callWebsite("/api/member/push/broadcast/jobs", "POST", {
         title,
         body,
-        url: typeof req.body?.url === "string" ? req.body.url : "/members",
+        url: typeof req.body?.url === "string" ? req.body.url : "/members?inbox=1",
         scheduledAt,
         createdBy: String(req.auth?.userId || "owner"),
       });
