@@ -49,7 +49,7 @@ async function callWebsite(path, method, payload) {
     method,
     headers: {
       Authorization: `Bearer ${secret}`,
-      ...(method === "POST" || method === "PUT" || method === "PATCH"
+      ...(method === "POST" || method === "PUT" || method === "PATCH" || method === "DELETE"
         ? { "Content-Type": "application/json" }
         : {}),
     },
@@ -257,4 +257,37 @@ export function registerPortalPushBroadcastRoutes(app, { appendAuditLog } = {}) 
       }
     },
   );
+
+  app.delete("/api/portal-push-broadcast/jobs/:id", requireOwner, async (req, res) => {
+    try {
+      const id = encodeURIComponent(String(req.params.id || "").trim());
+      if (!id || id === "undefined") {
+        return res.status(400).json({
+          ok: false,
+          error: "job-id-required",
+          message: "Job id required.",
+        });
+      }
+      const data = await callWebsite(
+        `/api/member/push/broadcast/jobs/${id}`,
+        "DELETE",
+      );
+      if (typeof appendAuditLog === "function") {
+        await appendAuditLog(req, {
+          action: "portal.push.broadcast.deleted",
+          entityType: "member_portal_push_broadcast_job",
+          entityId: String(req.params.id || ""),
+          after: { jobId: data?.id || req.params.id, status: data?.status, deleted: true },
+        });
+      }
+      return res.json(data);
+    } catch (err) {
+      return res.status(err?.status || 500).json({
+        ok: false,
+        error: err?.code || "broadcast-delete-failed",
+        message: err?.message || "Could not delete broadcast",
+        detail: err?.detail,
+      });
+    }
+  });
 }

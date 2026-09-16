@@ -110,7 +110,7 @@ export function PortalPushBroadcastPanel() {
   const [scheduleLocal, setScheduleLocal] = useState(defaultScheduleLocal);
   const [jobs, setJobs] = useState<BroadcastJob[]>([]);
   const [jobsLoading, setJobsLoading] = useState(false);
-  const [cancellingId, setCancellingId] = useState<string | null>(null);
+  const [deletingId, setDeletingId] = useState<string | null>(null);
 
   const loadPreview = useCallback(async () => {
     setLoadingPreview(true);
@@ -261,20 +261,28 @@ export function PortalPushBroadcastPanel() {
     }
   };
 
-  const cancelJob = async (id: string) => {
-    if (!confirm("Cancel this scheduled broadcast?")) return;
-    setCancellingId(id);
+  const deleteJob = async (id: string, status: string) => {
+    const pending = status === "pending";
+    if (
+      !confirm(
+        pending
+          ? "Delete this scheduled broadcast? It will not be sent."
+          : "Remove this broadcast from the list?",
+      )
+    ) {
+      return;
+    }
+    setDeletingId(id);
     try {
-      await apiFetch(`/portal-push-broadcast/jobs/${encodeURIComponent(id)}/cancel`, {
-        method: "POST",
-        body: JSON.stringify({}),
+      await apiFetch(`/portal-push-broadcast/jobs/${encodeURIComponent(id)}`, {
+        method: "DELETE",
       });
-      toast.success("Scheduled broadcast cancelled");
+      toast.success(pending ? "Scheduled broadcast deleted" : "Broadcast removed");
       await loadJobs();
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Could not cancel");
+      toast.error(err instanceof Error ? err.message : "Could not delete");
     } finally {
-      setCancellingId(null);
+      setDeletingId(null);
     }
   };
 
@@ -401,7 +409,8 @@ export function PortalPushBroadcastPanel() {
         </div>
         <p className="text-[11px] text-muted-foreground">
           Add as many scheduled messages as you need. Each sends automatically at its time after a
-          fresh recipient count. Cancel anytime while still pending.
+          fresh recipient count. Delete anytime while still pending (or clear finished ones from the
+          list).
         </p>
       </div>
 
@@ -440,15 +449,15 @@ export function PortalPushBroadcastPanel() {
                       {job.error ? ` · ${job.error}` : null}
                     </p>
                   </div>
-                  {job.status === "pending" ? (
+                  {job.status !== "running" ? (
                     <Button
                       type="button"
                       size="sm"
                       variant="outline"
-                      disabled={cancellingId === job.id}
-                      onClick={() => void cancelJob(job.id)}
+                      disabled={deletingId === job.id}
+                      onClick={() => void deleteJob(job.id, job.status)}
                     >
-                      {cancellingId === job.id ? "…" : "Cancel"}
+                      {deletingId === job.id ? "…" : "Delete"}
                     </Button>
                   ) : null}
                 </div>
