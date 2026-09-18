@@ -386,7 +386,7 @@ export async function PUT(req: Request) {
       billing_push_body: String(
         body.billing_push_body ??
           existing?.billing_push_body ??
-          "Today is your billing date. Please clear your payment within one week to avoid a fine.",
+          "Hi {name},\nThis is a friendly reminder that today is your billing date.\nPlease clear the payment within one week or a fine may be added.\nAction Plus Gym",
       ).slice(0, 500),
       billing_push_overdue_title: String(
         body.billing_push_overdue_title ??

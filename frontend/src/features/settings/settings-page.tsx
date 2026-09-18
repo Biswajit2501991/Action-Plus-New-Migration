@@ -770,7 +770,7 @@ export function SettingsPage() {
   const [billingPushHourIst, setBillingPushHourIst] = useState(8);
   const [billingPushTitle, setBillingPushTitle] = useState("Billing date reminder");
   const [billingPushBody, setBillingPushBody] = useState(
-    "Today is your billing date. Please clear your payment within one week to avoid a fine.",
+    "Hi {name},\nThis is a friendly reminder that today is your billing date.\nPlease clear the payment within one week or a fine may be added.\nAction Plus Gym",
   );
   const [billingPushOverdueTitle, setBillingPushOverdueTitle] = useState(
     "Late payment notice",

@@ -543,7 +543,7 @@ export function registerMemberPortalPhase2Routes(app, { appendAuditLog }) {
         billing_push_enabled: true,
         billing_push_title: "Billing date reminder",
         billing_push_body:
-          "Today is your billing date. Please clear your payment within one week to avoid a fine.",
+          "Hi {name},\nThis is a friendly reminder that today is your billing date.\nPlease clear the payment within one week or a fine may be added.\nAction Plus Gym",
         billing_push_overdue_title: "Late payment notice",
         billing_push_overdue_body:
           "A fine has been added to your plan. Please clear within 1 week to avoid deactivation or membership cancellation, or reach out to the gym if there is any issue.",
@@ -840,7 +840,7 @@ export function registerMemberPortalPhase2Routes(app, { appendAuditLog }) {
         billing_push_body: String(
           req.body?.billing_push_body ||
             existing?.billing_push_body ||
-            "Today is your billing date. Please clear your payment within one week to avoid a fine.",
+            "Hi {name},\nThis is a friendly reminder that today is your billing date.\nPlease clear the payment within one week or a fine may be added.\nAction Plus Gym",
         ).slice(0, 500),
         billing_push_overdue_title: String(
           req.body?.billing_push_overdue_title ||
