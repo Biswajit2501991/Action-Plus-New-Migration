@@ -20,6 +20,7 @@ import { mergeApprovedLeaveIntoAttendance } from "@/lib/domain/attendance-record
 import {
   canViewPasswordResetNotifications,
   pendingPasswordResets,
+  pendingPinResets,
 } from "@/lib/domain/password-reset";
 import {
   pendingNewVisitorAlerts,
@@ -35,7 +36,8 @@ import { websiteVisitorBadge } from "@/features/visitors/website-intake";
 import { cn, formatDate } from "@/lib/utils";
 import { attendanceApi, leaveApi, visitorsApi } from "@/services/api";
 import { apiFetch } from "@/services/api/client";
-import { adminSetPassword, rejectPasswordReset } from "@/services/api/auth";
+import { adminSetPassword, approvePinReset, rejectPasswordReset, rejectPinReset } from "@/services/api/auth";
+import { SecretField } from "@/features/auth/secret-field";
 import { useAuthStore } from "@/stores";
 import type { LeaveRequest, StaffUser, Visitor } from "@/types";
 
@@ -88,6 +90,12 @@ export function NotificationCenter() {
   const [approveFor, setApproveFor] = useState<StaffUser | null>(null);
   const [newPassword, setNewPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
+  const [showApprovePassword, setShowApprovePassword] = useState(false);
+  const [pinApproveFor, setPinApproveFor] = useState<StaffUser | null>(null);
+  const [pinTemp, setPinTemp] = useState("");
+  const [pinTempAgain, setPinTempAgain] = useState("");
+  const [pinOwnerPassword, setPinOwnerPassword] = useState("");
+  const [pinShared, setPinShared] = useState("");
 
   const leavePending = useMemo(() => {
     if (!canLeave) return [] as LeaveRequest[];
@@ -106,6 +114,10 @@ export function NotificationCenter() {
 
   const passwordPending = useMemo(
     () => (canResets ? pendingPasswordResets(users).slice(0, 20) : []),
+    [canResets, users],
+  );
+  const pinPending = useMemo(
+    () => (canResets ? pendingPinResets(users).slice(0, 20) : []),
     [canResets, users],
   );
 
@@ -158,6 +170,7 @@ export function NotificationCenter() {
   const total =
     leavePending.length +
     passwordPending.length +
+    pinPending.length +
     callbackPending.length +
     newVisitorPending.length +
     (portalChatUnread > 0 ? 1 : 0);
@@ -246,6 +259,32 @@ export function NotificationCenter() {
       setApproveFor(null);
       setNewPassword("");
       setConfirmPassword("");
+      await qc.invalidateQueries({ queryKey: ["users"] });
+    },
+    onError: (e: Error) => toast.error(e.message),
+  });
+
+  const rejectPin = useMutation({
+    mutationFn: (staffId: string) => rejectPinReset(staffId),
+    onSuccess: async () => {
+      toast.success("PIN reset rejected");
+      await qc.invalidateQueries({ queryKey: ["users"] });
+    },
+    onError: (e: Error) => toast.error(e.message),
+  });
+
+  const approvePin = useMutation({
+    mutationFn: async () => {
+      if (!pinApproveFor) return null;
+      const temp = pinTemp.trim();
+      if (temp.length < 6) throw new Error("Temporary password must be at least 6 characters");
+      if (temp !== pinTempAgain.trim()) throw new Error("Passwords do not match");
+      if (!pinOwnerPassword.trim()) throw new Error("Enter your login password");
+      return approvePinReset(pinApproveFor.id, temp, pinOwnerPassword);
+    },
+    onSuccess: async (result) => {
+      setPinShared(result?.tempPassword || pinTemp.trim());
+      toast.success("Temporary password ready to share");
       await qc.invalidateQueries({ queryKey: ["users"] });
     },
     onError: (e: Error) => toast.error(e.message),
@@ -421,6 +460,63 @@ export function NotificationCenter() {
                                 )
                               ) {
                                 rejectReset.mutate(staff.id);
+                              }
+                            }}
+                          >
+                            Reject
+                          </Button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </section>
+            ) : null}
+
+            {canResets ? (
+              <section>
+                <div className="mb-1.5 flex items-center gap-1.5 px-1 text-[11px] font-semibold uppercase tracking-wide text-slate-500">
+                  <KeyRound className="h-3.5 w-3.5" />
+                  PIN resets
+                </div>
+                {!pinPending.length ? (
+                  <p className="px-1 text-xs text-slate-400">No pending PIN resets.</p>
+                ) : (
+                  <div className="space-y-1.5">
+                    {pinPending.map((staff) => (
+                      <div
+                        key={staff.id}
+                        className="rounded-xl border border-amber-200/80 bg-amber-50/70 p-2.5 dark:border-amber-500/20 dark:bg-amber-950/30"
+                      >
+                        <p className="text-xs font-semibold text-amber-950 dark:text-amber-100">
+                          {staff.name || staff.id} requested a PIN reset
+                        </p>
+                        <p className="text-[11px] text-amber-800/80 dark:text-amber-200/70">
+                          Share a temporary password. It works for 6 hours.
+                        </p>
+                        <div className="mt-2 flex gap-1.5">
+                          <Button
+                            size="sm"
+                            className="h-7 flex-1"
+                            onClick={() => {
+                              setPinApproveFor(staff);
+                              setPinTemp("");
+                              setPinTempAgain("");
+                              setPinOwnerPassword("");
+                              setPinShared("");
+                              setOpen(false);
+                            }}
+                          >
+                            Approve
+                          </Button>
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            className="h-7 flex-1"
+                            disabled={rejectPin.isPending}
+                            onClick={() => {
+                              if (confirm(`Reject PIN reset for ${staff.name || staff.id}?`)) {
+                                rejectPin.mutate(staff.id);
                               }
                             }}
                           >
@@ -656,25 +752,73 @@ export function NotificationCenter() {
         <div className="space-y-3">
           <div>
             <Label>New password</Label>
-            <Input
-              className="mt-1"
-              type="password"
-              autoComplete="new-password"
-              value={newPassword}
-              onChange={(e) => setNewPassword(e.target.value)}
-            />
+            <div className="relative mt-1">
+              <Input
+                type={showApprovePassword ? "text" : "password"}
+                autoComplete="new-password"
+                value={newPassword}
+                onChange={(e) => setNewPassword(e.target.value)}
+                className="pr-16"
+              />
+              <button
+                type="button"
+                className="absolute right-2 top-1/2 -translate-y-1/2 text-xs font-medium text-slate-500"
+                onClick={() => setShowApprovePassword((v) => !v)}
+              >
+                {showApprovePassword ? "Hide" : "Show"}
+              </button>
+            </div>
           </div>
           <div>
             <Label>Confirm password</Label>
             <Input
               className="mt-1"
-              type="password"
+              type={showApprovePassword ? "text" : "password"}
               autoComplete="new-password"
               value={confirmPassword}
               onChange={(e) => setConfirmPassword(e.target.value)}
             />
           </div>
         </div>
+      </ClassicalModal>
+
+      <ClassicalModal
+        open={Boolean(pinApproveFor)}
+        title="Approve PIN reset"
+        description={
+          pinApproveFor
+            ? `Create a temporary password for ${pinApproveFor.name || pinApproveFor.id}. They must sign in within 6 hours and set a new PIN.`
+            : undefined
+        }
+        onClose={() => setPinApproveFor(null)}
+        footer={
+          <>
+            <Button variant="outline" onClick={() => setPinApproveFor(null)}>Close</Button>
+            {!pinShared ? (
+              <Button onClick={() => approvePin.mutate()} disabled={approvePin.isPending}>
+                {approvePin.isPending ? "Saving…" : "Create temporary password"}
+              </Button>
+            ) : null}
+          </>
+        }
+      >
+        {pinShared ? (
+          <p className="rounded-lg bg-emerald-50 px-3 py-2 text-sm text-emerald-900">
+            Share this password: <span className="font-mono font-semibold">{pinShared}</span>. It stops working after 6 hours, and after they set a new PIN.
+          </p>
+        ) : (
+          <div className="space-y-3">
+            <SecretField id="pin-temp" label="Temporary password" value={pinTemp} onChange={setPinTemp} />
+            <SecretField id="pin-temp-again" label="Confirm temporary password" value={pinTempAgain} onChange={setPinTempAgain} />
+            <SecretField
+              id="pin-owner-password"
+              label="Your login password"
+              value={pinOwnerPassword}
+              onChange={setPinOwnerPassword}
+              autoComplete="current-password"
+            />
+          </div>
+        )}
       </ClassicalModal>
     </div>
   );

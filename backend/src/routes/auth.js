@@ -24,6 +24,18 @@ import {
 } from '../auth/passwordReset/passwordResetRequestService.js';
 import { readAuthToken } from '../middleware/requireAuth.js';
 import {
+  approveStaffPinReset,
+  isPinSchemaError,
+  pinFeatureStatus,
+  recoverPinWithPassword,
+  recoverPinWithQuestions,
+  rejectStaffPinReset,
+  requestOwnerPinReset,
+  revealStaffPin,
+  saveStaffPinSetup,
+  setPinFromRecovery,
+} from '../auth/staffPin/staffPinService.js';
+import {
   clearLoginFailures,
   loginRateLimit,
   passwordResetRateLimit,
@@ -100,6 +112,7 @@ router.post('/refresh', async (req, res) => {
     const nextToken = signStaffToken(claims.userId, profile.row.gym_id, {
       ...(profile.tokenCtx || {}),
       activeBranchId: profile.activeBranchId,
+      mustSetPin: Boolean(claims.mustSetPin),
     });
     // Cookie mode: rotate HttpOnly cookie. Bearer mode: return token in JSON body.
     setAccessTokenCookie(res, nextToken);
@@ -150,6 +163,7 @@ router.get('/me', async (req, res) => {
       ...(legacyBody && nextToken ? { token: nextToken } : {}),
       user: {
         ...user,
+        mustSetPin: Boolean(claims.mustSetPin),
         gymCodeId: profile.gymCodeId,
         activeBranchId: profile.activeBranchId,
         assignedBranchIds: profile.assignedBranchIds,
@@ -203,7 +217,7 @@ router.patch('/active-branch', async (req, res) => {
       return res.status(403).json({ error: 'branch-scope-forbidden' });
     }
     const tokenCtx = profile.tokenCtx || await buildStaffTokenContext(profile.row);
-    const nextCtx = { ...tokenCtx, activeBranchId: branchId };
+    const nextCtx = { ...tokenCtx, activeBranchId: branchId, mustSetPin: Boolean(claims.mustSetPin) };
     const token = signStaffToken(claims.userId, profile.row.gym_id, nextCtx);
     attachRotatedToken(req, res, token);
     const legacyBody = shouldReturnTokenInBody(req);
@@ -239,6 +253,140 @@ router.post('/admin-set-password', async (req, res) => {
     const msg = String(error?.message || error);
     const status = error.status || (msg.includes('staff-not-found') ? 404 : 400);
     return res.status(status).json({ error: 'set-password-failed', message: msg });
+  }
+});
+
+function pinRouteError(res, error) {
+  if (isPinSchemaError(error)) {
+    return res.status(503).json({
+      error: 'pin-storage-not-ready',
+      message: 'Staff PIN storage is not ready yet. Run the staff login PIN migration, then try again.',
+    });
+  }
+  const msg = String(error?.message || error);
+  const status = error.status || (msg.includes('staff-not-found') ? 404 : 400);
+  return res.status(status).json({ error: msg, message: msg });
+}
+
+router.get('/pin-status', async (req, res) => {
+  if (!useSupabase()) return res.status(503).json({ error: 'auth-requires-supabase' });
+  const claims = verifyStaffToken(tokenFromReq(req));
+  if (!claims?.userId) return res.status(401).json({ error: 'unauthorized' });
+  try {
+    const status = await pinFeatureStatus(claims.userId);
+    return res.json({ ...status, mustSetPin: Boolean(claims.mustSetPin) });
+  } catch (error) {
+    return pinRouteError(res, error);
+  }
+});
+
+router.post('/pin-setup', async (req, res) => {
+  if (!useSupabase()) return res.status(503).json({ error: 'auth-requires-supabase' });
+  const claims = verifyStaffToken(tokenFromReq(req));
+  if (!claims?.userId) return res.status(401).json({ error: 'unauthorized' });
+  try {
+    const result = await saveStaffPinSetup(claims.userId, req.body || {});
+    const legacyBody = shouldReturnTokenInBody(req);
+    if (result.token) setAccessTokenCookie(res, result.token);
+    return res.json({
+      ok: true,
+      ...(legacyBody && result.token ? { token: result.token } : {}),
+      user: result.user,
+    });
+  } catch (error) {
+    return pinRouteError(res, error);
+  }
+});
+
+router.post('/pin-recover/password', passwordResetRateLimit, async (req, res) => {
+  if (!useSupabase()) return res.status(503).json({ error: 'auth-requires-supabase' });
+  const identifier = (req.body?.identifier || req.body?.id || '').trim();
+  if (!identifier) return res.status(400).json({ error: 'identifier-required', message: 'Username is required.' });
+  try {
+    return res.json(await recoverPinWithPassword(identifier, req.body?.password || ''));
+  } catch (error) {
+    return pinRouteError(res, error);
+  }
+});
+
+router.post('/pin-recover/questions', passwordResetRateLimit, async (req, res) => {
+  if (!useSupabase()) return res.status(503).json({ error: 'auth-requires-supabase' });
+  const identifier = (req.body?.identifier || req.body?.id || '').trim();
+  if (!identifier) return res.status(400).json({ error: 'identifier-required', message: 'Username is required.' });
+  try {
+    return res.json(await recoverPinWithQuestions(identifier, req.body?.answers || {}));
+  } catch (error) {
+    return pinRouteError(res, error);
+  }
+});
+
+router.post('/pin-recover/request', passwordResetRateLimit, async (req, res) => {
+  if (!useSupabase()) return res.status(503).json({ error: 'auth-requires-supabase' });
+  const identifier = (req.body?.identifier || req.body?.id || '').trim();
+  if (!identifier) return res.status(400).json({ error: 'identifier-required', message: 'Username is required.' });
+  try {
+    return res.json(await requestOwnerPinReset(identifier));
+  } catch (error) {
+    return pinRouteError(res, error);
+  }
+});
+
+router.post('/pin-recover/set-pin', passwordResetRateLimit, async (req, res) => {
+  if (!useSupabase()) return res.status(503).json({ error: 'auth-requires-supabase' });
+  try {
+    return res.json(await setPinFromRecovery(req.body?.recoveryToken, req.body?.pin));
+  } catch (error) {
+    return pinRouteError(res, error);
+  }
+});
+
+router.post('/reveal-staff-pin', async (req, res) => {
+  if (!useSupabase()) return res.status(503).json({ error: 'auth-requires-supabase' });
+  const auth = await resolvePasswordResetDecisionAuth(req, res);
+  if (!auth) return;
+  const staffId = (req.body?.staffId || req.body?.id || '').trim();
+  if (!staffId || staffId.toLowerCase() === 'owner') {
+    return res.status(400).json({ error: 'invalid-staff-id', message: 'Choose a staff member.' });
+  }
+  try {
+    return res.json(await revealStaffPin(auth, staffId, req.body?.ownerPassword || ''));
+  } catch (error) {
+    return pinRouteError(res, error);
+  }
+});
+
+router.post('/approve-pin-reset', async (req, res) => {
+  if (!useSupabase()) return res.status(503).json({ error: 'auth-requires-supabase' });
+  const auth = await resolvePasswordResetDecisionAuth(req, res);
+  if (!auth) return;
+  const staffId = (req.body?.staffId || req.body?.id || '').trim();
+  if (!staffId || staffId.toLowerCase() === 'owner') {
+    return res.status(400).json({ error: 'invalid-staff-id', message: 'Choose a staff member.' });
+  }
+  try {
+    return res.json(await approveStaffPinReset(
+      auth,
+      staffId,
+      req.body?.tempPassword || req.body?.password || '',
+      req.body?.ownerPassword || '',
+    ));
+  } catch (error) {
+    return pinRouteError(res, error);
+  }
+});
+
+router.post('/reject-pin-reset', async (req, res) => {
+  if (!useSupabase()) return res.status(503).json({ error: 'auth-requires-supabase' });
+  const auth = await resolvePasswordResetDecisionAuth(req, res);
+  if (!auth) return;
+  const staffId = (req.body?.staffId || req.body?.id || '').trim();
+  if (!staffId || staffId.toLowerCase() === 'owner') {
+    return res.status(400).json({ error: 'invalid-staff-id', message: 'Choose a staff member.' });
+  }
+  try {
+    return res.json(await rejectStaffPinReset(auth, staffId));
+  } catch (error) {
+    return pinRouteError(res, error);
   }
 });
 

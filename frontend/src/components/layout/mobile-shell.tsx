@@ -35,6 +35,7 @@ import { CommandPalette } from "@/features/search/command-palette";
 import { AddMemberHost } from "@/features/members/add-member-host";
 import { HistoryControls } from "@/components/layout/history-controls";
 import { NotificationCenter } from "@/features/notifications/notification-center";
+import { StaffPinGate } from "@/features/auth/staff-pin-gate";
 import { LateArrivalNoteHost } from "@/features/attendance/late-arrival-note-host";
 import { StaffSelfSalaryHost } from "@/features/staff/auto-salary-calculator/staff-self-salary-host";
 import { PtTrainerExpensePromptHost } from "@/features/pt/pt-trainer-expense-prompt-host";
@@ -236,6 +237,7 @@ export function MobileShell({ children }: { children: React.ReactNode }) {
         </button>
       ) : null}
 
+      <StaffPinGate />
       <CommandPalette />
       <AddMemberHost />
       <LateArrivalNoteHost />

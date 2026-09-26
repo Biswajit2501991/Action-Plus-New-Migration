@@ -143,6 +143,11 @@ export type StaffUser = {
   passwordResetApprovedAt?: string;
   passwordResetRejectedAt?: string;
   passwordResetRejectedBy?: string;
+  hasPin?: boolean;
+  hasSecurityAnswers?: boolean;
+  mustSetPin?: boolean;
+  pinResetRequestedAt?: string;
+  pinResetApprovedAt?: string;
   password_reset_requested_at?: string;
   password_reset_approved_at?: string;
   password_reset_rejected_at?: string;

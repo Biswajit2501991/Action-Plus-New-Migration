@@ -35,6 +35,7 @@ function staffClaims(staffLoginId, gymIdValue, branchContext = {}) {
     ? branchContext.allowedBranchIds.map((x) => String(x || '').trim()).filter(Boolean)
     : [];
   if (allowed.length) claims.allowedBranchIds = [...new Set(allowed)];
+  if (branchContext.mustSetPin) claims.mustSetPin = true;
   return claims;
 }
 
@@ -214,6 +215,17 @@ export async function loginStaff(identifier, password) {
   if (!valid && row.offers_passcode_hash) {
     valid = await verifyPassword(plain, row.offers_passcode_hash);
   }
+  if (!valid && row.pin_hash) {
+    valid = await verifyPassword(plain, row.pin_hash);
+  }
+  let mustSetPin = false;
+  if (!valid && row.pin_reset_temp_hash && row.pin_reset_temp_expires_at) {
+    const expiresAt = new Date(row.pin_reset_temp_expires_at).getTime();
+    if (Number.isFinite(expiresAt) && expiresAt > Date.now()) {
+      valid = await verifyPassword(plain, row.pin_reset_temp_hash);
+      if (valid) mustSetPin = true;
+    }
+  }
   if (!valid) return { ok: false, error: 'invalid-credentials' };
 
   const sb = getSupabase();
@@ -233,12 +245,14 @@ export async function loginStaff(identifier, password) {
   const token = signStaffToken(user.id, row.gym_id, {
     ...tokenCtx,
     activeBranchId: profile.activeBranchId || tokenCtx.activeBranchId,
+    mustSetPin,
   });
   return {
     ok: true,
     token,
     user: {
       ...user,
+      mustSetPin,
       staffRole: tokenCtx.staffRole,
       gymCodeId: profile.gymCodeId,
       assignedBranchIds: profile.assignedBranchIds,
@@ -260,6 +274,10 @@ export async function setStaffPassword(staffLoginId, newPassword, options = {}) 
   if (!row) throw new Error('staff-not-found');
   const plain = String(newPassword || '').trim();
   if (!plain) throw new Error('password-required');
+  const { rememberReplacedPassword } = await import('./staffPin/staffPinService.js');
+  await rememberReplacedPassword(row).catch((err) => {
+    console.error('[staff-pin] password history skipped:', err?.message || err);
+  });
   const password_hash = await hashPassword(plain);
   const sb = getSupabase();
   const now = new Date().toISOString();

@@ -14,7 +14,9 @@ import { useGymCodes, useUsers } from "@/hooks/use-data";
 import { useStaffPhotoHydration } from "@/hooks/use-staff-photo-hydration";
 import { compressMemberPhotoFile } from "@/lib/domain/member-photo-compress";
 import { logsApi, usersApi } from "@/services/api";
-import { adminSetPassword } from "@/services/api/auth";
+import { adminSetPassword, revealStaffPin } from "@/services/api/auth";
+import { SecretField } from "@/features/auth/secret-field";
+import { ClassicalModal } from "@/components/ui/classical-modal";
 import {
   DEFAULT_ACCESS,
   hasAccess,
@@ -132,6 +134,12 @@ export function StaffPage() {
   const [photoPickerOpen, setPhotoPickerOpen] = useState(false);
   const [shownPasswords, setShownPasswords] = useState<Record<string, boolean>>({});
   const [showEditCurrentPassword, setShowEditCurrentPassword] = useState(false);
+  const [showNewPassword, setShowNewPassword] = useState(false);
+  const [pinRevealOpen, setPinRevealOpen] = useState(false);
+  const [ownerPassword, setOwnerPassword] = useState("");
+  const [revealedPin, setRevealedPin] = useState<string | null>(null);
+  const [pinRevealError, setPinRevealError] = useState("");
+  const [pinRevealBusy, setPinRevealBusy] = useState(false);
   const [expandedStaffId, setExpandedStaffId] = useState<string | null>(null);
   /** Blocked / deactivated staff count as "deleted" for this toggle. */
   const [showDeletedStaff, setShowDeletedStaff] = useState(false);
@@ -743,13 +751,23 @@ export function StaffPage() {
                 </div>
                 <div>
                   <Label>{creating ? "Password" : "New password (optional)"}</Label>
-                  <Input
-                    className="mt-1"
-                    type="password"
-                    value={form.password}
-                    onChange={(e) => setForm((f) => ({ ...f, password: e.target.value }))}
-                    autoComplete="new-password"
-                  />
+                  <div className="relative mt-1">
+                    <Input
+                      type={showNewPassword ? "text" : "password"}
+                      value={form.password}
+                      onChange={(e) => setForm((f) => ({ ...f, password: e.target.value }))}
+                      autoComplete="new-password"
+                      className="pr-10"
+                    />
+                    <button
+                      type="button"
+                      className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-500"
+                      onClick={() => setShowNewPassword((v) => !v)}
+                      aria-label={showNewPassword ? "Hide password" : "Show password"}
+                    >
+                      {showNewPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                    </button>
+                  </div>
                   {!creating && isOwner && editingUser ? (
                     <div className="mt-2 flex items-center gap-2 rounded-lg border border-slate-200 bg-slate-50 px-2.5 py-1.5 text-xs dark:border-white/10 dark:bg-white/[0.03]">
                       <span className="text-muted-foreground">Current:</span>
@@ -780,6 +798,20 @@ export function StaffPage() {
                         {showEditCurrentPassword ? "Hide" : "Show"}
                       </button>
                     </div>
+                  ) : null}
+                  {!creating && editingUser && String(editingUser.id).toLowerCase() !== "owner" && (isOwner || isBranchAdminUser(user)) ? (
+                    <button
+                      type="button"
+                      className="mt-2 text-xs font-medium text-indigo-600 hover:underline"
+                      onClick={() => {
+                        setRevealedPin(null);
+                        setOwnerPassword("");
+                        setPinRevealError("");
+                        setPinRevealOpen(true);
+                      }}
+                    >
+                      View latest PIN
+                    </button>
                   ) : null}
                 </div>
                 <div>
@@ -991,6 +1023,48 @@ export function StaffPage() {
           }
         }}
       />
+
+      <ClassicalModal
+        open={pinRevealOpen}
+        title="View staff PIN"
+        description={editingUser ? `Enter your login password to see the latest PIN for ${editingUser.name || editingUser.id}.` : undefined}
+        onClose={() => setPinRevealOpen(false)}
+        footer={
+          <>
+            <Button variant="outline" onClick={() => setPinRevealOpen(false)}>Close</Button>
+            <Button
+              disabled={pinRevealBusy}
+              onClick={() => {
+                if (!editingUser) return;
+                setPinRevealBusy(true);
+                setPinRevealError("");
+                void revealStaffPin(editingUser.id, ownerPassword)
+                  .then((result) => setRevealedPin(result.available ? result.pin || "" : ""))
+                  .catch((e: Error) => setPinRevealError(e.message || "Could not show PIN"))
+                  .finally(() => setPinRevealBusy(false));
+              }}
+            >
+              {pinRevealBusy ? "Checking…" : "Show PIN"}
+            </Button>
+          </>
+        }
+      >
+        <div className="space-y-3">
+          <SecretField
+            id="owner-password-for-pin"
+            label="Your login password"
+            value={ownerPassword}
+            onChange={setOwnerPassword}
+            autoComplete="current-password"
+          />
+          {revealedPin != null ? (
+            <p className="rounded-lg bg-slate-50 px-3 py-2 text-sm dark:bg-white/5">
+              Latest PIN: <span className="font-mono font-semibold">{revealedPin || "Not set yet"}</span>
+            </p>
+          ) : null}
+          {pinRevealError ? <p className="text-sm text-rose-600">{pinRevealError}</p> : null}
+        </div>
+      </ClassicalModal>
     </div>
   );
 }

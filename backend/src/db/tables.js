@@ -23,6 +23,8 @@ export const T = {
   gyms: 'gyms',
   gym_codes: 'gym_codes',
   staff_users: 'staff_users',
+  staff_password_history: 'staff_password_history',
+  staff_security_answers: 'staff_security_answers',
   staff_user_sections: 'staff_user_sections',
   staff_user_access: 'staff_user_access',
   staff_role_templates: 'staff_role_templates',

@@ -14,6 +14,7 @@ import {
 } from "@/lib/domain/branch-branding";
 import { cn } from "@/lib/utils";
 import { useAuthStore } from "@/stores";
+import { PinResetPanel } from "@/features/auth/pin-reset-panel";
 
 const REMEMBER_KEY = "apg.auth.remember";
 
@@ -24,7 +25,7 @@ export function LoginForm() {
   const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
   const [remember, setRemember] = useState(true);
-  const [mode, setMode] = useState<"login" | "forgot">("login");
+  const [mode, setMode] = useState<"login" | "forgot" | "pin">("login");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState("");
@@ -54,7 +55,8 @@ export function LoginForm() {
     setMessage("");
     setLoading(true);
     try {
-      if (mode === "forgot") {
+      if (mode === "pin") return;
+    if (mode === "forgot") {
         await forgotPassword(identifier.trim());
         setMessage(
           "Reset request sent. The owner will get a notification and can set a new password for you.",
@@ -126,11 +128,25 @@ export function LoginForm() {
           </h1>
           <p className="mt-2 max-w-[18rem] text-sm leading-relaxed text-slate-400">
             {mode === "login"
-              ? "Sign in to your staff workspace."
-              : "Ask the owner to reset your password."}
+              ? "Sign in with your password or PIN."
+              : mode === "pin"
+                ? "Reset your login PIN."
+                : "Ask the owner to reset your password."}
           </p>
         </div>
 
+        {mode === "pin" ? (
+          <PinResetPanel
+            identifier={identifier}
+            onIdentifier={setIdentifier}
+            onBack={() => {
+              setMode("login");
+              setError("");
+              setMessage("");
+            }}
+          />
+        ) : (
+        <>
         <div className="mt-8 space-y-4">
           <div>
             <label htmlFor="identifier" className="text-xs font-medium uppercase tracking-[0.14em] text-slate-400">
@@ -243,18 +259,35 @@ export function LoginForm() {
               : "Send reset request"}
         </button>
 
-        <button
-          type="button"
-          className="mt-5 w-full text-center text-sm text-teal-300/90 transition hover:text-teal-200"
-          onClick={() => {
-            setMode(mode === "login" ? "forgot" : "login");
-            setError("");
-            setMessage("");
-            setShowPassword(false);
-          }}
-        >
-          {mode === "login" ? "Reset my password" : "Back to sign in"}
-        </button>
+        <div className="mt-5 flex flex-col gap-2 text-center text-sm">
+          <button
+            type="button"
+            className="text-teal-300/90 transition hover:text-teal-200"
+            onClick={() => {
+              setMode(mode === "login" ? "forgot" : "login");
+              setError("");
+              setMessage("");
+              setShowPassword(false);
+            }}
+          >
+            {mode === "login" ? "Reset my password" : "Back to sign in"}
+          </button>
+          {mode === "login" ? (
+            <button
+              type="button"
+              className="text-slate-400 transition hover:text-teal-200"
+              onClick={() => {
+                setMode("pin");
+                setError("");
+                setMessage("");
+              }}
+            >
+              Forgot PIN
+            </button>
+          ) : null}
+        </div>
+        </>
+        )}
       </form>
 
     </div>

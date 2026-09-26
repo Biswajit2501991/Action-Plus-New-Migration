@@ -53,6 +53,80 @@ export async function adminSetPassword(staffId: string, newPassword: string) {
   );
 }
 
+export async function pinStatus() {
+  return apiFetch<{
+    enabled: boolean;
+    hasPin: boolean;
+    hasSecurityAnswers: boolean;
+    mustSetPin?: boolean;
+  }>("/auth/pin-status");
+}
+
+export async function savePinSetup(body: {
+  pin: string;
+  answers?: Record<string, string>;
+}) {
+  const data = await apiFetch<{ ok?: boolean; token?: string; user?: AuthUser }>(
+    "/auth/pin-setup",
+    { method: "POST", body: JSON.stringify(body) },
+  );
+  if (data.token && data.user?.id) writeAuthSession(String(data.user.id), data.token);
+  return data;
+}
+
+export async function recoverPinPassword(identifier: string, password: string) {
+  return apiFetch<{ stage: string; attemptsLeft?: number; recoveryToken?: string }>(
+    "/auth/pin-recover/password",
+    { method: "POST", body: JSON.stringify({ identifier, password }) },
+    { skipAuth: true },
+  );
+}
+
+export async function recoverPinQuestions(identifier: string, answers: Record<string, string>) {
+  return apiFetch<{ stage: string; recoveryToken?: string }>(
+    "/auth/pin-recover/questions",
+    { method: "POST", body: JSON.stringify({ identifier, answers }) },
+    { skipAuth: true },
+  );
+}
+
+export async function requestPinReset(identifier: string) {
+  return apiFetch<{ ok?: boolean; stage?: string }>(
+    "/auth/pin-recover/request",
+    { method: "POST", body: JSON.stringify({ identifier }) },
+    { skipAuth: true },
+  );
+}
+
+export async function setRecoveredPin(recoveryToken: string, pin: string) {
+  return apiFetch<{ ok?: boolean }>(
+    "/auth/pin-recover/set-pin",
+    { method: "POST", body: JSON.stringify({ recoveryToken, pin }) },
+    { skipAuth: true },
+  );
+}
+
+export async function revealStaffPin(staffId: string, ownerPassword: string) {
+  return apiFetch<{ pin: string | null; available: boolean; name?: string }>(
+    "/auth/reveal-staff-pin",
+    { method: "POST", body: JSON.stringify({ staffId, ownerPassword }) },
+  );
+}
+
+export async function approvePinReset(staffId: string, tempPassword: string, ownerPassword: string) {
+  return apiFetch<{ ok?: boolean; tempPassword?: string; expiresAt?: string }>(
+    "/auth/approve-pin-reset",
+    { method: "POST", body: JSON.stringify({ staffId, tempPassword, ownerPassword }) },
+  );
+}
+
+export async function rejectPinReset(staffId: string) {
+  return apiFetch<{ ok?: boolean }>("/auth/reject-pin-reset", {
+    method: "POST",
+    body: JSON.stringify({ staffId }),
+  });
+}
+
 export async function rejectPasswordReset(staffId: string) {
   return apiFetch<{ ok?: boolean; staffId?: string; status?: string }>(
     "/auth/reject-password-reset",

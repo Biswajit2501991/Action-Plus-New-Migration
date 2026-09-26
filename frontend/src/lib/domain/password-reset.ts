@@ -55,6 +55,22 @@ export function canViewPasswordResetNotifications(user?: AuthUser | null) {
   return role === "owner" || role === "master_owner" || role === "branch_owner";
 }
 
+export function isPinResetPendingUser(user?: StaffUser | null) {
+  if (!user) return false;
+  if (String(user.id || "").trim().toLowerCase() === "owner") return false;
+  const requested = String(user.pinResetRequestedAt || "").trim();
+  if (!requested) return false;
+  const approved = String(user.pinResetApprovedAt || "").trim();
+  if (!approved) return true;
+  return toMs(approved) < toMs(requested);
+}
+
+export function pendingPinResets(users: StaffUser[]) {
+  return (users || [])
+    .filter(isPinResetPendingUser)
+    .sort((a, b) => toMs(b.pinResetRequestedAt) - toMs(a.pinResetRequestedAt));
+}
+
 export function pendingPasswordResets(users: StaffUser[]) {
   return (users || [])
     .filter(isPasswordResetPendingUser)

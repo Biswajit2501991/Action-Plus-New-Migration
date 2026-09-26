@@ -39,6 +39,7 @@ import { CommandPalette } from "@/features/search/command-palette";
 import { AddMemberHost } from "@/features/members/add-member-host";
 import { HistoryControls } from "@/components/layout/history-controls";
 import { NotificationCenter } from "@/features/notifications/notification-center";
+import { StaffPinGate } from "@/features/auth/staff-pin-gate";
 import { LateArrivalNoteHost } from "@/features/attendance/late-arrival-note-host";
 import { StaffSelfSalaryHost } from "@/features/staff/auto-salary-calculator/staff-self-salary-host";
 import { PtMemberChatLoginToastHost } from "@/features/pt/pt-member-chat-login-toast-host";
@@ -476,6 +477,7 @@ function DesktopShell({ children }: { children: React.ReactNode }) {
         </div>
       </div>
 
+      <StaffPinGate />
       <CommandPalette />
       <AddMemberHost />
       <LateArrivalNoteHost />
