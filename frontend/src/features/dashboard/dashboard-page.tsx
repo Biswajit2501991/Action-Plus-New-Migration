@@ -43,7 +43,14 @@ import { formatCurrency, formatDate, formatMonthKey, cn } from "@/lib/utils";
 import {
   canAccessMembershipPlansNav,
   hasAccess,
+  isMasterOwnerUser,
 } from "@/lib/domain/permissions";
+import {
+  DashboardCoverSettings,
+  PrivacyCover,
+  useDashboardCoverPrefs,
+} from "@/features/dashboard/dashboard-privacy-cover";
+import type { DashboardCoverTileId } from "@/features/dashboard/dashboard-privacy";
 import { useAuthStore, useUiStore } from "@/stores";
 import type { Member } from "@/types";
 import { MessagePreviewModal } from "@/features/whatsapp/message-preview-modal";
@@ -150,6 +157,20 @@ export function DashboardPage() {
   const [field, setField] = useState("all");
   const [expandedOverdueId, setExpandedOverdueId] = useState("");
   const [searchActive, setSearchActive] = useState(false);
+  const [coverSettingsOpen, setCoverSettingsOpen] = useState(false);
+  const [coverRevealed, setCoverRevealed] = useState<Partial<Record<DashboardCoverTileId, boolean>>>({});
+  const isOwner = isMasterOwnerUser(user);
+  const { prefs: coverPrefs, update: updateCoverPrefs } = useDashboardCoverPrefs(
+    String(user?.gymId || ""),
+  );
+
+  function revealCover(id: DashboardCoverTileId) {
+    setCoverRevealed((prev) => ({ ...prev, [id]: true }));
+  }
+
+  function hideCover(id: DashboardCoverTileId) {
+    setCoverRevealed((prev) => ({ ...prev, [id]: false }));
+  }
 
   const canCore = hasAccess(user, "dashboard", "viewDashboardCore");
   const canEditMember = hasAccess(user, "members", "editMembers");
@@ -324,7 +345,17 @@ export function DashboardPage() {
         title="Dashboard"
         description="Same production widgets — modern Action Plus shell."
         actions={
-          canCore ? (
+          <>
+            {isOwner ? (
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setCoverSettingsOpen((open) => !open)}
+              >
+                Tile cover
+              </Button>
+            ) : null}
+            {canCore ? (
             <>
               {canOpenMembershipPlans ? (
                 <Button
@@ -354,9 +385,18 @@ export function DashboardPage() {
                 Add New Member
               </Button>
             </>
-          ) : null
+            ) : null}
+          </>
         }
       />
+
+      {isOwner ? (
+        <DashboardCoverSettings
+          open={coverSettingsOpen}
+          prefs={coverPrefs}
+          onChange={updateCoverPrefs}
+        />
+      ) : null}
 
       {canCore ? (
         <div className="space-y-3">
@@ -459,32 +499,50 @@ export function DashboardPage() {
           ))}
 
           {canRevenue ? (
-            <AccentMetricCard
+            <PrivacyCover
+              active={coverPrefs.enabled && coverPrefs.tiles.collectedRevenue}
+              grayPercent={coverPrefs.grayPercent}
               label="Collected Revenue"
-              tag="This month"
-              value={formatCurrency(collectedRevenue)}
-              tone="teal"
-              hint={
-                <>
-                  Payment received this month
-                  {growthRate >= 0 ? " · +" : " · "}
-                  {growthRate}% vs last month
-                  {prevMonthCollected != null
-                    ? ` · Prev ${formatCurrency(prevMonthCollected)}`
-                    : ""}
-                  <span className="mt-1 block text-current/80">
-                    Profit (est.): {formatCurrency(profit)}
-                  </span>
-                </>
-              }
-            />
+              revealed={coverRevealed.collectedRevenue === true}
+              onShow={() => revealCover("collectedRevenue")}
+              onHide={() => hideCover("collectedRevenue")}
+            >
+              <AccentMetricCard
+                label="Collected Revenue"
+                tag="This month"
+                value={formatCurrency(collectedRevenue)}
+                tone="teal"
+                hint={
+                  <>
+                    Payment received this month
+                    {growthRate >= 0 ? " · +" : " · "}
+                    {growthRate}% vs last month
+                    {prevMonthCollected != null
+                      ? ` · Prev ${formatCurrency(prevMonthCollected)}`
+                      : ""}
+                    <span className="mt-1 block text-current/80">
+                      Profit (est.): {formatCurrency(profit)}
+                    </span>
+                  </>
+                }
+              />
+            </PrivacyCover>
           ) : null}
         </div>
       ) : null}
 
       <div className="grid gap-4 xl:grid-cols-3">
         {canTrend ? (
-          <Card className="xl:col-span-2">
+          <PrivacyCover
+            active={coverPrefs.enabled && coverPrefs.tiles.revenueTrend}
+            grayPercent={coverPrefs.grayPercent}
+            label="Revenue trend"
+            revealed={coverRevealed.revenueTrend === true}
+            onShow={() => revealCover("revenueTrend")}
+            onHide={() => hideCover("revenueTrend")}
+            className="xl:col-span-2"
+          >
+          <Card className="h-full">
             <CardHeader className="flex flex-row items-center justify-between gap-3 space-y-0">
               <CardTitle>Revenue trend</CardTitle>
               <span
@@ -521,6 +579,7 @@ export function DashboardPage() {
               </ResponsiveContainer>
             </CardContent>
           </Card>
+          </PrivacyCover>
         ) : null}
 
         {canPlans ? (
@@ -556,6 +615,14 @@ export function DashboardPage() {
             </CardContent>
           </Card>
         ) : canTrend ? (
+          <PrivacyCover
+            active={coverPrefs.enabled && coverPrefs.tiles.recentPayments}
+            grayPercent={coverPrefs.grayPercent}
+            label="Recent payments"
+            revealed={coverRevealed.recentPayments === true}
+            onShow={() => revealCover("recentPayments")}
+            onHide={() => hideCover("recentPayments")}
+          >
           <Card>
             <CardHeader>
               <CardTitle>Recent payments</CardTitle>
@@ -581,11 +648,20 @@ export function DashboardPage() {
               )}
             </CardContent>
           </Card>
+          </PrivacyCover>
         ) : null}
       </div>
 
       {/* Keep Recent payments even when plan chart is shown (user-requested). */}
       {canPlans ? (
+        <PrivacyCover
+          active={coverPrefs.enabled && coverPrefs.tiles.recentPayments}
+          grayPercent={coverPrefs.grayPercent}
+          label="Recent payments"
+          revealed={coverRevealed.recentPayments === true}
+          onShow={() => revealCover("recentPayments")}
+          onHide={() => hideCover("recentPayments")}
+        >
         <Card>
           <CardHeader>
             <CardTitle>Recent payments</CardTitle>
@@ -611,6 +687,7 @@ export function DashboardPage() {
             )}
           </CardContent>
         </Card>
+        </PrivacyCover>
       ) : null}
 
       {canOverdue ? (
