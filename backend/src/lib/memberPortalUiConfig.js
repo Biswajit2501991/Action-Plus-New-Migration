@@ -42,21 +42,65 @@ export const DEFAULT_PORTAL_SECTIONS = {
 
 export const DEFAULT_WORKOUT_PLAN_TESTER_NAMES = ["Bis Test"];
 
+const WORKOUT_PLAN_STATUS_KEYS = ["Active", "Hold", "Deactivated", "Cancelled"];
+const WORKOUT_PLAN_YMD = /^(\d{4}-\d{2}-\d{2})$/;
+
+function emptyWorkoutPlanStatusWindows() {
+  return {
+    Active: { from: null, until: null },
+    Hold: { from: null, until: null },
+    Deactivated: { from: null, until: null },
+    Cancelled: { from: null, until: null },
+  };
+}
+
+function normalizeWorkoutPlanWindowDate(value) {
+  if (value == null || value === "") return null;
+  const m = WORKOUT_PLAN_YMD.exec(String(value).trim().slice(0, 10));
+  return m ? m[1] : null;
+}
+
+export function normalizeWorkoutPlanStatusWindows(input) {
+  const root = input && typeof input === "object" && !Array.isArray(input) ? input : {};
+  const bag =
+    root.windows && typeof root.windows === "object" && !Array.isArray(root.windows)
+      ? root.windows
+      : {};
+  const out = emptyWorkoutPlanStatusWindows();
+  for (const key of WORKOUT_PLAN_STATUS_KEYS) {
+    const raw = bag[key] ?? bag[key.toLowerCase()];
+    const row = raw && typeof raw === "object" && !Array.isArray(raw) ? raw : {};
+    out[key] = {
+      from: normalizeWorkoutPlanWindowDate(row.from),
+      until: normalizeWorkoutPlanWindowDate(row.until),
+    };
+  }
+  return out;
+}
+
 export const DEFAULT_WORKOUT_PLAN_BY_STATUS = {
   Active: true,
   Hold: false,
   Deactivated: false,
   Cancelled: false,
+  windows: emptyWorkoutPlanStatusWindows(),
 };
 
 export function normalizeWorkoutPlanByStatus(input) {
   const src = input && typeof input === "object" && !Array.isArray(input) ? input : {};
-  const out = { ...DEFAULT_WORKOUT_PLAN_BY_STATUS };
-  for (const key of Object.keys(DEFAULT_WORKOUT_PLAN_BY_STATUS)) {
+  const out = {
+    Active: true,
+    Hold: false,
+    Deactivated: false,
+    Cancelled: false,
+    windows: emptyWorkoutPlanStatusWindows(),
+  };
+  for (const key of WORKOUT_PLAN_STATUS_KEYS) {
     const lower = key.toLowerCase();
     if (key in src) out[key] = Boolean(src[key]);
     else if (lower in src) out[key] = Boolean(src[lower]);
   }
+  out.windows = normalizeWorkoutPlanStatusWindows(src);
   return out;
 }
 

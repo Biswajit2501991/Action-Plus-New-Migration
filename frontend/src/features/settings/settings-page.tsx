@@ -44,12 +44,12 @@ import {
   type PortalAccessByStatus,
 } from "@/lib/member-portal-access-by-status";
 import {
-  DEFAULT_WORKOUT_PLAN_BY_STATUS,
   DEFAULT_WORKOUT_PLAN_TESTER_NAMES,
   normalizeWorkoutPlanByStatus,
   normalizeWorkoutPlanTesterNames,
   testerNamesFromText,
   testerNamesToText,
+  workoutPlanStatusWindowError,
   type WorkoutPlanByStatus,
 } from "@/lib/member-portal-workout-plan";
 import { WorkoutPlanVideosPanel } from "@/features/settings/workout-plan-videos-panel";
@@ -757,8 +757,8 @@ export function SettingsPage() {
   const [portalAccessByStatus, setPortalAccessByStatus] = useState<PortalAccessByStatus>(
     () => ({ ...DEFAULT_PORTAL_ACCESS_BY_STATUS }),
   );
-  const [workoutPlanByStatus, setWorkoutPlanByStatus] = useState<WorkoutPlanByStatus>(
-    () => ({ ...DEFAULT_WORKOUT_PLAN_BY_STATUS }),
+  const [workoutPlanByStatus, setWorkoutPlanByStatus] = useState<WorkoutPlanByStatus>(() =>
+    normalizeWorkoutPlanByStatus(null),
   );
   const [workoutPlanTesterText, setWorkoutPlanTesterText] = useState(
     testerNamesToText(DEFAULT_WORKOUT_PLAN_TESTER_NAMES),
@@ -910,6 +910,11 @@ export function SettingsPage() {
   }
 
   async function savePortalUiConfig() {
+    const windowError = workoutPlanStatusWindowError(workoutPlanByStatus);
+    if (windowError) {
+      toast.error(windowError);
+      return;
+    }
     setPortalUiBusy(true);
     try {
       const payloadSections = normalizePortalSections(portalSections);
@@ -2198,24 +2203,76 @@ export function SettingsPage() {
                 <p className="text-sm font-medium text-foreground">Workout Plan by status</p>
                 <p className="mt-0.5 text-[11px] leading-relaxed text-muted-foreground">
                   Used when Home tiles → Workout Plan is ON (auto rollout). Separate from portal
-                  login. Active is on by default. PT members stay hidden unless staff turns on that
-                  member’s Workout Plan tile.
+                  login. Active is on by default. Optional start and end dates apply to every
+                  member in that status, including both days. Leave dates blank for no limit.
+                  A member’s own dates still apply. PT members stay hidden unless staff turns on
+                  that member’s Workout Plan tile. Progress is kept when a date hides the tile.
                 </p>
               </div>
               <div className="grid gap-2 lg:grid-cols-2">
-                {PORTAL_ACCESS_STATUS_META.map((meta) => (
-                  <SettingsToggle
-                    key={`wp-${meta.key}`}
-                    checked={workoutPlanByStatus[meta.key]}
-                    disabled={portalUiBusy}
-                    label={meta.label}
-                    description={`Show Workout Plan for ${meta.label.toLowerCase()}.`}
-                    onChange={(next) => {
-                      setWorkoutPlanByStatus((prev) => ({ ...prev, [meta.key]: next }));
-                      setPortalUiDirty(true);
-                    }}
-                  />
-                ))}
+                {PORTAL_ACCESS_STATUS_META.map((meta) => {
+                  const statusWindow = workoutPlanByStatus.windows[meta.key];
+                  const datesOn = workoutPlanByStatus[meta.key] === true;
+                  return (
+                    <div
+                      key={`wp-${meta.key}`}
+                      className="space-y-2 rounded-xl border border-black/[0.06] bg-white/80 p-3 dark:border-white/10 dark:bg-white/[0.03]"
+                    >
+                      <SettingsToggle
+                        checked={datesOn}
+                        disabled={portalUiBusy}
+                        label={meta.label}
+                        description={`Show Workout Plan for ${meta.label.toLowerCase()}.`}
+                        onChange={(next) => {
+                          setWorkoutPlanByStatus((prev) => ({ ...prev, [meta.key]: next }));
+                          setPortalUiDirty(true);
+                        }}
+                      />
+                      <div className="grid grid-cols-2 gap-2">
+                        <label className="block space-y-1">
+                          <span className="text-[11px] text-muted-foreground">Start</span>
+                          <Input
+                            type="date"
+                            value={statusWindow?.from || ""}
+                            disabled={portalUiBusy || !datesOn}
+                            onChange={(e) => {
+                              const from = e.target.value || null;
+                              setWorkoutPlanByStatus((prev) => ({
+                                ...prev,
+                                windows: {
+                                  ...prev.windows,
+                                  [meta.key]: { ...prev.windows[meta.key], from },
+                                },
+                              }));
+                              setPortalUiDirty(true);
+                            }}
+                            className="h-9 text-xs"
+                          />
+                        </label>
+                        <label className="block space-y-1">
+                          <span className="text-[11px] text-muted-foreground">End</span>
+                          <Input
+                            type="date"
+                            value={statusWindow?.until || ""}
+                            disabled={portalUiBusy || !datesOn}
+                            onChange={(e) => {
+                              const until = e.target.value || null;
+                              setWorkoutPlanByStatus((prev) => ({
+                                ...prev,
+                                windows: {
+                                  ...prev.windows,
+                                  [meta.key]: { ...prev.windows[meta.key], until },
+                                },
+                              }));
+                              setPortalUiDirty(true);
+                            }}
+                            className="h-9 text-xs"
+                          />
+                        </label>
+                      </div>
+                    </div>
+                  );
+                })}
               </div>
               <div className="space-y-1.5">
                 <Label htmlFor="workout-plan-testers">Tester names (rollout)</Label>
