@@ -141,6 +141,40 @@ export function registerPortalPushBroadcastRoutes(app, { appendAuditLog } = {}) 
     }
   });
 
+  app.post("/api/portal-push-broadcast/test", requireOwner, async (req, res) => {
+    try {
+      const title = String(req.body?.title || "").trim().slice(0, 120) || "Test notification";
+      const body = String(req.body?.body || "").trim().slice(0, 500) || "This is a test for Bis Test only.";
+      const data = await callWebsite("/api/member/push/broadcast/test", "POST", {
+        title,
+        body,
+        url: "/members?inbox=1",
+      });
+      if (typeof appendAuditLog === "function") {
+        await appendAuditLog(req, {
+          action: "portal.push.broadcast.test",
+          entityType: "member_portal_push",
+          entityId: "APG-1037/26-AP01",
+          after: {
+            title,
+            memberCode: data?.memberCode || "APG-1037/26-AP01",
+            pushSent: data?.pushSent,
+            pushFailed: data?.pushFailed,
+            inboxInserted: data?.inboxInserted,
+          },
+        });
+      }
+      return res.json(data);
+    } catch (err) {
+      return res.status(err?.status || 500).json({
+        ok: false,
+        error: err?.code || "broadcast-test-failed",
+        message: err?.message || "Test send failed",
+        detail: err?.detail,
+      });
+    }
+  });
+
   app.get("/api/portal-push-broadcast/jobs", requireOwner, async (_req, res) => {
     try {
       const data = await callWebsite("/api/member/push/broadcast/jobs", "GET");

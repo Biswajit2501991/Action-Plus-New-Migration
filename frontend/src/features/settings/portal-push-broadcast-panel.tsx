@@ -105,6 +105,7 @@ export function PortalPushBroadcastPanel() {
   const [cooldownMs, setCooldownMs] = useState(0);
   const [loadingPreview, setLoadingPreview] = useState(false);
   const [sending, setSending] = useState(false);
+  const [testing, setTesting] = useState(false);
   const [scheduling, setScheduling] = useState(false);
   const [previewError, setPreviewError] = useState("");
   const [scheduleLocal, setScheduleLocal] = useState(defaultScheduleLocal);
@@ -162,6 +163,32 @@ export function PortalPushBroadcastPanel() {
     if (!t || id === "custom") return;
     setTitle(t.title);
     setBody(t.body);
+  };
+
+  const sendTest = async () => {
+    const testTitle = title.trim() || "Test notification";
+    const testBody = body.trim() || "This is a test for Bis Test only.";
+    if (
+      !window.confirm(
+        "Send this only to Bis Test (APG-1037/26-AP01)? Other members will not get it.",
+      )
+    ) {
+      return;
+    }
+    setTesting(true);
+    try {
+      const data = await apiFetch<BroadcastResponse>("/portal-push-broadcast/test", {
+        method: "POST",
+        body: JSON.stringify({ title: testTitle, body: testBody }),
+      });
+      toast.success(
+        `Test sent to Bis Test. Push delivered ${Number(data.pushSent) || 0}, failed ${Number(data.pushFailed) || 0}.`,
+      );
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Test send failed");
+    } finally {
+      setTesting(false);
+    }
   };
 
   const broadcast = async () => {
@@ -380,6 +407,15 @@ export function PortalPushBroadcastPanel() {
             onClick={() => void loadPreview()}
           >
             Refresh count
+          </Button>
+          <Button
+            type="button"
+            size="sm"
+            variant="outline"
+            disabled={testing || sending}
+            onClick={() => void sendTest()}
+          >
+            {testing ? "Sending test…" : "Send test to Bis Test"}
           </Button>
           <Button type="button" size="sm" disabled={!canSend} onClick={() => void broadcast()}>
             {sending ? "Broadcasting…" : "Broadcast now"}
