@@ -401,7 +401,7 @@ export function DashboardPage() {
       {canCore ? (
         <div className="space-y-3">
           <div className="flex flex-col gap-2 md:flex-row md:items-center">
-            <div className="relative flex-1">
+            <div className="apg-search-beam relative flex-1">
               <Input
                 value={q}
                 onChange={(e) => {
@@ -420,7 +420,7 @@ export function DashboardPage() {
               {q.trim() ? (
                 <button
                   type="button"
-                  className="absolute right-2 top-1/2 -translate-y-1/2 rounded-md p-1 text-muted-foreground hover:bg-muted hover:text-foreground"
+                  className="apg-search-beam__tools absolute right-2 top-1/2 -translate-y-1/2 rounded-md p-1 text-muted-foreground hover:bg-muted hover:text-foreground"
                   onClick={clearDashboardSearch}
                   aria-label="Clear search"
                 >

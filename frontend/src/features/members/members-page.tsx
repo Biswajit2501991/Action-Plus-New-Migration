@@ -1376,7 +1376,7 @@ export function MembersPage() {
                   <div className="flex flex-wrap items-center gap-2">
                     {key === "Active" ? (
                       <>
-                        <div className="relative w-full sm:w-[260px]">
+                        <div className="apg-search-beam relative w-full sm:w-[260px]">
                           <Input
                             value={quickSearchInput}
                             onChange={(e) => {
@@ -1392,7 +1392,7 @@ export function MembersPage() {
                             placeholder="Search members…"
                             className={quickSearchInput.trim() ? "pr-16" : "pr-10"}
                           />
-                          <div className="absolute right-2 top-1/2 flex -translate-y-1/2 items-center gap-0.5">
+                          <div className="apg-search-beam__tools absolute right-2 top-1/2 flex -translate-y-1/2 items-center gap-0.5">
                             {quickSearchInput.trim() ? (
                               <button
                                 type="button"

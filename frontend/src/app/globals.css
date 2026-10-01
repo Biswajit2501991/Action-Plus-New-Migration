@@ -117,6 +117,55 @@
   box-shadow: 0 0 0 1px rgb(252 165 165 / 0.55), 0 1px 0 rgba(15, 23, 42, 0.02);
 }
 
+@keyframes apg-search-beam-spin {
+  to {
+    transform: rotate(1turn);
+  }
+}
+
+/* Thin multi-colour beam on the member search border. Display only. */
+.apg-search-beam {
+  position: relative;
+  isolation: isolate;
+  overflow: hidden;
+  border-radius: 0.75rem;
+  padding: 1.5px;
+}
+
+.apg-search-beam::before {
+  content: "";
+  position: absolute;
+  z-index: 0;
+  inset: -140%;
+  background: conic-gradient(
+    from 0deg,
+    #c9a227,
+    #38bdf8,
+    #a78bfa,
+    #f472b6,
+    #34d399,
+    #c9a227
+  );
+  animation: apg-search-beam-spin 3.6s linear infinite;
+}
+
+.apg-search-beam > input {
+  position: relative;
+  z-index: 1;
+  border-color: transparent;
+  box-shadow: none;
+}
+
+.apg-search-beam .apg-search-beam__tools {
+  z-index: 2;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .apg-search-beam::before {
+    animation: none;
+  }
+}
+
 @keyframes apg-payment-qr-btn-border-flash {
   0%, 100% {
     border-color: rgba(34, 197, 94, 0.55);
