@@ -349,6 +349,7 @@ type PortalSections = {
   /** Inside Perks: show/allow "Request locker" (not a home tile itself). */
   perksRequestLocker: boolean;
   homeBiometric: boolean;
+  homeTshirt: boolean;
   basicDailyWorkouts: boolean;
   basicNotes: boolean;
   measurements: boolean;
@@ -385,6 +386,7 @@ const DEFAULT_PORTAL_SECTIONS: PortalSections = {
   homePerks: true,
   perksRequestLocker: true,
   homeBiometric: true,
+  homeTshirt: true,
   basicDailyWorkouts: true,
   basicNotes: true,
   measurements: true,
@@ -427,6 +429,11 @@ const HOME_TILE_META: {
     description: "Inside Perks: show the Request locker button. Off hides it (existing locker assignments stay).",
   },
   { key: "homeBiometric", label: "Biometric", description: "Face ID / fingerprint login setup." },
+  {
+    key: "homeTshirt",
+    label: "T-shirt size",
+    description: "ON shows Update T-shirt size in the member portal. OFF hides the tile. Saved sizes stay.",
+  },
 ];
 
 const TRAINING_SECTION_META: {
@@ -543,6 +550,7 @@ const HOME_TILE_KEYS: (keyof PortalSections)[] = [
   "homePerks",
   "homeBiometric",
   "homeWorkoutPlan",
+  "homeTshirt",
 ];
 
 function isHomeTileOptionLabel(label: string) {

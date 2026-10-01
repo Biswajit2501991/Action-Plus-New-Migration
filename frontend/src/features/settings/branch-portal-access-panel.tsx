@@ -55,6 +55,11 @@ const HOME_TILE_META: {
     description: "Inside Perks: show the Request locker button.",
   },
   { key: "homeBiometric", label: "Biometric", description: "Face ID / fingerprint login setup." },
+  {
+    key: "homeTshirt",
+    label: "T-shirt size",
+    description: "Show Update T-shirt size for members at this branch.",
+  },
 ];
 
 const TRAINING_SECTION_META: { key: keyof PortalSections; label: string }[] = [

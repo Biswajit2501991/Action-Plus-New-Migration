@@ -29,6 +29,7 @@ export const DEFAULT_PORTAL_SECTIONS = {
   /** Inside Perks: show/allow "Request locker" (not a home tile itself). */
   perksRequestLocker: true,
   homeBiometric: true,
+  homeTshirt: true,
   // Training internals
   basicDailyWorkouts: true,
   basicNotes: true,
@@ -131,6 +132,7 @@ export const HOME_TILE_KEYS = [
   "homePerks",
   "homeBiometric",
   "homeWorkoutPlan",
+  "homeTshirt",
 ];
 
 export function isHomeTileOptionLabel(label) {
