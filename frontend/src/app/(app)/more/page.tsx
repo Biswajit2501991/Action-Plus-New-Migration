@@ -156,7 +156,7 @@ export default function MorePage() {
         </div>
         <MobilePanel className="p-2">
           <SignOutGlassButton
-            className="justify-center py-3.5 text-sm"
+            className="text-[0.8125rem]"
             onClick={() => void logout()}
           />
         </MobilePanel>

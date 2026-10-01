@@ -23,7 +23,7 @@ export function SignOutGlassButton({
       className={cn("signout-glass-tile", collapsed && "signout-glass-tile--compact", className)}
     >
       <span className="signout-glass-tile__mark" aria-hidden>
-        <LogOut className="h-[1.15rem] w-[1.15rem]" strokeWidth={2.25} />
+        <LogOut className="h-3.5 w-3.5" strokeWidth={2.25} />
       </span>
       {!collapsed ? (
         <>
