@@ -83,7 +83,7 @@ export const README_TOPICS: ReadmeTopic[] = [
       "Broadcast to members sends a phone notification and a bell message. Billing reminders are separate and are not changed by a broadcast.",
     how: [
       "Broadcast now goes to every active member who has notifications turned on. There is a 5-minute wait between gym-wide sends.",
-      "Send test to Bis Test sends only to Bis Test (APG-1037/26-AP01). Other members are not included, and it does not start the gym-wide wait.",
+      "Send test to Bis Test sends only to Bis Test (APG-1037/26-AP01). It shows in that member's portal bell and on the phone. Other members are not included, and it does not start the gym-wide wait.",
       "The member sees the title in the bell. Tap a title to open it. That marks it read. Messages leave the inbox after 7 days.",
       "The red overdue card on the portal home is the Alerts tile, not the bell.",
     ],
