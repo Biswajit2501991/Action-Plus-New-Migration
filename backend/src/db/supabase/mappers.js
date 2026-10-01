@@ -16,6 +16,7 @@ export const MEMBER_LIST_COLUMNS = [
   'photo_version', 'photo_path', 'photo_url',
   'member_uuid', 'portal_enabled', 'portal_workout_plan_enabled', 'portal_workout_plan_hidden',
   'portal_workout_plan_enabled_from', 'portal_workout_plan_enabled_until',
+  'tshirt_size', 'tshirt_size_updates',
   'portal_status', 'qr_token', 'pin_hash',
   'portal_activated_at', 'last_portal_login_at',
 ].join(',');
