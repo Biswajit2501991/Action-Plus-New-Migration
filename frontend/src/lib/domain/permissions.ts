@@ -16,6 +16,7 @@ export const ALL_SECTIONS = [
   "Analytics",
   "Logs",
   "Support",
+  "Read Me",
   "Backend",
 ] as const;
 
@@ -142,6 +143,11 @@ export const WEBSITE_CHILD_PERMISSIONS: AccessChildPermission[] = [
 /** Opt-in — Analytics stays off unless the owner grants it (same pattern as Website). */
 export const ANALYTICS_CHILD_PERMISSIONS: AccessChildPermission[] = [
   { key: "viewAnalytics", label: "View Analytics" },
+];
+
+/** Opt-in — in-app guide. Owner always sees it. Staff need this grant. */
+export const README_CHILD_PERMISSIONS: AccessChildPermission[] = [
+  { key: "viewReadMe", label: "View Read Me" },
 ];
 
 /** Opt-in — partner shop Offers desk (read member verify + redeem log). */
@@ -275,6 +281,7 @@ export const SECTION_ACCESS_CONFIG: SectionAccessConfig[] = [
   { section: "Settings", accessGroup: "settings", children: SETTINGS_CHILD_PERMISSIONS },
   { section: "Offers", accessGroup: "offers", children: OFFERS_CHILD_PERMISSIONS },
   { section: "Analytics", accessGroup: "analytics", children: ANALYTICS_CHILD_PERMISSIONS },
+  { section: "Read Me", accessGroup: "readMe", children: README_CHILD_PERMISSIONS },
   { section: "Logs", accessGroup: "logs", children: LOGS_CHILD_PERMISSIONS },
   { section: "Support", accessGroup: "support", children: SUPPORT_CHILD_PERMISSIONS },
   { section: "Backend", accessGroup: "backend", children: BACKEND_CHILD_PERMISSIONS },
@@ -481,6 +488,7 @@ export function toggleAllSectionsAccess(form: StaffAccessFormSlice): StaffAccess
       },
       logs: { viewLogs: false, exportLogs: false, clearLogs: false },
       analytics: { viewAnalytics: false },
+      readMe: { viewReadMe: false },
       offers: { viewOffers: false, redeemOffers: false, manageOfferSettings: false },
       support: { viewSupportTemplates: false, editSupportTemplates: false },
       backend: { viewBackendPage: false, controlBackendProcesses: false },
@@ -501,6 +509,9 @@ export function isAccessChildEnabled(access: AccessMap, group: keyof AccessMap, 
   }
   if (group === "analytics" && key === "viewAnalytics") {
     return normalized.analytics?.viewAnalytics === true;
+  }
+  if (group === "readMe" && key === "viewReadMe") {
+    return normalized.readMe?.viewReadMe === true;
   }
   if (group === "offers") {
     return (normalized.offers as Record<string, boolean> | undefined)?.[key] === true;
@@ -614,6 +625,9 @@ export const DEFAULT_ACCESS: AccessMap = {
   analytics: {
     /** On in DEFAULT so role presets / Select All that include Analytics grant the child key. */
     viewAnalytics: true,
+  },
+  readMe: {
+    viewReadMe: true,
   },
   offers: {
     viewOffers: true,
@@ -729,6 +743,9 @@ export function normalizeAccess(access?: AccessMap | null): AccessMap {
       // Opt-in: staff only see Analytics when explicitly granted
       viewAnalytics: a.analytics?.viewAnalytics === true,
     },
+    readMe: {
+      viewReadMe: a.readMe?.viewReadMe === true,
+    },
     offers: {
       viewOffers: a.offers?.viewOffers === true,
       redeemOffers: a.offers?.redeemOffers === true,
@@ -817,6 +834,13 @@ export function canAccessSection(user: AuthUser | null | undefined, section: str
   if (!user) return false;
   if (user.id === "owner") return true;
 
+  if (section === "Read Me") {
+    if (isOwnerLikeRole(user)) return true;
+    const sections = Array.isArray(user.sections) ? user.sections : [];
+    if (!sections.includes("Read Me")) return false;
+    return hasAccess(user, "readMe", "viewReadMe");
+  }
+
   if (section === "Website") {
     if (isOwnerLikeRole(user)) return true;
     const sections = Array.isArray(user.sections) ? user.sections : [];
@@ -883,6 +907,9 @@ export function hasAccess(
   }
   if (group === "analytics" && key === "viewAnalytics") {
     return access.analytics?.viewAnalytics === true;
+  }
+  if (group === "readMe" && key === "viewReadMe") {
+    return access.readMe?.viewReadMe === true;
   }
   if (group === "offers") {
     return (access.offers as Record<string, boolean> | undefined)?.[key] === true;
@@ -1084,6 +1111,7 @@ export function firstAllowedWebHref(user: AuthUser | null | undefined): string {
       if (section === "Leave Tracker") return "/leave";
       if (section === "Settings") return "/settings";
       if (section === "Analytics") return "/analytics";
+      if (section === "Read Me") return "/readme";
       if (section === "Logs") return "/logs";
       if (section === "Support") return "/support";
       if (section === "Backend") return "/backend";

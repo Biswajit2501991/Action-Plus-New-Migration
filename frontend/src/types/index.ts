@@ -177,6 +177,8 @@ export type AccessMap = {
   backend?: Record<string, boolean>;
   website?: Record<string, boolean>;
   analytics?: Record<string, boolean>;
+  /** In-app guide — opt-in for staff. Owner always sees it. */
+  readMe?: Record<string, boolean>;
   /** Partner Offers desk — opt-in. */
   offers?: Record<string, boolean>;
   paymentQr?: Record<string, boolean>;

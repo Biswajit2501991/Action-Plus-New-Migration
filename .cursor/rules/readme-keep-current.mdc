@@ -1,0 +1,13 @@
+---
+description: Keep the Gym Manager Read Me guide in step with feature changes
+alwaysApply: true
+---
+
+# Read Me stays current
+
+When a Gym Manager feature is added or its behaviour changes, update `frontend/src/features/readme/readme-guide.ts` in the same change.
+
+- Add or edit the topic that matches the menu (Dashboard, Members, Settings, Analytics, and so on).
+- Say what it does and how to use it, in plain language.
+- Do not describe a write to members, payments, portal auth, WhatsApp, or audit logs unless that write is the feature.
+- The page is display-only. Do not add save buttons to Read Me.

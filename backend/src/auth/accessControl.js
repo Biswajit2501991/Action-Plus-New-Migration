@@ -112,6 +112,9 @@ export function normalizeAccess(access) {
     analytics: {
       viewAnalytics: access?.analytics?.viewAnalytics === true,
     },
+    readMe: {
+      viewReadMe: access?.readMe?.viewReadMe === true,
+    },
     offers: {
       viewOffers: access?.offers?.viewOffers === true,
       redeemOffers: access?.offers?.redeemOffers === true,
@@ -228,6 +231,8 @@ export const Access = {
   salaryReadOwn: (a) => a.__owner || a.dashboard?.viewOwnSalary === true,
   /** System Analytics — opt-in like Website. */
   analyticsRead: (a) => a.__owner || a.analytics?.viewAnalytics === true,
+  /** In-app guide — opt-in for staff. */
+  readMeRead: (a) => a.__owner || a.readMe?.viewReadMe === true,
   /** Partner Offers desk — opt-in. */
   offersRead: (a) => a.__owner || a.offers?.viewOffers === true,
   offersWrite: (a) =>

@@ -14,6 +14,7 @@ export const ALL_SECTIONS = [
   'Analytics',
   'Logs',
   'Support',
+  'Read Me',
   'Backend',
 ];
 
@@ -232,6 +233,9 @@ export const DEFAULT_ACCESS = {
   analytics: {
     viewAnalytics: true,
   },
+  readMe: {
+    viewReadMe: true,
+  },
   offers: {
     viewOffers: true,
     redeemOffers: true,
@@ -386,6 +390,9 @@ export function normalizeAccess(access) {
     analytics: {
       // Opt-in: staff only see Analytics when explicitly granted
       viewAnalytics: access?.analytics?.viewAnalytics === true,
+    },
+    readMe: {
+      viewReadMe: access?.readMe?.viewReadMe === true,
     },
     offers: {
       viewOffers: access?.offers?.viewOffers === true,
