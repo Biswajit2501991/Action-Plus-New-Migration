@@ -47,6 +47,10 @@ export type Member = {
   portalWorkoutPlanEnabledFrom?: string | null;
   /** Optional inclusive end date (YYYY-MM-DD); tile auto-hides after this day (IST). */
   portalWorkoutPlanEnabledUntil?: string | null;
+  /** Member portal T-shirt size: S, M, L, XL, or XXL. */
+  tshirtSize?: string | null;
+  /** Saves used in the portal. Locks at 2. */
+  tshirtSizeUpdates?: number;
   portalStatus?: string;
   portalActivatedAt?: string | null;
   lastPortalLoginAt?: string | null;

@@ -1099,6 +1099,8 @@ const MEMBER_PATCH_KEY_MAP = {
   portalWorkoutPlanHidden: 'portal_workout_plan_hidden',
   portalWorkoutPlanEnabledFrom: 'portal_workout_plan_enabled_from',
   portalWorkoutPlanEnabledUntil: 'portal_workout_plan_enabled_until',
+  tshirtSize: 'tshirt_size',
+  tshirtSizeUpdates: 'tshirt_size_updates',
   portalStatus: 'portal_status',
 };
 

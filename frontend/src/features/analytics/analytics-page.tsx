@@ -31,6 +31,7 @@ import {
 } from "@/lib/domain/members";
 import { canAccessSection } from "@/lib/domain/permissions";
 import { analyticsApi } from "@/services/api";
+import { MembersDataPanel } from "@/features/analytics/members-data-panel";
 import { STALE } from "@/lib/query-cache";
 import { useAuthStore } from "@/stores";
 import { cn, downloadTextFile, formatCurrency, formatDate, formatMonthKey, toCsv } from "@/lib/utils";
@@ -38,6 +39,7 @@ import { cn, downloadTextFile, formatCurrency, formatDate, formatMonthKey, toCsv
 type TabId =
   | "overview"
   | "members"
+  | "membersData"
   | "money"
   | "portal"
   | "operations"
@@ -48,6 +50,7 @@ type TabId =
 const TABS: Array<{ id: TabId; label: string }> = [
   { id: "overview", label: "Overview" },
   { id: "members", label: "Members" },
+  { id: "membersData", label: "Members Data" },
   { id: "money", label: "Money" },
   { id: "portal", label: "Portal" },
   { id: "operations", label: "Operations" },
@@ -494,6 +497,10 @@ export function AnalyticsPage() {
             </Card>
           </div>
         </div>
+      ) : null}
+
+      {tab === "membersData" ? (
+        <MembersDataPanel members={members} loading={membersLoading} />
       ) : null}
 
       {tab === "money" ? (

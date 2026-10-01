@@ -76,6 +76,8 @@ export function memberRowToApp(row, children = {}, options = {}) {
     portalWorkoutPlanHidden: row.portal_workout_plan_hidden === true,
     portalWorkoutPlanEnabledFrom: row.portal_workout_plan_enabled_from || null,
     portalWorkoutPlanEnabledUntil: row.portal_workout_plan_enabled_until || null,
+    tshirtSize: row.tshirt_size || null,
+    tshirtSizeUpdates: Number(row.tshirt_size_updates) || 0,
     portalStatus: row.portal_status || 'pending',
     portalActivatedAt: row.portal_activated_at || null,
     lastPortalLoginAt: row.last_portal_login_at || null,
@@ -212,6 +214,14 @@ export function appMemberToRow(m, gymId, options = {}) {
   }
   if (Object.prototype.hasOwnProperty.call(m, 'portalWorkoutPlanEnabledUntil')) {
     row.portal_workout_plan_enabled_until = toDate(m.portalWorkoutPlanEnabledUntil) || null;
+  }
+  if (Object.prototype.hasOwnProperty.call(m, 'tshirtSize')) {
+    const size = String(m.tshirtSize || '').trim().toUpperCase();
+    row.tshirt_size = ['S', 'M', 'L', 'XL', 'XXL'].includes(size) ? size : null;
+  }
+  if (Object.prototype.hasOwnProperty.call(m, 'tshirtSizeUpdates')) {
+    const count = Number(m.tshirtSizeUpdates);
+    row.tshirt_size_updates = Number.isFinite(count) ? Math.max(0, Math.min(2, Math.floor(count))) : 0;
   }
   if (Object.prototype.hasOwnProperty.call(m, 'portalStatus')) {
     const st = String(m.portalStatus || 'pending').trim().toLowerCase();

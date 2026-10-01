@@ -26,6 +26,10 @@ import {
   validateWorkoutPlanScheduleRange,
   workoutPlanScheduleStatusLabel,
 } from "@/lib/domain/portal-workout-plan-schedule";
+import {
+  TSHIRT_SIZE_SAVE_LIMIT,
+  tshirtSizeChoiceLabel,
+} from "@/lib/domain/tshirt-size";
 
 type DetailsViewMode = "full" | "compact";
 /** Built-in keys plus `custom:{code}` for WhatsApp Template buttons. */
@@ -1147,6 +1151,39 @@ export function MemberExpandedDetails({
                   onChange={(e) => void setPortalAccess(e.target.checked)}
                 />
               </label>
+            ) : null}
+          </div>
+          <div className="rounded-lg border border-border/70 bg-muted/20 p-3">
+            <div className="font-semibold">T-shirt size</div>
+            <p className="mt-1 text-muted-foreground">
+              {tshirtSizeChoiceLabel(m.tshirtSize)} · {Number(m.tshirtSizeUpdates) || 0} of{" "}
+              {TSHIRT_SIZE_SAVE_LIMIT} portal saves
+              {(Number(m.tshirtSizeUpdates) || 0) >= TSHIRT_SIZE_SAVE_LIMIT ? " · locked" : ""}
+            </p>
+            {isOwner && (Number(m.tshirtSizeUpdates) || 0) > 0 ? (
+              <Button
+                size="sm"
+                variant="outline"
+                className="mt-2"
+                disabled={portalBusy}
+                onClick={() => {
+                  void (async () => {
+                    setPortalBusy(true);
+                    setPortalMsg(null);
+                    try {
+                      await membersApi.patch(String(m.memberId), { tshirtSizeUpdates: 0 });
+                      await queryClient.invalidateQueries({ queryKey: ["members"] });
+                      setPortalMsg("T-shirt size unlocked. The member can change it twice again.");
+                    } catch (err) {
+                      setPortalMsg(err instanceof Error ? err.message : "Could not unlock T-shirt size");
+                    } finally {
+                      setPortalBusy(false);
+                    }
+                  })();
+                }}
+              >
+                Unlock T-shirt size
+              </Button>
             ) : null}
           </div>
           {canEdit ? (
