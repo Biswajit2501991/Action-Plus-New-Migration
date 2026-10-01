@@ -79,9 +79,12 @@ export function NotificationCenter() {
     enabled: canLeave,
     refetchInterval: leavePollMs,
   });
-  const { data: users = [] } = useUsers();
-  const { data: visitors = [] } = useVisitors();
-  const { data: attendanceRecords = [] } = useAttendance();
+  const { data: usersData } = useUsers();
+  const { data: visitorsData } = useVisitors();
+  const { data: attendanceData } = useAttendance();
+  const users = Array.isArray(usersData) ? usersData : [];
+  const visitors = Array.isArray(visitorsData) ? visitorsData : [];
+  const attendanceRecords = Array.isArray(attendanceData) ? attendanceData : [];
 
   const [open, setOpen] = useState(false);
   const rootRef = useRef<HTMLDivElement | null>(null);
@@ -99,8 +102,9 @@ export function NotificationCenter() {
 
   const leavePending = useMemo(() => {
     if (!canLeave) return [] as LeaveRequest[];
-    const reqs = ((leaveSettings?.leaveRequests || []) as LeaveRequest[]).map((r) =>
-      normalizeLeaveRequest(r),
+    const rawReqs = leaveSettings?.leaveRequests;
+    const reqs = (Array.isArray(rawReqs) ? rawReqs : []).map((r) =>
+      normalizeLeaveRequest(r as LeaveRequest),
     );
     return reqs
       .filter((r) => normalizeLeaveStatus(r.status) === "Pending")

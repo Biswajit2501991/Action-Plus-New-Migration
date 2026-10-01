@@ -14,9 +14,9 @@ import { MembersTodayVisitorBadge } from "@/components/layout/members-today-visi
 import { PortalChatUnreadBadge } from "@/components/layout/portal-chat-unread-badge";
 
 function visibleSectionTabs(user: AuthUser | null | undefined) {
-  return SECTION_ORDER.filter((section) => canAccessSection(user, section)).map((section) => {
-    const item = NAV_ITEMS.find((n) => n.section === section)!;
-    return item;
+  return SECTION_ORDER.filter((section) => canAccessSection(user, section)).flatMap((section) => {
+    const item = NAV_ITEMS.find((n) => n.section === section);
+    return item ? [item] : [];
   });
 }
 
