@@ -74,19 +74,28 @@ export function FinancePage() {
   const canManagePaymentQr =
     isMasterOwnerUser(user) || hasAccess(user, "paymentQr", "managePaymentSettings");
   const expenseSaveLockRef = useRef(false);
-  const estimateMode = useMutation({
-    mutationFn: (next: boolean) => settingsApi.bulk({ financeUseEstimatedExpense: next }),
-    onSuccess: async () => {
-      await Promise.all([
-        qc.invalidateQueries({ queryKey: ["settings"] }),
-        qc.invalidateQueries({ queryKey: ["finance"] }),
-        qc.invalidateQueries({ queryKey: ["finance-year"] }),
-      ]);
-    },
-    onError: () => {
-      toast.error("Could not change the expense tile. Try again.");
-    },
-  });
+  const estimateSaveSeq = useRef(0);
+  const [estimateOn, setEstimateOn] = useState<boolean | null>(null);
+  const estimateMode = estimateOn ?? settings?.financeUseEstimatedExpense !== false;
+
+  function chooseEstimateMode(next: boolean) {
+    if (next === estimateMode) return;
+    const seq = ++estimateSaveSeq.current;
+    setEstimateOn(next);
+    void settingsApi
+      .bulk({ financeUseEstimatedExpense: next })
+      .then(() => {
+        if (estimateSaveSeq.current !== seq) return;
+        void qc.invalidateQueries({ queryKey: ["settings"] });
+        void qc.invalidateQueries({ queryKey: ["finance"] });
+        void qc.invalidateQueries({ queryKey: ["finance-year"] });
+      })
+      .catch(() => {
+        if (estimateSaveSeq.current !== seq) return;
+        setEstimateOn(!next);
+        toast.error("Could not change the expense tile. Try again.");
+      });
+  }
 
   const ledger = useMemo(
     () => buildFinanceLedgerRows(members, data?.transactions || []),
@@ -96,33 +105,42 @@ export function FinancePage() {
   const clientKpis = useMemo(
     () =>
       buildFinanceKpis(ledger as never, month, {
-        financeUseEstimatedExpense: settings?.financeUseEstimatedExpense !== false,
+        financeUseEstimatedExpense: estimateMode,
       }),
-    [ledger, month, settings?.financeUseEstimatedExpense],
+    [ledger, month, estimateMode],
   );
 
   const summary = (data?.summary || {}) as Record<string, unknown>;
   const collectedRevenue =
     Number(summary.collectedRevenue ?? summary.collected ?? clientKpis.collectedRevenue) || 0;
   const serviceRevenue = Number(summary.serviceRevenue ?? 0) || 0;
-  const expenseTotal = Number(summary.expenses ?? summary.expense ?? clientKpis.expense) || 0;
-  const profit = Number(summary.profit ?? collectedRevenue - expenseTotal) || 0;
+  const loggedExpense = clientKpis.actualExpense;
+  const expenseTotal =
+    loggedExpense > 0 ? loggedExpense : estimateMode ? Math.round(collectedRevenue * 0.26) : 0;
+  const profit = collectedRevenue - expenseTotal;
   const ytd = Number(summary.ytdCollected ?? clientKpis.ytdCollected) || 0;
   const growth = Number(summary.revenueGrowthPct ?? clientKpis.revenueGrowthPct) || 0;
   const expenseSubtitle =
-    String(summary.expenseSubtitle || "") || clientKpis.expenseSubtitle;
+    loggedExpense > 0
+      ? "Actual expense rows"
+      : estimateMode
+        ? "Estimated (26% of collected revenue)"
+        : "Logged expenses";
 
   const year = yearForRecon;
   const clientReconciliation = useMemo(
     () =>
       buildClientMonthlyReconciliation(ledger, year, {
-        useEstimatedExpense: settings?.financeUseEstimatedExpense !== false,
+        useEstimatedExpense: estimateMode,
       }),
-    [ledger, year, settings?.financeUseEstimatedExpense],
+    [ledger, year, estimateMode],
   );
   const reconciliation = useMemo(() => {
     const months = Array.isArray(yearSummary?.months) ? yearSummary.months : null;
     if (!months?.length) return clientReconciliation;
+    const clientActual = new Map(
+      clientReconciliation.map((row) => [row.monthKey, row.actualExpenses]),
+    );
     const labels = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
     return months.map((m: Record<string, unknown>) => {
       const monthKey = String(m.monthKey || m.month || "");
@@ -130,7 +148,15 @@ export function FinancePage() {
       const incomeCollected = Number(
         m.incomeCollected ?? m.collectedRevenue ?? m.collected ?? 0,
       ) || 0;
-      const expenses = Number(m.expenses ?? m.expense ?? 0) || 0;
+      const fromServer = Number(m.actualExpenses ?? m.expenses ?? m.expense ?? 0) || 0;
+      const fromClient = clientActual.get(monthKey);
+      const actualExpenses = fromClient ?? fromServer;
+      const expenses =
+        actualExpenses > 0
+          ? actualExpenses
+          : estimateMode
+            ? Math.round(incomeCollected * 0.26)
+            : 0;
       return {
         monthKey,
         label:
@@ -138,11 +164,11 @@ export function FinancePage() {
           (monthNum ? `${labels[monthNum - 1]} ${monthKey.slice(0, 4)}` : monthKey),
         incomeCollected,
         expenses,
-        actualExpenses: Number(m.actualExpenses ?? expenses) || 0,
-        profit: Number(m.profit ?? incomeCollected - expenses) || 0,
+        actualExpenses,
+        profit: incomeCollected - expenses,
       };
     });
-  }, [yearSummary, clientReconciliation]);
+  }, [yearSummary, clientReconciliation, estimateMode]);
 
   const filteredLedger = useMemo(() => {
     const q = search.trim().toLowerCase();
@@ -361,11 +387,7 @@ export function FinancePage() {
             tone="rose"
             footer={
               isMasterOwnerUser(user) ? (
-                <ExpenseModeSwitch
-                  estimateOn={settings?.financeUseEstimatedExpense !== false}
-                  pending={estimateMode.isPending}
-                  onChange={(next) => estimateMode.mutate(next)}
-                />
+                <ExpenseModeSwitch estimateOn={estimateMode} onChange={chooseEstimateMode} />
               ) : null
             }
           />
@@ -736,22 +758,19 @@ export function FinancePage() {
 
 function ExpenseModeSwitch({
   estimateOn,
-  pending,
   onChange,
 }: {
   estimateOn: boolean;
-  pending: boolean;
   onChange: (next: boolean) => void;
 }) {
   return (
     <div className="flex rounded-full border border-rose-200 bg-white p-0.5 text-[11px] font-semibold dark:border-rose-900/50 dark:bg-slate-950">
       <button
         type="button"
-        disabled={pending}
         aria-pressed={!estimateOn}
         onClick={() => onChange(false)}
         className={cn(
-          "rounded-full px-2.5 py-1 disabled:opacity-60",
+          "rounded-full px-2.5 py-1 transition-colors",
           !estimateOn
             ? "bg-slate-900 text-white dark:bg-rose-200 dark:text-slate-950"
             : "text-slate-500",
@@ -761,14 +780,11 @@ function ExpenseModeSwitch({
       </button>
       <button
         type="button"
-        disabled={pending}
         aria-pressed={estimateOn}
         onClick={() => onChange(true)}
         className={cn(
-          "rounded-full px-2.5 py-1 disabled:opacity-60",
-          estimateOn
-            ? "bg-rose-600 text-white"
-            : "text-slate-500",
+          "rounded-full px-2.5 py-1 transition-colors",
+          estimateOn ? "bg-rose-600 text-white" : "text-slate-500",
         )}
       >
         26% estimate
