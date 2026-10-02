@@ -1855,7 +1855,7 @@ export function SettingsPage() {
             <SettingsToggle
               checked={flags.financeUseEstimatedExpense}
               label="Finance 26% expense estimate"
-              description="Use estimated expense when no expense rows exist."
+              description="When on, a month with no added expenses uses 26% of collected revenue. When off, that month shows the logged expenses. The Finance Expenses tile uses this same switch."
               onChange={(next) => setFeatureFlags({ financeUseEstimatedExpense: next })}
             />
           </div>

@@ -8,6 +8,14 @@ describe('resolveMonthExpenseAndProfit collected revenue basis', () => {
     expect(result.profit).toBe(87718 - Math.round(87718 * 0.26));
   });
 
+  it('shows logged expenses only when estimate mode is off and no rows exist', () => {
+    const result = resolveMonthExpenseAndProfit([], 19493, false);
+    expect(result.expense).toBe(0);
+    expect(result.profit).toBe(19493);
+    expect(result.useEstimateFallback).toBe(false);
+    expect(result.expenseSubtitle).toBe('Logged expenses');
+  });
+
   it('subtracts actual expense rows when estimate mode off', () => {
     const rows = [{ type: 'expense', amount: 1500 }];
     const result = resolveMonthExpenseAndProfit(rows, 87718, false);

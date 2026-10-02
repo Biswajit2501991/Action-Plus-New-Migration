@@ -80,12 +80,14 @@ export function StatCard({
   hint,
   trend,
   tone = "slate",
+  footer,
 }: {
   label: string;
   value: string;
   hint?: string;
   trend?: string;
   tone?: "emerald" | "amber" | "rose" | "orange" | "sky" | "teal" | "slate" | "fuchsia";
+  footer?: React.ReactNode;
 }) {
   const accents: Record<string, string> = {
     emerald: "bg-emerald-500",
@@ -113,6 +115,7 @@ export function StatCard({
           ) : null}
           {hint ? <span>{hint}</span> : null}
         </div>
+        {footer ? <div className="mt-3">{footer}</div> : null}
       </div>
     </div>
   );

@@ -162,7 +162,7 @@ export function buildFinanceKpis(
   const actualExpense = sumExpensesForMonthKey(transactions, monthKey);
   const estimatedExpense = Math.round(collectedRevenue * ESTIMATE_RATE);
   const useEstimated = settings.financeUseEstimatedExpense !== false;
-  const expense = actualExpense > 0 ? actualExpense : estimatedExpense;
+  const expense = actualExpense > 0 ? actualExpense : useEstimated ? estimatedExpense : 0;
   const profit = collectedRevenue - expense;
 
   let ytdCollected = 0;
@@ -189,10 +189,10 @@ export function buildFinanceKpis(
         ? "Actual expense rows"
         : useEstimated
           ? "Estimated (26% of collected revenue)"
-          : "26% estimate (no expense rows this month)",
+          : "Logged expenses",
     profit,
     ytdCollected,
-    ytdProfit: ytdCollected - (actualExpense > 0 ? actualExpense : estimatedExpense),
+    ytdProfit: ytdCollected - expense,
     trend: last4,
   };
 }

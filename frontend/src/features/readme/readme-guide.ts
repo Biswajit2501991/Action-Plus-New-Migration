@@ -96,6 +96,7 @@ export const README_TOPICS: ReadmeTopic[] = [
     how: [
       "Do not expect a display change on another page to rewrite payment history.",
       "Collected revenue on the Dashboard is the same money, sometimes covered until Show is tapped.",
+      "The Expenses tile can show logged expenses, or a 26% estimate when none are logged. The owner switches this on the tile. It does not change payment or expense rows.",
     ],
   },
   {

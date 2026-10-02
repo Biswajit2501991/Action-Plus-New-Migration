@@ -9,7 +9,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Input, Label, Select } from "@/components/ui/input";
 import { useFinance, useFinanceYearSummary, useMembers, useSettings } from "@/hooks/use-data";
-import { financeApi } from "@/services/api";
+import { financeApi, settingsApi } from "@/services/api";
 import {
   buildClientMonthlyReconciliation,
   buildExpensePayload,
@@ -74,6 +74,19 @@ export function FinancePage() {
   const canManagePaymentQr =
     isMasterOwnerUser(user) || hasAccess(user, "paymentQr", "managePaymentSettings");
   const expenseSaveLockRef = useRef(false);
+  const estimateMode = useMutation({
+    mutationFn: (next: boolean) => settingsApi.bulk({ financeUseEstimatedExpense: next }),
+    onSuccess: async () => {
+      await Promise.all([
+        qc.invalidateQueries({ queryKey: ["settings"] }),
+        qc.invalidateQueries({ queryKey: ["finance"] }),
+        qc.invalidateQueries({ queryKey: ["finance-year"] }),
+      ]);
+    },
+    onError: () => {
+      toast.error("Could not change the expense tile. Try again.");
+    },
+  });
 
   const ledger = useMemo(
     () => buildFinanceLedgerRows(members, data?.transactions || []),
@@ -346,6 +359,15 @@ export function FinancePage() {
             value={formatCurrency(expenseTotal)}
             hint={expenseSubtitle}
             tone="rose"
+            footer={
+              isMasterOwnerUser(user) ? (
+                <ExpenseModeSwitch
+                  estimateOn={settings?.financeUseEstimatedExpense !== false}
+                  pending={estimateMode.isPending}
+                  onChange={(next) => estimateMode.mutate(next)}
+                />
+              ) : null
+            }
           />
         ) : null}
         {canProfit ? (
@@ -708,6 +730,49 @@ export function FinancePage() {
           </CardContent>
         </Card>
       )}
+    </div>
+  );
+}
+
+function ExpenseModeSwitch({
+  estimateOn,
+  pending,
+  onChange,
+}: {
+  estimateOn: boolean;
+  pending: boolean;
+  onChange: (next: boolean) => void;
+}) {
+  return (
+    <div className="flex rounded-full border border-rose-200 bg-white p-0.5 text-[11px] font-semibold dark:border-rose-900/50 dark:bg-slate-950">
+      <button
+        type="button"
+        disabled={pending}
+        aria-pressed={!estimateOn}
+        onClick={() => onChange(false)}
+        className={cn(
+          "rounded-full px-2.5 py-1 disabled:opacity-60",
+          !estimateOn
+            ? "bg-slate-900 text-white dark:bg-rose-200 dark:text-slate-950"
+            : "text-slate-500",
+        )}
+      >
+        Logged
+      </button>
+      <button
+        type="button"
+        disabled={pending}
+        aria-pressed={estimateOn}
+        onClick={() => onChange(true)}
+        className={cn(
+          "rounded-full px-2.5 py-1 disabled:opacity-60",
+          estimateOn
+            ? "bg-rose-600 text-white"
+            : "text-slate-500",
+        )}
+      >
+        26% estimate
+      </button>
     </div>
   );
 }

@@ -38,14 +38,15 @@ describe('buildFinanceKpis', () => {
     expect(kpis.profit).toBe(600);
   });
 
-  it('falls back to 26% estimate only when setting on or no expense rows', () => {
+  it('falls back to 26% estimate only when the setting is on and no expense rows exist', () => {
     const noExp = buildFinanceKpis(
       [{ type: 'income', date: '2026-06-01', amount: 1000, status: 'paid' }],
       '2026-06',
       { financeUseEstimatedExpense: false },
     );
-    expect(noExp.useEstimateFallback).toBe(true);
-    expect(noExp.expense).toBe(260);
+    expect(noExp.useEstimateFallback).toBe(false);
+    expect(noExp.expense).toBe(0);
+    expect(noExp.profit).toBe(1000);
 
     const estimated = buildFinanceKpis(
       [{ type: 'income', date: '2026-06-01', amount: 1000, status: 'paid' }],
