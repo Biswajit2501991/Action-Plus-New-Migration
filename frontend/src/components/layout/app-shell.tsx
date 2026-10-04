@@ -283,15 +283,7 @@ function DesktopShell({ children }: { children: React.ReactNode }) {
                           : cn("text-slate-700 dark:text-white/85", theme.hover),
                       );
                       return (
-                        <div
-                          key={item.href}
-                          className={cn(
-                            "group relative w-full",
-                            !sidebarCollapsed && item.href === "/members"
-                              ? "flex flex-col items-stretch"
-                              : "flex items-center",
-                          )}
-                        >
+                        <div key={item.href} className="group relative flex w-full items-center">
                           {item.external ? (
                             <a
                               href={item.href}
@@ -318,7 +310,30 @@ function DesktopShell({ children }: { children: React.ReactNode }) {
                                 </span>
                               ) : null}
                             </a>
-                          ) : (
+                          ) : item.href === "/members" ? (
+                              <div className={linkClass} title={item.label}>
+                                <Link
+                                  href={item.href}
+                                  className="flex min-w-0 flex-1 items-center gap-3"
+                                >
+                                  <Icon
+                                    className={cn(
+                                      "h-4 w-4 shrink-0",
+                                      active ? "text-current" : theme.icon,
+                                    )}
+                                  />
+                                  {!sidebarCollapsed ? (
+                                    <span className="flex min-w-0 items-center gap-1">
+                                      <span className="truncate">{item.label}</span>
+                                      <MembersTodayVisitorBadge />
+                                    </span>
+                                  ) : null}
+                                </Link>
+                                {!sidebarCollapsed ? (
+                                  <NewVisitorMenuButton className="mr-5 shrink-0" />
+                                ) : null}
+                              </div>
+                            ) : (
                             <Link href={item.href} className={linkClass} title={item.label}>
                               <Icon
                                 className={cn(
@@ -329,9 +344,6 @@ function DesktopShell({ children }: { children: React.ReactNode }) {
                               {!sidebarCollapsed ? (
                                 <span className="flex min-w-0 items-center gap-1 truncate">
                                   <span className="truncate">{item.label}</span>
-                                  {item.href === "/members" ? (
-                                    <MembersTodayVisitorBadge />
-                                  ) : null}
                                   {item.href === "/portal-chat" ? (
                                     <PortalChatUnreadBadge />
                                   ) : null}
@@ -339,15 +351,10 @@ function DesktopShell({ children }: { children: React.ReactNode }) {
                               ) : null}
                             </Link>
                           )}
-                          {!sidebarCollapsed && item.href === "/members" ? (
-                            <div className="pb-1 pl-9">
-                              <NewVisitorMenuButton />
-                            </div>
-                          ) : null}
                           {!sidebarCollapsed && !item.external ? (
                             <button
                               type="button"
-                              className="absolute right-1 top-1.5 hidden rounded-lg p-1 text-muted-foreground hover:bg-background/60 group-hover:block"
+                              className="absolute right-1 hidden rounded-lg p-1 text-muted-foreground hover:bg-background/60 group-hover:block"
                               onClick={() => toggleFavorite(item.href)}
                               aria-label="Pin favorite"
                             >
@@ -393,28 +400,32 @@ function DesktopShell({ children }: { children: React.ReactNode }) {
               </div>
               <div className="space-y-1">
                 {visibleNav.map((item) => (
-                  <div key={item.href}>
+                  <div
+                    key={item.href}
+                    className={cn(
+                      "flex items-center gap-2 rounded-xl px-3 py-2.5 text-sm",
+                      pathname.startsWith(item.href)
+                        ? "bg-slate-900 text-white dark:bg-teal-400 dark:text-slate-950"
+                        : "hover:bg-accent",
+                    )}
+                  >
                     <Link
                       href={item.href}
                       onClick={() => setMobileNavOpen(false)}
-                      className={cn(
-                        "flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm",
-                        pathname.startsWith(item.href)
-                          ? "bg-slate-900 text-white dark:bg-teal-400 dark:text-slate-950"
-                          : "hover:bg-accent",
-                      )}
+                      className="flex min-w-0 flex-1 items-center gap-3"
                     >
                       <item.icon className="h-4 w-4" />
-                      <span className="flex items-center gap-1">
-                        {item.label}
+                      <span className="flex min-w-0 items-center gap-1">
+                        <span className="truncate">{item.label}</span>
                         {item.href === "/members" ? <MembersTodayVisitorBadge /> : null}
                         {item.href === "/portal-chat" ? <PortalChatUnreadBadge /> : null}
                       </span>
                     </Link>
                     {item.href === "/members" ? (
-                      <div className="pb-1 pl-10">
-                        <NewVisitorMenuButton onNavigate={() => setMobileNavOpen(false)} />
-                      </div>
+                      <NewVisitorMenuButton
+                        className="shrink-0"
+                        onNavigate={() => setMobileNavOpen(false)}
+                      />
                     ) : null}
                   </div>
                 ))}
