@@ -44,6 +44,7 @@ export const README_TOPICS: ReadmeTopic[] = [
     summary: "The member list, the member record, and the search at the top of this page.",
     how: [
       "Search matches name, member ID, mobile, email, and staff.",
+      "New Visitor appears at the top right for 24 hours after a visitor is added, and it flashes. Tap it to open Visitors. It does not change the visitor or member record.",
       "Open a member to see plan, status, bill date, and portal details.",
       "T-shirt size, when the member has saved one, shows on the member record. The owner can tap Unlock T-shirt size to give that member two saves again. The saved size stays.",
       "Member Portal “Next Payment Date” for the member is the Bill Date on this record. The stored bill date is not rewritten by the portal label.",

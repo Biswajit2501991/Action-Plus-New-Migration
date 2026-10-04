@@ -22,6 +22,24 @@ export function pendingNewVisitorAlerts(
     .slice(0, limit);
 }
 
+/** How long the Members “New Visitor” button stays after a visitor is added. */
+export const NEW_VISITOR_BUTTON_HOURS = 24;
+
+/**
+ * Visitors still on the list who arrived inside the button window.
+ * Display only — does not use the bell acknowledgement.
+ */
+export function visitorsForNewButton(visitors: Visitor[], nowMs = Date.now()): Visitor[] {
+  const windowMs = NEW_VISITOR_BUTTON_HOURS * 60 * 60 * 1000;
+  return (Array.isArray(visitors) ? visitors : []).filter((v) => {
+    if (String(v.status || "") === "Converted") return false;
+    const ms = new Date(String(v.addedAt || v.visitDate || "")).getTime();
+    if (!Number.isFinite(ms) || ms <= 0) return false;
+    const age = nowMs - ms;
+    return age >= 0 && age < windowMs;
+  });
+}
+
 export function withStaffSeenAck(visitor: Visitor, actor: string): Visitor {
   return {
     ...visitor,
