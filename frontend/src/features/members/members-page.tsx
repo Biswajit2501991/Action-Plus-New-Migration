@@ -97,7 +97,6 @@ import {
   formatWhatsAppPhone,
 } from "@/lib/domain/whatsapp";
 import { VisitorsPanel } from "@/features/visitors/visitors-panel";
-import { visitorsForNewButton } from "@/lib/domain/new-visitors";
 import { MessagePreviewModal } from "@/features/whatsapp/message-preview-modal";
 import { useWhatsappSend } from "@/features/whatsapp/use-whatsapp-send";
 import { pushHistoryCheckpoint } from "@/lib/history-stack";
@@ -182,17 +181,6 @@ export function MembersPage() {
   } = useWhatsappSend();
 
   const [tab, setTab] = useState<"members" | "visitors">("members");
-  const [visitorNowMs, setVisitorNowMs] = useState(() => Date.now());
-  useEffect(() => {
-    const id = window.setInterval(() => setVisitorNowMs(Date.now()), 60_000);
-    return () => window.clearInterval(id);
-  }, []);
-  const showNewVisitorButton = useMemo(
-    () =>
-      hasAccess(user, "members", "viewVisitors") &&
-      visitorsForNewButton(visitors, visitorNowMs).length > 0,
-    [user, visitors, visitorNowMs],
-  );
   const [focusStatus, setFocusStatus] = useState<string>(params.get("status") || "");
   const [quickSearchInput, setQuickSearchInput] = useState(params.get("q") || "");
   const [appliedQuickSearch, setAppliedQuickSearch] = useState(params.get("q") || "");
@@ -1069,18 +1057,6 @@ export function MembersPage() {
               >
                 <Plus className="h-4 w-4" /> Add New Member
               </Button>
-            ) : null}
-            {showNewVisitorButton ? (
-              <button
-                type="button"
-                className="apg-new-visitor-flash inline-flex h-9 items-center px-4 text-sm"
-                onClick={() => {
-                  setTab("visitors");
-                  void qc.invalidateQueries({ queryKey: ["visitors"] });
-                }}
-              >
-                New Visitor
-              </button>
             ) : null}
           </>
         }

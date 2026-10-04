@@ -49,6 +49,7 @@ import { PtTrainerExpenseStaffToastHost } from "@/features/pt/pt-trainer-expense
 import { AppSectionTabs } from "@/components/layout/section-tabs";
 import { MobileShell } from "@/components/layout/mobile-shell";
 import { MembersTodayVisitorBadge } from "@/components/layout/members-today-visitor-badge";
+import { NewVisitorMenuButton } from "@/components/layout/new-visitor-menu-button";
 import { PortalChatUnreadBadge } from "@/components/layout/portal-chat-unread-badge";
 import { SignOutGlassButton } from "@/components/layout/sign-out-glass-button";
 import { Skeleton } from "@/components/ui/misc";
@@ -282,7 +283,15 @@ function DesktopShell({ children }: { children: React.ReactNode }) {
                           : cn("text-slate-700 dark:text-white/85", theme.hover),
                       );
                       return (
-                        <div key={item.href} className="group relative flex items-center">
+                        <div
+                          key={item.href}
+                          className={cn(
+                            "group relative w-full",
+                            !sidebarCollapsed && item.href === "/members"
+                              ? "flex flex-col items-stretch"
+                              : "flex items-center",
+                          )}
+                        >
                           {item.external ? (
                             <a
                               href={item.href}
@@ -330,10 +339,15 @@ function DesktopShell({ children }: { children: React.ReactNode }) {
                               ) : null}
                             </Link>
                           )}
+                          {!sidebarCollapsed && item.href === "/members" ? (
+                            <div className="pb-1 pl-9">
+                              <NewVisitorMenuButton />
+                            </div>
+                          ) : null}
                           {!sidebarCollapsed && !item.external ? (
                             <button
                               type="button"
-                              className="absolute right-1 hidden rounded-lg p-1 text-muted-foreground hover:bg-background/60 group-hover:block"
+                              className="absolute right-1 top-1.5 hidden rounded-lg p-1 text-muted-foreground hover:bg-background/60 group-hover:block"
                               onClick={() => toggleFavorite(item.href)}
                               aria-label="Pin favorite"
                             >
@@ -379,24 +393,30 @@ function DesktopShell({ children }: { children: React.ReactNode }) {
               </div>
               <div className="space-y-1">
                 {visibleNav.map((item) => (
-                  <Link
-                    key={item.href}
-                    href={item.href}
-                    onClick={() => setMobileNavOpen(false)}
-                    className={cn(
-                      "flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm",
-                      pathname.startsWith(item.href)
-                        ? "bg-slate-900 text-white dark:bg-teal-400 dark:text-slate-950"
-                        : "hover:bg-accent",
-                    )}
-                  >
-                    <item.icon className="h-4 w-4" />
-                    <span className="flex items-center gap-1">
-                      {item.label}
-                      {item.href === "/members" ? <MembersTodayVisitorBadge /> : null}
-                      {item.href === "/portal-chat" ? <PortalChatUnreadBadge /> : null}
-                    </span>
-                  </Link>
+                  <div key={item.href}>
+                    <Link
+                      href={item.href}
+                      onClick={() => setMobileNavOpen(false)}
+                      className={cn(
+                        "flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm",
+                        pathname.startsWith(item.href)
+                          ? "bg-slate-900 text-white dark:bg-teal-400 dark:text-slate-950"
+                          : "hover:bg-accent",
+                      )}
+                    >
+                      <item.icon className="h-4 w-4" />
+                      <span className="flex items-center gap-1">
+                        {item.label}
+                        {item.href === "/members" ? <MembersTodayVisitorBadge /> : null}
+                        {item.href === "/portal-chat" ? <PortalChatUnreadBadge /> : null}
+                      </span>
+                    </Link>
+                    {item.href === "/members" ? (
+                      <div className="pb-1 pl-10">
+                        <NewVisitorMenuButton onNavigate={() => setMobileNavOpen(false)} />
+                      </div>
+                    ) : null}
+                  </div>
                 ))}
               </div>
             </aside>
