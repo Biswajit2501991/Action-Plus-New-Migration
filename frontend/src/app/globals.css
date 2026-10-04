@@ -214,29 +214,29 @@
   border-radius: 999px;
   background: #ef4444;
   color: #fff;
-  font-weight: 700;
-  letter-spacing: 0.01em;
+  font-weight: 600;
+  letter-spacing: 0;
   animation: apg-new-visitor-flash 1.15s ease-in-out infinite;
 }
 .apg-new-visitor-flash::before,
 .apg-new-visitor-flash::after {
   content: "";
   position: absolute;
-  width: 4px;
-  height: 4px;
+  width: 2px;
+  height: 2px;
   border-radius: 1px;
   background: #fff;
   opacity: 0.95;
   pointer-events: none;
 }
 .apg-new-visitor-flash::before {
-  top: 3px;
-  right: 5px;
+  top: 1px;
+  right: 3px;
   transform: rotate(35deg);
 }
 .apg-new-visitor-flash::after {
-  bottom: 3px;
-  left: 6px;
+  bottom: 1px;
+  left: 3px;
   transform: rotate(-28deg);
 }
 @media (prefers-reduced-motion: reduce) {

@@ -37,7 +37,7 @@ export function NewVisitorMenuButton({
     <Link
       href="/members?tab=visitors"
       onClick={onNavigate}
-      className={`apg-new-visitor-flash inline-flex h-6 items-center px-2.5 text-[11px] leading-none ${className}`}
+      className={`apg-new-visitor-flash inline-flex h-4 shrink-0 items-center px-1.5 text-[8px] font-semibold leading-none tracking-tight ${className}`}
     >
       New Visitor
     </Link>

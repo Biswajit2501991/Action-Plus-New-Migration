@@ -311,7 +311,7 @@ function DesktopShell({ children }: { children: React.ReactNode }) {
                               ) : null}
                             </a>
                           ) : item.href === "/members" ? (
-                              <div className={linkClass} title={item.label}>
+                              <div className={cn(linkClass, "gap-1.5")} title={item.label}>
                                 <Link
                                   href={item.href}
                                   className="flex min-w-0 flex-1 items-center gap-3"
@@ -323,14 +323,14 @@ function DesktopShell({ children }: { children: React.ReactNode }) {
                                     )}
                                   />
                                   {!sidebarCollapsed ? (
-                                    <span className="flex min-w-0 items-center gap-1">
-                                      <span className="truncate">{item.label}</span>
+                                    <span className="flex shrink-0 items-center gap-1">
+                                      <span className="whitespace-nowrap">{item.label}</span>
                                       <MembersTodayVisitorBadge />
                                     </span>
                                   ) : null}
                                 </Link>
                                 {!sidebarCollapsed ? (
-                                  <NewVisitorMenuButton className="mr-5 shrink-0" />
+                                  <NewVisitorMenuButton />
                                 ) : null}
                               </div>
                             ) : (
