@@ -18,6 +18,8 @@ import {
   buildStaffLoginAliasMap,
   canReviewAllLeave,
   filterLeaveRequestsForViewer,
+  formatLeaveBalance,
+  formatLeaveDaysLabel,
   leaveDaysBetween,
   leaveRequestMatchesStaff,
   leaveStatusBadgeVariant,
@@ -57,6 +59,7 @@ export function MobileLeave() {
     type: "Casual",
     startDate: today,
     endDate: today,
+    portion: "full" as "full" | "half",
     reason: "",
   });
 
@@ -125,6 +128,7 @@ export function MobileLeave() {
       const userId = isOwnerView ? form.userId || user?.id || "" : viewerId;
       if (!userId) throw new Error("Select staff");
       if (!form.startDate || !form.endDate) throw new Error("Choose dates");
+      const halfDay = form.startDate === form.endDate && form.portion === "half";
       return leaveApi.create({
         userId,
         staffId: userId,
@@ -132,12 +136,13 @@ export function MobileLeave() {
         startDate: form.startDate,
         endDate: form.endDate,
         reason: form.reason.trim(),
-        days: leaveDaysBetween(form.startDate, form.endDate),
+        isHalfDay: halfDay,
+        days: halfDay ? 0.5 : leaveDaysBetween(form.startDate, form.endDate),
       });
     },
     onSuccess: async () => {
       toast.success("Leave request submitted");
-      setForm((f) => ({ ...f, reason: "", startDate: today, endDate: today }));
+      setForm((f) => ({ ...f, reason: "", startDate: today, endDate: today, portion: "full" }));
       setTab("requests");
       await qc.invalidateQueries({ queryKey: ["settings"] });
       await qc.invalidateQueries({ queryKey: ["leave-balance"] });
@@ -201,7 +206,7 @@ export function MobileLeave() {
             Balance · {calendarYear}
           </p>
           <p className="text-lg font-semibold tabular-nums text-violet-800 dark:text-violet-300">
-            {balanceLoading ? "…" : myBalance}
+            {balanceLoading ? "…" : formatLeaveBalance(myBalance)}
             <span className="ml-1 text-xs font-medium text-violet-500">days</span>
           </p>
         </div>
@@ -277,6 +282,36 @@ export function MobileLeave() {
               />
             </div>
           </div>
+          {form.startDate && form.startDate === form.endDate ? (
+            <div className="flex gap-2">
+              <button
+                type="button"
+                aria-pressed={form.portion !== "half"}
+                className={cn(
+                  "rounded-full border px-3 py-1 text-xs font-semibold",
+                  form.portion !== "half"
+                    ? "border-slate-900 bg-slate-900 text-white"
+                    : "border-slate-200 bg-white text-slate-600",
+                )}
+                onClick={() => setForm((f) => ({ ...f, portion: "full" }))}
+              >
+                Full day
+              </button>
+              <button
+                type="button"
+                aria-pressed={form.portion === "half"}
+                className={cn(
+                  "rounded-full border px-3 py-1 text-xs font-semibold",
+                  form.portion === "half"
+                    ? "border-slate-900 bg-slate-900 text-white"
+                    : "border-slate-200 bg-white text-slate-600",
+                )}
+                onClick={() => setForm((f) => ({ ...f, portion: "half" }))}
+              >
+                Half day
+              </button>
+            </div>
+          ) : null}
           <div>
             <Label>Reason</Label>
             <Textarea
@@ -286,7 +321,11 @@ export function MobileLeave() {
             />
           </div>
           <p className="text-xs text-slate-500">
-            {leaveDaysBetween(form.startDate, form.endDate)} day(s)
+            {formatLeaveDaysLabel(
+              form.startDate === form.endDate && form.portion === "half"
+                ? 0.5
+                : leaveDaysBetween(form.startDate, form.endDate),
+            )}
           </p>
           <Button
             className="w-full"
@@ -304,7 +343,7 @@ export function MobileLeave() {
             Annual Leave Balance · {calendarYear}
           </p>
           <p className="mt-1 text-3xl font-semibold tabular-nums text-violet-800 dark:text-violet-300">
-            {balanceLoading ? "…" : myBalance}
+            {balanceLoading ? "…" : formatLeaveBalance(myBalance)}
           </p>
           <p className="mt-1 text-xs text-slate-500">
             Days left after approved leave
@@ -339,7 +378,7 @@ export function MobileLeave() {
                   </p>
                   <p className="text-[11px] text-slate-500">
                     {r.type} · {formatDate(start)} → {formatDate(end)} ·{" "}
-                    {r.days || leaveDaysBetween(start, end)} day(s)
+                    {formatLeaveDaysLabel(r.days || leaveDaysBetween(start, end))}
                   </p>
                   {r.reason ? (
                     <p className="mt-2 line-clamp-2 text-xs text-slate-600 dark:text-slate-300">
@@ -377,7 +416,8 @@ export function MobileLeave() {
                           : r.type || "Leave"}
                       </p>
                       <p className="text-[11px] text-slate-500">
-                        {r.type} · {formatDate(start)} → {formatDate(end)}
+                        {r.type} · {formatDate(start)} → {formatDate(end)} ·{" "}
+                        {formatLeaveDaysLabel(r.days || leaveDaysBetween(start, end))}
                       </p>
                     </div>
                     <Badge variant={leaveStatusBadgeVariant(status)}>{status}</Badge>

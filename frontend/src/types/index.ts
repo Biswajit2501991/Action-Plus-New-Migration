@@ -308,6 +308,7 @@ export type LeaveRequest = {
   type?: string;
   status?: "pending" | "approved" | "rejected" | string;
   days?: number;
+  isHalfDay?: boolean;
   reason?: string;
   approvedBy?: string;
   actionAt?: string;

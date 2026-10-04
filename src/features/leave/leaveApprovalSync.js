@@ -33,12 +33,19 @@ export function normalizeLeaveRequestFromApi(request, extras = {}) {
   const r = request && typeof request === 'object' ? request : {};
   const actionAt = extras.actionAt || r.actionAt || new Date().toISOString();
   const actionBy = extras.actionBy || r.actionBy || r.approvedBy || '';
+  const startDate = String(r.startDate || r.fromDate || '').slice(0, 10);
+  const endDate = String(r.endDate || r.toDate || '').slice(0, 10);
+  const flagged = r.isHalfDay === true || r.is_half_day === true;
+  const isHalfDay = flagged && Boolean(startDate) && startDate === endDate;
   const rawDays = Number(r.days);
-  const days = Number.isFinite(rawDays) && rawDays > 0
-    ? rawDays
-    : leaveDaysBetween(r.startDate, r.endDate);
+  const days = isHalfDay
+    ? 0.5
+    : (Number.isFinite(rawDays) && rawDays > 0
+      ? rawDays
+      : leaveDaysBetween(startDate, endDate));
   return {
     ...r,
+    isHalfDay,
     days,
     status: r.status,
     actionAt,
@@ -115,7 +122,11 @@ export function mergeApprovedLeaveIntoAttendance(existing, request, actor = '') 
   if (!days.length) return Array.isArray(existing) ? existing : [];
   const base = Array.isArray(existing) ? existing : [];
   const nowIso = new Date().toISOString();
-  const noteText = `Leave approved (${request.type || 'Leave'})`;
+  const half = request.isHalfDay === true && days.length === 1;
+  const attendanceStatus = half ? 'Half Day' : 'Leave';
+  const noteText = half
+    ? `Half day leave approved (${request.type || 'Leave'})`
+    : `Leave approved (${request.type || 'Leave'})`;
   const keySet = new Set(days.map((d) => `${d}__${request.userId}`));
   const touched = new Set();
   const next = base.map((row) => {
@@ -125,7 +136,7 @@ export function mergeApprovedLeaveIntoAttendance(existing, request, actor = '') 
     touched.add(key);
     return {
       ...row,
-      status: 'Leave',
+      status: attendanceStatus,
       leaveRequestId: request.id,
       leaveAutoSynced: true,
       note: row.note ? `${row.note} | ${noteText}` : noteText,
@@ -143,7 +154,7 @@ export function mergeApprovedLeaveIntoAttendance(existing, request, actor = '') 
       id,
       date: dayIso,
       userId: request.userId,
-      status: 'Leave',
+      status: attendanceStatus,
       checkIn: '',
       checkOut: '',
       note: noteText,

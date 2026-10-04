@@ -31,7 +31,7 @@ import {
   staffRowToApp,
   visitorRowToApp,
 } from './mappers.js';
-import { leaveDaysFromDateRange } from './leaveRequestsWrite.js';
+import { resolveLeavePortion } from './leaveRequestsWrite.js';
 import { isValidMemberDob, preserveProfileFieldsOnBulkRow } from './memberProfileBulkGuard.js';
 import { filterFinanceBulkWriteRows } from '../../../../src/features/finance/financeRowFilters.js';
 import { branchScopeAllowsMember, branchScopeAllowsMemberTransfer } from '../../auth/branchScope.js';
@@ -1769,13 +1769,15 @@ function mapLeaveRows(leaveRows) {
   return (leaveRows || []).map((r) => {
     const startDate = r.start_date;
     const endDate = r.end_date;
+    const portion = resolveLeavePortion(startDate, endDate, r.is_half_day === true);
     return {
       id: r.external_request_id,
       userId: r.staff_login_id,
       type: r.leave_type,
       startDate,
       endDate,
-      days: leaveDaysFromDateRange(startDate, endDate),
+      days: portion.days,
+      isHalfDay: portion.isHalfDay,
       reason: r.reason,
       status: r.status,
       approvedBy: r.approved_by,

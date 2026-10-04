@@ -222,7 +222,7 @@ export function NotificationCenter() {
             row.leaveRequestId === id ||
             (String(row.userId || row.staffId) ===
               String(request.userId || request.staffId) &&
-              row.status === "Leave" &&
+              (row.status === "Leave" || row.status === "Half Day") &&
               row.leaveAutoSynced),
         );
         if (touched.length) {

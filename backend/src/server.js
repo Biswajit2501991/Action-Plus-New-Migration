@@ -21,7 +21,7 @@ import {
   insertLeaveRequest,
   updateLeaveRequestByExternalId,
   deleteLeaveRequestsForUserIds,
-  leaveDaysFromDateRange,
+  resolveLeavePortion,
 } from './db/supabase/leaveRequestsWrite.js';
 import { findLeaveDateConflicts, formatLeaveOverlapError } from '../../src/features/leave/leaveOverlap.js';
 import {
@@ -1985,10 +1985,19 @@ function sanitizeLeaveRequestInput(body, callerIsOwner, callerUserId) {
   const end = new Date(endDate);
   if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime())) return { error: 'invalid-dates' };
   if (end < start) return { error: 'end-before-start' };
-  const days = Math.floor((end - start) / (24 * 60 * 60 * 1000)) + 1;
+  const requestedHalf = safe.isHalfDay === true || safe.is_half_day === true || safe.portion === 'half';
+  const portion = resolveLeavePortion(startDate, endDate, requestedHalf);
   const type = TYPES.has(safe.type) ? safe.type : 'Casual';
   const reason = String(safe.reason || '').trim().slice(0, 500);
-  return { userId, type, startDate, endDate, days, reason };
+  return {
+    userId,
+    type,
+    startDate,
+    endDate,
+    days: portion.days,
+    isHalfDay: portion.isHalfDay,
+    reason,
+  };
 }
 
 async function assertStaffLoginExistsForLeave(staffLoginId) {
@@ -2043,6 +2052,7 @@ app.post('/api/leave-requests', async (req, res) => {
         startDate: parsed.startDate,
         endDate: parsed.endDate,
         days: parsed.days,
+        isHalfDay: parsed.isHalfDay,
         reason: parsed.reason,
         status: 'Pending',
         createdAt: new Date().toISOString(),
@@ -2066,6 +2076,7 @@ app.post('/api/leave-requests', async (req, res) => {
       startDate: parsed.startDate,
       endDate: parsed.endDate,
       days: parsed.days,
+      isHalfDay: parsed.isHalfDay,
       reason: parsed.reason,
       status: 'Pending',
       createdAt: new Date().toISOString(),
@@ -2098,7 +2109,7 @@ app.patch('/api/leave-requests/:id', requireMasterOwner, async (req, res) => {
     if (useSupabase()) {
       const row = await updateLeaveRequestByExternalId(id, { status, actionBy });
       if (!row) return res.status(404).json({ error: 'leave-request-not-found' });
-      const request = { ...row, actionAt, actionBy, days: leaveDaysFromDateRange(row.startDate, row.endDate) };
+      const request = { ...row, actionAt, actionBy };
       queueDatabaseBackup('leave-request-update');
       return res.json({ ok: true, request });
     }

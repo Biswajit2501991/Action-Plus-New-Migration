@@ -4,6 +4,19 @@ import { localCalendarDateKey } from "@/lib/domain/billing";
 export const LEAVE_TYPES = ["Casual", "Sick", "Emergency", "Unpaid"] as const;
 export const DEFAULT_ANNUAL_LEAVE_DAYS = 24;
 
+export function formatLeaveDaysLabel(days?: number | null) {
+  const n = Number(days);
+  if (!Number.isFinite(n) || n <= 0) return "1 day";
+  const shown = Number.isInteger(n) ? String(n) : String(Math.round(n * 10) / 10);
+  return n === 1 ? `${shown} day` : `${shown} days`;
+}
+
+export function formatLeaveBalance(value?: number | string | null) {
+  const n = Number(value);
+  if (!Number.isFinite(n)) return "0";
+  return Number.isInteger(n) ? String(n) : (Math.round(n * 10) / 10).toFixed(1);
+}
+
 export function leaveDaysBetween(startDate?: string | null, endDate?: string | null) {
   const start = localCalendarDateKey(startDate || "");
   const end = localCalendarDateKey(endDate || "");
@@ -46,9 +59,14 @@ export function normalizeLeaveRequest(raw: LeaveRequest | Record<string, unknown
   const r = (raw && typeof raw === "object" ? raw : {}) as LeaveRequest;
   const startDate = String(r.startDate || r.fromDate || "").slice(0, 10);
   const endDate = String(r.endDate || r.toDate || "").slice(0, 10);
+  const flagged = r.isHalfDay === true || (r as { is_half_day?: boolean }).is_half_day === true;
+  const isHalfDay = flagged && Boolean(startDate) && startDate === endDate;
   const daysRaw = Number(r.days);
-  const days =
-    Number.isFinite(daysRaw) && daysRaw > 0 ? daysRaw : leaveDaysBetween(startDate, endDate);
+  const days = isHalfDay
+    ? 0.5
+    : Number.isFinite(daysRaw) && daysRaw > 0
+      ? daysRaw
+      : leaveDaysBetween(startDate, endDate);
   return {
     ...r,
     id: String(r.id || ""),
@@ -59,6 +77,7 @@ export function normalizeLeaveRequest(raw: LeaveRequest | Record<string, unknown
     endDate,
     fromDate: startDate,
     toDate: endDate,
+    isHalfDay,
     days,
     reason: String(r.reason || ""),
     status: normalizeLeaveStatus(r.status),

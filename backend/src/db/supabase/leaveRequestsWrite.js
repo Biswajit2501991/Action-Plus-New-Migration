@@ -5,8 +5,23 @@ import { getSupabase, gymId } from './client.js';
 import { fetchAll, toDate, toTs } from './utils.js';
 import { findLeaveDateConflicts } from '../../../../src/features/leave/leaveOverlap.js';
 
+/** Half day only when the request is one date and the flag is on. */
+export function resolveLeavePortion(startDate, endDate, requestedHalf) {
+  const start = String(startDate || '').slice(0, 10);
+  const end = String(endDate || '').slice(0, 10);
+  const single = Boolean(start && start === end);
+  const isHalfDay = single && Boolean(requestedHalf);
+  const days = isHalfDay ? 0.5 : leaveDaysFromDateRange(start, end);
+  return { isHalfDay, days };
+}
+
 export function appLeaveRequestToRow(gid, appRequest) {
   const r = appRequest && typeof appRequest === 'object' ? appRequest : {};
+  const portion = resolveLeavePortion(
+    r.startDate,
+    r.endDate,
+    r.isHalfDay === true || r.is_half_day === true,
+  );
   return {
     gym_id: gid,
     external_request_id: String(r.id || crypto.randomUUID()),
@@ -14,6 +29,7 @@ export function appLeaveRequestToRow(gid, appRequest) {
     leave_type: String(r.type || 'Leave'),
     start_date: toDate(r.startDate),
     end_date: toDate(r.endDate),
+    is_half_day: portion.isHalfDay,
     reason: r.reason != null && String(r.reason).trim() ? String(r.reason).trim() : null,
     status: String(r.status || 'Pending'),
     approved_by: r.approvedBy || r.actionBy || null,
@@ -25,13 +41,15 @@ export function leaveRowToApp(row) {
   if (!row) return null;
   const startDate = row.start_date;
   const endDate = row.end_date;
+  const portion = resolveLeavePortion(startDate, endDate, row.is_half_day === true);
   return {
     id: row.external_request_id,
     userId: row.staff_login_id,
     type: row.leave_type,
     startDate,
     endDate,
-    days: leaveDaysFromDateRange(startDate, endDate),
+    days: portion.days,
+    isHalfDay: portion.isHalfDay,
     reason: row.reason || '',
     status: row.status,
     approvedBy: row.approved_by,

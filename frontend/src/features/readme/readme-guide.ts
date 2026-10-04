@@ -101,6 +101,17 @@ export const README_TOPICS: ReadmeTopic[] = [
     ],
   },
   {
+    id: "leave",
+    title: "Leave Tracker",
+    gate: "Leave Tracker",
+    summary: "Staff leave requests and the annual balance.",
+    how: [
+      "For one date, staff can choose Full day or Half day. A half day counts as 0.5 after it is approved.",
+      "A range of dates stays a full-day leave. Leave already saved stays a full day.",
+      "Approving a half day marks that attendance day as Half Day. It does not change pay.",
+    ],
+  },
+  {
     id: "attendance",
     title: "Attendance",
     gate: "Attendance",

@@ -21,6 +21,8 @@ import {
   filterLeaveRequestsForViewer,
   findLeaveDateConflicts,
   formatLeaveOverlapError,
+  formatLeaveBalance,
+  formatLeaveDaysLabel,
   leaveDaysBetween,
   leaveRequestMatchesStaff,
   leaveStatusBadgeVariant,
@@ -74,6 +76,7 @@ export function LeavePage() {
     type: "Casual",
     startDate: today,
     endDate: today,
+    portion: "full" as "full" | "half",
     reason: "",
   });
   const [formError, setFormError] = useState("");
@@ -110,6 +113,7 @@ export function LeavePage() {
         });
       }
 
+      const halfDay = form.startDate === form.endDate && form.portion === "half";
       return leaveApi.create({
         userId,
         staffId: userId,
@@ -117,7 +121,8 @@ export function LeavePage() {
         startDate: form.startDate,
         endDate: form.endDate,
         reason: form.reason.trim(),
-        days: leaveDaysBetween(form.startDate, form.endDate),
+        isHalfDay: halfDay,
+        days: halfDay ? 0.5 : leaveDaysBetween(form.startDate, form.endDate),
       });
     },
     onSuccess: async () => {
@@ -127,6 +132,7 @@ export function LeavePage() {
         type: "Casual",
         startDate: today,
         endDate: today,
+        portion: "full",
         reason: "",
       });
       setFormError("");
@@ -163,7 +169,7 @@ export function LeavePage() {
           (row) =>
             row.leaveRequestId === id ||
             (String(row.userId || row.staffId) === String(request.userId || request.staffId) &&
-              row.status === "Leave" &&
+              (row.status === "Leave" || row.status === "Half Day") &&
               row.leaveAutoSynced),
         );
         if (touched.length) {
@@ -313,7 +319,11 @@ export function LeavePage() {
                 Annual Balance · {calendarYear}
               </p>
               <p className="mt-1 text-2xl font-semibold tabular-nums text-violet-800 dark:text-violet-300">
-                {balanceLoading ? "…" : balanceRows[0]?.remaining ?? "—"}
+                {balanceLoading
+                  ? "…"
+                  : balanceRows[0]
+                    ? formatLeaveBalance(balanceRows[0].remaining)
+                    : "—"}
               </p>
               <p className="text-xs text-muted-foreground">Days left</p>
             </CardContent>
@@ -390,6 +400,39 @@ export function LeavePage() {
                 onChange={(e) => setForm((f) => ({ ...f, endDate: e.target.value }))}
               />
             </div>
+            {form.startDate && form.startDate === form.endDate ? (
+              <div className="lg:col-span-6">
+                <Label>Length</Label>
+                <div className="mt-1 flex gap-2">
+                  <button
+                    type="button"
+                    aria-pressed={form.portion !== "half"}
+                    className={cn(
+                      "rounded-full border px-3 py-1 text-xs font-semibold",
+                      form.portion !== "half"
+                        ? "border-slate-900 bg-slate-900 text-white dark:border-teal-300 dark:bg-teal-400 dark:text-slate-950"
+                        : "border-slate-200 bg-white text-slate-600 dark:border-border dark:bg-card",
+                    )}
+                    onClick={() => setForm((f) => ({ ...f, portion: "full" }))}
+                  >
+                    Full day
+                  </button>
+                  <button
+                    type="button"
+                    aria-pressed={form.portion === "half"}
+                    className={cn(
+                      "rounded-full border px-3 py-1 text-xs font-semibold",
+                      form.portion === "half"
+                        ? "border-slate-900 bg-slate-900 text-white dark:border-teal-300 dark:bg-teal-400 dark:text-slate-950"
+                        : "border-slate-200 bg-white text-slate-600 dark:border-border dark:bg-card",
+                    )}
+                    onClick={() => setForm((f) => ({ ...f, portion: "half" }))}
+                  >
+                    Half day
+                  </button>
+                </div>
+              </div>
+            ) : null}
             <div className={cn(isOwnerView ? "lg:col-span-6" : "lg:col-span-2", "md:col-span-2")}>
               <Label>Reason</Label>
               <Textarea
@@ -409,8 +452,11 @@ export function LeavePage() {
                 {create.isPending ? "Submitting…" : "Submit request"}
               </Button>
               <span className="ml-3 text-xs text-muted-foreground">
-                {leaveDaysBetween(form.startDate, form.endDate)} day
-                {leaveDaysBetween(form.startDate, form.endDate) === 1 ? "" : "s"}
+                {formatLeaveDaysLabel(
+                  form.startDate === form.endDate && form.portion === "half"
+                    ? 0.5
+                    : leaveDaysBetween(form.startDate, form.endDate),
+                )}
               </span>
             </div>
           </CardContent>
@@ -437,8 +483,7 @@ export function LeavePage() {
                   <div className="min-w-0">
                     <p className="font-medium text-slate-900 dark:text-foreground">
                       {staffDisplayName(staff, r.userId || r.staffId)} · {r.type || "Casual"} ·{" "}
-                      {r.days || leaveDaysBetween(r.startDate, r.endDate)} day
-                      {(r.days || leaveDaysBetween(r.startDate, r.endDate)) === 1 ? "" : "s"}
+                      {formatLeaveDaysLabel(r.days || leaveDaysBetween(r.startDate, r.endDate))}
                     </p>
                     <p className="text-xs text-muted-foreground">
                       {formatDate(r.startDate || r.fromDate)} → {formatDate(r.endDate || r.toDate)}
@@ -503,7 +548,7 @@ export function LeavePage() {
                   >
                     <div className="text-sm font-semibold">{row.name}</div>
                     <div className="mt-1 text-lg font-semibold tabular-nums text-violet-800 dark:text-violet-300">
-                      {row.remaining}
+                      {formatLeaveBalance(row.remaining)}
                       <span className="ml-1 text-xs font-medium text-muted-foreground">days left</span>
                     </div>
                   </div>
@@ -566,7 +611,7 @@ export function LeavePage() {
                       {formatDate(r.startDate || r.fromDate)} → {formatDate(r.endDate || r.toDate)}
                     </td>
                     <td className="px-4 py-2.5 tabular-nums">
-                      {r.days || leaveDaysBetween(r.startDate, r.endDate)}
+                      {formatLeaveDaysLabel(r.days || leaveDaysBetween(r.startDate, r.endDate))}
                     </td>
                     <td className="max-w-[240px] truncate px-4 py-2.5 text-muted-foreground">
                       {r.reason || "—"}

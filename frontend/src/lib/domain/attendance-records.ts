@@ -87,7 +87,12 @@ export function mergeApprovedLeaveIntoAttendance(
   if (!days.length) return Array.isArray(existing) ? existing : [];
   const base = Array.isArray(existing) ? existing : [];
   const nowIso = new Date().toISOString();
-  const noteText = `Leave approved (${request.type || "Leave"})`;
+  const half =
+    (request.isHalfDay === true || request.is_half_day === true) && days.length === 1;
+  const attendanceStatus = half ? "Half Day" : "Leave";
+  const noteText = half
+    ? `Half day leave approved (${request.type || "Leave"})`
+    : `Leave approved (${request.type || "Leave"})`;
   const keySet = new Set(days.map((d) => `${d}__${userId}`));
   const touched = new Set<string>();
   const next = base.map((row) => {
@@ -97,7 +102,7 @@ export function mergeApprovedLeaveIntoAttendance(
     touched.add(key);
     return {
       ...row,
-      status: "Leave",
+      status: attendanceStatus,
       leaveRequestId: request.id,
       leaveAutoSynced: true,
       note: row.note || row.notes ? `${row.note || row.notes} | ${noteText}` : noteText,
@@ -116,7 +121,7 @@ export function mergeApprovedLeaveIntoAttendance(
       id,
       date: dayIso,
       userId,
-      status: "Leave",
+      status: attendanceStatus,
       checkIn: "",
       checkOut: "",
       note: noteText,

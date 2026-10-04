@@ -28,6 +28,34 @@ describe('leaveApprovalSync', () => {
     expect(next.every((r) => r.status === 'Leave')).toBe(true);
   });
 
+  it('marks a half-day approval as Half Day attendance', () => {
+    const next = mergeApprovedLeaveIntoAttendance([], {
+      id: 'lr-half',
+      userId: 'staff1',
+      type: 'Casual',
+      startDate: '2026-06-01',
+      endDate: '2026-06-01',
+      isHalfDay: true,
+      days: 0.5,
+    }, 'owner');
+    expect(next).toHaveLength(1);
+    expect(next[0].status).toBe('Half Day');
+    expect(next[0].note).toContain('Half day');
+  });
+
+  it('counts an approved half day as 0.5 against the balance', () => {
+    const leave = [{
+      id: 'a1',
+      userId: 'biswajit',
+      status: 'Approved',
+      startDate: '2026-06-01',
+      endDate: '2026-06-01',
+      isHalfDay: true,
+      days: 0.5,
+    }];
+    expect(annualLeaveBalanceRemaining(leave, 'Biswajit')).toBe(23.5);
+  });
+
   it('computes annual balance from dates when days missing', () => {
     const leave = [{
       id: 'a1',
