@@ -343,7 +343,6 @@ export function DashboardPage() {
     <div className="space-y-5">
       <PageHeader
         title="Dashboard"
-        description="Same production widgets — modern Action Plus shell."
         actions={
           <>
             {isOwner ? (
