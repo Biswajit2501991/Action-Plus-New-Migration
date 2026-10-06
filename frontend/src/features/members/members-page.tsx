@@ -14,7 +14,7 @@ import {
   X,
 } from "lucide-react";
 import { AccentMetricCard } from "@/components/ui/accent-metric-card";
-import { EmptyState, PageHeader, Skeleton } from "@/components/ui/misc";
+import { EmptyState, Skeleton } from "@/components/ui/misc";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Input, Label, Select } from "@/components/ui/input";
@@ -1016,11 +1016,42 @@ export function MembersPage() {
 
   return (
     <div className="space-y-5">
-      <PageHeader
-        title="Members"
-        description="Production member workflows with the new Action Plus UI."
-        actions={
-          <>
+      <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:gap-3">
+        <div className="flex min-w-0 items-center gap-3">
+          <h1 className="shrink-0 text-2xl font-semibold tracking-tight">Members</h1>
+          <div className="inline-flex min-w-0 items-center gap-0.5 rounded-full bg-slate-100/90 p-1 dark:bg-white/[0.06]">
+            <button
+              type="button"
+              className={cn(
+                "rounded-full px-3.5 py-1.5 text-sm font-medium whitespace-nowrap",
+                tab === "members"
+                  ? "bg-[#d7efe6] text-slate-800 dark:bg-teal-400/25 dark:text-teal-50"
+                  : "text-slate-500 hover:text-slate-800 dark:text-slate-400 dark:hover:text-slate-100",
+              )}
+              onClick={() => setTab("members")}
+            >
+              Members ({totalCount})
+            </button>
+            {hasAccess(user, "members", "viewVisitors") ? (
+              <button
+                type="button"
+                className={cn(
+                  "rounded-full px-3.5 py-1.5 text-sm font-medium whitespace-nowrap",
+                  tab === "visitors"
+                    ? "bg-[#d7efe6] text-slate-800 dark:bg-teal-400/25 dark:text-teal-50"
+                    : "text-slate-500 hover:text-slate-800 dark:text-slate-400 dark:hover:text-slate-100",
+                )}
+                onClick={() => {
+                  setTab("visitors");
+                  void qc.invalidateQueries({ queryKey: ["visitors"] });
+                }}
+              >
+                Visitors ({visitors.length})
+              </button>
+            ) : null}
+          </div>
+        </div>
+        <div className="flex flex-wrap items-center gap-2 lg:ml-auto">
             {offlinePendingCount > 0 ? (
               <span className="inline-flex items-center rounded-full border border-amber-300 bg-amber-50 px-2.5 py-1 text-[11px] font-semibold text-amber-800 dark:border-amber-500/40 dark:bg-amber-950/40 dark:text-amber-200">
                 Offline queue: {offlinePendingCount}
@@ -1058,42 +1089,7 @@ export function MembersPage() {
                 <Plus className="h-4 w-4" /> Add New Member
               </Button>
             ) : null}
-          </>
-        }
-      />
-
-      <div className="mb-1 flex flex-wrap gap-1.5 rounded-2xl border border-black/[0.06] bg-gradient-to-b from-white/90 to-slate-50/80 p-1.5 dark:border-white/[0.07] dark:from-white/[0.05] dark:to-slate-950/80">
-        <Button
-          variant="ghost"
-          size="sm"
-          className={cn(
-            "h-9 rounded-xl px-3 text-[12px] font-medium",
-            tab === "members"
-              ? "bg-slate-900 text-white hover:bg-slate-800 hover:text-white dark:bg-teal-400 dark:text-slate-950 dark:hover:bg-teal-300 dark:hover:text-slate-950"
-              : "text-slate-500 hover:bg-black/[0.04] hover:text-slate-900 dark:text-slate-400 dark:hover:bg-white/[0.06]",
-          )}
-          onClick={() => setTab("members")}
-        >
-          Members ({totalCount})
-        </Button>
-        {hasAccess(user, "members", "viewVisitors") ? (
-          <Button
-            variant="ghost"
-            size="sm"
-            className={cn(
-              "h-9 rounded-xl px-3 text-[12px] font-medium",
-              tab === "visitors"
-                ? "bg-slate-900 text-white hover:bg-slate-800 hover:text-white dark:bg-teal-400 dark:text-slate-950 dark:hover:bg-teal-300 dark:hover:text-slate-950"
-                : "text-slate-500 hover:bg-black/[0.04] hover:text-slate-900 dark:text-slate-400 dark:hover:bg-white/[0.06]",
-            )}
-            onClick={() => {
-              setTab("visitors");
-              void qc.invalidateQueries({ queryKey: ["visitors"] });
-            }}
-          >
-            Visitors ({visitors.length})
-          </Button>
-        ) : null}
+        </div>
       </div>
 
       {tab === "visitors" ? (
