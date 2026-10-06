@@ -1025,7 +1025,7 @@ export function MembersPage() {
               className={cn(
                 "rounded-full px-3.5 py-1.5 text-sm font-medium whitespace-nowrap",
                 tab === "members"
-                  ? "bg-[#d7efe6] text-slate-800 dark:bg-teal-400/25 dark:text-teal-50"
+                  ? "bg-[#1a8f78] text-white shadow-sm dark:bg-teal-500 dark:text-slate-950"
                   : "text-slate-500 hover:text-slate-800 dark:text-slate-400 dark:hover:text-slate-100",
               )}
               onClick={() => setTab("members")}
@@ -1038,7 +1038,7 @@ export function MembersPage() {
                 className={cn(
                   "rounded-full px-3.5 py-1.5 text-sm font-medium whitespace-nowrap",
                   tab === "visitors"
-                    ? "bg-[#d7efe6] text-slate-800 dark:bg-teal-400/25 dark:text-teal-50"
+                    ? "bg-[#1a8f78] text-white shadow-sm dark:bg-teal-500 dark:text-slate-950"
                     : "text-slate-500 hover:text-slate-800 dark:text-slate-400 dark:hover:text-slate-100",
                 )}
                 onClick={() => {
@@ -1099,16 +1099,8 @@ export function MembersPage() {
           <Card className="border-black/[0.06] bg-gradient-to-b from-white/90 to-slate-50/80 shadow-[0_1px_0_rgba(15,23,42,0.04),0_12px_32px_-20px_rgba(15,23,42,0.25)] backdrop-blur-xl dark:border-white/[0.07] dark:from-white/[0.05] dark:to-slate-950/80 dark:shadow-[0_0_0_1px_rgba(255,255,255,0.03),0_16px_40px_-24px_rgba(0,0,0,0.8)]">
             <CardContent className="relative p-2 sm:p-2.5">
               <div className="flex flex-col gap-2 xl:flex-row xl:min-w-0 xl:items-center xl:gap-2 xl:overflow-x-auto xl:whitespace-nowrap xl:[-ms-overflow-style:none] xl:[scrollbar-width:none] xl:[&::-webkit-scrollbar]:hidden">
-                <div className="flex shrink-0 items-center justify-between gap-2 pl-1.5 xl:justify-start">
-                  <div className="flex shrink-0 items-center gap-2">
-                    <h2 className="text-[13px] font-semibold tracking-tight text-slate-900 dark:text-slate-50">
-                      Members
-                    </h2>
-                    <span className="rounded-lg bg-slate-900/5 px-2 py-0.5 text-[11px] font-semibold tabular-nums text-slate-600 dark:bg-white/10 dark:text-slate-300">
-                      {totalCount}
-                    </span>
-                  </div>
-                  <div className="relative inline-flex shrink-0 items-center gap-1.5 pr-0.5 xl:hidden">
+                <div className="flex shrink-0 items-center justify-end gap-2 xl:hidden">
+                  <div className="relative inline-flex shrink-0 items-center gap-1.5 pr-0.5">
                     <PaymentQrButton className="!h-8 gap-1 !rounded-xl !border-emerald-500/25 !bg-emerald-500/10 !px-2.5 !text-[11px] !font-medium !text-emerald-800 hover:!bg-emerald-500/15 dark:!border-emerald-400/20 dark:!bg-emerald-400/10 dark:!text-emerald-200" />
                     <Button
                       variant="outline"
@@ -1126,7 +1118,6 @@ export function MembersPage() {
                     </Button>
                   </div>
                 </div>
-                <span className="mx-0.5 hidden h-5 w-px shrink-0 bg-slate-200 dark:bg-white/10 xl:block" aria-hidden />
                 <div className="member-status-filters grid w-full grid-cols-3 gap-1.5 lg:grid-cols-6 xl:inline-flex xl:w-auto xl:shrink-0 xl:items-center xl:gap-1">
                   {(
                     [
