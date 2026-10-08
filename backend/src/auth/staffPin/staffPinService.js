@@ -232,7 +232,8 @@ export async function recoverPinWithPassword(identifier, rememberedPassword) {
   if (row.pin_recover_questions) return { ok: true, stage: 'questions' };
   const plain = String(rememberedPassword || '');
   if (!plain) return { ok: true, stage: 'password', attemptsLeft: PIN_PASSWORD_ATTEMPTS };
-  const matched = await rememberedPasswordMatches(row, plain);
+  const matched = await rememberedPasswordMatches(row, plain)
+    || await verifyPassword(plain, row.pin_hash);
   if (matched) {
     await clearRecoverFlags(row);
     return { ok: true, stage: 'set-pin', recoveryToken: signRecoveryToken(row) };

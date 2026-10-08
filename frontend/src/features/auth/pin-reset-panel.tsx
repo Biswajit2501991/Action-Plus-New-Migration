@@ -56,7 +56,7 @@ export function PinResetPanel({
         return;
       }
       setAttemptsLeft(result.attemptsLeft ?? null);
-      setError("That password is not one of the last three.");
+      setError("That does not match your password or PIN.");
     } catch (err) {
       fail(err);
     } finally {
@@ -137,16 +137,19 @@ export function PinResetPanel({
 
       {stage === "password" ? (
         <div className="space-y-4">
+          <p className="text-xs leading-relaxed text-slate-300">
+            Enter your current password or PIN.
+          </p>
           <SecretField
             id="remembered-password"
-            label="Password you remember"
+            label="Password or PIN"
             value={password}
             onChange={setPassword}
-            placeholder="Current or one of the last three"
+            placeholder="Current password or current PIN"
             dark
           />
           {attemptsLeft != null ? (
-            <p className="text-xs text-slate-400">{attemptsLeft} attempt{attemptsLeft === 1 ? "" : "s"} left before the questions.</p>
+            <p className="text-xs text-slate-400">{attemptsLeft} attempt{attemptsLeft === 1 ? "" : "s"} left, then security questions.</p>
           ) : null}
           {error ? <p className="text-sm text-rose-200">{error}</p> : null}
           <button type="button" onClick={() => void onPassword()} disabled={loading || !identifier.trim() || !password} className="h-12 w-full rounded-2xl bg-teal-400 text-sm font-semibold text-slate-950 disabled:opacity-60">
