@@ -41,7 +41,7 @@ export function VisitorIntakeQrCard() {
             <ul className="mt-1 list-inside list-disc text-[11px] text-muted-foreground">
               <li>Name, mobile (10–12 digits or +91…)</li>
               <li>Plan: Basic or Personal Training</li>
-              <li>Goal: Weight loss or recovery / medical</li>
+              <li>Goal: weight loss, weight gain, strength training, stay fit, or recovery / medical</li>
             </ul>
           </div>
           <p className="truncate rounded-lg border border-border/70 bg-background/80 px-2 py-1.5 font-mono text-[11px]">

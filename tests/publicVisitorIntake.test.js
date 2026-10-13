@@ -68,6 +68,22 @@ describe('publicVisitorIntake helpers', () => {
     expect(ok.gender).toBe('Female');
     expect(ok.interestPlan).toBe('Personal Training');
     expect(ok.goal).toBe('Weight loss');
+    expect(
+      assertPublicVisitorPayload({
+        fullName: 'Ada Lovelace',
+        mobile: '9876543210',
+        interestPlan: 'Basic',
+        goal: 'Strength training',
+      }).goal,
+    ).toBe('Strength training');
+    expect(
+      assertPublicVisitorPayload({
+        fullName: 'Ada Lovelace',
+        mobile: '9876543210',
+        interestPlan: 'Basic',
+        goal: 'Recovering from injury or Medical condition?',
+      }).goal,
+    ).toBe('Recovering from injury or medical condition');
     expect(ok.tentativeJoiningDate).toBe('2099-01-15');
 
     expect(() =>

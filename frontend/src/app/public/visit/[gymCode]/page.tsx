@@ -8,7 +8,10 @@ type State = "form" | "saving" | "done" | "error";
 const PLAN_OPTIONS = ["Basic", "Personal Training"] as const;
 const GOAL_OPTIONS = [
   "Weight loss",
-  "Recovering from injury or Medical condition?",
+  "Weight gain",
+  "Strength training",
+  "Just to stay fit",
+  "Recovering from injury or medical condition",
 ] as const;
 
 const fieldClass =

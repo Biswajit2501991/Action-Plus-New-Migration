@@ -14,8 +14,16 @@ const RATE_MOBILE_WINDOW_MS = Math.max(
 export const PUBLIC_VISITOR_PLAN_OPTIONS = ['Basic', 'Personal Training'];
 export const PUBLIC_VISITOR_GOAL_OPTIONS = [
   'Weight loss',
-  'Recovering from injury or Medical condition?',
+  'Weight gain',
+  'Strength training',
+  'Just to stay fit',
+  'Recovering from injury or medical condition',
 ];
+
+/** Older form wording, still accepted so an open page can submit. Saved as the corrected label. */
+const LEGACY_VISITOR_GOALS = {
+  'Recovering from injury or Medical condition?': 'Recovering from injury or medical condition',
+};
 
 /** @type {Map<string, { count: number, resetAt: number }>} */
 const ipBuckets = new Map();
@@ -169,7 +177,8 @@ export function assertPublicVisitorPayload(body) {
     throw err;
   }
 
-  const goal = String(body?.goal || '').trim();
+  const goalRaw = String(body?.goal || '').trim();
+  const goal = LEGACY_VISITOR_GOALS[goalRaw] || goalRaw;
   if (!PUBLIC_VISITOR_GOAL_OPTIONS.includes(goal)) {
     const err = new Error('goal-required');
     err.status = 400;
