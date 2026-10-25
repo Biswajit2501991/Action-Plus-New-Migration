@@ -193,6 +193,7 @@ app.use((req, res, next) => {
     'Content-Type, Authorization, x-apg-process-token, X-APG-Process-Token, x-apg-user-id, x-apg-sandbox-id, x-apg-test-profile, x-apg-legacy-auth, X-APG-Legacy-Auth',
   );
   res.setHeader('X-Content-Type-Options', 'nosniff');
+  res.setHeader('Strict-Transport-Security', 'max-age=31536000; includeSubDomains');
   if (req.method === 'OPTIONS') return res.status(204).end();
   return next();
 });

@@ -70,8 +70,17 @@ async function callWebsite(path, method, payload) {
     const err = new Error(
       data?.message || data?.error || `Website request failed (${res.status})`,
     );
-    err.status = res.status;
-    err.code = data?.error || "broadcast-proxy-failed";
+    // 401 from the website is a mismatched MEMBER_PORTAL_CRON_SECRET, not a staff session.
+    // Passing it through signs the owner out of Gym Manager.
+    err.status = res.status === 401 || res.status === 403 ? 502 : res.status;
+    err.code =
+      res.status === 401 || res.status === 403
+        ? "portal-cron-secret-mismatch"
+        : data?.error || "broadcast-proxy-failed";
+    if (res.status === 401 || res.status === 403) {
+      err.message =
+        "The website cron secret does not match Gym Manager. Set the same MEMBER_PORTAL_CRON_SECRET on both Railway services and in GitHub Actions.";
+    }
     err.detail = data;
     throw err;
   }
