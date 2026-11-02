@@ -762,7 +762,7 @@
   pointer-events: none;
   position: fixed;
   inset: 0;
-  z-index: 8;
+  z-index: 20;
   overflow: hidden;
 }
 
@@ -770,7 +770,7 @@
   pointer-events: none;
   position: absolute;
   inset: 0;
-  opacity: 0.45;
+  opacity: 0.9;
 }
 
 .gym-festival-decor {
@@ -805,6 +805,13 @@
   font-size: 0.72rem;
   color: #b45309;
   text-shadow: 0 1px 0 rgba(255, 255, 255, 0.4);
+  opacity: 1;
+  transition: opacity 0.28s ease, transform 0.28s ease;
+}
+
+.gym-festival-greeting.is-hidden {
+  opacity: 0;
+  transform: translateX(-50%) translateY(-10px);
 }
 
 .dark .gym-festival-greeting {

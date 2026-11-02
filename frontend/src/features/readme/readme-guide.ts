@@ -87,7 +87,7 @@ export const README_TOPICS: ReadmeTopic[] = [
       "Open Settings → Themes. Pick Default, Durga Puja, or Diwali.",
       "Enable, set Starts (IST) and Ends (IST), and choose Public Website, Gym Manager, or both.",
       "Preview shows the look on this device only. Save stores the schedule. It turns on and off even if nobody is logged in.",
-      "Gym Manager decorations sit behind the work screens and do not capture clicks. Payments, members, attendance, and reports stay the same.",
+      "When Diwali is on for Gym Manager, rockets and fireworks play in the background. They do not capture clicks. Payments, members, attendance, and reports stay the same.",
       "The Member Portal stays on the normal look.",
     ],
   },
