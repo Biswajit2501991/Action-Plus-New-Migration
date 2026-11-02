@@ -6,9 +6,11 @@ import { apiFetch } from "@/services/api/client";
 import {
   CHHATH_PUJA_THEME,
   DIWALI_THEME,
+  GYM_FESTIVAL_SYNC_EVENT,
   HOLI_2027_THEME,
   NEW_YEAR_2027_THEME,
   PREVIEW_STORAGE_KEY,
+  applyDocumentFestivalTheme,
   clearFestivalPreview,
   gymManagerAllowsTheme,
   type FestivalCatalog,
@@ -19,18 +21,7 @@ import { GymChhathEffects } from "@/features/festival/chhath-effects";
 import { GymNewYearEffects } from "@/features/festival/new-year-effects";
 import { GymHoliEffects } from "@/features/festival/holi-effects";
 
-const ATTR = "data-festival";
 const MAX_TIMEOUT = 2_147_000_000;
-
-function applyAttr(theme: FestivalThemeId | null) {
-  if (typeof document === "undefined") return;
-  if (theme === DIWALI_THEME) document.documentElement.setAttribute(ATTR, "diwali");
-  else if (theme === CHHATH_PUJA_THEME) document.documentElement.setAttribute(ATTR, "chhath-puja");
-  else if (theme === NEW_YEAR_2027_THEME) document.documentElement.setAttribute(ATTR, "new-year-2027");
-  else if (theme === HOLI_2027_THEME) document.documentElement.setAttribute(ATTR, "holi-2027");
-  else if (theme === "durga_puja") document.documentElement.setAttribute(ATTR, "durga-puja");
-  else document.documentElement.removeAttribute(ATTR);
-}
 
 function readPreview(): FestivalThemeId | null {
   try {
@@ -57,7 +48,8 @@ export function FestivalLayer() {
   useEffect(() => {
     let cancelled = false;
     const timers: number[] = [];
-    void (async () => {
+
+    async function loadGymTheme() {
       try {
         const data = await apiFetch<{
           catalog?: FestivalCatalog;
@@ -74,6 +66,8 @@ export function FestivalLayer() {
         } else {
           setPreview(nextPreview);
         }
+        timers.forEach((id) => window.clearTimeout(id));
+        timers.length = 0;
         const now = Date.now();
         for (const cfg of Object.values(data.catalog || {})) {
           if (!cfg?.enabled || !cfg.apply_gym_manager) continue;
@@ -83,13 +77,7 @@ export function FestivalLayer() {
             if (Number.isFinite(at) && ms > 0) {
               timers.push(
                 window.setTimeout(() => {
-                  void apiFetch<{ live?: FestivalThemeId | null }>("/festival-theme")
-                    .then((next) => {
-                      if (cancelled) return;
-                      const nextLive = next.live || null;
-                      setLive(gymManagerAllowsTheme(data.catalog, nextLive) ? nextLive : null);
-                    })
-                    .catch(() => undefined);
+                  void loadGymTheme();
                 }, Math.min(ms, MAX_TIMEOUT)),
               );
             }
@@ -100,19 +88,26 @@ export function FestivalLayer() {
           setLive(null);
         }
       }
-    })();
+    }
+
+    void loadGymTheme();
+    const onSync = () => {
+      void loadGymTheme();
+    };
+    window.addEventListener(GYM_FESTIVAL_SYNC_EVENT, onSync);
     return () => {
       cancelled = true;
+      window.removeEventListener(GYM_FESTIVAL_SYNC_EVENT, onSync);
       timers.forEach((id) => window.clearTimeout(id));
-      applyAttr(null);
+      applyDocumentFestivalTheme(null);
     };
   }, []);
 
   const theme = preview || live;
 
   useEffect(() => {
-    applyAttr(theme);
-    return () => applyAttr(null);
+    applyDocumentFestivalTheme(theme);
+    return () => applyDocumentFestivalTheme(null);
   }, [theme]);
 
   if (!theme) return null;

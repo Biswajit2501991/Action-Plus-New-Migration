@@ -86,7 +86,7 @@ export const README_TOPICS: ReadmeTopic[] = [
     how: [
       "Open Settings → Themes. Pick Default, Durga Puja, Diwali, Chhath Puja, New Year 2027, or Holi 2027.",
       "Enable, set Starts (IST) and Ends (IST), and choose Public Website, Gym Manager, or both.",
-      "Preview shows the look on this Gym Manager device only when Apply to includes the app. Public website only never skins Gym Manager. Save stores the schedule. It turns on and off even if nobody is logged in.",
+      "Preview shows the look on this Gym Manager device only when Apply to includes the app. Public website only never skins Gym Manager and does not refresh Settings or switch the picker to Default. Save stores the schedule. It turns on and off even if nobody is logged in.",
       "When Diwali, New Year 2027, or Holi 2027 is on for Gym Manager, colour rockets play in the background. They do not capture clicks. Payments, members, attendance, and reports stay the same.",
       "The Member Portal stays on the normal look.",
     ],

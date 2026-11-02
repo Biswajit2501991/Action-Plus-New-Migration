@@ -106,12 +106,36 @@ export function festivalStatusLabel(cfg: FestivalThemeConfig, now = Date.now()):
 }
 
 export const PREVIEW_STORAGE_KEY = "apg-gym-festival-preview";
+export const GYM_FESTIVAL_SYNC_EVENT = "apg-gym-festival-sync";
+
+export function applyDocumentFestivalTheme(theme: FestivalThemeId | null) {
+  if (typeof document === "undefined") return;
+  if (theme === DIWALI_THEME) document.documentElement.setAttribute("data-festival", "diwali");
+  else if (theme === CHHATH_PUJA_THEME)
+    document.documentElement.setAttribute("data-festival", "chhath-puja");
+  else if (theme === NEW_YEAR_2027_THEME)
+    document.documentElement.setAttribute("data-festival", "new-year-2027");
+  else if (theme === HOLI_2027_THEME)
+    document.documentElement.setAttribute("data-festival", "holi-2027");
+  else if (theme === DURGA_PUJA_THEME)
+    document.documentElement.setAttribute("data-festival", "durga-puja");
+  else document.documentElement.removeAttribute("data-festival");
+}
 
 export function clearFestivalPreview() {
   try {
     sessionStorage.removeItem(PREVIEW_STORAGE_KEY);
   } catch {
     /* ignore */
+  }
+}
+
+/** Drop a Gym Manager preview skin without reloading Settings. */
+export function syncGymFestivalLayer() {
+  clearFestivalPreview();
+  applyDocumentFestivalTheme(null);
+  if (typeof window !== "undefined") {
+    window.dispatchEvent(new Event(GYM_FESTIVAL_SYNC_EVENT));
   }
 }
 

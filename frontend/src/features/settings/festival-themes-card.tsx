@@ -16,6 +16,7 @@ import {
   PREVIEW_STORAGE_KEY,
   clearFestivalPreview,
   emptyFestivalCatalog,
+  syncGymFestivalLayer,
   festivalStatusLabel,
   isoToIstDatetimeLocal,
   istDatetimeLocalToIso,
@@ -75,7 +76,6 @@ export function FestivalThemesCard({
     setBusy(true);
     try {
       if (selected === "default") {
-        clearFestivalPreview();
         await apiFetch("/festival-theme", {
           method: "PATCH",
           body: JSON.stringify({ theme: "default", enabled: false }),
@@ -88,6 +88,7 @@ export function FestivalThemesCard({
           new_year_2027: { ...prev.new_year_2027, enabled: false },
           holi_2027: { ...prev.holi_2027, enabled: false },
         }));
+        syncGymFestivalLayer();
         toast.success("Default theme saved. Festival dates are kept.");
         return;
       }
@@ -95,7 +96,6 @@ export function FestivalThemesCard({
       const starts_at = cfg.starts_at || "";
       const ends_at = cfg.ends_at || "";
       const websiteOnly = !cfg.apply_gym_manager;
-      if (websiteOnly) clearFestivalPreview();
       await apiFetch("/festival-theme", {
         method: "PATCH",
         body: JSON.stringify({
@@ -107,12 +107,12 @@ export function FestivalThemesCard({
           apply_gym_manager: cfg.apply_gym_manager,
         }),
       });
+      syncGymFestivalLayer();
       toast.success(
         websiteOnly
-          ? "Festival theme saved for the public website. Gym Manager stays on the default look."
+          ? "Saved for the public website only. Settings stays on this theme."
           : "Festival theme saved.",
       );
-      if (websiteOnly) window.setTimeout(() => window.location.reload(), 500);
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Could not save the festival theme.");
     } finally {
@@ -125,9 +125,8 @@ export function FestivalThemesCard({
       if (selected === "default") {
         clearFestivalPreview();
       } else if (!catalog[selected].apply_gym_manager) {
-        clearFestivalPreview();
+        syncGymFestivalLayer();
         toast.message("This theme is for the public website only, so it will not preview in Gym Manager.");
-        window.setTimeout(() => window.location.reload(), 600);
         return;
       } else {
         sessionStorage.setItem(PREVIEW_STORAGE_KEY, selected);
