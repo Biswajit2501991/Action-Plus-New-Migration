@@ -28,4 +28,23 @@ describe('readAuthToken', () => {
     const req = { headers: { cookie: 'apg_access=cookie-token' }, query: {} };
     expect(readAuthToken(req)).toBe('cookie-token');
   });
+
+  it('accepts ?token= only on the realtime SSE path', async () => {
+    const { readAuthToken } = await import('../middleware/requireAuth.js');
+    const sse = {
+      headers: {},
+      query: { token: 'sse-token' },
+      path: '/realtime/stream',
+      originalUrl: '/api/realtime/stream?token=sse-token',
+    };
+    expect(readAuthToken(sse)).toBe('sse-token');
+
+    const other = {
+      headers: {},
+      query: { token: 'sse-token' },
+      path: '/members',
+      originalUrl: '/api/members?token=sse-token',
+    };
+    expect(readAuthToken(other)).toBe('');
+  });
 });

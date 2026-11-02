@@ -11,7 +11,7 @@ const PUBLIC_PATHS = new Set([
 ]);
 
 /**
- * Attach JWT from Authorization header, ?token= (legacy SSE), or HttpOnly cookie.
+ * Attach JWT from Authorization header, ?token= on the SSE stream only, or HttpOnly cookie.
  */
 export function requireApiAuth(req, res, next) {
   if (req.method === 'OPTIONS') return next();

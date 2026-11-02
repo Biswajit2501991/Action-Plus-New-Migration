@@ -3,7 +3,7 @@ import { env } from '../config/env.js';
 import { useSupabase } from '../db/dataStore.js';
 import { clientIp } from '../middleware/loginRateLimit.js';
 import {
-  getMemberStatusByMobile,
+  isMemberActiveByMobile,
   normalizeMobile,
 } from '../services/memberStatus/memberStatusLookup.js';
 
@@ -41,7 +41,15 @@ function memberStatusRateLimit(req, res, next) {
 
 function requireMemberStatusApiKey(req, res, next) {
   const expected = String(env.MEMBER_STATUS_PUBLIC_API_KEY || '').trim();
-  if (!expected) return next();
+  if (!expected) {
+    if (env.NODE_ENV === 'production') {
+      return res.status(503).json({
+        error: 'member-status-unconfigured',
+        message: 'MEMBER_STATUS_PUBLIC_API_KEY must be set in production.',
+      });
+    }
+    return next();
+  }
   const provided = String(
     req.headers['x-apg-member-status-key'] || req.query.apiKey || '',
   ).trim();
@@ -81,17 +89,8 @@ router.get('/', memberStatusRateLimit, requireMemberStatusApiKey, async (req, re
   }
 
   try {
-    const members = await getMemberStatusByMobile(mobile, gymId);
-    const isActive = members.some((m) => m.isActive);
-
-    return res.json({
-      ok: true,
-      mobile,
-      mobileNormalized,
-      gymId,
-      isActive,
-      members,
-    });
+    const isActive = await isMemberActiveByMobile(mobile, gymId);
+    return res.json({ ok: true, isActive });
   } catch (err) {
     return res.status(err?.status || 500).json({
       error: 'member-status-lookup-failed',
