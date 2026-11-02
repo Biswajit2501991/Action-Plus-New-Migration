@@ -1,7 +1,8 @@
 export const DURGA_PUJA_THEME = "durga_puja";
 export const DIWALI_THEME = "diwali";
 export const CHHATH_PUJA_THEME = "chhath_puja";
-export const FESTIVAL_THEMES = [DURGA_PUJA_THEME, DIWALI_THEME, CHHATH_PUJA_THEME];
+export const NEW_YEAR_2027_THEME = "new_year_2027";
+export const FESTIVAL_THEMES = [DURGA_PUJA_THEME, DIWALI_THEME, CHHATH_PUJA_THEME, NEW_YEAR_2027_THEME];
 
 function emptyTheme() {
   return {
@@ -36,6 +37,7 @@ export function emptyFestivalCatalog() {
     durga_puja: emptyTheme(),
     diwali: emptyTheme(),
     chhath_puja: emptyTheme(),
+    new_year_2027: emptyTheme(),
   };
 }
 
@@ -46,6 +48,7 @@ export function hydrateFestivalCatalog(settings = {}) {
     catalog.durga_puja = parseTheme(raw.durga_puja);
     catalog.diwali = parseTheme(raw.diwali);
     catalog.chhath_puja = parseTheme(raw.chhath_puja);
+    catalog.new_year_2027 = parseTheme(raw.new_year_2027);
   }
   const catalogMissing = !raw || typeof raw !== "object" || Object.keys(raw).length === 0;
   if (catalogMissing) {
@@ -71,6 +74,16 @@ export function hydrateFestivalCatalog(settings = {}) {
     if (theme === CHHATH_PUJA_THEME) {
       catalog.durga_puja.enabled = false;
       catalog.chhath_puja = {
+        enabled: Boolean(settings.festival_enabled),
+        starts_at: asIso(settings.festival_starts_at),
+        ends_at: asIso(settings.festival_ends_at),
+        apply_website: true,
+        apply_gym_manager: false,
+      };
+    }
+    if (theme === NEW_YEAR_2027_THEME) {
+      catalog.durga_puja.enabled = false;
+      catalog.new_year_2027 = {
         enabled: Boolean(settings.festival_enabled),
         starts_at: asIso(settings.festival_starts_at),
         ends_at: asIso(settings.festival_ends_at),
@@ -139,16 +152,19 @@ export function applyLegacyMirror(catalog) {
   const durgaOn = Boolean(catalog.durga_puja?.enabled);
   const diwaliOn = Boolean(catalog.diwali?.enabled);
   const chhathOn = Boolean(catalog.chhath_puja?.enabled);
+  const nyOn = Boolean(catalog.new_year_2027?.enabled);
   const theme = durgaOn
     ? DURGA_PUJA_THEME
     : diwaliOn
       ? DIWALI_THEME
       : chhathOn
         ? CHHATH_PUJA_THEME
-        : "";
+        : nyOn
+          ? NEW_YEAR_2027_THEME
+          : "";
   const src = theme ? catalog[theme] : null;
   return {
-    festival_enabled: durgaOn || diwaliOn || chhathOn,
+    festival_enabled: durgaOn || diwaliOn || chhathOn || nyOn,
     festival_theme: theme,
     festival_starts_at: src?.starts_at || null,
     festival_ends_at: src?.ends_at || null,

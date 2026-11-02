@@ -82,12 +82,12 @@ export const README_TOPICS: ReadmeTopic[] = [
     title: "Settings — Themes",
     gate: "Settings",
     summary:
-      "Festival looks for the public website and Gym Manager. The master owner sets Default, Durga Puja, Diwali, or Chhath Puja, with an IST start and end. Staff can see an active look but cannot change it.",
+      "Festival looks for the public website and Gym Manager. The master owner sets Default, Durga Puja, Diwali, Chhath Puja, or New Year 2027, with an IST start and end. Staff can see an active look but cannot change it.",
     how: [
-      "Open Settings → Themes. Pick Default, Durga Puja, Diwali, or Chhath Puja.",
+      "Open Settings → Themes. Pick Default, Durga Puja, Diwali, Chhath Puja, or New Year 2027.",
       "Enable, set Starts (IST) and Ends (IST), and choose Public Website, Gym Manager, or both.",
       "Preview shows the look on this device only. Save stores the schedule. It turns on and off even if nobody is logged in.",
-      "When Diwali is on for Gym Manager, rockets and fireworks play in the background. They do not capture clicks. Payments, members, attendance, and reports stay the same.",
+      "When Diwali or New Year 2027 is on for Gym Manager, rockets and fireworks play in the background. They do not capture clicks. Payments, members, attendance, and reports stay the same.",
       "The Member Portal stays on the normal look.",
     ],
   },

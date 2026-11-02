@@ -19,6 +19,7 @@ describe("hydrateFestivalCatalog", () => {
     expect(catalog.diwali.enabled).toBe(false);
     expect(catalog.diwali.apply_gym_manager).toBe(false);
     expect(catalog.chhath_puja.enabled).toBe(false);
+    expect(catalog.new_year_2027.enabled).toBe(false);
   });
 });
 
@@ -39,6 +40,22 @@ describe("resolveLiveFestivalTheme", () => {
     });
     expect(resolveLiveFestivalTheme(catalog, "website", now)).toBeNull();
     expect(resolveLiveFestivalTheme(catalog, "gym_manager", now)).toBeNull();
+  });
+
+  it("applies New Year 2027 to the gym app only when that flag is on", () => {
+    const catalog = hydrateFestivalCatalog({
+      festival_catalog: {
+        new_year_2027: {
+          enabled: true,
+          starts_at: "2026-11-01T00:00:00.000Z",
+          ends_at: "2026-11-10T00:00:00.000Z",
+          apply_website: false,
+          apply_gym_manager: true,
+        },
+      },
+    });
+    expect(resolveLiveFestivalTheme(catalog, "website", now)).toBeNull();
+    expect(resolveLiveFestivalTheme(catalog, "gym_manager", now)).toBe("new_year_2027");
   });
 
   it("applies Diwali to the gym app only when that flag is on", () => {

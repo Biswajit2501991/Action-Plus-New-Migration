@@ -849,3 +849,7 @@ html[data-festival="durga-puja"] .desktop-shell {
 html[data-festival="chhath-puja"] .desktop-shell {
   box-shadow: inset 0 2px 0 rgba(244, 185, 66, 0.35);
 }
+
+html[data-festival="new-year-2027"] .desktop-shell {
+  box-shadow: inset 0 2px 0 rgba(244, 211, 138, 0.4);
+}

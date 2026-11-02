@@ -1,7 +1,8 @@
 export const DURGA_PUJA_THEME = "durga_puja";
 export const DIWALI_THEME = "diwali";
 export const CHHATH_PUJA_THEME = "chhath_puja";
-export type FestivalThemeId = "durga_puja" | "diwali" | "chhath_puja";
+export const NEW_YEAR_2027_THEME = "new_year_2027";
+export type FestivalThemeId = "durga_puja" | "diwali" | "chhath_puja" | "new_year_2027";
 export type FestivalSelectKey = "default" | FestivalThemeId;
 
 export type FestivalThemeConfig = {
@@ -33,6 +34,13 @@ export function emptyFestivalCatalog(): FestivalCatalog {
       apply_gym_manager: false,
     },
     chhath_puja: {
+      enabled: false,
+      starts_at: null,
+      ends_at: null,
+      apply_website: true,
+      apply_gym_manager: false,
+    },
+    new_year_2027: {
       enabled: false,
       starts_at: null,
       ends_at: null,

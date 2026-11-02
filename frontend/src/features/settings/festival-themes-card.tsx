@@ -11,6 +11,7 @@ import {
   CHHATH_PUJA_THEME,
   DIWALI_THEME,
   DURGA_PUJA_THEME,
+  NEW_YEAR_2027_THEME,
   PREVIEW_STORAGE_KEY,
   emptyFestivalCatalog,
   festivalStatusLabel,
@@ -48,7 +49,8 @@ export function FestivalThemesCard({
         if (cancelled) return;
         const next = data.catalog || emptyFestivalCatalog();
         setCatalog({ ...emptyFestivalCatalog(), ...next });
-        if (next.chhath_puja?.enabled) setSelected(CHHATH_PUJA_THEME);
+        if (next.new_year_2027?.enabled) setSelected(NEW_YEAR_2027_THEME);
+        else if (next.chhath_puja?.enabled) setSelected(CHHATH_PUJA_THEME);
         else if (next.diwali?.enabled) setSelected(DIWALI_THEME);
         else if (next.durga_puja?.enabled) setSelected(DURGA_PUJA_THEME);
         else setSelected("default");
@@ -84,6 +86,7 @@ export function FestivalThemesCard({
           durga_puja: { ...prev.durga_puja, enabled: false },
           diwali: { ...prev.diwali, enabled: false },
           chhath_puja: { ...prev.chhath_puja, enabled: false },
+          new_year_2027: { ...prev.new_year_2027, enabled: false },
         }));
         toast.success("Default theme saved. Festival dates are kept.");
         return;
@@ -135,7 +138,7 @@ export function FestivalThemesCard({
           <div className="min-w-0">
             <div className="text-sm font-semibold tracking-tight">Themes</div>
             <div className="mt-0.5 text-xs text-muted-foreground">
-              Default, Durga Puja, Diwali, and Chhath Puja. IST schedule. Owner only.
+              Default, Durga Puja, Diwali, Chhath Puja, and New Year 2027. IST schedule. Owner only.
             </div>
           </div>
         </div>
@@ -159,6 +162,7 @@ export function FestivalThemesCard({
                   <option value={DURGA_PUJA_THEME}>Durga Puja Theme</option>
                   <option value={DIWALI_THEME}>Diwali Theme</option>
                   <option value={CHHATH_PUJA_THEME}>Chhath Puja Theme</option>
+                  <option value={NEW_YEAR_2027_THEME}>New Year 2027</option>
                 </select>
               </div>
               {current ? (
