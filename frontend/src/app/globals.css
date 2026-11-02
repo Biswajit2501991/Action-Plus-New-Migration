@@ -829,3 +829,23 @@ html[data-festival="durga-puja"] .desktop-shell {
     display: none;
   }
 }
+
+.gym-chhath-scene {
+  pointer-events: none;
+  position: absolute;
+  inset: 0;
+}
+
+.gym-chhath-glow {
+  pointer-events: none;
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 28%;
+  background: radial-gradient(ellipse at 50% 100%, rgba(255, 150, 60, 0.22), transparent 70%);
+}
+
+html[data-festival="chhath-puja"] .desktop-shell {
+  box-shadow: inset 0 2px 0 rgba(244, 185, 66, 0.35);
+}

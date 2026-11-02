@@ -81,6 +81,7 @@ router.patch("/", requireMasterOwner, async (req, res) => {
     if (theme === "" || theme === "default") {
       catalog.durga_puja.enabled = false;
       catalog.diwali.enabled = false;
+      catalog.chhath_puja.enabled = false;
       const mirror = applyLegacyMirror(catalog);
       const { error } = await getSupabase()
         .from("website_settings")
@@ -98,7 +99,7 @@ router.patch("/", requireMasterOwner, async (req, res) => {
       });
     }
 
-    if (theme !== "durga_puja" && theme !== "diwali") {
+    if (theme !== "durga_puja" && theme !== "diwali" && theme !== "chhath_puja") {
       return res.status(400).json({
         ok: false,
         error: "unknown-theme",

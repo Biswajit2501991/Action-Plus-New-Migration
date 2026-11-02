@@ -4,12 +4,14 @@ import { useEffect, useState } from "react";
 import { usePathname } from "next/navigation";
 import { apiFetch } from "@/services/api/client";
 import {
+  CHHATH_PUJA_THEME,
   DIWALI_THEME,
   PREVIEW_STORAGE_KEY,
   type FestivalCatalog,
   type FestivalThemeId,
 } from "@/lib/festival-theme";
 import { GymDiwaliEffects } from "@/features/festival/diwali-effects";
+import { GymChhathEffects } from "@/features/festival/chhath-effects";
 
 const ATTR = "data-festival";
 const MAX_TIMEOUT = 2_147_000_000;
@@ -17,6 +19,7 @@ const MAX_TIMEOUT = 2_147_000_000;
 function applyAttr(theme: FestivalThemeId | null) {
   if (typeof document === "undefined") return;
   if (theme === DIWALI_THEME) document.documentElement.setAttribute(ATTR, "diwali");
+  else if (theme === CHHATH_PUJA_THEME) document.documentElement.setAttribute(ATTR, "chhath-puja");
   else if (theme === "durga_puja") document.documentElement.setAttribute(ATTR, "durga-puja");
   else document.documentElement.removeAttribute(ATTR);
 }
@@ -24,7 +27,7 @@ function applyAttr(theme: FestivalThemeId | null) {
 function readPreview(): FestivalThemeId | null {
   try {
     const v = sessionStorage.getItem(PREVIEW_STORAGE_KEY);
-    if (v === DIWALI_THEME || v === "durga_puja") return v;
+    if (v === DIWALI_THEME || v === CHHATH_PUJA_THEME || v === "durga_puja") return v;
   } catch {
     /* ignore */
   }
@@ -95,6 +98,8 @@ export function FestivalLayer() {
     <div className="gym-festival-layer" aria-hidden>
       {theme === DIWALI_THEME ? (
         <GymDiwaliEffects greeting={onDashboard} />
+      ) : theme === CHHATH_PUJA_THEME ? (
+        <GymChhathEffects greeting={onDashboard} />
       ) : (
         <div className="gym-festival-decor">
           <span className="gym-festival-diya gym-festival-diya-left" />

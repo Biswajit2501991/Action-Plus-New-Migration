@@ -18,6 +18,7 @@ describe("hydrateFestivalCatalog", () => {
     expect(catalog.durga_puja.starts_at).toBe("2026-10-09T22:44:00.000Z");
     expect(catalog.diwali.enabled).toBe(false);
     expect(catalog.diwali.apply_gym_manager).toBe(false);
+    expect(catalog.chhath_puja.enabled).toBe(false);
   });
 });
 
