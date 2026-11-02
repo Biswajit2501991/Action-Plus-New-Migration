@@ -5,19 +5,18 @@ import { useEffect, useRef } from "react";
 import {
   financeApi,
   gymCodesApi,
-  logsApi,
   membersApi,
   settingsApi,
   usersApi,
 } from "@/services/api";
 import { formatMonthKey } from "@/lib/utils";
 import { STALE } from "@/lib/query-cache";
-import { defaultLogsFetchRange, LOGS_RANGE_FETCH_LIMIT } from "@/lib/domain/logs-range";
 import { useAuthStore } from "@/stores";
 
 /**
  * Warm core caches after login so Dashboard / Members / Finance open from memory.
- * Safe to call from AppShell — only runs when authenticated.
+ * Settings + members first; heavier lists wait for idle so first paint is not blocked.
+ * Does not prefetch Logs (up to 5,000 rows) — that page loads its own window.
  */
 export function useWarmAppDataCache(enabled: boolean) {
   const qc = useQueryClient();
@@ -35,49 +34,49 @@ export function useWarmAppDataCache(enabled: boolean) {
     warmed.current = true;
 
     const month = formatMonthKey();
-    const logsWindow = defaultLogsFetchRange();
+
     void Promise.allSettled([
-      qc.prefetchQuery({
-        queryKey: ["members", branchId],
-        queryFn: membersApi.list,
-        staleTime: STALE.lists,
-      }),
       qc.prefetchQuery({
         queryKey: ["settings", "default"],
         queryFn: () => settingsApi.get(),
         staleTime: STALE.settings,
       }),
       qc.prefetchQuery({
-        queryKey: ["gym-codes"],
-        queryFn: gymCodesApi.list,
-        staleTime: STALE.settings,
-      }),
-      qc.prefetchQuery({
-        queryKey: ["users"],
-        queryFn: usersApi.list,
+        queryKey: ["members", branchId],
+        queryFn: membersApi.list,
         staleTime: STALE.lists,
       }),
-      qc.prefetchQuery({
-        queryKey: ["finance", month],
-        queryFn: async () => {
-          const [list, summary] = await Promise.all([
-            financeApi.list().catch(() => [] as Awaited<ReturnType<typeof financeApi.list>>),
-            financeApi.summary(month).catch(() => ({})),
-          ]);
-          return { transactions: list, summary };
-        },
-        staleTime: STALE.finance,
-      }),
-      qc.prefetchQuery({
-        queryKey: ["logs", logsWindow.startDate, logsWindow.endDate],
-        queryFn: () =>
-          logsApi.listAll({
-            startDate: logsWindow.startDate,
-            endDate: logsWindow.endDate,
-            limit: LOGS_RANGE_FETCH_LIMIT,
+    ]).then(() => {
+      const later = () => {
+        void Promise.allSettled([
+          qc.prefetchQuery({
+            queryKey: ["gym-codes"],
+            queryFn: gymCodesApi.list,
+            staleTime: STALE.settings,
           }),
-        staleTime: STALE.finance,
-      }),
-    ]);
+          qc.prefetchQuery({
+            queryKey: ["users"],
+            queryFn: usersApi.list,
+            staleTime: STALE.lists,
+          }),
+          qc.prefetchQuery({
+            queryKey: ["finance", month, branchId || "all-branches"],
+            queryFn: async () => {
+              const [list, summary] = await Promise.all([
+                financeApi.list().catch(() => [] as Awaited<ReturnType<typeof financeApi.list>>),
+                financeApi.summary(month).catch(() => ({})),
+              ]);
+              return { transactions: list, summary };
+            },
+            staleTime: STALE.finance,
+          }),
+        ]);
+      };
+      if (typeof window !== "undefined" && "requestIdleCallback" in window) {
+        window.requestIdleCallback(later, { timeout: 2500 });
+      } else {
+        window.setTimeout(later, 400);
+      }
+    });
   }, [enabled, qc, branchId]);
 }

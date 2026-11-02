@@ -48,7 +48,7 @@ export function createAppQueryClient() {
       queries: {
         staleTime: STALE.lists,
         gcTime: GC_TIME,
-        refetchOnWindowFocus: true,
+        refetchOnWindowFocus: false,
         refetchOnReconnect: true,
         retry: 1,
       },

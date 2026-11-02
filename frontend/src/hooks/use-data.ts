@@ -32,8 +32,6 @@ export function useMembers() {
     queryFn: membersApi.list,
     enabled: authed,
     staleTime: STALE.lists,
-    // Paint persisted cache first; refresh in background when stale.
-    refetchOnMount: true,
     placeholderData: (prev) => prev,
   });
 }
@@ -47,7 +45,6 @@ export function useVisitors() {
     queryFn: visitorsApi.list,
     enabled: authed,
     staleTime: STALE.lists,
-    refetchOnMount: true,
     placeholderData: (prev) => prev,
   });
 }
@@ -74,7 +71,6 @@ export function useSettings(
     enabled: authed && options?.enabled !== false,
     // Leave notifications need fresher data than general settings.
     staleTime: leaveScoped ? 15_000 : STALE.settings,
-    refetchOnMount: true,
     refetchInterval: options?.refetchInterval,
     placeholderData: (prev) => prev,
     // Stale in-flight GET /settings must not wipe a newer PT diet/workout save.
