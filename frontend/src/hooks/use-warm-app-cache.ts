@@ -75,7 +75,7 @@ export function useWarmAppDataCache(enabled: boolean) {
       if (typeof window !== "undefined" && "requestIdleCallback" in window) {
         window.requestIdleCallback(later, { timeout: 2500 });
       } else {
-        window.setTimeout(later, 400);
+        setTimeout(later, 400);
       }
     });
   }, [enabled, qc, branchId]);
