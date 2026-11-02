@@ -853,3 +853,7 @@ html[data-festival="chhath-puja"] .desktop-shell {
 html[data-festival="new-year-2027"] .desktop-shell {
   box-shadow: inset 0 2px 0 rgba(244, 211, 138, 0.4);
 }
+
+html[data-festival="holi-2027"] .desktop-shell {
+  box-shadow: inset 0 2px 0 rgba(255, 26, 146, 0.45);
+}

@@ -83,6 +83,7 @@ router.patch("/", requireMasterOwner, async (req, res) => {
       catalog.diwali.enabled = false;
       catalog.chhath_puja.enabled = false;
       catalog.new_year_2027.enabled = false;
+      catalog.holi_2027.enabled = false;
       const mirror = applyLegacyMirror(catalog);
       const { error } = await getSupabase()
         .from("website_settings")
@@ -104,7 +105,8 @@ router.patch("/", requireMasterOwner, async (req, res) => {
       theme !== "durga_puja" &&
       theme !== "diwali" &&
       theme !== "chhath_puja" &&
-      theme !== "new_year_2027"
+      theme !== "new_year_2027" &&
+      theme !== "holi_2027"
     ) {
       return res.status(400).json({
         ok: false,
