@@ -21,7 +21,11 @@ function portalSiteBase() {
 }
 
 function portalCronSecret() {
-  return String(process.env.MEMBER_PORTAL_CRON_SECRET || "").trim();
+  const secret = String(process.env.MEMBER_PORTAL_CRON_SECRET || "").trim();
+  if ((process.env.NODE_ENV || "development") === "production" && secret.length < 16) {
+    return "";
+  }
+  return secret;
 }
 
 async function callWebsite(path, method, payload) {

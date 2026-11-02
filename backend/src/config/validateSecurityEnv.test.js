@@ -25,13 +25,28 @@ describe('collectSecurityEnvIssues', () => {
   });
 
   it('passes production with strong secret and process control off', () => {
-    const { issues } = collectSecurityEnvIssues({
+    const { issues, warnings } = collectSecurityEnvIssues({
       nodeEnv: 'production',
       jwtSecret: STRONG_JWT,
       processControlEnabled: false,
       supabaseServiceKey: 'x'.repeat(50),
       corsOrigins: 'https://app.gymactionplus.com',
+      portalCronSecret: 'c'.repeat(24),
     });
     expect(issues).toEqual([]);
+    expect(warnings.some((w) => w.includes('MEMBER_PORTAL_CRON_SECRET'))).toBe(false);
+  });
+
+  it('warns in production when portal cron secret is missing', () => {
+    const { issues, warnings } = collectSecurityEnvIssues({
+      nodeEnv: 'production',
+      jwtSecret: STRONG_JWT,
+      processControlEnabled: false,
+      supabaseServiceKey: 'x'.repeat(50),
+      corsOrigins: 'https://app.gymactionplus.com',
+      portalCronSecret: '',
+    });
+    expect(issues).toEqual([]);
+    expect(warnings.some((w) => w.includes('MEMBER_PORTAL_CRON_SECRET'))).toBe(true);
   });
 });

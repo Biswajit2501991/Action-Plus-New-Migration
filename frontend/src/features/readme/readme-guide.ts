@@ -102,7 +102,7 @@ export const README_TOPICS: ReadmeTopic[] = [
       "Send test to Bis Test sends only to Bis Test (APG-1037/26-AP01). It shows in that member's portal bell and on the phone. Other members are not included, and it does not start the gym-wide wait.",
       "The bell opens a Notifications screen with every message. Tap a title to read it. That marks it read. Messages leave the inbox after 7 days.",
       "The red overdue card on the portal home is the Alerts tile, not the bell.",
-      "If Broadcast cannot load recipients, the website cron secret may not match Gym Manager. That does not sign the owner out. Set the same MEMBER_PORTAL_CRON_SECRET on both Railway services and in GitHub Actions.",
+      "If Broadcast cannot load recipients, the website cron secret may not match Gym Manager. That does not sign the owner out. Set the same MEMBER_PORTAL_CRON_SECRET (at least 16 characters) on both Railway services and in GitHub Actions.",
     ],
   },
   {

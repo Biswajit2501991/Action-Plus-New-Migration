@@ -20,6 +20,7 @@ function resolveProcessControlEnabled(nodeEnv, raw = process.env.PROCESS_CONTROL
  * @param {string} [opts.processControlToken]
  * @param {string} [opts.supabaseServiceKey]
  * @param {string} [opts.corsOrigins]
+ * @param {string} [opts.portalCronSecret]
  */
 export function collectSecurityEnvIssues(opts = {}) {
   const nodeEnv = opts.nodeEnv ?? process.env.NODE_ENV ?? 'development';
@@ -28,6 +29,9 @@ export function collectSecurityEnvIssues(opts = {}) {
   const processToken = String(opts.processControlToken ?? process.env.PROCESS_CONTROL_TOKEN ?? '');
   const serviceKey = String(opts.supabaseServiceKey ?? process.env.SUPABASE_SERVICE_ROLE_KEY ?? '');
   const cors = String(opts.corsOrigins ?? process.env.CORS_ALLOWED_ORIGINS ?? '');
+  const portalCron = String(
+    opts.portalCronSecret ?? process.env.MEMBER_PORTAL_CRON_SECRET ?? '',
+  ).trim();
 
   const issues = [];
   const warnings = [];
@@ -51,6 +55,11 @@ export function collectSecurityEnvIssues(opts = {}) {
     }
     if (cors && !cors.includes('https://app.gymactionplus.com')) {
       warnings.push('CORS_ALLOWED_ORIGINS does not include https://app.gymactionplus.com');
+    }
+    if (portalCron.length < 16) {
+      warnings.push(
+        'MEMBER_PORTAL_CRON_SECRET is missing or shorter than 16 characters (must match the website; Broadcast fail-closes)',
+      );
     }
   } else if (processControlEnabled && !processToken) {
     warnings.push('PROCESS_CONTROL_ENABLED without PROCESS_CONTROL_TOKEN (process APIs accept any caller when token unset)');
