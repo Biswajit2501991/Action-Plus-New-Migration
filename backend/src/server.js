@@ -108,6 +108,7 @@ import { requireAccess, requireLogsBulkAccess } from './middleware/permissions.j
 import authRouter from './routes/auth.js';
 import gymCodesRouter from './routes/gymCodes.js';
 import brandingRouter from './routes/branding.js';
+import festivalThemeRouter from './routes/festivalTheme.js';
 import memberPhotosRouter from './routes/memberPhotos.js';
 import staffPhotosRouter from './routes/staffPhotos.js';
 import paymentQrRouter from './routes/paymentQr.js';
@@ -572,6 +573,7 @@ registerAnalyticsRoutes(app);
 // Phase 2 gym-codes feature: list is authenticated-only, write is owner-only (inside the router).
 app.use('/api/gym-codes', gymCodesRouter);
 app.use('/api/branding', brandingRouter);
+app.use('/api/festival-theme', festivalThemeRouter);
 
 app.get('/api/realtime/stream', (req, res) => {
   if (!useSupabase()) {

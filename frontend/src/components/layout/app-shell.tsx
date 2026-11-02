@@ -53,6 +53,7 @@ import { NewVisitorMenuButton } from "@/components/layout/new-visitor-menu-butto
 import { PortalChatUnreadBadge } from "@/components/layout/portal-chat-unread-badge";
 import { SignOutGlassButton } from "@/components/layout/sign-out-glass-button";
 import { Skeleton } from "@/components/ui/misc";
+import { FestivalLayer } from "@/features/festival/festival-layer";
 
 const SIDEBAR_GROUP_THEME: Record<
   string,
@@ -564,9 +565,10 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     );
   }
 
-  if (isMobile) {
-    return <MobileShell>{children}</MobileShell>;
-  }
-
-  return <DesktopShell>{children}</DesktopShell>;
+  return (
+    <>
+      <FestivalLayer />
+      {isMobile ? <MobileShell>{children}</MobileShell> : <DesktopShell>{children}</DesktopShell>}
+    </>
+  );
 }

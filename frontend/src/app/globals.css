@@ -756,3 +756,69 @@
     transform: none;
   }
 }
+
+/* Festival skins — decorative only. Never capture clicks. */
+.gym-festival-layer {
+  pointer-events: none;
+  position: fixed;
+  inset: 0;
+  z-index: 8;
+  overflow: hidden;
+}
+
+.gym-festival-canvas {
+  pointer-events: none;
+  position: absolute;
+  inset: 0;
+  opacity: 0.45;
+}
+
+.gym-festival-decor {
+  pointer-events: none;
+  position: absolute;
+  inset: 0;
+}
+
+.gym-festival-diya {
+  position: absolute;
+  top: 4.6rem;
+  width: 1.7rem;
+  height: 1.7rem;
+  border-radius: 50% 50% 46% 46%;
+  background:
+    radial-gradient(circle at 50% 38%, #fff4c8 0 18%, transparent 19%),
+    radial-gradient(circle at 50% 62%, #e2b340 0 34%, #c4314a 35% 58%, transparent 59%);
+  opacity: 0.45;
+}
+
+.gym-festival-diya-left { left: 0.7rem; }
+.gym-festival-diya-right { right: 0.7rem; }
+
+.gym-festival-greeting {
+  pointer-events: none;
+  position: absolute;
+  left: 50%;
+  top: 4.4rem;
+  transform: translateX(-50%);
+  width: min(28rem, calc(100vw - 8rem));
+  text-align: center;
+  font-size: 0.72rem;
+  color: #b45309;
+  text-shadow: 0 1px 0 rgba(255, 255, 255, 0.4);
+}
+
+.dark .gym-festival-greeting {
+  color: #fde68a;
+  text-shadow: none;
+}
+
+html[data-festival="diwali"] .desktop-shell,
+html[data-festival="durga-puja"] .desktop-shell {
+  box-shadow: inset 0 2px 0 rgba(240, 193, 75, 0.35);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .gym-festival-canvas {
+    display: none;
+  }
+}

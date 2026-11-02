@@ -57,6 +57,7 @@ import { WorkoutPlanDaysPanel } from "@/features/settings/workout-plan-days-pane
 import { WorkoutPlanMusicPanel } from "@/features/settings/workout-plan-music-panel";
 import { BranchPortalAccessPanel } from "@/features/settings/branch-portal-access-panel";
 import { PortalPushBroadcastPanel } from "@/features/settings/portal-push-broadcast-panel";
+import { FestivalThemesCard } from "@/features/settings/festival-themes-card";
 
 function readFileAsDataUrl(file: File) {
   return new Promise<string>((resolve, reject) => {
@@ -733,6 +734,7 @@ export function SettingsPage() {
 
   const [openCat, setOpenCat] = useState<Record<string, boolean>>({
     appearance: false,
+    themes: false,
     branches: false,
     fine: false,
     features: false,
@@ -1415,6 +1417,13 @@ export function SettingsPage() {
             else setTheme(resolvedTheme === "dark" ? "dark" : "light");
           }}
           onSetTheme={setTheme}
+        />
+      ) : null}
+
+      {isOwner ? (
+        <FestivalThemesCard
+          open={Boolean(openCat.themes)}
+          onToggleOpen={() => toggleCat("themes")}
         />
       ) : null}
 
