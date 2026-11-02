@@ -9,6 +9,8 @@ import {
   HOLI_2027_THEME,
   NEW_YEAR_2027_THEME,
   PREVIEW_STORAGE_KEY,
+  clearFestivalPreview,
+  gymManagerAllowsTheme,
   type FestivalCatalog,
   type FestivalThemeId,
 } from "@/lib/festival-theme";
@@ -62,8 +64,16 @@ export function FestivalLayer() {
           live?: FestivalThemeId | null;
         }>("/festival-theme");
         if (cancelled) return;
-        setLive(data.live || null);
-        setPreview(readPreview());
+        const catalog = data.catalog || null;
+        const liveTheme = data.live || null;
+        setLive(gymManagerAllowsTheme(catalog, liveTheme) ? liveTheme : null);
+        const nextPreview = readPreview();
+        if (nextPreview && !gymManagerAllowsTheme(catalog, nextPreview)) {
+          clearFestivalPreview();
+          setPreview(null);
+        } else {
+          setPreview(nextPreview);
+        }
         const now = Date.now();
         for (const cfg of Object.values(data.catalog || {})) {
           if (!cfg?.enabled || !cfg.apply_gym_manager) continue;
@@ -75,7 +85,9 @@ export function FestivalLayer() {
                 window.setTimeout(() => {
                   void apiFetch<{ live?: FestivalThemeId | null }>("/festival-theme")
                     .then((next) => {
-                      if (!cancelled) setLive(next.live || null);
+                      if (cancelled) return;
+                      const nextLive = next.live || null;
+                      setLive(gymManagerAllowsTheme(data.catalog, nextLive) ? nextLive : null);
                     })
                     .catch(() => undefined);
                 }, Math.min(ms, MAX_TIMEOUT)),

@@ -14,6 +14,7 @@ import {
   HOLI_2027_THEME,
   NEW_YEAR_2027_THEME,
   PREVIEW_STORAGE_KEY,
+  clearFestivalPreview,
   emptyFestivalCatalog,
   festivalStatusLabel,
   isoToIstDatetimeLocal,
@@ -74,11 +75,7 @@ export function FestivalThemesCard({
     setBusy(true);
     try {
       if (selected === "default") {
-        try {
-          sessionStorage.removeItem(PREVIEW_STORAGE_KEY);
-        } catch {
-          /* ignore */
-        }
+        clearFestivalPreview();
         await apiFetch("/festival-theme", {
           method: "PATCH",
           body: JSON.stringify({ theme: "default", enabled: false }),
@@ -97,6 +94,8 @@ export function FestivalThemesCard({
       const cfg = catalog[selected];
       const starts_at = cfg.starts_at || "";
       const ends_at = cfg.ends_at || "";
+      const websiteOnly = !cfg.apply_gym_manager;
+      if (websiteOnly) clearFestivalPreview();
       await apiFetch("/festival-theme", {
         method: "PATCH",
         body: JSON.stringify({
@@ -108,7 +107,12 @@ export function FestivalThemesCard({
           apply_gym_manager: cfg.apply_gym_manager,
         }),
       });
-      toast.success("Festival theme saved.");
+      toast.success(
+        websiteOnly
+          ? "Festival theme saved for the public website. Gym Manager stays on the default look."
+          : "Festival theme saved.",
+      );
+      if (websiteOnly) window.setTimeout(() => window.location.reload(), 500);
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Could not save the festival theme.");
     } finally {
@@ -118,8 +122,16 @@ export function FestivalThemesCard({
 
   function preview() {
     try {
-      if (selected === "default") sessionStorage.removeItem(PREVIEW_STORAGE_KEY);
-      else sessionStorage.setItem(PREVIEW_STORAGE_KEY, selected);
+      if (selected === "default") {
+        clearFestivalPreview();
+      } else if (!catalog[selected].apply_gym_manager) {
+        clearFestivalPreview();
+        toast.message("This theme is for the public website only, so it will not preview in Gym Manager.");
+        window.setTimeout(() => window.location.reload(), 600);
+        return;
+      } else {
+        sessionStorage.setItem(PREVIEW_STORAGE_KEY, selected);
+      }
     } catch {
       /* ignore */
     }

@@ -106,3 +106,19 @@ export function festivalStatusLabel(cfg: FestivalThemeConfig, now = Date.now()):
 }
 
 export const PREVIEW_STORAGE_KEY = "apg-gym-festival-preview";
+
+export function clearFestivalPreview() {
+  try {
+    sessionStorage.removeItem(PREVIEW_STORAGE_KEY);
+  } catch {
+    /* ignore */
+  }
+}
+
+export function gymManagerAllowsTheme(
+  catalog: FestivalCatalog | null | undefined,
+  theme: FestivalThemeId | null,
+): boolean {
+  if (!theme) return false;
+  return Boolean(catalog?.[theme]?.apply_gym_manager);
+}
