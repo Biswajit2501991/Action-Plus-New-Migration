@@ -1,17 +1,9 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
+import dynamic from "next/dynamic";
 import { useRouter } from "next/navigation";
 import { useQueryClient } from "@tanstack/react-query";
-import {
-  Area,
-  AreaChart,
-  CartesianGrid,
-  ResponsiveContainer,
-  Tooltip,
-  XAxis,
-  YAxis,
-} from "recharts";
 import { Plus, Search, SlidersHorizontal, ScrollText, X } from "lucide-react";
 import { AccentMetricCard, statusAccentTone } from "@/components/ui/accent-metric-card";
 import { Badge, PageHeader, Skeleton } from "@/components/ui/misc";
@@ -61,6 +53,15 @@ import {
   statusTileToMetricKey,
   type MetricModalKey,
 } from "@/features/members/member-metric-modal";
+
+const RevenueTrendChart = dynamic(
+  () =>
+    import("@/features/dashboard/revenue-trend-chart").then((m) => m.RevenueTrendChart),
+  {
+    ssr: false,
+    loading: () => <Skeleton className="h-72 w-full" />,
+  },
+);
 
 const STATUS_TILES: Array<"Active" | "Hold" | "Deactivated" | "Cancelled"> = [
   "Active",
@@ -154,6 +155,7 @@ export function DashboardPage() {
   } = useWhatsappSend();
 
   const [q, setQ] = useState("");
+  const [qDebounced, setQDebounced] = useState("");
   const [field, setField] = useState("all");
   const [expandedOverdueId, setExpandedOverdueId] = useState("");
   const [searchActive, setSearchActive] = useState(false);
@@ -163,6 +165,11 @@ export function DashboardPage() {
   const { prefs: coverPrefs, update: updateCoverPrefs } = useDashboardCoverPrefs(
     String(user?.gymId || ""),
   );
+
+  useEffect(() => {
+    const t = window.setTimeout(() => setQDebounced(q), 160);
+    return () => window.clearTimeout(t);
+  }, [q]);
 
   function revealCover(id: DashboardCoverTileId) {
     setCoverRevealed((prev) => ({ ...prev, [id]: true }));
@@ -300,9 +307,9 @@ export function DashboardPage() {
   };
 
   const dashboardSearchHits = useMemo(() => {
-    if (!q.trim()) return [];
-    return members.filter((m) => matchesField(m, q, field)).slice(0, 25);
-  }, [members, q, field]);
+    if (!qDebounced.trim()) return [];
+    return members.filter((m) => matchesField(m, qDebounced, field)).slice(0, 25);
+  }, [members, qDebounced, field]);
 
   const runDashboardSearch = () => {
     setSearchActive(Boolean(q.trim()));
@@ -322,7 +329,7 @@ export function DashboardPage() {
     // Stay on dashboard — no redirect to Members search.
   };
 
-  if (loadingMembers || loadingFinance) {
+  if (loadingMembers && members.length === 0) {
     return (
       <div className="space-y-4">
         <Skeleton className="h-10 w-64" />
@@ -555,27 +562,11 @@ export function DashboardPage() {
               </span>
             </CardHeader>
             <CardContent className="h-72">
-              <ResponsiveContainer width="100%" height="100%">
-                <AreaChart data={trendData}>
-                  <defs>
-                    <linearGradient id="rev" x1="0" y1="0" x2="0" y2="1">
-                      <stop offset="0%" stopColor="#0d9488" stopOpacity={0.35} />
-                      <stop offset="100%" stopColor="#0d9488" stopOpacity={0} />
-                    </linearGradient>
-                  </defs>
-                  <CartesianGrid strokeDasharray="3 3" className="stroke-border" />
-                  <XAxis dataKey="label" tick={{ fontSize: 12 }} />
-                  <YAxis tick={{ fontSize: 12 }} />
-                  <Tooltip formatter={(v) => formatCurrency(Number(v || 0))} />
-                  <Area
-                    type="monotone"
-                    dataKey="revenue"
-                    stroke="#0d9488"
-                    fill="url(#rev)"
-                    strokeWidth={2}
-                  />
-                </AreaChart>
-              </ResponsiveContainer>
+              {loadingFinance && !finance ? (
+                <Skeleton className="h-full w-full" />
+              ) : (
+                <RevenueTrendChart data={trendData} formatValue={formatCurrency} />
+              )}
             </CardContent>
           </Card>
           </PrivacyCover>
@@ -825,7 +816,7 @@ export function DashboardPage() {
 
       <MemberMetricModal
         open={metricModal}
-        members={members}
+        members={metricModal ? members : []}
         onClose={() => setMetricModal("")}
         onSelectMember={(m) => {
           setMetricModal("");

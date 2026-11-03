@@ -67,39 +67,46 @@ export function GymHoliEffects({ greeting = false }: { greeting?: boolean }) {
 
     const tick = (now: number) => {
       if (!running) return;
-      ctx.clearRect(0, 0, window.innerWidth, window.innerHeight);
-      if (!document.hidden) {
-        if (now - last > 7800) {
-          last = now;
-          burst(40 + Math.random() * (window.innerWidth - 80), window.innerHeight * (0.18 + Math.random() * 0.3));
-        }
-        while (particles.length > 220) particles.shift();
-        for (let i = particles.length - 1; i >= 0; i--) {
-          const p = particles[i];
-          p.x += p.vx;
-          p.y += p.vy;
-          p.vy += 0.02;
-          p.life -= 0.012;
-          if (p.life <= 0) {
-            particles.splice(i, 1);
-            continue;
-          }
-          ctx.globalAlpha = Math.max(0, p.life) * 0.55;
-          ctx.fillStyle = p.color;
-          ctx.beginPath();
-          ctx.arc(p.x, p.y, p.size, 0, Math.PI * 2);
-          ctx.fill();
-        }
-        ctx.globalAlpha = 1;
+      if (document.hidden) {
+        raf = 0;
+        return;
       }
+      ctx.clearRect(0, 0, window.innerWidth, window.innerHeight);
+      if (now - last > 7800) {
+        last = now;
+        burst(40 + Math.random() * (window.innerWidth - 80), window.innerHeight * (0.18 + Math.random() * 0.3));
+      }
+      while (particles.length > 140) particles.shift();
+      for (let i = particles.length - 1; i >= 0; i--) {
+        const p = particles[i];
+        p.x += p.vx;
+        p.y += p.vy;
+        p.vy += 0.02;
+        p.life -= 0.012;
+        if (p.life <= 0) {
+          particles.splice(i, 1);
+          continue;
+        }
+        ctx.globalAlpha = Math.max(0, p.life) * 0.55;
+        ctx.fillStyle = p.color;
+        ctx.beginPath();
+        ctx.arc(p.x, p.y, p.size, 0, Math.PI * 2);
+        ctx.fill();
+      }
+      ctx.globalAlpha = 1;
       raf = window.requestAnimationFrame(tick);
     };
+    const onVisible = () => {
+      if (!document.hidden && running && !raf) raf = window.requestAnimationFrame(tick);
+    };
+    document.addEventListener("visibilitychange", onVisible);
     raf = window.requestAnimationFrame(tick);
     window.setTimeout(() => burst(window.innerWidth * 0.7, window.innerHeight * 0.28), 400);
 
     return () => {
       running = false;
       window.cancelAnimationFrame(raf);
+      document.removeEventListener("visibilitychange", onVisible);
       window.removeEventListener("resize", resize);
     };
   }, []);

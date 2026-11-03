@@ -147,6 +147,11 @@
     #c9a227
   );
   animation: apg-search-beam-spin 3.6s linear infinite;
+  animation-play-state: paused;
+}
+
+.apg-search-beam:focus-within::before {
+  animation-play-state: running;
 }
 
 .apg-search-beam > input {

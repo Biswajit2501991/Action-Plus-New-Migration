@@ -66,7 +66,7 @@ export function MobileDashboard() {
   const hour = new Date().getHours();
   const greeting = hour < 12 ? "Good morning" : hour < 17 ? "Good afternoon" : "Good evening";
 
-  if (loadingMembers || loadingFinance) {
+  if (loadingMembers && members.length === 0) {
     return (
       <div className="space-y-3">
         <Skeleton className="h-16 w-48" />
@@ -107,6 +107,9 @@ export function MobileDashboard() {
       ) : null}
 
       {canRevenue ? (
+        loadingFinance && !finance ? (
+          <Skeleton className="h-28 w-full" />
+        ) : (
         <AccentMetricCard
           label="Collected this month"
           tag="Revenue"
@@ -114,6 +117,7 @@ export function MobileDashboard() {
           tone="teal"
           hint={`${growthRate >= 0 ? "+" : ""}${growthRate}% vs last month · Profit est. ${formatCurrency(profit)}`}
         />
+        )
       ) : null}
 
       {canOverdue ? (

@@ -35,6 +35,7 @@ export const README_TOPICS: ReadmeTopic[] = [
       "Tile cover is on the Dashboard header and is for the master owner. It can also cover the revenue trend and recent payments. Member counts stay clear.",
       "Show lasts for this visit on this browser. Leaving or refreshing covers the number again.",
       "Branch staff see their own branch. Soft-deleted members stay out of the counts.",
+      "The home page shows member tiles as soon as the list is ready. Revenue charts load next. Counts and collected revenue stay the same.",
     ],
   },
   {

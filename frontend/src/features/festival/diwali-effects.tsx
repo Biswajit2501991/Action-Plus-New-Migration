@@ -75,8 +75,9 @@ export function GymDiwaliEffects({ greeting = false }: { greeting?: boolean }) {
     const particles: Particle[] = [];
     const rockets: Rocket[] = [];
     let lastRocket = 0;
-    const rocketGap = 2800;
-    const maxParticles = 420;
+    const lite = greeting;
+    const rocketGap = lite ? 5200 : 2800;
+    const maxParticles = lite ? 160 : 280;
 
     const resize = () => {
       const dpr = Math.min(window.devicePixelRatio || 1, 2);
@@ -104,78 +105,85 @@ export function GymDiwaliEffects({ greeting = false }: { greeting?: boolean }) {
 
     const tick = (now: number) => {
       if (!running) return;
-      ctx.clearRect(0, 0, window.innerWidth, window.innerHeight);
-      if (!document.hidden) {
-        if (now - lastRocket > rocketGap + Math.random() * rocketGap * 0.4) {
-          lastRocket = now;
-          launch();
-        }
-        for (let i = rockets.length - 1; i >= 0; i--) {
-          const r = rockets[i];
-          r.x += r.vx;
-          r.y += r.vy;
-          r.vy += 0.018;
-          r.trail.push({ x: r.x, y: r.y });
-          if (r.trail.length > 14) r.trail.shift();
-          ctx.beginPath();
-          for (let t = 0; t < r.trail.length; t++) {
-            const p = r.trail[t];
-            ctx.strokeStyle = r.color;
-            ctx.globalAlpha = (t / r.trail.length) * 0.55;
-            ctx.lineWidth = 1.6;
-            if (t === 0) ctx.moveTo(p.x, p.y);
-            else ctx.lineTo(p.x, p.y);
-          }
-          ctx.stroke();
-          ctx.globalAlpha = 1;
-          ctx.fillStyle = "#fff6c8";
-          ctx.beginPath();
-          ctx.arc(r.x, r.y, 2.4, 0, Math.PI * 2);
-          ctx.fill();
-          if (r.y <= r.targetY || r.vy >= -0.4) {
-            burst(particles, r.x, r.y);
-            if (Math.random() > 0.55) {
-              burst(particles, r.x + (Math.random() - 0.5) * 40, r.y + 10);
-            }
-            rockets.splice(i, 1);
-          }
-        }
-        while (particles.length > maxParticles) particles.shift();
-        for (let i = particles.length - 1; i >= 0; i--) {
-          const p = particles[i];
-          p.x += p.vx;
-          p.y += p.vy;
-          p.vy += 0.018;
-          p.vx *= 0.992;
-          p.life -= 0.012;
-          if (p.life <= 0) {
-            particles.splice(i, 1);
-            continue;
-          }
-          ctx.globalAlpha = Math.max(0, p.life / p.max);
-          ctx.fillStyle = p.color;
-          if (p.spark) {
-            ctx.fillRect(p.x, p.y, p.size * 1.6, p.size * 0.5);
-            ctx.fillRect(p.x, p.y, p.size * 0.5, p.size * 1.6);
-          } else {
-            ctx.beginPath();
-            ctx.arc(p.x, p.y, p.size, 0, Math.PI * 2);
-            ctx.fill();
-          }
-        }
-        ctx.globalAlpha = 1;
+      if (document.hidden) {
+        raf = 0;
+        return;
       }
+      ctx.clearRect(0, 0, window.innerWidth, window.innerHeight);
+      if (now - lastRocket > rocketGap + Math.random() * rocketGap * 0.4) {
+        lastRocket = now;
+        launch();
+      }
+      for (let i = rockets.length - 1; i >= 0; i--) {
+        const r = rockets[i];
+        r.x += r.vx;
+        r.y += r.vy;
+        r.vy += 0.018;
+        r.trail.push({ x: r.x, y: r.y });
+        if (r.trail.length > 14) r.trail.shift();
+        ctx.beginPath();
+        for (let t = 0; t < r.trail.length; t++) {
+          const p = r.trail[t];
+          ctx.strokeStyle = r.color;
+          ctx.globalAlpha = (t / r.trail.length) * 0.55;
+          ctx.lineWidth = 1.6;
+          if (t === 0) ctx.moveTo(p.x, p.y);
+          else ctx.lineTo(p.x, p.y);
+        }
+        ctx.stroke();
+        ctx.globalAlpha = 1;
+        ctx.fillStyle = "#fff6c8";
+        ctx.beginPath();
+        ctx.arc(r.x, r.y, 2.4, 0, Math.PI * 2);
+        ctx.fill();
+        if (r.y <= r.targetY || r.vy >= -0.4) {
+          burst(particles, r.x, r.y);
+          if (!lite && Math.random() > 0.55) {
+            burst(particles, r.x + (Math.random() - 0.5) * 40, r.y + 10);
+          }
+          rockets.splice(i, 1);
+        }
+      }
+      while (particles.length > maxParticles) particles.shift();
+      for (let i = particles.length - 1; i >= 0; i--) {
+        const p = particles[i];
+        p.x += p.vx;
+        p.y += p.vy;
+        p.vy += 0.018;
+        p.vx *= 0.992;
+        p.life -= 0.012;
+        if (p.life <= 0) {
+          particles.splice(i, 1);
+          continue;
+        }
+        ctx.globalAlpha = Math.max(0, p.life / p.max);
+        ctx.fillStyle = p.color;
+        if (p.spark) {
+          ctx.fillRect(p.x, p.y, p.size * 1.6, p.size * 0.5);
+          ctx.fillRect(p.x, p.y, p.size * 0.5, p.size * 1.6);
+        } else {
+          ctx.beginPath();
+          ctx.arc(p.x, p.y, p.size, 0, Math.PI * 2);
+          ctx.fill();
+        }
+      }
+      ctx.globalAlpha = 1;
       raf = window.requestAnimationFrame(tick);
     };
+    const onVisible = () => {
+      if (!document.hidden && running && !raf) raf = window.requestAnimationFrame(tick);
+    };
+    document.addEventListener("visibilitychange", onVisible);
     raf = window.requestAnimationFrame(tick);
     return () => {
       running = false;
       window.cancelAnimationFrame(raf);
+      document.removeEventListener("visibilitychange", onVisible);
       window.removeEventListener("resize", resize);
       particles.length = 0;
       rockets.length = 0;
     };
-  }, []);
+  }, [greeting]);
 
   return (
     <>
