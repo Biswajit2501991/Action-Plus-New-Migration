@@ -154,6 +154,7 @@ export const README_TOPICS: ReadmeTopic[] = [
     summary: "Staff logins, PIN, and which menus each person can open.",
     how: [
       "The staff login screen is a navy glass layout. Username, password, Remember me, Reset my password, and Forgot PIN still work the same way.",
+      "If Alerts has a count, the header pill pulses for a few seconds the first time that staff opens the app that IST day. Opening Alerts or waiting stops it. Items are not marked read.",
       "Forgot PIN asks for the current password or the current PIN, then a new PIN. Security questions come up only if that does not match.",
       "Web view — sections & access is where a menu is turned on or off for a staff login.",
       "A new menu such as Read Me stays off for staff until it is checked there. The owner still sees it.",

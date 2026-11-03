@@ -41,6 +41,22 @@ import { SecretField } from "@/features/auth/secret-field";
 import { useAuthStore } from "@/stores";
 import type { LeaveRequest, StaffUser, Visitor } from "@/types";
 
+const ALERTS_FLASH_MS = 8000;
+
+function istCalendarDayKey(now = new Date()): string {
+  const fmt = new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Asia/Kolkata",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  });
+  return fmt.format(now);
+}
+
+function alertsFlashStorageKey(staffId: string, dayKey: string) {
+  return `apg.alerts.daily-flash:${staffId}:${dayKey}`;
+}
+
 function visitorDisplayName(v: Visitor) {
   return String(v.fullName || v.name || "Visitor").trim();
 }
@@ -87,6 +103,7 @@ export function NotificationCenter() {
   const attendanceRecords = Array.isArray(attendanceData) ? attendanceData : [];
 
   const [open, setOpen] = useState(false);
+  const [flashing, setFlashing] = useState(false);
   const rootRef = useRef<HTMLDivElement | null>(null);
   const [busyLeaveId, setBusyLeaveId] = useState("");
   const [busyVisitorId, setBusyVisitorId] = useState("");
@@ -178,6 +195,35 @@ export function NotificationCenter() {
     callbackPending.length +
     newVisitorPending.length +
     (portalChatUnread > 0 ? 1 : 0);
+
+  const staffId = String(user?.id || "");
+  const flashDayKey = istCalendarDayKey();
+
+  function stopAlertsFlash() {
+    setFlashing(false);
+    if (!staffId) return;
+    try {
+      localStorage.setItem(alertsFlashStorageKey(staffId, flashDayKey), "1");
+    } catch {
+      /* ignore */
+    }
+  }
+
+  useEffect(() => {
+    if (total <= 0 || !staffId) return;
+    try {
+      if (localStorage.getItem(alertsFlashStorageKey(staffId, flashDayKey)) === "1") return;
+    } catch {
+      /* ignore */
+    }
+    setFlashing(true);
+  }, [total, staffId, flashDayKey]);
+
+  useEffect(() => {
+    if (!flashing) return;
+    const t = window.setTimeout(() => stopAlertsFlash(), ALERTS_FLASH_MS);
+    return () => window.clearTimeout(t);
+  }, [flashing, staffId, flashDayKey]);
 
   useEffect(() => {
     if (!open) return;
@@ -348,12 +394,18 @@ export function NotificationCenter() {
     <div className="relative" ref={rootRef}>
       <button
         type="button"
-        onClick={() => setOpen((v) => !v)}
+        onClick={() => {
+          setOpen((v) => {
+            if (!v) stopAlertsFlash();
+            return !v;
+          });
+        }}
         className={cn(
           "relative inline-flex h-9 items-center gap-2 rounded-xl border px-3 text-xs font-semibold transition",
           total
             ? "border-amber-200/80 bg-amber-50/90 text-amber-950 hover:bg-amber-100 dark:border-amber-500/25 dark:bg-amber-950/40 dark:text-amber-100"
             : "border-slate-200/80 bg-white/80 text-slate-600 hover:bg-slate-50 dark:border-white/10 dark:bg-white/[0.04] dark:text-slate-300",
+          flashing && total > 0 ? "apg-alerts-flash" : null,
         )}
         aria-label={total ? `${total} notifications` : "Notifications"}
         aria-expanded={open}
