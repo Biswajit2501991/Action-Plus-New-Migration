@@ -6,7 +6,8 @@ import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { useGymCodes, useSettings } from "@/hooks/use-data";
 import { isAttendancePresenceQrEnabled } from "@/lib/domain/attendance";
-import { attendanceClaimUrl, qrImageUrl } from "@/lib/qr";
+import { attendanceClaimUrl } from "@/lib/qr";
+import { QrCodeImage } from "@/components/qr-code-image";
 import { attendanceApi } from "@/services/api";
 import { useAuthStore } from "@/stores";
 
@@ -114,8 +115,9 @@ export default function AttendanceKioskPage() {
 
       <div className="mt-8 rounded-3xl border border-white/10 bg-white p-4 shadow-2xl">
         {state?.claimUrl ? (
-          <img
-            src={qrImageUrl(state.claimUrl, 320)}
+          <QrCodeImage
+            data={state.claimUrl}
+            size={320}
             alt="Attendance presence QR"
             className="h-72 w-72 sm:h-80 sm:w-80"
           />

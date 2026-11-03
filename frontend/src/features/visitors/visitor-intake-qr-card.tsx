@@ -4,7 +4,8 @@ import { useMemo, useState } from "react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
-import { qrImageUrl, visitorIntakeUrl } from "@/lib/qr";
+import { visitorIntakeUrl } from "@/lib/qr";
+import { QrCodeImage, useQrDataUrl } from "@/components/qr-code-image";
 import { useGymCodes } from "@/hooks/use-data";
 import { useAuthStore } from "@/stores";
 
@@ -15,6 +16,7 @@ export function VisitorIntakeQrCard() {
   const branch = gymCodes.find((g) => String(g.id) === branchId) || gymCodes[0];
   const code = String(branch?.code || "").trim();
   const url = useMemo(() => (code ? visitorIntakeUrl(code) : ""), [code]);
+  const qrSrc = useQrDataUrl(url, 512);
   const [copied, setCopied] = useState(false);
 
   if (!code || !url) return null;
@@ -22,8 +24,9 @@ export function VisitorIntakeQrCard() {
   return (
     <Card className="border-teal-200/60 bg-teal-50/40 dark:border-teal-500/25 dark:bg-teal-950/30">
       <CardContent className="flex flex-col gap-3 p-4 sm:flex-row sm:items-center">
-        <img
-          src={qrImageUrl(url, 160)}
+        <QrCodeImage
+          data={url}
+          size={160}
           alt="Visitor intake QR"
           className="mx-auto h-40 w-40 rounded-xl border border-white bg-white p-2 shadow-sm sm:mx-0"
         />
@@ -68,11 +71,12 @@ export function VisitorIntakeQrCard() {
               Open form
             </Button>
             <a
-              href={qrImageUrl(url, 512)}
-              download={`visitor-qr-${code}.png`}
-              target="_blank"
-              rel="noreferrer"
+              href={qrSrc || "#"}
+              download={qrSrc ? `visitor-qr-${code}.png` : undefined}
               className="inline-flex h-8 items-center rounded-md border border-input bg-background px-3 text-xs font-medium hover:bg-accent"
+              onClick={(e) => {
+                if (!qrSrc) e.preventDefault();
+              }}
             >
               Download QR
             </a>
