@@ -128,8 +128,8 @@ export function PinResetPanel({
           onChange={(e) => onIdentifier(e.target.value)}
           disabled={stage !== "password"}
           className={cn(
-            "mt-2 h-12 w-full rounded-2xl border border-white/10 bg-black/25 px-3.5 text-sm text-white",
-            "placeholder:text-slate-500 outline-none focus:border-teal-400/50",
+            "mt-2 h-12 w-full rounded-2xl border border-white/10 bg-white/[0.04] px-3.5 text-sm text-white",
+            "placeholder:text-[#AAB3C5]/70 outline-none focus:border-[#906BFF]/60 focus:ring-2 focus:ring-[#906BFF]/25",
           )}
           placeholder="Login ID or email"
         />
@@ -152,7 +152,7 @@ export function PinResetPanel({
             <p className="text-xs text-slate-400">{attemptsLeft} attempt{attemptsLeft === 1 ? "" : "s"} left, then security questions.</p>
           ) : null}
           {error ? <p className="text-sm text-rose-200">{error}</p> : null}
-          <button type="button" onClick={() => void onPassword()} disabled={loading || !identifier.trim() || !password} className="h-12 w-full rounded-2xl bg-teal-400 text-sm font-semibold text-slate-950 disabled:opacity-60">
+          <button type="button" onClick={() => void onPassword()} disabled={loading || !identifier.trim() || !password} className="login-cta h-12 w-full rounded-2xl text-sm font-semibold disabled:opacity-60">
             {loading ? "Checking…" : "Continue"}
           </button>
         </div>
@@ -170,12 +170,12 @@ export function PinResetPanel({
                 value={answers[q.key] || ""}
                 onChange={(e) => setAnswers((prev) => ({ ...prev, [q.key]: e.target.value }))}
                 placeholder={q.placeholder}
-                className="mt-1 h-10 w-full rounded-xl border border-white/10 bg-black/25 px-3 text-sm text-white outline-none"
+                className="mt-1 h-10 w-full rounded-xl border border-white/10 bg-white/[0.04] px-3 text-sm text-white outline-none focus:border-[#906BFF]/60"
               />
             </label>
           ))}
           {error ? <p className="text-sm text-rose-200">{error}</p> : null}
-          <button type="button" onClick={() => void onQuestions()} disabled={loading} className="h-12 w-full rounded-2xl bg-teal-400 text-sm font-semibold text-slate-950 disabled:opacity-60">
+          <button type="button" onClick={() => void onQuestions()} disabled={loading} className="login-cta h-12 w-full rounded-2xl text-sm font-semibold disabled:opacity-60">
             {loading ? "Checking…" : "Check answers"}
           </button>
         </div>
@@ -186,7 +186,7 @@ export function PinResetPanel({
           <SecretField id="new-pin" label="New PIN" value={pin} onChange={setPin} placeholder="4 to 8 digits" dark />
           <SecretField id="new-pin-again" label="Confirm PIN" value={pinAgain} onChange={setPinAgain} placeholder="Repeat the PIN" dark />
           {error ? <p className="text-sm text-rose-200">{error}</p> : null}
-          <button type="button" onClick={() => void onSetPin()} disabled={loading} className="h-12 w-full rounded-2xl bg-teal-400 text-sm font-semibold text-slate-950 disabled:opacity-60">
+          <button type="button" onClick={() => void onSetPin()} disabled={loading} className="login-cta h-12 w-full rounded-2xl text-sm font-semibold disabled:opacity-60">
             {loading ? "Saving…" : "Set PIN"}
           </button>
         </div>
@@ -198,7 +198,7 @@ export function PinResetPanel({
             The answers did not match. Ask the owner to reset your PIN. You will get a temporary password that works for 6 hours, then you set a new PIN.
           </p>
           {error ? <p className="text-sm text-rose-200">{error}</p> : null}
-          <button type="button" disabled={loading} onClick={() => void onRequest()} className="h-12 w-full rounded-2xl bg-teal-400 text-sm font-semibold text-slate-950 disabled:opacity-60">
+          <button type="button" disabled={loading} onClick={() => void onRequest()} className="login-cta h-12 w-full rounded-2xl text-sm font-semibold disabled:opacity-60">
             {loading ? "Sending…" : "Request owner reset"}
           </button>
         </div>
@@ -212,7 +212,7 @@ export function PinResetPanel({
         </p>
       ) : null}
 
-      <button type="button" className="w-full text-center text-sm text-teal-300/90 hover:text-teal-200" onClick={onBack}>
+      <button type="button" className="w-full text-center text-sm text-[#C4B5FD] hover:text-white" onClick={onBack}>
         Back to sign in
       </button>
     </div>
