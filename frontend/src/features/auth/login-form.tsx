@@ -148,7 +148,7 @@ export function LoginForm() {
 
         <form
           onSubmit={onSubmit}
-          className="login-panel relative w-full max-w-[440px] justify-self-center rounded-[1.75rem] border border-[#C4B5FD]/20 bg-[#0B1020]/55 p-7 shadow-[0_40px_100px_-28px_rgba(0,0,0,0.75),0_0_80px_-24px_rgba(144,107,255,0.45)] backdrop-blur-2xl sm:p-9 lg:justify-self-end"
+          className="login-panel relative w-full max-w-[440px] justify-self-center rounded-[1.75rem] border border-[#C4B5FD]/25 bg-[#0B1020]/80 p-7 shadow-[0_40px_100px_-28px_rgba(0,0,0,0.75),0_0_80px_-24px_rgba(144,107,255,0.45)] backdrop-blur-2xl sm:p-9 lg:justify-self-end"
         >
           <div className="flex flex-col items-center text-center lg:items-start lg:text-left">
             <div className="login-logo relative h-14 w-14 overflow-hidden rounded-full ring-1 ring-[#C4B5FD]/30 lg:hidden">
