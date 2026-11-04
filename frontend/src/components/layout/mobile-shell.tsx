@@ -143,29 +143,35 @@ export function MobileShell({ children }: { children: React.ReactNode }) {
           ) : null}
         </div>
 
-        <div className="mt-3 flex items-center gap-2">
+        <div className="mt-3 flex min-w-0 items-center gap-2">
           <button
             type="button"
             onClick={() => setCommandOpen(true)}
-            className="flex h-11 flex-1 items-center gap-2 rounded-2xl border border-black/5 bg-white/80 px-3.5 text-left text-sm text-slate-500 shadow-sm dark:border-white/8 dark:bg-white/[0.04] dark:text-slate-400"
+            className="flex h-11 min-w-0 flex-1 items-center gap-2 rounded-2xl border border-black/5 bg-white/80 px-3.5 text-left text-sm text-slate-500 shadow-sm dark:border-white/8 dark:bg-white/[0.04] dark:text-slate-400"
           >
             <Search className="h-4 w-4 shrink-0" />
             <span className="truncate">Search members…</span>
           </button>
-          <HistoryControls />
-          <NotificationCenter />
+          <div className="shrink-0">
+            <HistoryControls />
+          </div>
+          <div className="shrink-0">
+            <NotificationCenter />
+          </div>
           {showBranchSwitcher ? (
-            <Select
-              className="h-11 w-[7.5rem] rounded-2xl border-black/5 bg-white/80 text-xs dark:border-white/8 dark:bg-white/[0.04]"
-              value={user?.activeBranchId || user?.gymCodeId || ""}
-              onChange={(e) => void changeBranch(e.target.value)}
-            >
-              {switchableBranches.map((g) => (
-                <option key={g.id} value={g.id}>
-                  {g.name || g.label || g.code || g.id}
-                </option>
-              ))}
-            </Select>
+            <div className="w-[7.5rem] min-w-0 max-w-[7.5rem] shrink-0 overflow-hidden">
+              <Select
+                className="h-11 w-full min-w-0 max-w-full rounded-2xl border-black/5 bg-white/80 text-xs dark:border-white/8 dark:bg-white/[0.04]"
+                value={user?.activeBranchId || user?.gymCodeId || ""}
+                onChange={(e) => void changeBranch(e.target.value)}
+              >
+                {switchableBranches.map((g) => (
+                  <option key={g.id} value={g.id}>
+                    {g.name || g.label || g.code || g.id}
+                  </option>
+                ))}
+              </Select>
+            </div>
           ) : null}
         </div>
         {(canViewOwnSalary || canLateNote) ? (
