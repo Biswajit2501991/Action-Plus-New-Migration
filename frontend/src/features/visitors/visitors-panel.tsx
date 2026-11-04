@@ -26,8 +26,16 @@ import { useAuthStore, useUiStore } from "@/stores";
 import { useSettings } from "@/hooks/use-data";
 import type { Visitor } from "@/types";
 
+const PAGE_SIZE = 10;
+
+type VisitorStatusFilter = "all" | "converted" | "open";
+
 function displayName(v: Visitor) {
   return String(v.fullName || v.name || "Visitor").trim();
+}
+
+function isConvertedVisitor(v: Visitor) {
+  return String(v.status || "") === "Converted";
 }
 
 function NewVisitorBadge({ timestamp }: { timestamp?: string | null }) {
@@ -59,6 +67,8 @@ export function VisitorsPanel({ visitors }: Props) {
   const [formOpen, setFormOpen] = useState(false);
   const [editing, setEditing] = useState<Visitor | null>(null);
   const [expandedId, setExpandedId] = useState("");
+  const [statusFilter, setStatusFilter] = useState<VisitorStatusFilter>("all");
+  const [page, setPage] = useState(1);
 
   useEffect(() => {
     void qc.invalidateQueries({ queryKey: ["visitors"] });
@@ -91,6 +101,35 @@ export function VisitorsPanel({ visitors }: Props) {
       return bMs - aMs;
     });
   }, [visitors]);
+
+  const statusCounts = useMemo(() => {
+    let converted = 0;
+    for (const visitor of sorted) {
+      if (isConvertedVisitor(visitor)) converted += 1;
+    }
+    return {
+      all: sorted.length,
+      converted,
+      open: sorted.length - converted,
+    };
+  }, [sorted]);
+
+  const filtered = useMemo(() => {
+    if (statusFilter === "converted") return sorted.filter(isConvertedVisitor);
+    if (statusFilter === "open") return sorted.filter((visitor) => !isConvertedVisitor(visitor));
+    return sorted;
+  }, [sorted, statusFilter]);
+
+  const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
+  const safePage = Math.min(page, totalPages);
+  const start = (safePage - 1) * PAGE_SIZE;
+  const pageList = filtered.slice(start, start + PAGE_SIZE);
+
+  const chooseFilter = (next: VisitorStatusFilter) => {
+    setStatusFilter(next);
+    setPage(1);
+    setExpandedId("");
+  };
 
   const save = useMutation({
     mutationFn: async (values: VisitorFormValues) => {
@@ -193,13 +232,43 @@ export function VisitorsPanel({ visitors }: Props) {
             ) : null}
           </div>
 
+          <div className="flex flex-wrap items-center gap-1.5" role="group" aria-label="Visitor status">
+            {(
+              [
+                ["all", `All (${statusCounts.all})`],
+                ["converted", `Converted (${statusCounts.converted})`],
+                ["open", `Not converted (${statusCounts.open})`],
+              ] as const
+            ).map(([key, label]) => (
+              <button
+                key={key}
+                type="button"
+                aria-pressed={statusFilter === key}
+                className={cn(
+                  "rounded-full px-2.5 py-1 text-xs font-medium",
+                  statusFilter === key
+                    ? "bg-slate-900 text-white dark:bg-teal-400 dark:text-slate-950"
+                    : "bg-slate-100 text-slate-600 hover:bg-slate-200 dark:bg-white/10 dark:text-slate-300",
+                )}
+                onClick={() => chooseFilter(key)}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+
           {canWrite && qrVisitorEnabled ? <VisitorIntakeQrCard /> : null}
 
           {!sorted.length ? (
             <EmptyState title="No visitors yet" description="Add a walk-in or phone enquiry." />
+          ) : !filtered.length ? (
+            <EmptyState
+              title={statusFilter === "converted" ? "No converted visitors" : "No visitors still open"}
+              description="This filter only hides cards. Visitor records stay as they are."
+            />
           ) : (
             <div className="space-y-2">
-              {sorted.map((v) => {
+              {pageList.map((v) => {
                 const expanded = expandedId === v.id;
                 const converted = String(v.status || "") === "Converted";
                 const isNew = isRecordNewWithinHours(String(v.addedAt || v.visitDate || ""), 48);
@@ -406,6 +475,32 @@ export function VisitorsPanel({ visitors }: Props) {
               })}
             </div>
           )}
+
+          {filtered.length > PAGE_SIZE ? (
+            <div className="flex items-center justify-between border-t border-slate-100 pt-3 text-sm dark:border-white/10">
+              <div className="text-slate-500">
+                Showing {start + 1}–{Math.min(start + PAGE_SIZE, filtered.length)} of {filtered.length}
+              </div>
+              <div className="flex gap-2">
+                <Button
+                  size="sm"
+                  variant="outline"
+                  disabled={safePage <= 1}
+                  onClick={() => setPage(Math.max(1, safePage - 1))}
+                >
+                  Prev
+                </Button>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  disabled={safePage >= totalPages}
+                  onClick={() => setPage(Math.min(totalPages, safePage + 1))}
+                >
+                  Next
+                </Button>
+              </div>
+            </div>
+          ) : null}
         </CardContent>
       </Card>
 
