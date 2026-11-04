@@ -32,6 +32,7 @@ export const README_TOPICS: ReadmeTopic[] = [
       "The home counts for the gym: active, hold, deactivated, cancelled, and collected revenue.",
     how: [
       "Collected Revenue can sit under a gray cover until Show is tapped. The number underneath does not change.",
+      "Tap Collected Revenue to see this month’s member payments and logged expenses. The box amount stays the same. Open Finance for the full expense section. Nothing is saved from that popup.",
       "Tile cover is on the Dashboard header and is for the master owner. It can also cover the revenue trend and recent payments. Member counts stay clear.",
       "Show lasts for this visit on this browser. Leaving or refreshing covers the number again.",
       "Branch staff see their own branch. Soft-deleted members stay out of the counts.",

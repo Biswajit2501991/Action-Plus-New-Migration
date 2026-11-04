@@ -346,3 +346,14 @@ export function buildClientMonthlyReconciliation(
 export function expenseRowsForMonth(ledger: FinanceLedgerRow[], monthKey: string) {
   return (ledger || []).filter((t) => t.type === "expense" && txMonthKey(t) === monthKey);
 }
+
+/** Same month rules as `sumCollectedIncomeForMonthKey`, as rows. */
+export function collectedIncomeRowsForMonth(ledger: FinanceLedgerRow[], monthKey: string) {
+  return (ledger || []).filter(
+    (t) =>
+      t &&
+      t.type !== "expense" &&
+      String(t.status || "").toLowerCase() !== "pending" &&
+      txMonthKey(t) === monthKey,
+  );
+}

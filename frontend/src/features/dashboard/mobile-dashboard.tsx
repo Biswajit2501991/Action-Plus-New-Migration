@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { ChevronRight } from "lucide-react";
 import { AccentMetricCard } from "@/components/ui/accent-metric-card";
@@ -16,11 +16,13 @@ import { useAuthStore } from "@/stores";
 import { MemberAvatar } from "@/components/member-avatar";
 import { useMemberPhotoHydration } from "@/hooks/use-member-photo-hydration";
 import { useMobileFeatureAccess } from "@/components/layout/mobile-access-guard";
+import { CollectedRevenueDialog } from "@/features/dashboard/collected-revenue-dialog";
 
 export function MobileDashboard() {
   const router = useRouter();
   const user = useAuthStore((s) => s.user);
   const month = formatMonthKey(new Date());
+  const [revenueOpen, setRevenueOpen] = useState(false);
   const { data: members = [], isLoading: loadingMembers } = useMembers();
   const { data: finance, isLoading: loadingFinance } = useFinance(month);
   const { data: settings } = useSettings();
@@ -115,7 +117,13 @@ export function MobileDashboard() {
           tag="Revenue"
           value={formatCurrency(collectedRevenue)}
           tone="teal"
-          hint={`${growthRate >= 0 ? "+" : ""}${growthRate}% vs last month · Profit est. ${formatCurrency(profit)}`}
+          onClick={() => setRevenueOpen(true)}
+          hint={
+            <>
+              {`${growthRate >= 0 ? "+" : ""}${growthRate}% vs last month · Profit est. ${formatCurrency(profit)}`}
+              <span className="mt-1 block underline underline-offset-2">View this month</span>
+            </>
+          }
         />
         )
       ) : null}
@@ -167,6 +175,16 @@ export function MobileDashboard() {
           </ul>
         </MobilePanel>
       ) : null}
+
+      <CollectedRevenueDialog
+        open={revenueOpen}
+        monthKey={month}
+        collectedRevenue={collectedRevenue}
+        members={members}
+        transactions={finance?.transactions || []}
+        canViewExpenses={hasAccess(user, "finance", "viewExpenseCard")}
+        onClose={() => setRevenueOpen(false)}
+      />
     </div>
   );
 }

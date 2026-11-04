@@ -43,6 +43,7 @@ import {
   useDashboardCoverPrefs,
 } from "@/features/dashboard/dashboard-privacy-cover";
 import type { DashboardCoverTileId } from "@/features/dashboard/dashboard-privacy";
+import { CollectedRevenueDialog } from "@/features/dashboard/collected-revenue-dialog";
 import { useAuthStore, useUiStore } from "@/stores";
 import type { Member } from "@/types";
 import { MessagePreviewModal } from "@/features/whatsapp/message-preview-modal";
@@ -161,6 +162,7 @@ export function DashboardPage() {
   const [searchActive, setSearchActive] = useState(false);
   const [coverSettingsOpen, setCoverSettingsOpen] = useState(false);
   const [coverRevealed, setCoverRevealed] = useState<Partial<Record<DashboardCoverTileId, boolean>>>({});
+  const [revenueOpen, setRevenueOpen] = useState(false);
   const isOwner = isMasterOwnerUser(user);
   const { prefs: coverPrefs, update: updateCoverPrefs } = useDashboardCoverPrefs(
     String(user?.gymId || ""),
@@ -518,6 +520,7 @@ export function DashboardPage() {
                 tag="This month"
                 value={formatCurrency(collectedRevenue)}
                 tone="teal"
+                onClick={() => setRevenueOpen(true)}
                 hint={
                   <>
                     Payment received this month
@@ -529,6 +532,7 @@ export function DashboardPage() {
                     <span className="mt-1 block text-current/80">
                       Profit (est.): {formatCurrency(profit)}
                     </span>
+                    <span className="mt-1 block underline underline-offset-2">View this month</span>
                   </>
                 }
               />
@@ -812,6 +816,16 @@ export function DashboardPage() {
         sending={waSending}
         onClose={closeWhatsAppPreview}
         onSend={() => void confirmWhatsAppSend()}
+      />
+
+      <CollectedRevenueDialog
+        open={revenueOpen}
+        monthKey={month}
+        collectedRevenue={collectedRevenue}
+        members={members}
+        transactions={finance?.transactions || []}
+        canViewExpenses={hasAccess(user, "finance", "viewExpenseCard")}
+        onClose={() => setRevenueOpen(false)}
       />
 
       <MemberMetricModal
