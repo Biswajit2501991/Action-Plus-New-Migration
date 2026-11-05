@@ -244,6 +244,32 @@ export function getSmsSentInfoText(
   return meta.sentBy ? `Sent ${when} (${tz}) by ${meta.sentBy}` : `Sent ${when} (${tz})`;
 }
 
+/**
+ * Label for a reminder already sent in the current billing cycle.
+ * Reads the same fields as the Members “Reminder Sent” button. Does not write.
+ */
+export function currentBillingReminderSentText(
+  member: Member | null | undefined,
+  tz = "IST",
+) {
+  if (!member) return "";
+  let bestMs = -1;
+  let best = "";
+  for (const key of ["reminder", "monthReminder"] as const) {
+    const text = getSmsSentInfoText(member, key, tz);
+    if (!text) continue;
+    const meta = getLastWhatsAppSendMeta(member, key);
+    const ms = meta?.sentAt ? new Date(meta.sentAt).getTime() : 0;
+    if (ms >= bestMs) {
+      bestMs = Number.isFinite(ms) ? ms : 0;
+      best = text;
+    }
+  }
+  if (best) return `Reminder sent · ${best}`;
+  if (reminderSentForCurrentBilling(member)) return "Reminder sent";
+  return "";
+}
+
 export type LatestInjuryNote = {
   id?: string;
   text?: string;
