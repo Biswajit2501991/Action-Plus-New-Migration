@@ -17,6 +17,7 @@ import {
   overdueDaysForMember,
   paymentByDateKey,
   inactiveDurationLabel,
+  monthsBetweenCalendarDates,
 } from "@/lib/domain/billing";
 import { cn, formatCurrency } from "@/lib/utils";
 import { formatMemberBirthday, isMemberBirthdayToday } from "@/lib/domain/members";
@@ -57,6 +58,37 @@ function statusDot(status?: string) {
   if (status === "Hold") return "bg-amber-500";
   if (status === "Deactivated") return "bg-pink-500";
   return "bg-slate-400";
+}
+
+function latestPaymentAt(member: Member) {
+  const list = Array.isArray(member.paymentHistory) ? member.paymentHistory : [];
+  let bestMs = 0;
+  let best = "";
+  for (const row of list) {
+    const raw = String(row?.paidAt || row?.paid_at || "").trim();
+    const ms = new Date(raw).getTime();
+    if (!raw || !Number.isFinite(ms) || ms < bestMs) continue;
+    bestMs = ms;
+    best = raw;
+  }
+  return best;
+}
+
+/** Saved hold length, staff note, and the hold note already shown on the record. */
+function memberStatusNote(member: Member) {
+  const status = String(member.status || "").trim().toLowerCase();
+  if (status !== "hold" && status !== "deactivated") return "";
+  const parts: string[] = [];
+  const duration = String(member.holdDuration || "").trim();
+  if (duration) parts.push(duration);
+  const notes = String(member.notes || "").trim();
+  if (notes) parts.push(notes.length > 72 ? `${notes.slice(0, 69)}…` : notes);
+  if (status === "hold") {
+    const months = monthsBetweenCalendarDates(member.billingDate);
+    if (months > 12) parts.push("Full Admission is mandatory");
+    else if (months > 6) parts.push("Readmission fee mandatory");
+  }
+  return parts.join(" · ");
 }
 
 async function copyMobileNumber(mobile: string) {
@@ -129,6 +161,9 @@ export function MemberCardRow({
   const birthdayToday = isMemberBirthdayToday(m.dob);
   const hasMobile = Boolean(String(m.mobile || "").trim());
   const birthdaySentText = getSmsSentInfoText(m, "birthday");
+  const statusNote = memberStatusNote(m);
+  const lastPaidRaw = latestPaymentAt(m);
+  const lastPaidLabel = lastPaidRaw ? `Last paid ${fmtDate(lastPaidRaw)}` : "No payment saved";
 
   return (
     <div className="space-y-0">
@@ -210,9 +245,15 @@ export function MemberCardRow({
             {inactiveDuration ? (
               <p className="text-[11px] font-semibold text-amber-800 dark:text-amber-300">{inactiveDuration}</p>
             ) : null}
+            {statusNote ? (
+              <p className="text-[11px] leading-snug text-slate-600 dark:text-slate-300" title={statusNote}>
+                {statusNote}
+              </p>
+            ) : null}
             <p className="mt-0.5 text-[12px] font-semibold tabular-nums text-slate-900 dark:text-slate-50">
               {formatCurrency(Number(m.amount || 0))}
             </p>
+            <p className="text-[11px] text-slate-500 dark:text-slate-400">{lastPaidLabel}</p>
             <button
               type="button"
               className="text-[11px] text-slate-600 underline decoration-slate-300 underline-offset-2 dark:text-slate-300"
@@ -359,6 +400,8 @@ export function MemberCardRow({
               <span className="shrink-0 tabular-nums text-slate-700 dark:text-slate-200">
                 {formatCurrency(Number(m.amount || 0))}
               </span>
+              <span aria-hidden>·</span>
+              <span className="truncate">{lastPaidLabel}</span>
             </span>
           </span>
         </span>
@@ -384,6 +427,14 @@ export function MemberCardRow({
               )}
             >
               {inactiveDuration}
+            </span>
+          ) : null}
+          {statusNote ? (
+            <span
+              className="block max-w-[9rem] truncate text-[9px] font-medium text-slate-500 dark:text-slate-400"
+              title={statusNote}
+            >
+              {statusNote}
             </span>
           ) : null}
           {overdue ? (
