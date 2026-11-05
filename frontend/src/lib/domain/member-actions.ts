@@ -121,6 +121,16 @@ export function primaryMessageActionForMember(
   return { key: "none", label: "", disabled: true };
 }
 
+/** Active member whose bill is due and who has not been sent a reminder for this bill. */
+export function memberNeedsBillingReminder(
+  member: Member | null | undefined,
+  opts: Parameters<typeof primaryMessageActionForMember>[1] = {},
+) {
+  if (!member) return false;
+  const action = primaryMessageActionForMember(member, opts);
+  return action.key === "reminder" && !reminderSentForCurrentBilling(member);
+}
+
 export function isBillingToday(member: Member, asOfKey?: string | null) {
   const today = asOfKey || localTodayCalendarKey();
   const billing = localCalendarDateKey(member.billingDate);
