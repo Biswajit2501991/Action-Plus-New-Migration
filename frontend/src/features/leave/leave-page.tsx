@@ -80,6 +80,7 @@ export function LeavePage() {
     reason: "",
   });
   const [formError, setFormError] = useState("");
+  const [pendingOnly, setPendingOnly] = useState(false);
   const [historyFilter, setHistoryFilter] = useState("");
 
   // Keep form userId in sync once user loads
@@ -465,15 +466,34 @@ export function LeavePage() {
 
       {showRequests ? (
         <Card className="border-slate-200 shadow-sm dark:border-border">
-          <div className="border-b border-slate-100 px-4 py-3 dark:border-border">
-            <h2 className="text-sm font-semibold">Leave Requests</h2>
-            <p className="text-xs text-muted-foreground">
-              {leaveRequests.length} total
-              {!isOwnerView ? " · your requests only" : ""}
-            </p>
+          <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-100 px-4 py-3 dark:border-border">
+            <div>
+              <h2 className="text-sm font-semibold">Leave Requests</h2>
+              <p className="text-xs text-muted-foreground">
+                {leaveRequests.length} total
+                {!isOwnerView ? " · your requests only" : ""}
+              </p>
+            </div>
+            <button
+              type="button"
+              aria-pressed={pendingOnly}
+              className={cn(
+                "rounded-full border px-3 py-1.5 text-xs font-semibold",
+                pendingOnly
+                  ? "border-amber-400 bg-amber-100 text-amber-900 dark:border-amber-500/40 dark:bg-amber-950/50 dark:text-amber-100"
+                  : "border-amber-200 bg-amber-50 text-amber-800 dark:border-amber-500/30 dark:bg-amber-950/30 dark:text-amber-200",
+              )}
+              onClick={() => setPendingOnly((open) => !open)}
+            >
+              Waiting for approval ·{" "}
+              {leaveRequests.filter((row) => normalizeLeaveStatus(row.status) === "Pending").length}
+            </button>
           </div>
           <CardContent className="space-y-2 p-4">
-            {leaveRequests.map((r) => {
+            {(pendingOnly
+              ? leaveRequests.filter((row) => normalizeLeaveStatus(row.status) === "Pending")
+              : leaveRequests
+            ).map((r) => {
               const status = normalizeLeaveStatus(r.status);
               return (
                 <div
@@ -518,6 +538,12 @@ export function LeavePage() {
                 </div>
               );
             })}
+            {pendingOnly &&
+            !leaveRequests.some((row) => normalizeLeaveStatus(row.status) === "Pending") ? (
+              <p className="py-4 text-center text-sm text-muted-foreground">
+                No requests are waiting for approval.
+              </p>
+            ) : null}
             {!leaveRequests.length ? (
               <EmptyState title="No leave requests" description="Submitted leave will appear here." />
             ) : null}

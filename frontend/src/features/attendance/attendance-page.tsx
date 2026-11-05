@@ -203,6 +203,12 @@ export function AttendancePage() {
   const leaveCount = staff.filter(
     (s) => (recordMap.get(attendanceRecordKey(date, s.id))?.status || "") === "Leave",
   ).length;
+  const unmarkedToday =
+    date === today
+      ? staff.filter(
+          (s) => !String(recordMap.get(attendanceRecordKey(date, s.id))?.status || "").trim(),
+        )
+      : [];
 
   const upsertMutation = useMutation({
     mutationFn: async ({ userId, patch }: { userId: string; patch: Partial<AttendanceRecord> }) => {
@@ -357,6 +363,23 @@ export function AttendancePage() {
         </div>
       </div>
 
+      {unmarkedToday.length ? (
+        <button
+          type="button"
+          className="inline-flex items-center rounded-full border border-slate-300 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-50 dark:border-white/10 dark:bg-slate-900 dark:text-slate-200"
+          onClick={() => {
+            const first = unmarkedToday[0];
+            if (!first) return;
+            document.getElementById(`attendance-staff-${first.id}`)?.scrollIntoView({
+              behavior: "smooth",
+              block: "center",
+            });
+          }}
+        >
+          Not marked today · {unmarkedToday.length}
+        </button>
+      ) : null}
+
       <Card className="overflow-hidden border-slate-200 shadow-sm dark:border-border">
         <CardContent className="space-y-2 p-3 sm:p-4">
           {!staff.length ? (
@@ -384,6 +407,7 @@ export function AttendancePage() {
               return (
                 <div
                   key={s.id}
+                  id={`attendance-staff-${s.id}`}
                   className="overflow-hidden rounded-2xl border border-slate-200 bg-white dark:border-border dark:bg-card"
                 >
                   <button

@@ -8,6 +8,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { useMembers, useSettings, useWhatsapp } from "@/hooks/use-data";
 import { useAuthStore } from "@/stores";
+import type { Member } from "@/types";
 import {
   getSmsSentInfoText,
   primaryMessageActionForMember,
@@ -15,6 +16,7 @@ import {
 import { paymentByDateKey } from "@/lib/domain/billing";
 import { nextPaymentDateFromBillingDate } from "@/lib/domain/member-dates";
 import {
+  composeWhatsAppMessage,
   membersByWhatsAppType,
   suggestionToneClasses,
   smsTypeLabel,
@@ -62,6 +64,13 @@ export function WhatsappPage() {
     map.templates = WHATSAPP_TEMPLATE_KEYS.length;
     return map;
   }, [byType]);
+
+  const audience = activeType === "templates" ? [] : byType[activeType] || [];
+  const sampleMember = audience.find((m) => String(m.mobile || "").trim());
+  const sampleMessage = useMemo(() => {
+    if (!sampleMember || activeType === "templates") return "";
+    return composeWhatsAppMessage(sampleMember, activeType, templates).message;
+  }, [sampleMember, activeType, templates]);
 
   const rows = useMemo(() => {
     if (activeType === "templates") return [];
@@ -180,6 +189,12 @@ export function WhatsappPage() {
                 </div>
               </div>
             </div>
+
+            <SendAudience
+              members={audience}
+              message={sampleMessage}
+              sampleName={sampleMember?.name || sampleMember?.memberId || ""}
+            />
 
             <div className="overflow-x-auto rounded-2xl border border-slate-200 dark:border-white/8 dark:bg-slate-950/40">
               <table className="min-w-full hidden text-sm md:table">
@@ -409,6 +424,48 @@ export function WhatsappPage() {
         onClose={closePreview}
         onSend={() => void confirmSend()}
       />
+    </div>
+  );
+}
+
+function SendAudience({
+  members,
+  message,
+  sampleName,
+}: {
+  members: Member[];
+  message: string;
+  sampleName: string;
+}) {
+  if (!members.length) return null;
+  return (
+    <div className="rounded-2xl border border-slate-200 bg-slate-50/80 p-3 dark:border-white/10 dark:bg-slate-900/40">
+      <p className="text-xs font-semibold text-slate-700 dark:text-slate-200">
+        Before send · {members.length} {members.length === 1 ? "person" : "people"}
+      </p>
+      {message ? (
+        <p className="mt-2 whitespace-pre-wrap text-xs leading-relaxed text-slate-600 dark:text-slate-300">
+          {sampleName ? `Example for ${sampleName}: ` : null}
+          {message}
+        </p>
+      ) : (
+        <p className="mt-2 text-xs text-slate-500">
+          No mobile number is saved for this list, so there is no message to show.
+        </p>
+      )}
+      <ul className="mt-2 max-h-36 space-y-1 overflow-auto text-xs">
+        {members.map((m) => {
+          const mobile = String(m.mobile || "").trim();
+          return (
+            <li key={m.memberId} className="flex items-center justify-between gap-3">
+              <span className="truncate font-medium">{m.name || m.memberId}</span>
+              <span className={mobile ? "text-slate-500" : "font-semibold text-rose-600"}>
+                {mobile || "No mobile"}
+              </span>
+            </li>
+          );
+        })}
+      </ul>
     </div>
   );
 }

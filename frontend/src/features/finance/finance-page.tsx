@@ -45,6 +45,7 @@ export function FinancePage() {
   const [typeFilter, setTypeFilter] = useState<TypeFilter>("all");
   const [search, setSearch] = useState("");
   const [page, setPage] = useState(1);
+  const [expenseCategory, setExpenseCategory] = useState("");
   const [showExpenseForm, setShowExpenseForm] = useState(false);
   const [expense, setExpense] = useState({
     amount: "",
@@ -191,6 +192,17 @@ export function FinancePage() {
     () => expenseRowsForMonth(ledger, month),
     [ledger, month],
   );
+  const expenseCategoryLabel = (row: { category?: string; memberName?: string }) =>
+    String(row.category || row.memberName || "General");
+  const expenseCategories = useMemo(() => {
+    const names = new Set<string>();
+    for (const row of expenseMonthRows) names.add(expenseCategoryLabel(row));
+    return [...names].sort((a, b) => a.localeCompare(b));
+  }, [expenseMonthRows]);
+  const visibleExpenseRows =
+    expenseCategory && expenseCategories.includes(expenseCategory)
+      ? expenseMonthRows.filter((row) => expenseCategoryLabel(row) === expenseCategory)
+      : expenseMonthRows;
 
   const addExpense = useMutation({
     mutationFn: async () => {
@@ -367,6 +379,25 @@ export function FinancePage() {
             {tab.label}
           </button>
         ))}
+      </div>
+
+      <div className="flex flex-wrap items-center gap-x-4 gap-y-1 rounded-xl border border-slate-200 bg-white/80 px-3 py-2 text-sm dark:border-border dark:bg-card">
+        <span className="text-xs font-medium text-muted-foreground">{month}</span>
+        {canRevenue ? (
+          <span>
+            Collected <span className="font-semibold">{formatCurrency(collectedRevenue)}</span>
+          </span>
+        ) : null}
+        {canExpenseCard ? (
+          <span>
+            Expenses <span className="font-semibold">{formatCurrency(expenseTotal)}</span>
+          </span>
+        ) : null}
+        {canProfit ? (
+          <span>
+            Profit <span className="font-semibold">{formatCurrency(profit)}</span>
+          </span>
+        ) : null}
       </div>
 
       <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
@@ -695,6 +726,37 @@ export function FinancePage() {
                 </Button>
               ) : null}
             </div>
+            {expenseCategories.length ? (
+              <div className="flex flex-wrap gap-1.5">
+                <button
+                  type="button"
+                  className={cn(
+                    "rounded-full border px-2.5 py-1 text-[11px] font-semibold",
+                    !expenseCategory
+                      ? "border-slate-900 bg-slate-900 text-white dark:border-teal-400 dark:bg-teal-400 dark:text-slate-950"
+                      : "border-slate-200 text-slate-600 dark:border-border",
+                  )}
+                  onClick={() => setExpenseCategory("")}
+                >
+                  All
+                </button>
+                {expenseCategories.map((name) => (
+                  <button
+                    key={name}
+                    type="button"
+                    className={cn(
+                      "rounded-full border px-2.5 py-1 text-[11px] font-semibold",
+                      expenseCategory === name
+                        ? "border-slate-900 bg-slate-900 text-white dark:border-teal-400 dark:bg-teal-400 dark:text-slate-950"
+                        : "border-slate-200 text-slate-600 dark:border-border",
+                    )}
+                    onClick={() => setExpenseCategory(name)}
+                  >
+                    {name}
+                  </button>
+                ))}
+              </div>
+            ) : null}
             <div className="overflow-x-auto rounded-2xl border border-slate-200 dark:border-border">
               <table className="min-w-full text-sm">
                 <thead>
@@ -709,7 +771,7 @@ export function FinancePage() {
                   </tr>
                 </thead>
                 <tbody>
-                  {expenseMonthRows.map((r) => (
+                  {visibleExpenseRows.map((r) => (
                     <tr key={r.id} className="border-t border-slate-100 dark:border-border">
                       <td className="whitespace-nowrap px-3 py-2">{formatDate(r.date)}</td>
                       <td className="px-3 py-2">{r.category || r.memberName || "General"}</td>
