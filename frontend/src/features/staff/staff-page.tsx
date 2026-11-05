@@ -29,6 +29,7 @@ import {
 import { StaffSectionsAccessEditor } from "@/features/staff/staff-sections-access";
 import { RoleTemplatesPanel } from "@/features/staff/role-templates-panel";
 import { SalaryCalculatorPanel } from "@/features/staff/auto-salary-calculator/salary-calculator-panel";
+import { useStaffDeskLabels } from "@/features/staff/staff-desk-label";
 import { useAuthStore, useBranchStore } from "@/stores";
 import { cn } from "@/lib/utils";
 import type { AccessMap, GymCode, StaffUser } from "@/types";
@@ -154,6 +155,7 @@ export function StaffPage() {
     () => (showDeletedStaff ? users : users.filter((u) => !u.blocked)),
     [users, showDeletedStaff],
   );
+  const deskLabels = useStaffDeskLabels(users);
 
   const editingUser = useMemo(
     () => (editingId ? users.find((u) => u.id === editingId) || null : null),
@@ -530,6 +532,18 @@ export function StaffPage() {
                               {u.email ? ` · ${u.email}` : ""}
                             </span>
                           </span>
+                          {deskLabels.get(u.id) ? (
+                            <span
+                              className={cn(
+                                "inline-flex shrink-0 rounded-full px-2 py-0.5 text-[10px] font-semibold",
+                                deskLabels.get(u.id) === "On leave"
+                                  ? "bg-amber-100 text-amber-900 dark:bg-amber-950/50 dark:text-amber-100"
+                                  : "bg-teal-100 text-teal-900 dark:bg-teal-950/50 dark:text-teal-100",
+                              )}
+                            >
+                              {deskLabels.get(u.id)}
+                            </span>
+                          ) : null}
                         </div>
                       </td>
                       {isOwner ? (

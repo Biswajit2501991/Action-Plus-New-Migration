@@ -327,7 +327,10 @@ export function PortalPushBroadcastPanel() {
   const recentJobs = jobs.filter((j) => j.status !== "pending" && j.status !== "running").slice(0, 10);
 
   return (
-    <div className="space-y-3 rounded-2xl border border-violet-200/70 bg-gradient-to-b from-violet-50/40 to-white p-4 dark:border-violet-900/40 dark:from-violet-950/20 dark:to-card">
+    <div
+      id="settings-broadcast"
+      className="scroll-mt-24 space-y-3 rounded-2xl border border-violet-200/70 bg-gradient-to-b from-violet-50/40 to-white p-4 dark:border-violet-900/40 dark:from-violet-950/20 dark:to-card"
+    >
       <div>
         <p className="text-sm font-medium text-foreground">Broadcast to members</p>
         <p className="mt-0.5 text-[11px] leading-relaxed text-muted-foreground">

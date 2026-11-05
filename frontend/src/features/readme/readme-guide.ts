@@ -21,6 +21,7 @@ export const README_TOPICS: ReadmeTopic[] = [
     how: [
       "Each block says what a part of the app does and how to use it.",
       "You see the blocks for menus you can already open. The owner sees the full guide.",
+      "On a phone, the header names the open section, such as Members or Finance, next to the staff role.",
       "Staff see Read Me only after it is turned on under Staff → Web view — sections & access.",
     ],
   },
@@ -71,6 +72,15 @@ export const README_TOPICS: ReadmeTopic[] = [
     ],
   },
   {
+    id: "membership-plans",
+    title: "Membership Plans",
+    gate: "Members",
+    summary: "The plan cards for the branch you have open.",
+    how: [
+      "Each plan card shows how many Active members are on that plan name. Hold, deactivated, cancelled, and soft-deleted members stay out of the count. The plan save stays the same.",
+    ],
+  },
+  {
     id: "portal-tiles",
     title: "Member Portal home tiles",
     gate: "Settings",
@@ -103,6 +113,7 @@ export const README_TOPICS: ReadmeTopic[] = [
     summary:
       "Festival looks for the public website and Gym Manager. The master owner sets Default, Durga Puja, Diwali, Chhath Puja, New Year 2027, or Holi 2027, with an IST start and end. Staff can see an active look but cannot change it.",
     how: [
+      "Themes, Home tiles, and Broadcast at the top of Settings open that block. Each block keeps its own save button.",
       "Open Settings → Themes. Pick Default, Durga Puja, Diwali, Chhath Puja, New Year 2027, or Holi 2027.",
       "Enable, set Starts (IST) and Ends (IST), and choose Public Website, Gym Manager, or both.",
       "Preview shows the look on this Gym Manager device only when Apply to includes the app. Public website only never skins Gym Manager and does not refresh Settings or switch the picker to Default. Save stores the schedule. It turns on and off even if nobody is logged in.",
@@ -179,6 +190,16 @@ export const README_TOPICS: ReadmeTopic[] = [
       "Forgot PIN asks for the current password or the current PIN, then a new PIN. Security questions come up only if that does not match.",
       "Web view — sections & access is where a menu is turned on or off for a staff login.",
       "A new menu such as Read Me stays off for staff until it is checked there. The owner still sees it.",
+      "Each staff row shows In today or On leave from today’s attendance and approved leave. It does not change attendance, leave, or the access editor.",
+    ],
+  },
+  {
+    id: "offers",
+    title: "Offers",
+    gate: "Offers",
+    summary: "The shop desk for checking a member and saving a redemption.",
+    how: [
+      "Active shows redemptions saved today. Expired shows earlier rows in the list already on this page. The count is how many rows that view has. Verify member and Save redemption stay the same.",
     ],
   },
   {
@@ -188,6 +209,7 @@ export const README_TOPICS: ReadmeTopic[] = [
     summary: "A history of staff actions. New rows are added. Old rows are not rewritten by this guide.",
     how: [
       "A Bis Test push test adds one log line for that send. It does not change older log lines.",
+      "Today sets the date range to today. This staff member sets the actor filter to the person signed in. Both use the filters already on this page.",
     ],
   },
 ];

@@ -11,7 +11,7 @@ import { apiFetch } from "@/services/api/client";
 import { canAccessSection, hasAccess, isMasterOwnerUser } from "@/lib/domain/permissions";
 import { useAuthStore, useBranchStore } from "@/stores";
 import { cn } from "@/lib/utils";
-import { useSettings } from "@/hooks/use-data";
+import { useMembers, useSettings } from "@/hooks/use-data";
 
 export type CatalogPlan = {
   planName: string;
@@ -73,6 +73,7 @@ export function MembershipPlansPage() {
   const qc = useQueryClient();
   const user = useAuthStore((s) => s.user);
   const { data: settings } = useSettings();
+  const { data: members, isSuccess: membersReady } = useMembers();
   const storeBranchId = useBranchStore((s) => s.activeBranchId);
   const activeBranchId = String(
     storeBranchId || user?.activeBranchId || user?.gymCodeId || "",
@@ -147,6 +148,18 @@ export function MembershipPlansPage() {
     // Reload when staff/owner switches active branch in the shell.
     // eslint-disable-next-line react-hooks/exhaustive-deps -- intentional branch key
   }, [canView, activeBranchId]);
+
+  const activeCountByPlan = useMemo(() => {
+    const counts = new Map<string, number>();
+    if (!membersReady) return counts;
+    for (const member of members || []) {
+      if (String(member.status || "").trim().toLowerCase() !== "active") continue;
+      const key = String(member.plan || "").trim().toLowerCase();
+      if (!key) continue;
+      counts.set(key, (counts.get(key) || 0) + 1);
+    }
+    return counts;
+  }, [members, membersReady]);
 
   const visibleCards = useMemo(() => {
     if (canEdit && !masterEnabled) return plans;
@@ -621,6 +634,14 @@ export function MembershipPlansPage() {
                       </p>
                     )}
                   </div>
+                  {membersReady ? (
+                    <p className="mt-1 text-xs font-medium text-teal-800 dark:text-teal-300">
+                      {activeCountByPlan.get(plan.planName.trim().toLowerCase()) || 0} Active
+                      {(activeCountByPlan.get(plan.planName.trim().toLowerCase()) || 0) === 1
+                        ? " member"
+                        : " members"}
+                    </p>
+                  ) : null}
                   {explainLang !== "original" ? (
                     <p className="mt-1 text-[10px] font-medium uppercase tracking-wide text-slate-400">
                       Explain view · not saved

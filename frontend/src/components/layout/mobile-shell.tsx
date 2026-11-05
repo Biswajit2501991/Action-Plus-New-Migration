@@ -19,6 +19,7 @@ import { useTheme } from "next-themes";
 import { cn } from "@/lib/utils";
 import { hasAccess } from "@/lib/domain/permissions";
 import { brandingForActiveBranch } from "@/lib/domain/branch-branding";
+import { NAV_ITEMS } from "@/lib/nav";
 import {
   shouldShowBranchSwitcher,
   switchableBranchesForUser,
@@ -81,6 +82,19 @@ export function MobileShell({ children }: { children: React.ReactNode }) {
   );
   const showBranchSwitcher = shouldShowBranchSwitcher(user, gymCodes || []);
 
+  const sectionName = useMemo(() => {
+    const path = pathname || "/";
+    const match = NAV_ITEMS.filter(
+      (item) =>
+        !item.external &&
+        item.href.startsWith("/") &&
+        (path === item.href || path.startsWith(`${item.href}/`)),
+    ).sort((a, b) => b.href.length - a.href.length)[0];
+    if (match) return match.label;
+    if (path.startsWith("/more")) return "More";
+    return "";
+  }, [pathname]);
+
   const tabs = MOBILE_TABS.filter((t) => hasAccess(user, "mobile", t.mobileKey));
   const showMore = hasAccess(user, "mobile", "viewMore");
   const canViewOwnSalary =
@@ -115,7 +129,9 @@ export function MobileShell({ children }: { children: React.ReactNode }) {
               {brand.displayName}
             </p>
             <p className="truncate text-[11px] text-slate-500 dark:text-slate-400">
-              {staffRoleDisplayLabel(user)}
+              {sectionName
+                ? `${sectionName} · ${staffRoleDisplayLabel(user)}`
+                : staffRoleDisplayLabel(user)}
             </p>
           </div>
           <Button

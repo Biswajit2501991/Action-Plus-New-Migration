@@ -1318,6 +1318,18 @@ export function SettingsPage() {
       return next;
     });
 
+  const openSettingsBlock = (key: string, id: string) => {
+    setOpenCat((prev) => {
+      const next: Record<string, boolean> = {};
+      for (const k of Object.keys(prev)) next[k] = false;
+      next[key] = true;
+      return next;
+    });
+    window.setTimeout(() => {
+      document.getElementById(id)?.scrollIntoView({ behavior: "smooth", block: "start" });
+    }, 150);
+  };
+
   const renderLookupCard = (cat: {
     key: LookupKey;
     label: string;
@@ -1403,6 +1415,38 @@ export function SettingsPage() {
         title="Settings"
         description="Appearance, gym branches, Fine SMS rules, Member Portal, system features, and lookups."
       />
+
+      {isOwner || canPortalUi ? (
+        <div className="flex flex-wrap gap-1.5">
+          {isOwner ? (
+            <button
+              type="button"
+              className="rounded-full border border-amber-200 bg-amber-50 px-3 py-1.5 text-xs font-semibold text-amber-900 dark:border-amber-500/30 dark:bg-amber-950/40 dark:text-amber-100"
+              onClick={() => openSettingsBlock("themes", "settings-themes")}
+            >
+              Themes
+            </button>
+          ) : null}
+          {canPortalUi ? (
+            <button
+              type="button"
+              className="rounded-full border border-teal-200 bg-teal-50 px-3 py-1.5 text-xs font-semibold text-teal-900 dark:border-teal-500/30 dark:bg-teal-950/40 dark:text-teal-100"
+              onClick={() => openSettingsBlock("portalUi", "settings-home-tiles")}
+            >
+              Home tiles
+            </button>
+          ) : null}
+          {isOwner && canPortalUi ? (
+            <button
+              type="button"
+              className="rounded-full border border-violet-200 bg-violet-50 px-3 py-1.5 text-xs font-semibold text-violet-900 dark:border-violet-500/30 dark:bg-violet-950/40 dark:text-violet-100"
+              onClick={() => openSettingsBlock("portalUi", "settings-broadcast")}
+            >
+              Broadcast
+            </button>
+          ) : null}
+        </div>
+      ) : null}
 
       {canAppearance ? (
         <AppearanceCard
@@ -2138,7 +2182,10 @@ export function SettingsPage() {
               </div>
             </div>
 
-            <div className="space-y-3 rounded-2xl border border-teal-200/70 bg-gradient-to-b from-teal-50/40 to-white p-4 dark:border-teal-900/40 dark:from-teal-950/20 dark:to-card">
+            <div
+              id="settings-home-tiles"
+              className="scroll-mt-24 space-y-3 rounded-2xl border border-teal-200/70 bg-gradient-to-b from-teal-50/40 to-white p-4 dark:border-teal-900/40 dark:from-teal-950/20 dark:to-card"
+            >
               <div>
                 <p className="text-sm font-medium text-foreground">Home tiles</p>
                 <p className="mt-0.5 text-[11px] leading-relaxed text-muted-foreground">

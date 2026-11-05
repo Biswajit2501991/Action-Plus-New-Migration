@@ -138,7 +138,7 @@ export function FestivalThemesCard({
   }
 
   return (
-    <Card className="overflow-hidden border-amber-200/80 shadow-sm dark:border-amber-900/40">
+    <Card id="settings-themes" className="scroll-mt-24 overflow-hidden border-amber-200/80 shadow-sm dark:border-amber-900/40">
       <div className="h-1 w-full bg-gradient-to-r from-amber-400 to-orange-500" />
       <button
         type="button"
