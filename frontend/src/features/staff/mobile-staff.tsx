@@ -9,6 +9,7 @@ import { useStaffPhotoHydration } from "@/hooks/use-staff-photo-hydration";
 import { isBranchAdminUser } from "@/lib/domain/permissions";
 import { cn } from "@/lib/utils";
 import { useAuthStore } from "@/stores";
+import { useStaffDeskLabels } from "@/features/staff/staff-desk-label";
 
 function gymLabel(code: { code?: string; name?: string; label?: string; id?: string }) {
   return code.code
@@ -35,6 +36,7 @@ export function MobileStaff() {
       String(a.name || a.id).localeCompare(String(b.name || b.id)),
     );
   }, [users, showDeletedStaff]);
+  const deskLabels = useStaffDeskLabels(users);
 
   if (isLoading) {
     return (
@@ -106,6 +108,18 @@ export function MobileStaff() {
                       {u.name || u.id}
                     </p>
                     {u.blocked ? <Badge variant="danger">Blocked</Badge> : null}
+                    {deskLabels.get(u.id) ? (
+                      <span
+                        className={cn(
+                          "rounded-full px-2 py-0.5 text-[10px] font-semibold",
+                          deskLabels.get(u.id) === "On leave"
+                            ? "bg-amber-100 text-amber-900 dark:bg-amber-950/50 dark:text-amber-100"
+                            : "bg-teal-100 text-teal-900 dark:bg-teal-950/50 dark:text-teal-100",
+                        )}
+                      >
+                        {deskLabels.get(u.id)}
+                      </span>
+                    ) : null}
                   </div>
                   <p className="truncate text-[11px] text-slate-500 dark:text-slate-400">
                     {u.staffRole || u.role || "staff"}

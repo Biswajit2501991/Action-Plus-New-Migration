@@ -10,7 +10,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Input, Select } from "@/components/ui/input";
 import { useLogs } from "@/hooks/use-data";
 import { logsApi } from "@/services/api";
-import { downloadTextFile, formatDate } from "@/lib/utils";
+import { cn, downloadTextFile, formatDate } from "@/lib/utils";
 import {
   dedupeAuditLogs,
   formatAuditActionLabel,
@@ -119,6 +119,17 @@ export function LogsPage() {
     () => Array.from(new Set(logs.map((l) => l.entityType).filter(Boolean))) as string[],
     [logs],
   );
+  const selfActor = useMemo(() => {
+    const keys = [user?.name, user?.id]
+      .map((value) => String(value || "").trim())
+      .filter(Boolean);
+    const hit = actors.find((actor) =>
+      keys.some((key) => key.toLowerCase() === actor.toLowerCase()),
+    );
+    return hit || keys[0] || "";
+  }, [actors, user?.name, user?.id]);
+  const todayLogsOn =
+    preset === "custom" && appliedCustom.start === todayIso && appliedCustom.end === todayIso;
 
   const filtered = useMemo(() => {
     const q = filter.toLowerCase().trim();
@@ -312,6 +323,53 @@ export function LogsPage() {
           </>
         }
       />
+
+      <div className="flex flex-wrap gap-1.5">
+        <button
+          type="button"
+          aria-pressed={todayLogsOn}
+          className={cn(
+            "rounded-full border px-3 py-1.5 text-xs font-semibold",
+            todayLogsOn
+              ? "border-slate-900 bg-slate-900 text-white dark:border-teal-400 dark:bg-teal-400 dark:text-slate-950"
+              : "border-slate-200 bg-white text-slate-700 dark:border-border dark:bg-card",
+          )}
+          onClick={() => {
+            if (todayLogsOn) {
+              setPreset("7d");
+              const next = defaultLogsFetchRange();
+              setCustomDraft({
+                start: next.startDate.slice(0, 10),
+                end: next.endDate.slice(0, 10),
+              });
+              setAppliedCustom({
+                start: next.startDate.slice(0, 10),
+                end: next.endDate.slice(0, 10),
+              });
+              return;
+            }
+            setPreset("custom");
+            setCustomDraft({ start: todayIso, end: todayIso });
+            setAppliedCustom({ start: todayIso, end: todayIso });
+          }}
+        >
+          Today
+        </button>
+        <button
+          type="button"
+          aria-pressed={Boolean(selfActor) && actorFilter === selfActor}
+          disabled={!selfActor}
+          className={cn(
+            "rounded-full border px-3 py-1.5 text-xs font-semibold disabled:opacity-50",
+            selfActor && actorFilter === selfActor
+              ? "border-slate-900 bg-slate-900 text-white dark:border-teal-400 dark:bg-teal-400 dark:text-slate-950"
+              : "border-slate-200 bg-white text-slate-700 dark:border-border dark:bg-card",
+          )}
+          onClick={() => setActorFilter((current) => (current === selfActor ? "" : selfActor))}
+        >
+          This staff member
+        </button>
+      </div>
 
       <Card className="border-slate-200 shadow-sm dark:border-border">
         <CardContent className="grid gap-2 p-4 md:grid-cols-5">

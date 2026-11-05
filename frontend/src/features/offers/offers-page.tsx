@@ -15,6 +15,8 @@ import {
 import { STALE } from "@/lib/query-cache";
 import { offersApi, type OfferMember, type OfferRedemption } from "@/services/api";
 import { useAuthStore } from "@/stores";
+import { attendanceTodayCalendarKey, ATTENDANCE_TIME_ZONE } from "@/lib/domain/attendance";
+import { calendarDateKeyInTimeZone } from "@/lib/domain/today-visitors-nav";
 import { cn, formatCurrency, formatDate } from "@/lib/utils";
 
 function digitsOnly(raw: string) {
@@ -57,6 +59,7 @@ export function OffersPage() {
   const [passcode, setPasscode] = useState("");
   const [passcode2, setPasscode2] = useState("");
   const [draftStatuses, setDraftStatuses] = useState<string[] | null>(null);
+  const [redemptionView, setRedemptionView] = useState<"" | "active" | "expired">("");
 
   const settingsQuery = useQuery({
     queryKey: ["offers-settings"],
@@ -180,6 +183,19 @@ export function OffersPage() {
   };
 
   const redemptions: OfferRedemption[] = redemptionsQuery.data?.redemptions || [];
+  const todayKey = attendanceTodayCalendarKey();
+  const redemptionDay = (row: OfferRedemption) => {
+    if (!row.createdAt) return "";
+    const parsed = new Date(row.createdAt);
+    if (Number.isNaN(parsed.getTime())) return "";
+    return calendarDateKeyInTimeZone(parsed, ATTENDANCE_TIME_ZONE);
+  };
+  const visibleRedemptions = redemptions.filter((row) => {
+    const day = redemptionDay(row);
+    if (redemptionView === "active") return day === todayKey;
+    if (redemptionView === "expired") return Boolean(day) && day < todayKey;
+    return true;
+  });
 
   return (
     <div className="mx-auto max-w-3xl space-y-6 p-4 pb-24 sm:p-6">
@@ -346,16 +362,45 @@ export function OffersPage() {
 
       <Card>
         <CardHeader className="pb-2">
-          <CardTitle className="text-base">Last 10 redemptions</CardTitle>
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <CardTitle className="text-base">
+              Last 10 redemptions · {visibleRedemptions.length}
+            </CardTitle>
+            <div className="flex flex-wrap gap-1.5">
+              {(
+                [
+                  ["active", "Active"],
+                  ["expired", "Expired"],
+                ] as const
+              ).map(([key, label]) => (
+                <button
+                  key={key}
+                  type="button"
+                  aria-pressed={redemptionView === key}
+                  className={cn(
+                    "rounded-full border px-2.5 py-1 text-[11px] font-semibold",
+                    redemptionView === key
+                      ? "border-slate-900 bg-slate-900 text-white dark:border-teal-400 dark:bg-teal-400 dark:text-slate-950"
+                      : "border-slate-200 text-slate-600 dark:border-border",
+                  )}
+                  onClick={() => setRedemptionView((current) => (current === key ? "" : key))}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
+          </div>
         </CardHeader>
         <CardContent>
           {redemptionsQuery.isLoading ? (
             <Skeleton className="h-24 w-full" />
           ) : redemptions.length === 0 ? (
             <p className="text-sm text-muted-foreground">No redemptions yet.</p>
+          ) : visibleRedemptions.length === 0 ? (
+            <p className="text-sm text-muted-foreground">No redemptions in this view.</p>
           ) : (
             <ul className="divide-y divide-border">
-              {redemptions.map((row) => (
+              {visibleRedemptions.map((row) => (
                 <li key={row.id} className="flex flex-col gap-0.5 py-2.5 text-sm sm:flex-row sm:items-center sm:justify-between">
                   <div className="min-w-0">
                     <p className="font-medium text-foreground">{row.memberName || row.memberMobile}</p>
