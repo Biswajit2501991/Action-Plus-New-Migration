@@ -120,20 +120,24 @@ export function LoginForm() {
         <span className="login-dot" style={{ left: "44%", top: "68%", animationDelay: "0.6s" }} />
       </div>
 
-      <div className="relative z-10 mx-auto grid min-h-[100dvh] min-h-screen w-full max-w-6xl items-center gap-8 px-4 py-10 lg:grid-cols-2 lg:gap-12 lg:px-8">
-        <div className="login-brand hidden text-left lg:block">
-          <div className="login-logo relative h-16 w-16 overflow-hidden rounded-full ring-1 ring-[#C4B5FD]/35">
-            <BranchLogo
-              src={DEFAULT_LOGO_PATH}
-              alt={DEFAULT_GYM_DISPLAY_NAME}
-              className="h-full w-full"
-            />
-          </div>
-          <p className="mt-8 text-[11px] font-semibold uppercase tracking-[0.28em] text-[#C4B5FD]">
-            {DEFAULT_GYM_DISPLAY_NAME}
-          </p>
+      <div className="login-signature">
+        <div className="login-signature-mark">
+          <BranchLogo
+            src={DEFAULT_LOGO_PATH}
+            alt={DEFAULT_GYM_DISPLAY_NAME}
+            className="h-full w-full"
+          />
+        </div>
+        <div className="min-w-0">
+          <p className="login-signature-name">ACTION PLUS GYM</p>
+          <p className="login-signature-sub">Fitness Club</p>
+        </div>
+      </div>
+
+      <div className="login-stage-copy relative z-10 grid min-h-[100dvh] min-h-screen w-full items-center gap-8 px-4 pb-8 lg:grid-cols-[minmax(0,1fr)_minmax(20rem,440px)] lg:gap-16 lg:px-12">
+        <div className="login-brand text-left lg:mt-[clamp(2.5rem,8vh,5.5rem)] lg:max-w-md lg:self-center">
           <h1
-            className="mt-3 text-5xl font-semibold tracking-tight text-white xl:text-6xl"
+            className="text-[clamp(2.15rem,4vw,3.75rem)] font-semibold tracking-tight text-white"
             style={{ fontFamily: "var(--font-login-display), var(--font-login-sans), sans-serif" }}
           >
             Welcome
@@ -141,7 +145,7 @@ export function LoginForm() {
               Back
             </span>
           </h1>
-          <p className="mt-5 max-w-sm text-base leading-relaxed text-[#AAB3C5]">
+          <p className="mt-4 max-w-sm text-sm leading-relaxed text-[#AAB3C5] sm:text-base">
             Your Journey. Your Strength. Your Progress.
           </p>
         </div>
@@ -151,22 +155,12 @@ export function LoginForm() {
           className="login-panel relative w-full max-w-[440px] justify-self-center rounded-[1.75rem] border border-[#C4B5FD]/25 bg-[#0B1020]/80 p-7 shadow-[0_40px_100px_-28px_rgba(0,0,0,0.75),0_0_80px_-24px_rgba(144,107,255,0.45)] backdrop-blur-2xl sm:p-9 lg:justify-self-end"
         >
           <div className="flex flex-col items-center text-center lg:items-start lg:text-left">
-            <div className="login-logo relative h-14 w-14 overflow-hidden rounded-full ring-1 ring-[#C4B5FD]/30 lg:hidden">
-              <BranchLogo
-                src={DEFAULT_LOGO_PATH}
-                alt={DEFAULT_GYM_DISPLAY_NAME}
-                className="h-full w-full"
-              />
-            </div>
             <h2
-              className="mt-4 text-2xl font-semibold tracking-tight text-white lg:mt-0"
+              className="text-2xl font-semibold tracking-tight text-white"
               style={{ fontFamily: "var(--font-login-display), var(--font-login-sans), sans-serif" }}
             >
               Sign in
             </h2>
-            <p className="mt-2 max-w-[20rem] text-sm leading-relaxed text-[#AAB3C5] lg:hidden">
-              Your Journey. Your Strength. Your Progress.
-            </p>
             <p className="mt-1.5 text-sm text-[#AAB3C5]">{subtitle}</p>
           </div>
 
