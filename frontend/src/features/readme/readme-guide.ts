@@ -37,6 +37,7 @@ export const README_TOPICS: ReadmeTopic[] = [
       "Show lasts for this visit on this browser. Leaving or refreshing covers the number again.",
       "Branch staff see their own branch. Soft-deleted members stay out of the counts.",
       "The home page shows member tiles as soon as the list is ready. Revenue charts load next. Counts and collected revenue stay the same.",
+      "When staff have already sent a reminder for this bill, Overdue Payments and Retention Alerts shows Reminder sent, with the time and staff name. The member stays on the list until the payment is recorded. The Reminder button works the same way.",
     ],
   },
   {

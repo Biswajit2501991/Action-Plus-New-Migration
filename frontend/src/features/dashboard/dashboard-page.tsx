@@ -27,6 +27,7 @@ import {
   recentPayments,
 } from "@/lib/domain/members";
 import { isPaymentByPastDue, overdueDaysForMember } from "@/lib/domain/billing";
+import { currentBillingReminderSentText } from "@/lib/domain/member-actions";
 import {
   buildMembershipPlanDistribution,
   planDistributionConicGradient,
@@ -73,6 +74,16 @@ const STATUS_TILES: Array<"Active" | "Hold" | "Deactivated" | "Cancelled"> = [
 
 type OverdueMember = Member & { overdueDays: number };
 
+function ReminderSentNote({ member }: { member: Member }) {
+  const text = currentBillingReminderSentText(member);
+  if (!text) return null;
+  return (
+    <p className="mt-1 max-w-[18rem] whitespace-normal text-[11px] font-medium leading-snug text-amber-800 dark:text-amber-200">
+      {text}
+    </p>
+  );
+}
+
 function OverdueRow({
   m,
   expanded,
@@ -87,7 +98,10 @@ function OverdueRow({
   return (
     <>
       <tr className="border-b border-border/60 hover:bg-accent/40">
-        <td className="whitespace-nowrap px-4 py-3 font-medium">{m.name || "—"}</td>
+        <td className="px-4 py-3 font-medium">
+          <div className="whitespace-nowrap">{m.name || "—"}</div>
+          <ReminderSentNote member={m} />
+        </td>
         <td className="whitespace-nowrap px-4 py-3 text-muted-foreground">{m.memberId}</td>
         <td className="whitespace-nowrap px-4 py-3">{m.plan || "—"}</td>
         <td className="whitespace-nowrap px-4 py-3">{formatCurrency(Number(m.amount || 0))}</td>
@@ -732,6 +746,7 @@ export function DashboardPage() {
                       Plan: {m.plan || "—"} · Amount: {formatCurrency(Number(m.amount || 0))} ·{" "}
                       {m.overdueDays} days overdue
                     </div>
+                    <ReminderSentNote member={m} />
                     <div className="mt-2 flex gap-2">
                       <Button
                         size="sm"

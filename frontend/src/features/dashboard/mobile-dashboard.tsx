@@ -10,6 +10,7 @@ import { useFinance, useMembers, useSettings } from "@/hooks/use-data";
 import { buildFinanceKpis } from "@/lib/domain/finance";
 import { countByStatus } from "@/lib/domain/members";
 import { isPaymentByPastDue, overdueDaysForMember } from "@/lib/domain/billing";
+import { currentBillingReminderSentText } from "@/lib/domain/member-actions";
 import { formatCurrency, formatMonthKey } from "@/lib/utils";
 import { hasAccess } from "@/lib/domain/permissions";
 import { useAuthStore } from "@/stores";
@@ -151,7 +152,9 @@ export function MobileDashboard() {
             {overdue.length === 0 ? (
               <li className="px-4 py-6 text-sm text-slate-500">All clear — no overdue members.</li>
             ) : (
-              overdue.map((m) => (
+              overdue.map((m) => {
+                const reminderSent = currentBillingReminderSentText(m);
+                return (
                 <li key={m.memberId}>
                   <button
                     type="button"
@@ -166,11 +169,17 @@ export function MobileDashboard() {
                       <p className="text-xs text-rose-600 dark:text-rose-400">
                         Overdue {m.days} day{m.days === 1 ? "" : "s"}
                       </p>
+                      {reminderSent ? (
+                        <p className="mt-0.5 text-[11px] leading-snug text-amber-800 dark:text-amber-200">
+                          {reminderSent}
+                        </p>
+                      ) : null}
                     </div>
                     <ChevronRight className="h-4 w-4 text-slate-400" />
                   </button>
                 </li>
-              ))
+                );
+              })
             )}
           </ul>
         </MobilePanel>
