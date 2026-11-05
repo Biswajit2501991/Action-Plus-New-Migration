@@ -109,6 +109,35 @@ import {
 import { apiFetch } from "@/services/api/client";
 
 const PAGE_SIZE = 10;
+const MEMBER_FOCUS_KEY = "apg.v2.memberFocusStatus";
+const SAVED_FOCUS = new Set([
+  "",
+  "Active",
+  "NeedsReminder",
+  "Birthday",
+  "Hold",
+  "Deactivated",
+  "Cancelled",
+]);
+
+function readSavedMemberFocus() {
+  if (typeof window === "undefined") return "";
+  try {
+    const saved = localStorage.getItem(MEMBER_FOCUS_KEY) || "";
+    return SAVED_FOCUS.has(saved) ? saved : "";
+  } catch {
+    return "";
+  }
+}
+
+function rememberMemberFocus(value: string) {
+  if (!SAVED_FOCUS.has(value)) return;
+  try {
+    localStorage.setItem(MEMBER_FOCUS_KEY, value);
+  } catch {
+    // This browser can block storage. The chip still changes for this visit.
+  }
+}
 const STATUS_KEYS = ["Active", "Hold", "Deactivated", "Cancelled"] as const;
 type StatusKey = (typeof STATUS_KEYS)[number];
 type SectionKey = StatusKey | "Birthday" | "NeedsReminder";
@@ -181,7 +210,8 @@ export function MembersPage() {
   } = useWhatsappSend();
 
   const [tab, setTab] = useState<"members" | "visitors">("members");
-  const [focusStatus, setFocusStatus] = useState<string>(params.get("status") || "");
+  const urlStatus = params.get("status") || "";
+  const [focusStatus, setFocusStatus] = useState<string>(urlStatus);
   const [quickSearchInput, setQuickSearchInput] = useState(params.get("q") || "");
   const [appliedQuickSearch, setAppliedQuickSearch] = useState(params.get("q") || "");
   const [verifyOpen, setVerifyOpen] = useState(() => Boolean(params.get("verify")));
@@ -193,6 +223,21 @@ export function MembersPage() {
     setVerifyQuery(v);
     setVerifyOpen(true);
   }, [params]);
+
+  useEffect(() => {
+    if (urlStatus) {
+      setFocusStatus(urlStatus);
+      rememberMemberFocus(urlStatus);
+      return;
+    }
+    const saved = readSavedMemberFocus();
+    if (saved) setFocusStatus(saved);
+  }, [urlStatus]);
+
+  function chooseFocus(next: string) {
+    setFocusStatus(next);
+    rememberMemberFocus(next);
+  }
   const [filters, setFilters] = useState<MemberFilters>(() => {
     try {
       const saved = localStorage.getItem("apg.v2.memberFilters");
@@ -1238,7 +1283,7 @@ export function MembersPage() {
                         key={chip.key || "all"}
                         type="button"
                         aria-pressed={active}
-                        onClick={() => setFocusStatus(chip.key)}
+                        onClick={() => chooseFocus(chip.key)}
                         className={cn(
                           "inline-flex h-8 min-w-0 w-full items-center justify-center gap-1 rounded-xl px-1.5 text-[11px] font-medium tracking-tight transition-all duration-200 xl:h-9 xl:w-auto xl:shrink-0 xl:justify-start xl:gap-1.5 xl:px-3 xl:text-[12px]",
                           active
@@ -1277,7 +1322,10 @@ export function MembersPage() {
                   </Button>
                 </div>
                 {actionsOpen ? (
-                  <div className="absolute right-3 top-[3.25rem] z-30 min-w-[230px] overflow-hidden rounded-2xl border border-black/5 bg-white/95 p-1.5 shadow-xl backdrop-blur-xl dark:border-white/10 dark:bg-slate-950/95 xl:right-2 xl:top-11">
+                  <div className="absolute right-3 top-[3.25rem] z-30 min-w-[240px] overflow-hidden rounded-2xl border border-black/5 bg-white/95 p-1.5 shadow-xl backdrop-blur-xl dark:border-white/10 dark:bg-slate-950/95 xl:right-2 xl:top-11">
+                    <p className="px-3 pb-1 pt-1 text-[10px] font-semibold uppercase tracking-wide text-slate-400">
+                      Tools
+                    </p>
                     <button
                       type="button"
                       className="w-full rounded-xl px-3 py-2.5 text-left text-sm text-slate-700 hover:bg-slate-100 dark:text-slate-200 dark:hover:bg-white/5"
@@ -1309,11 +1357,13 @@ export function MembersPage() {
                       Import CSV
                     </button>
                     {selectedIds.length ? (
-                      <>
-                        <div className="my-1 border-t border-slate-100 dark:border-white/10" />
+                      <div className="mt-1 rounded-xl bg-rose-50/80 p-1 dark:bg-rose-950/30">
+                        <p className="px-2 pb-1 pt-1 text-[10px] font-semibold uppercase tracking-wide text-rose-700 dark:text-rose-300">
+                          Changes member status
+                        </p>
                         <button
                           type="button"
-                          className="w-full rounded-xl px-3 py-2.5 text-left text-sm text-slate-700 hover:bg-slate-100 dark:text-slate-200 dark:hover:bg-white/5"
+                          className="w-full rounded-xl px-3 py-2.5 text-left text-sm text-slate-700 hover:bg-white dark:text-slate-200 dark:hover:bg-white/5"
                           onClick={() => {
                             requestStatusChange(selectedIds, "Active");
                             setActionsOpen(false);
@@ -1323,7 +1373,7 @@ export function MembersPage() {
                         </button>
                         <button
                           type="button"
-                          className="w-full rounded-xl px-3 py-2.5 text-left text-sm text-slate-700 hover:bg-slate-100 dark:text-slate-200 dark:hover:bg-white/5"
+                          className="w-full rounded-xl px-3 py-2.5 text-left text-sm text-slate-700 hover:bg-white dark:text-slate-200 dark:hover:bg-white/5"
                           onClick={() => {
                             requestStatusChange(
                               selectedIds,
@@ -1337,7 +1387,7 @@ export function MembersPage() {
                         </button>
                         <button
                           type="button"
-                          className="w-full rounded-xl px-3 py-2.5 text-left text-sm text-slate-700 hover:bg-slate-100 dark:text-slate-200 dark:hover:bg-white/5"
+                          className="w-full rounded-xl px-3 py-2.5 text-left text-sm text-slate-700 hover:bg-white dark:text-slate-200 dark:hover:bg-white/5"
                           onClick={() => {
                             statusMutation.mutate({ ids: selectedIds, status: "Deactivated" });
                             setActionsOpen(false);
@@ -1345,7 +1395,7 @@ export function MembersPage() {
                         >
                           Bulk Deactivate ({selectedIds.length})
                         </button>
-                      </>
+                      </div>
                     ) : null}
                   </div>
                 ) : null}
