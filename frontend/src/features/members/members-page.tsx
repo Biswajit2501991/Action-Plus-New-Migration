@@ -71,7 +71,7 @@ import { formatCurrency, formatDate, downloadTextFile, toCsv, cn, formatMonthKey
 import { canAccessMembershipPlansNav, hasAccess, isMasterOwnerUser } from "@/lib/domain/permissions";
 import { useAuthStore, useUiStore } from "@/stores";
 import type { Member, Payment } from "@/types";
-import { isBillingToday, isNewMember } from "@/lib/domain/member-actions";
+import { isBillingToday, isNewMember, memberNeedsBillingReminder } from "@/lib/domain/member-actions";
 import { openGmailWelcome } from "@/lib/domain/gmail-welcome";
 import { MemberExpandedDetails } from "@/features/members/member-expanded-details";
 import { PaymentQrButton } from "@/features/members/payment-qr-viewer";
@@ -111,7 +111,7 @@ import { apiFetch } from "@/services/api/client";
 const PAGE_SIZE = 10;
 const STATUS_KEYS = ["Active", "Hold", "Deactivated", "Cancelled"] as const;
 type StatusKey = (typeof STATUS_KEYS)[number];
-type SectionKey = StatusKey | "Birthday";
+type SectionKey = StatusKey | "Birthday" | "NeedsReminder";
 const BIRTHDAY_ELIGIBLE_STATUSES = new Set(["Active", "Hold", "Deactivated"]);
 type SortField = "memberId" | "name" | "plan" | "billingDate" | "paymentBy" | "joiningDate";
 
@@ -213,6 +213,7 @@ export function MembersPage() {
     Hold: 1,
     Deactivated: 1,
     Cancelled: 1,
+    NeedsReminder: 1,
   });
   const [hiddenSections, setHiddenSections] = useState<Record<SectionKey, boolean>>({
     Active: false,
@@ -220,6 +221,7 @@ export function MembersPage() {
     Hold: false,
     Deactivated: false,
     Cancelled: false,
+    NeedsReminder: false,
   });
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [metricModal, setMetricModal] = useState<MetricModalKey | "">("");
@@ -266,7 +268,7 @@ export function MembersPage() {
   }, [filters]);
 
   useEffect(() => {
-    setPages({ Active: 1, Birthday: 1, Hold: 1, Deactivated: 1, Cancelled: 1 });
+    setPages({ Active: 1, Birthday: 1, Hold: 1, Deactivated: 1, Cancelled: 1, NeedsReminder: 1 });
     setSelectedIds([]);
   }, [filters, appliedQuickSearch, focusStatus]);
 
@@ -426,17 +428,27 @@ export function MembersPage() {
     });
   }, [members, applyFilters]);
 
+  const needsReminderMembers = useMemo(
+    () =>
+      sortMembers(
+        applyFilters(members).filter((m) => memberNeedsBillingReminder(m, messageOpts)),
+        { prioritizeActiveSpotlight: true },
+      ),
+    [members, applyFilters, sortMembers, messageOpts],
+  );
+
   const sectionListFor = useCallback(
     (key: SectionKey): Member[] => {
       if (key === "Birthday") return birthdayMembers;
+      if (key === "NeedsReminder") return needsReminderMembers;
       return grouped[key] || [];
     },
-    [birthdayMembers, grouped],
+    [birthdayMembers, grouped, needsReminderMembers],
   );
 
   const visiblePhotoPriorityIds = useMemo(() => {
     const ids: string[] = [];
-    const keys: SectionKey[] = ["Active", "Birthday", "Hold", "Deactivated", "Cancelled"];
+    const keys: SectionKey[] = ["Active", "Birthday", "Hold", "Deactivated", "Cancelled", "NeedsReminder"];
     for (const key of keys) {
       const list = sectionListFor(key);
       const totalPages = Math.max(1, Math.ceil(list.length / PAGE_SIZE));
@@ -992,6 +1004,7 @@ export function MembersPage() {
   };
 
   const sectionsToShow = useMemo((): SectionKey[] => {
+    if (focusStatus === "NeedsReminder") return ["NeedsReminder"];
     if (focusStatus === "Birthday") return ["Birthday"];
     if (focusStatus && STATUS_KEYS.includes(focusStatus as StatusKey)) {
       return [focusStatus as StatusKey];
@@ -1096,8 +1109,73 @@ export function MembersPage() {
         <VisitorsPanel visitors={visitors} />
       ) : (
         <>
-          <Card className="border-black/[0.06] bg-gradient-to-b from-white/90 to-slate-50/80 shadow-[0_1px_0_rgba(15,23,42,0.04),0_12px_32px_-20px_rgba(15,23,42,0.25)] backdrop-blur-xl dark:border-white/[0.07] dark:from-white/[0.05] dark:to-slate-950/80 dark:shadow-[0_0_0_1px_rgba(255,255,255,0.03),0_16px_40px_-24px_rgba(0,0,0,0.8)]">
-            <CardContent className="relative p-2 sm:p-2.5">
+          <Card className="sticky top-[calc(7.75rem+env(safe-area-inset-top))] z-20 border-black/[0.06] bg-white/95 shadow-[0_8px_24px_-18px_rgba(15,23,42,0.45)] backdrop-blur-xl dark:border-white/[0.07] dark:bg-slate-950/95 md:top-16">
+            <CardContent className="relative space-y-2 p-2 sm:p-2.5">
+              <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+                <div className="apg-search-beam relative min-w-0 flex-1">
+                  <Input
+                    value={quickSearchInput}
+                    onChange={(e) => {
+                      const next = e.target.value;
+                      setQuickSearchInput(next);
+                      if (!next.trim()) setAppliedQuickSearch("");
+                    }}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") setAppliedQuickSearch(quickSearchInput.trim());
+                    }}
+                    placeholder="Search members…"
+                    className={quickSearchInput.trim() ? "pr-16" : "pr-10"}
+                  />
+                  <div className="apg-search-beam__tools absolute right-2 top-1/2 flex -translate-y-1/2 items-center gap-0.5">
+                    {quickSearchInput.trim() ? (
+                      <button
+                        type="button"
+                        className="rounded-md p-1 text-muted-foreground hover:bg-muted hover:text-foreground"
+                        onClick={() => {
+                          setQuickSearchInput("");
+                          setAppliedQuickSearch("");
+                        }}
+                        aria-label="Clear search"
+                      >
+                        <X className="h-4 w-4" />
+                      </button>
+                    ) : null}
+                    <button
+                      type="button"
+                      className="rounded-md p-1 text-muted-foreground hover:bg-muted hover:text-foreground"
+                      onClick={() => setAppliedQuickSearch(quickSearchInput.trim())}
+                      aria-label="Search"
+                    >
+                      <Search className="h-4 w-4" />
+                    </button>
+                  </div>
+                </div>
+                {appliedQuickSearch ? (
+                  <span className="shrink-0 text-[11px] font-medium text-slate-500">
+                    {sectionsToShow.reduce((sum, key) => sum + sectionListFor(key).length, 0)} matches
+                  </span>
+                ) : null}
+                <Button
+                  type="button"
+                  size="sm"
+                  onClick={openFilterPanel}
+                  aria-pressed={anyFilterActive}
+                  className={cn(
+                    "relative h-9 gap-1.5 rounded-xl px-3 text-[12px] font-medium",
+                    anyFilterActive
+                      ? "bg-slate-900 text-white hover:bg-slate-800 dark:bg-teal-400 dark:text-slate-950 dark:hover:bg-teal-300"
+                      : "border border-slate-200/80 bg-white/70 text-slate-600 hover:bg-slate-50 dark:border-white/10 dark:bg-white/[0.04] dark:text-slate-300",
+                  )}
+                >
+                  <Filter className="h-3.5 w-3.5" />
+                  {anyFilterActive ? "Filter applied" : "Filter"}
+                  {anyFilterActive ? (
+                    <span className="inline-flex min-w-[1.25rem] items-center justify-center rounded-md bg-white/20 px-1.5 py-0.5 text-[10px] font-bold tabular-nums dark:bg-slate-950/20">
+                      {activeFilterCount}
+                    </span>
+                  ) : null}
+                </Button>
+              </div>
               <div className="flex flex-col gap-2 xl:flex-row xl:min-w-0 xl:items-center xl:gap-2 xl:overflow-x-auto xl:whitespace-nowrap xl:[-ms-overflow-style:none] xl:[scrollbar-width:none] xl:[&::-webkit-scrollbar]:hidden">
                 <div className="flex shrink-0 items-center justify-end gap-2 xl:hidden">
                   <div className="relative inline-flex shrink-0 items-center gap-1.5 pr-0.5">
@@ -1118,7 +1196,7 @@ export function MembersPage() {
                     </Button>
                   </div>
                 </div>
-                <div className="member-status-filters grid w-full grid-cols-3 gap-1.5 lg:grid-cols-6 xl:inline-flex xl:w-auto xl:shrink-0 xl:items-center xl:gap-1">
+                <div className="member-status-filters grid w-full grid-cols-2 gap-1.5 sm:grid-cols-3 lg:grid-cols-4 xl:inline-flex xl:w-auto xl:shrink-0 xl:items-center xl:gap-1">
                   {(
                     [
                       { key: "", label: "All Members", dot: "bg-slate-400 dark:bg-slate-500" },
@@ -1126,6 +1204,11 @@ export function MembersPage() {
                         key: "Active",
                         label: `Active (${grouped.Active.length})`,
                         dot: "bg-emerald-500",
+                      },
+                      {
+                        key: "NeedsReminder",
+                        label: `Needs reminder (${needsReminderMembers.length})`,
+                        dot: "bg-sky-500",
                       },
                       {
                         key: "Birthday",
@@ -1328,7 +1411,9 @@ export function MembersPage() {
             const sectionTitle =
               key === "Birthday"
                 ? `Birthday Members (${list.length})`
-                : `${key} Members (${list.length})`;
+                : key === "NeedsReminder"
+                  ? `Needs reminder (${list.length})`
+                  : `${key} Members (${list.length})`;
 
             return (
               <div key={key} className="space-y-3">
@@ -1346,6 +1431,8 @@ export function MembersPage() {
                         "border-rose-200/80 bg-gradient-to-r from-rose-50 to-white text-rose-900 dark:border-rose-500/25 dark:from-rose-950/40 dark:to-slate-950 dark:text-rose-100",
                       key === "Cancelled" &&
                         "border-slate-200/80 bg-gradient-to-r from-slate-50 to-white text-slate-800 dark:border-white/10 dark:from-slate-900/70 dark:to-slate-950 dark:text-slate-100",
+                      key === "NeedsReminder" &&
+                        "border-sky-200/80 bg-gradient-to-r from-sky-50 to-white text-sky-900 dark:border-sky-500/25 dark:from-sky-950/40 dark:to-slate-950 dark:text-sky-100",
                     )}
                   >
                     <span
@@ -1356,77 +1443,12 @@ export function MembersPage() {
                         key === "Hold" && "bg-amber-500",
                         key === "Deactivated" && "bg-rose-500",
                         key === "Cancelled" && "bg-slate-400 dark:bg-slate-500",
+                        key === "NeedsReminder" && "bg-sky-500",
                       )}
                     />
                     {sectionTitle}
                   </h3>
                   <div className="flex flex-wrap items-center gap-2">
-                    {key === "Active" ? (
-                      <>
-                        <div className="apg-search-beam relative w-full sm:w-[260px]">
-                          <Input
-                            value={quickSearchInput}
-                            onChange={(e) => {
-                              const next = e.target.value;
-                              setQuickSearchInput(next);
-                              if (!next.trim()) setAppliedQuickSearch("");
-                            }}
-                            onKeyDown={(e) => {
-                              if (e.key === "Enter") {
-                                setAppliedQuickSearch(quickSearchInput.trim());
-                              }
-                            }}
-                            placeholder="Search members…"
-                            className={quickSearchInput.trim() ? "pr-16" : "pr-10"}
-                          />
-                          <div className="apg-search-beam__tools absolute right-2 top-1/2 flex -translate-y-1/2 items-center gap-0.5">
-                            {quickSearchInput.trim() ? (
-                              <button
-                                type="button"
-                                className="rounded-md p-1 text-muted-foreground hover:bg-muted hover:text-foreground"
-                                onClick={() => {
-                                  setQuickSearchInput("");
-                                  setAppliedQuickSearch("");
-                                }}
-                                aria-label="Clear search"
-                              >
-                                <X className="h-4 w-4" />
-                              </button>
-                            ) : null}
-                            <button
-                              type="button"
-                              className="rounded-md p-1 text-muted-foreground hover:bg-muted hover:text-foreground"
-                              onClick={() => {
-                                setAppliedQuickSearch(quickSearchInput.trim());
-                              }}
-                              aria-label="Search"
-                            >
-                              <Search className="h-4 w-4" />
-                            </button>
-                          </div>
-                        </div>
-                        <Button
-                          type="button"
-                          size="sm"
-                          onClick={openFilterPanel}
-                          aria-pressed={anyFilterActive}
-                          className={cn(
-                            "relative h-9 gap-1.5 rounded-xl px-3 text-[12px] font-medium transition-all duration-200",
-                            anyFilterActive
-                              ? "bg-slate-900 text-white shadow-[0_8px_20px_-10px_rgba(15,23,42,0.65)] hover:bg-slate-800 dark:bg-teal-400 dark:text-slate-950 dark:shadow-[0_10px_24px_-12px_rgba(45,212,191,0.55)] dark:hover:bg-teal-300"
-                              : "border border-slate-200/80 bg-white/70 text-slate-600 hover:bg-slate-50 dark:border-white/10 dark:bg-white/[0.04] dark:text-slate-300 dark:hover:bg-white/[0.08]",
-                          )}
-                        >
-                          <Filter className="h-3.5 w-3.5" />
-                          {anyFilterActive ? "Filter applied" : "Filter"}
-                          {anyFilterActive ? (
-                            <span className="inline-flex min-w-[1.25rem] items-center justify-center rounded-md bg-white/20 px-1.5 py-0.5 text-[10px] font-bold tabular-nums dark:bg-slate-950/20">
-                              {activeFilterCount}
-                            </span>
-                          ) : null}
-                        </Button>
-                      </>
-                    ) : null}
                     <Button
                       variant="outline"
                       size="sm"
@@ -1576,7 +1598,9 @@ export function MembersPage() {
                             <div className="rounded-xl border border-dashed px-4 py-8 text-center text-[11px] text-muted-foreground">
                               {key === "Birthday"
                                 ? "No Active, Hold, or Deactivated members have a birthday this month."
-                                : `No ${key.toLowerCase()} members match your filters.`}
+                                : key === "NeedsReminder"
+                                  ? "No members are waiting for a reminder on this bill."
+                                  : `No ${key.toLowerCase()} members match your filters.`}
                             </div>
                           ) : null}
                         </div>

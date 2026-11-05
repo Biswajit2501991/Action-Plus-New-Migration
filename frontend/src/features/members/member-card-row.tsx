@@ -1,6 +1,7 @@
 "use client";
 
 import { ChevronDown, ChevronUp, Cake, MessageCircle } from "lucide-react";
+import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { MemberAvatar } from "@/components/member-avatar";
 import {
@@ -17,7 +18,7 @@ import {
   paymentByDateKey,
   inactiveDurationLabel,
 } from "@/lib/domain/billing";
-import { cn } from "@/lib/utils";
+import { cn, formatCurrency } from "@/lib/utils";
 import { formatMemberBirthday, isMemberBirthdayToday } from "@/lib/domain/members";
 import { SmsSentChip } from "@/features/members/sms-sent-chip";
 import type { Member } from "@/types";
@@ -56,6 +57,17 @@ function statusDot(status?: string) {
   if (status === "Hold") return "bg-amber-500";
   if (status === "Deactivated") return "bg-pink-500";
   return "bg-slate-400";
+}
+
+async function copyMobileNumber(mobile: string) {
+  const value = String(mobile || "").trim();
+  if (!value) return;
+  try {
+    await navigator.clipboard.writeText(value);
+    toast.success("Mobile copied");
+  } catch {
+    toast.error("Could not copy the mobile number");
+  }
 }
 
 export function MemberCardRow({
@@ -131,7 +143,139 @@ export function MemberCardRow({
           }
         }}
         className={cn(
-          `apg-member-row-card grid w-full min-w-[980px] cursor-pointer ${MEMBER_LIST_GRID} items-center rounded-xl border bg-white px-2.5 py-1.5 text-left text-[10px] text-slate-700 shadow-[0_1px_0_rgba(15,23,42,0.02)] transition hover:border-slate-300 hover:bg-slate-50/70 hover:shadow-[0_6px_20px_rgba(15,23,42,0.06)] dark:bg-card dark:text-foreground dark:hover:border-white/15 dark:hover:bg-white/[0.06] dark:hover:shadow-[0_8px_24px_rgba(0,0,0,0.35)]`,
+          "rounded-xl border bg-white p-3 text-left md:hidden dark:bg-card",
+          overdue && "border-rose-300 bg-rose-50/70 dark:border-rose-500/40 dark:bg-rose-950/30",
+          billingToday &&
+            !overdue &&
+            "border-emerald-300 bg-emerald-50/80 dark:border-emerald-500/40 dark:bg-emerald-950/30",
+          birthdayToday &&
+            !overdue &&
+            !billingToday &&
+            "border-pink-300 bg-pink-50/80 dark:border-pink-500/40 dark:bg-pink-950/30",
+          !overdue && !billingToday && !birthdayToday && "border-slate-200 dark:border-border",
+        )}
+      >
+        <div className="flex items-start gap-2.5">
+          <span
+            className="pt-1"
+            onClick={(e) => e.stopPropagation()}
+            onKeyDown={(e) => e.stopPropagation()}
+          >
+            <input
+              type="checkbox"
+              className="h-3.5 w-3.5 accent-sky-600"
+              checked={selected}
+              onChange={onToggleSelect}
+              onClick={(e) => e.stopPropagation()}
+            />
+          </span>
+          <button
+            type="button"
+            className="h-10 w-10 shrink-0 overflow-hidden rounded-full border border-slate-200 dark:border-border"
+            aria-label="View member photo"
+            onClick={(e) => {
+              e.stopPropagation();
+              onPhotoClick?.();
+            }}
+          >
+            <MemberAvatar member={m} className="h-full w-full" imgClassName="h-full w-full object-cover" />
+          </button>
+          <div className="min-w-0 flex-1">
+            <div className="flex items-center gap-2">
+              <p className="truncate text-sm font-semibold text-slate-900 dark:text-foreground">
+                {m.name || "—"}
+              </p>
+              <span
+                className={cn(
+                  "inline-flex h-5 shrink-0 items-center gap-1 rounded-full border px-1.5 text-[10px] font-semibold",
+                  statusTone(String(m.status)),
+                )}
+              >
+                <span className={cn("h-1.5 w-1.5 rounded-full", statusDot(String(m.status)))} />
+                {shortStatus(m.status || "Active")}
+              </span>
+            </div>
+            <p className="truncate text-[11px] text-slate-500 dark:text-slate-400">
+              {m.memberId} · {m.plan || "—"}
+            </p>
+            <p className="mt-0.5 text-[11px] text-slate-700 dark:text-slate-200">
+              Bill {fmtDate(m.billingDate)}
+              {billingToday ? " · Due today" : ""} · Pay by {fmtDate(paymentBy)}
+            </p>
+            {overdue ? (
+              <p className="text-[11px] font-semibold text-rose-700 dark:text-rose-300">
+                Overdue by {overdueDaysForMember(m)} day{overdueDaysForMember(m) === 1 ? "" : "s"}
+              </p>
+            ) : null}
+            {inactiveDuration ? (
+              <p className="text-[11px] font-semibold text-amber-800 dark:text-amber-300">{inactiveDuration}</p>
+            ) : null}
+            <p className="mt-0.5 text-[12px] font-semibold tabular-nums text-slate-900 dark:text-slate-50">
+              {formatCurrency(Number(m.amount || 0))}
+            </p>
+            <button
+              type="button"
+              className="text-[11px] text-slate-600 underline decoration-slate-300 underline-offset-2 dark:text-slate-300"
+              disabled={!hasMobile}
+              onClick={(e) => {
+                e.stopPropagation();
+                void copyMobileNumber(String(m.mobile || ""));
+              }}
+            >
+              {hasMobile ? m.mobile : "No mobile"}
+            </button>
+          </div>
+        </div>
+        <div className="mt-2 flex flex-wrap items-center gap-1.5" onClick={(e) => e.stopPropagation()}>
+          {canEdit ? (
+            <Button
+              size="sm"
+              variant="outline"
+              className="h-7 border-indigo-200 bg-indigo-50/80 px-2 text-[11px] font-semibold text-indigo-600"
+              onClick={onEdit}
+            >
+              ✎ Action
+            </Button>
+          ) : null}
+          {msg.key !== "none" ? (
+            <Button
+              size="sm"
+              variant="outline"
+              disabled={msg.disabled}
+              className="h-7 px-2 text-[11px] font-semibold"
+              onClick={() => onWhatsApp(msg.key === "none" ? "reminder" : msg.key)}
+            >
+              <MessageCircle className="h-3 w-3" />
+              {msg.label}
+            </Button>
+          ) : null}
+          {birthdayToday ? (
+            <Button
+              size="sm"
+              variant="outline"
+              disabled={!hasMobile}
+              className="h-7 border-pink-300 bg-pink-50 px-2 text-[11px] font-semibold text-pink-800"
+              onClick={() => onWhatsApp("birthday")}
+            >
+              <Cake className="h-3 w-3" />
+              Birthday
+            </Button>
+          ) : null}
+          {highlightChipText ? <SmsSentChip text={highlightChipText} maxWidthClass="max-w-[180px]" /> : null}
+        </div>
+      </div>
+      <div
+        role="button"
+        tabIndex={0}
+        onClick={onToggleExpand}
+        onKeyDown={(e) => {
+          if (e.key === "Enter" || e.key === " ") {
+            e.preventDefault();
+            onToggleExpand();
+          }
+        }}
+        className={cn(
+          `apg-member-row-card hidden w-full min-w-[980px] cursor-pointer md:grid ${MEMBER_LIST_GRID} items-center rounded-xl border bg-white px-2.5 py-1.5 text-left text-[10px] text-slate-700 shadow-[0_1px_0_rgba(15,23,42,0.02)] transition hover:border-slate-300 hover:bg-slate-50/70 hover:shadow-[0_6px_20px_rgba(15,23,42,0.06)] dark:bg-card dark:text-foreground dark:hover:border-white/15 dark:hover:bg-white/[0.06] dark:hover:shadow-[0_8px_24px_rgba(0,0,0,0.35)]`,
           overdue && "apg-member-row--fine-due font-medium",
           billingToday && "apg-member-row--billing-today font-medium",
           birthdayToday &&
@@ -199,12 +343,34 @@ export function MemberCardRow({
                 {memberBirthday}
               </span>
             ) : null}
+            <span className="mt-0.5 flex min-w-0 items-center gap-1 text-[9px] font-medium text-slate-500 dark:text-slate-400">
+              <button
+                type="button"
+                className="truncate text-left underline decoration-slate-300 underline-offset-2 hover:text-slate-800 dark:hover:text-slate-100"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  void copyMobileNumber(String(m.mobile || ""));
+                }}
+                disabled={!hasMobile}
+              >
+                {hasMobile ? m.mobile : "No mobile"}
+              </button>
+              <span aria-hidden>·</span>
+              <span className="shrink-0 tabular-nums text-slate-700 dark:text-slate-200">
+                {formatCurrency(Number(m.amount || 0))}
+              </span>
+            </span>
           </span>
         </span>
 
         <span className="truncate text-slate-700 dark:text-foreground">{m.plan || "—"}</span>
         <span className="whitespace-nowrap text-slate-700 dark:text-foreground">
-          {fmtDate(m.billingDate)}
+          <span className="block">{fmtDate(m.billingDate)}</span>
+          {billingToday ? (
+            <span className="block text-[9px] font-semibold text-emerald-700 dark:text-emerald-300">
+              Due today
+            </span>
+          ) : null}
         </span>
         <span className="whitespace-nowrap text-slate-700 dark:text-foreground">
           <span className="block">{fmtDate(paymentBy)}</span>
@@ -328,7 +494,7 @@ export function MemberListHeader({
     sortIndicator ? sortIndicator(field) : "";
   return (
     <div
-      className={`grid min-w-[980px] ${MEMBER_LIST_GRID} items-center rounded-xl border border-sky-100 bg-sky-50/80 px-2.5 py-1.5 text-[10px] font-semibold uppercase tracking-wide text-slate-600 dark:border-sky-900 dark:bg-sky-950/30 dark:text-sky-100`}
+      className={`hidden min-w-[980px] md:grid ${MEMBER_LIST_GRID} items-center rounded-xl border border-sky-100 bg-sky-50/80 px-2.5 py-1.5 text-[10px] font-semibold uppercase tracking-wide text-slate-600 dark:border-sky-900 dark:bg-sky-950/30 dark:text-sky-100`}
     >
       <span />
       <button type="button" className="text-left" onClick={() => onSort?.("memberId")}>
