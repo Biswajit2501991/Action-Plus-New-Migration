@@ -6,25 +6,30 @@ import { ChevronRight } from "lucide-react";
 import { AccentMetricCard } from "@/components/ui/accent-metric-card";
 import { Skeleton } from "@/components/ui/misc";
 import { MobileHero, MobilePanel } from "@/components/layout/mobile-ui";
-import { useFinance, useMembers, useSettings } from "@/hooks/use-data";
+import { useFinance, useMembers, useSettings, useVisitors } from "@/hooks/use-data";
 import { buildFinanceKpis } from "@/lib/domain/finance";
 import { countByStatus } from "@/lib/domain/members";
 import { isPaymentByPastDue, overdueDaysForMember } from "@/lib/domain/billing";
 import { currentBillingReminderSentText } from "@/lib/domain/member-actions";
 import { formatCurrency, formatMonthKey } from "@/lib/utils";
+import { cn, formatCurrency, formatMonthKey } from "@/lib/utils";
 import { hasAccess } from "@/lib/domain/permissions";
 import { useAuthStore } from "@/stores";
 import { MemberAvatar } from "@/components/member-avatar";
 import { useMemberPhotoHydration } from "@/hooks/use-member-photo-hydration";
 import { useMobileFeatureAccess } from "@/components/layout/mobile-access-guard";
 import { CollectedRevenueDialog } from "@/features/dashboard/collected-revenue-dialog";
+import { DashboardTodayRow, hiddenNamesClass } from "@/features/dashboard/dashboard-today-row";
 
 export function MobileDashboard() {
   const router = useRouter();
   const user = useAuthStore((s) => s.user);
   const month = formatMonthKey(new Date());
   const [revenueOpen, setRevenueOpen] = useState(false);
+  const [namesHidden, setNamesHidden] = useState(false);
+  const [showAllOverdue, setShowAllOverdue] = useState(false);
   const { data: members = [], isLoading: loadingMembers } = useMembers();
+  const { data: visitors = [] } = useVisitors();
   const { data: finance, isLoading: loadingFinance } = useFinance(month);
   const { data: settings } = useSettings();
   useMemberPhotoHydration(members);
@@ -61,8 +66,7 @@ export function MobileDashboard() {
       members
         .filter((m) => isPaymentByPastDue(m))
         .map((m) => ({ ...m, days: overdueDaysForMember(m) }))
-        .sort((a, b) => b.days - a.days)
-        .slice(0, 6),
+        .sort((a, b) => b.days - a.days),
     [members],
   );
 
@@ -85,6 +89,30 @@ export function MobileDashboard() {
         eyebrow={greeting}
         title={user?.name?.split(" ")[0] || "Welcome"}
         subtitle="A calm view of what needs attention today."
+      />
+      <div className="flex justify-end">
+        <button
+          type="button"
+          className="text-xs font-semibold text-teal-700 dark:text-teal-300"
+          onClick={() => setNamesHidden((hidden) => !hidden)}
+        >
+          {namesHidden ? "Show names" : "Hide names"}
+        </button>
+      </div>
+      <DashboardTodayRow
+        members={members}
+        visitors={visitors}
+        canMembers={canCore}
+        canOverdue={canOverdue}
+        canVisitors={hasAccess(user, "members", "viewVisitors")}
+        namesHidden={namesHidden}
+        onOpenMember={(memberId) =>
+          router.push(`/members?q=${encodeURIComponent(memberId)}`)
+        }
+        onOpenVisitors={() => router.push("/members?tab=visitors")}
+        onOpenOverdue={() =>
+          document.getElementById("dashboard-overdue")?.scrollIntoView({ behavior: "smooth", block: "start" })
+        }
       />
 
       {canCore ? (
@@ -131,7 +159,7 @@ export function MobileDashboard() {
 
       {canOverdue ? (
         <MobilePanel accent="bg-rose-500">
-          <div className="flex items-center justify-between px-4 pt-4">
+          <div id="dashboard-overdue" className="flex items-center justify-between px-4 pt-4">
             <div>
               <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-rose-700/80 dark:text-rose-300/80">
                 Attention
@@ -140,26 +168,31 @@ export function MobileDashboard() {
                 Overdue payments
               </h2>
             </div>
-            <button
-              type="button"
-              className="text-xs font-semibold text-teal-700 dark:text-teal-300"
-              onClick={() => router.push("/members?status=Active")}
-            >
-              View all
-            </button>
+            {overdue.length > 5 ? (
+              <button
+                type="button"
+                className="text-xs font-semibold text-teal-700 dark:text-teal-300"
+                onClick={() => setShowAllOverdue((open) => !open)}
+              >
+                {showAllOverdue ? "Show five" : "See all"}
+              </button>
+            ) : null}
           </div>
-          <ul className="divide-y divide-black/5 dark:divide-white/5">
+          <ul className={cn("divide-y divide-black/5 dark:divide-white/5", hiddenNamesClass(namesHidden))}>
             {overdue.length === 0 ? (
               <li className="px-4 py-6 text-sm text-slate-500">All clear — no overdue members.</li>
             ) : (
               overdue.map((m) => {
                 const reminderSent = currentBillingReminderSentText(m);
                 return (
+              (showAllOverdue ? overdue : overdue.slice(0, 5)).map((m) => (
                 <li key={m.memberId}>
                   <button
                     type="button"
                     className="flex w-full items-center gap-3 px-4 py-3 text-left transition hover:bg-black/[0.02] dark:hover:bg-white/[0.03]"
-                    onClick={() => router.push("/members")}
+                    onClick={() =>
+                      router.push(`/members?q=${encodeURIComponent(String(m.memberId || ""))}`)
+                    }
                   >
                     <MemberAvatar member={m} className="h-10 w-10" />
                     <div className="min-w-0 flex-1">

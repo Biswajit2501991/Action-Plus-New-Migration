@@ -10,7 +10,7 @@ import { Badge, PageHeader, Skeleton } from "@/components/ui/misc";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input, Select } from "@/components/ui/input";
-import { useFinance, useFinanceYearSummary, useGymCodes, useMembers, useSettings } from "@/hooks/use-data";
+import { useFinance, useFinanceYearSummary, useGymCodes, useMembers, useSettings, useVisitors } from "@/hooks/use-data";
 import {
   buildClientRevenueTrend,
   buildFinanceKpis,
@@ -45,6 +45,7 @@ import {
 } from "@/features/dashboard/dashboard-privacy-cover";
 import type { DashboardCoverTileId } from "@/features/dashboard/dashboard-privacy";
 import { CollectedRevenueDialog } from "@/features/dashboard/collected-revenue-dialog";
+import { DashboardTodayRow, hiddenNamesClass } from "@/features/dashboard/dashboard-today-row";
 import { useAuthStore, useUiStore } from "@/stores";
 import type { Member } from "@/types";
 import { MessagePreviewModal } from "@/features/whatsapp/message-preview-modal";
@@ -155,6 +156,7 @@ export function DashboardPage() {
   const setAddMemberOpen = useUiStore((s) => s.setAddMemberOpen);
   const month = formatMonthKey();
   const { data: members = [], isLoading: loadingMembers } = useMembers();
+  const { data: visitors = [] } = useVisitors();
   const { data: finance, isLoading: loadingFinance } = useFinance(month);
   const { data: yearSummary } = useFinanceYearSummary(Number(month.slice(0, 4)) || undefined);
   const { data: settings } = useSettings();
@@ -177,6 +179,8 @@ export function DashboardPage() {
   const [coverSettingsOpen, setCoverSettingsOpen] = useState(false);
   const [coverRevealed, setCoverRevealed] = useState<Partial<Record<DashboardCoverTileId, boolean>>>({});
   const [revenueOpen, setRevenueOpen] = useState(false);
+  const [namesHidden, setNamesHidden] = useState(false);
+  const [showAllOverdue, setShowAllOverdue] = useState(false);
   const isOwner = isMasterOwnerUser(user);
   const { prefs: coverPrefs, update: updateCoverPrefs } = useDashboardCoverPrefs(
     String(user?.gymId || ""),
@@ -377,6 +381,13 @@ export function DashboardPage() {
                 Tile cover
               </Button>
             ) : null}
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setNamesHidden((hidden) => !hidden)}
+            >
+              {namesHidden ? "Show names" : "Hide names"}
+            </Button>
             {canCore ? (
             <>
               {canOpenMembershipPlans ? (
@@ -507,6 +518,20 @@ export function DashboardPage() {
         </div>
       ) : null}
 
+      <DashboardTodayRow
+        members={members}
+        visitors={visitors}
+        canMembers={canCore}
+        canOverdue={canOverdue}
+        canVisitors={hasAccess(user, "members", "viewVisitors")}
+        namesHidden={namesHidden}
+        onOpenMember={(memberId) => goMembers(undefined, memberId, "memberId")}
+        onOpenVisitors={() => router.push("/members?tab=visitors")}
+        onOpenOverdue={() =>
+          document.getElementById("dashboard-overdue")?.scrollIntoView({ behavior: "smooth", block: "start" })
+        }
+      />
+
       {canCore ? (
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-5">
           {STATUS_TILES.map((key) => (
@@ -636,13 +661,16 @@ export function DashboardPage() {
               <CardTitle>Recent payments</CardTitle>
             </CardHeader>
             <CardContent className="space-y-3">
+              <div className={cn("space-y-3", hiddenNamesClass(namesHidden))}>
               {payments.length === 0 ? (
                 <p className="text-sm text-muted-foreground">No payments yet.</p>
               ) : (
                 payments.map((p, idx) => (
-                  <div
+                  <button
                     key={`${p.memberId}-${idx}`}
-                    className="flex items-center justify-between gap-3 text-sm"
+                    type="button"
+                    className="flex w-full items-center justify-between gap-3 text-left text-sm hover:bg-accent/40"
+                    onClick={() => goMembers(undefined, p.memberId, "memberId")}
                   >
                     <div>
                       <p className="font-medium">{p.name || p.memberId}</p>
@@ -651,9 +679,10 @@ export function DashboardPage() {
                       </p>
                     </div>
                     <span className="font-semibold">{formatCurrency(p.amount)}</span>
-                  </div>
+                  </button>
                 ))
               )}
+              </div>
             </CardContent>
           </Card>
           </PrivacyCover>
@@ -674,14 +703,16 @@ export function DashboardPage() {
           <CardHeader>
             <CardTitle>Recent payments</CardTitle>
           </CardHeader>
-          <CardContent className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+          <CardContent className={cn("grid gap-3 sm:grid-cols-2 lg:grid-cols-4", hiddenNamesClass(namesHidden))}>
             {payments.length === 0 ? (
               <p className="text-sm text-muted-foreground">No payments yet.</p>
             ) : (
               payments.map((p, idx) => (
-                <div
+                <button
                   key={`${p.memberId}-${idx}`}
-                  className="flex items-center justify-between gap-3 rounded-xl border border-border/70 px-3 py-2 text-sm"
+                  type="button"
+                  className="flex items-center justify-between gap-3 rounded-xl border border-border/70 px-3 py-2 text-left text-sm hover:bg-accent/40"
+                  onClick={() => goMembers(undefined, p.memberId, "memberId")}
                 >
                   <div className="min-w-0">
                     <p className="truncate font-medium">{p.name || p.memberId}</p>
@@ -690,7 +721,7 @@ export function DashboardPage() {
                     </p>
                   </div>
                   <span className="shrink-0 font-semibold">{formatCurrency(p.amount)}</span>
-                </div>
+                </button>
               ))
             )}
           </CardContent>
@@ -699,11 +730,21 @@ export function DashboardPage() {
       ) : null}
 
       {canOverdue ? (
-        <Card>
-          <CardHeader>
+        <Card id="dashboard-overdue">
+          <CardHeader className="flex flex-row items-center justify-between gap-3 space-y-0">
             <CardTitle>Overdue Payments and Retention Alerts</CardTitle>
+            {overdueList.length > 5 ? (
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
+                onClick={() => setShowAllOverdue((open) => !open)}
+              >
+                {showAllOverdue ? "Show five" : "See all"}
+              </Button>
+            ) : null}
           </CardHeader>
-          <CardContent className="p-0">
+          <CardContent className={cn("p-0", hiddenNamesClass(namesHidden))}>
             <div className="overflow-x-auto">
               <table className="hidden min-w-full text-sm md:table">
                 <thead>
@@ -717,7 +758,7 @@ export function DashboardPage() {
                   </tr>
                 </thead>
                 <tbody>
-                  {overdueList.slice(0, 10).map((m) => (
+                  {(showAllOverdue ? overdueList : overdueList.slice(0, 5)).map((m) => (
                     <OverdueRow
                       key={m.memberId}
                       m={m}
@@ -739,7 +780,7 @@ export function DashboardPage() {
               </table>
 
               <div className="space-y-3 p-4 md:hidden">
-                {overdueList.slice(0, 10).map((m) => (
+                {(showAllOverdue ? overdueList : overdueList.slice(0, 5)).map((m) => (
                   <div key={m.memberId} className="rounded-xl border border-border p-3">
                     <div className="font-semibold">{m.name || m.memberId}</div>
                     <div className="mt-1 text-xs text-muted-foreground">
@@ -773,7 +814,7 @@ export function DashboardPage() {
         </Card>
       ) : null}
 
-      <div className="grid gap-4 md:grid-cols-2">
+      <div className={cn("grid gap-4 md:grid-cols-2", hiddenNamesClass(namesHidden))}>
         <Card>
           <CardHeader>
             <CardTitle>Expiring soon</CardTitle>
