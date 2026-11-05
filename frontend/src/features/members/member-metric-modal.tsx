@@ -147,6 +147,15 @@ function matchesSearch(m: Member, q: string) {
   return hay.includes(query);
 }
 
+/** 0 = name starts with the query, 1 = name contains it, 2 = another field matches. */
+function matchRank(m: Member, q: string) {
+  const query = q.trim().toLowerCase();
+  const name = String(m.name || "").toLowerCase();
+  if (query && name.startsWith(query)) return 0;
+  if (query && name.includes(query)) return 1;
+  return 2;
+}
+
 function sortValue(m: Member, field: SortField) {
   if (field === "paymentBy") return paymentBySortKey(m);
   if (field === "billingDate") return m.billingDate || "";
@@ -185,34 +194,37 @@ export function MemberMetricModal({
   initialSearch = "",
 }: MemberMetricModalProps) {
   const [searchInput, setSearchInput] = useState("");
-  const [appliedSearch, setAppliedSearch] = useState("");
   const [sortField, setSortField] = useState<SortField>("name");
   const [sortDirection, setSortDirection] = useState<"asc" | "desc">("asc");
+  const [sortChosen, setSortChosen] = useState(false);
   const [page, setPage] = useState(1);
+  const query = searchInput.trim();
 
   useEffect(() => {
     if (!open) return;
     setSearchInput(initialSearch);
-    setAppliedSearch(initialSearch.trim());
     setSortField("name");
     setSortDirection("asc");
+    setSortChosen(false);
     setPage(1);
   }, [open, initialSearch]);
 
   const filtered = useMemo(() => {
     if (!open) return [];
     let list = filterByMetric(members, open);
-    if (appliedSearch.trim()) {
-      list = list.filter((m) => matchesSearch(m, appliedSearch));
-    }
+    if (query) list = list.filter((m) => matchesSearch(m, query));
     const dir = sortDirection === "asc" ? 1 : -1;
     return [...list].sort((a, b) => {
+      if (query && !sortChosen) {
+        const rank = matchRank(a, query) - matchRank(b, query);
+        if (rank !== 0) return rank;
+      }
       const av = String(sortValue(a, sortField)).toLowerCase();
       const bv = String(sortValue(b, sortField)).toLowerCase();
       if (av === bv) return 0;
       return (av > bv ? 1 : -1) * dir;
     });
-  }, [open, members, appliedSearch, sortField, sortDirection]);
+  }, [open, members, query, sortChosen, sortField, sortDirection]);
 
   if (!open) return null;
 
@@ -226,6 +238,7 @@ export function MemberMetricModal({
   const showingTo = Math.min(pageStart + PAGE_SIZE, totalCount);
 
   const toggleSort = (field: SortField) => {
+    setSortChosen(true);
     if (sortField === field) setSortDirection((d) => (d === "asc" ? "desc" : "asc"));
     else {
       setSortField(field);
@@ -237,11 +250,6 @@ export function MemberMetricModal({
   const sortIndicator = (field: SortField) => {
     if (sortField !== field) return "↕";
     return sortDirection === "asc" ? "↑" : "↓";
-  };
-
-  const applySearch = () => {
-    setAppliedSearch(searchInput.trim());
-    setPage(1);
   };
 
   const pageNums = (() => {
@@ -289,34 +297,24 @@ export function MemberMetricModal({
             <Input
               value={searchInput}
               onChange={(e) => {
-                const next = e.target.value;
-                setSearchInput(next);
-                if (!next.trim()) {
-                  setAppliedSearch("");
-                  setPage(1);
-                }
-              }}
-              onKeyDown={(e) => {
-                if (e.key === "Enter") applySearch();
+                setSearchInput(e.target.value);
+                setPage(1);
               }}
               placeholder="Search by name, ID, phone, plan…"
               className="pr-10"
             />
-            <button
-              type="button"
-              onClick={applySearch}
-              className="absolute right-2 top-1/2 -translate-y-1/2 rounded-lg px-2 py-1 text-muted-foreground hover:text-foreground"
-              aria-label="Search"
+            <span
+              className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 px-2 py-1 text-muted-foreground"
+              aria-hidden
             >
               <Search className="h-4 w-4" />
-            </button>
+            </span>
           </div>
-          {appliedSearch ? (
+          {query ? (
             <button
               type="button"
               onClick={() => {
                 setSearchInput("");
-                setAppliedSearch("");
                 setPage(1);
               }}
               className="text-xs font-medium text-muted-foreground hover:text-foreground"
@@ -382,7 +380,7 @@ export function MemberMetricModal({
                   <tr>
                     <td colSpan={7} className="px-4 py-10 text-center text-sm text-muted-foreground">
                       No members match this list
-                      {appliedSearch ? ` for “${appliedSearch}”` : ""}.
+                      {query ? ` for “${query}”` : ""}.
                     </td>
                   </tr>
                 ) : null}
