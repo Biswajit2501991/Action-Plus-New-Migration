@@ -63,6 +63,7 @@ export const README_TOPICS: ReadmeTopic[] = [
       "Actions keeps Import CSV and Add Expense under Tools. Status changes sit in a separate box and still use the same buttons.",
       "Hold and Deactivated rows show the saved hold length, the note, and the hold message already on the record, next to how long they have been inactive.",
       "The row shows the date of the latest saved payment. It does not add or change a payment.",
+      "Active Members, Hold Members, Risk Alert, and Win-back Opportunity filter as you type. Names that start with the letters come first. A column heading still sorts that list. Nothing is saved.",
       "Open a member to see plan, status, bill date, and portal details.",
       "T-shirt size, when the member has saved one, shows on the member record. The owner can tap Unlock T-shirt size to give that member two saves again. The saved size stays.",
       "Member Portal “Next Payment Date” for the member is the Bill Date on this record. The stored bill date is not rewritten by the portal label.",
