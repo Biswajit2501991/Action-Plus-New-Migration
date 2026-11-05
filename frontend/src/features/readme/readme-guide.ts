@@ -133,6 +133,7 @@ export const README_TOPICS: ReadmeTopic[] = [
       "Do not expect a display change on another page to rewrite payment history.",
       "Collected revenue on the Dashboard is the same money, sometimes covered until Show is tapped.",
       "The Expenses tile can show logged expenses, or a 26% estimate when none are logged. The owner switches this on the tile. It does not change payment or expense rows.",
+      "A thin line under the month shows the same collected, expenses, and profit already on this page. Category chips on the expense list only hide rows. The amounts and the expense save stay the same.",
     ],
   },
   {
@@ -144,6 +145,7 @@ export const README_TOPICS: ReadmeTopic[] = [
       "For one date, staff can choose Full day or Half day. A half day counts as 0.5 after it is approved.",
       "A range of dates stays a full-day leave. Leave already saved stays a full day.",
       "Approving a half day marks that attendance day as Half Day. It does not change pay.",
+      "Waiting for approval shows how many requests are still pending. Tapping it shows only those requests. Approve and Reject stay the same buttons.",
     ],
   },
   {
@@ -153,6 +155,7 @@ export const README_TOPICS: ReadmeTopic[] = [
     summary: "Staff attendance and member QR check-in.",
     how: [
       "Member QR Check-in is the desk scan. It does not change a member’s plan or bill date.",
+      "Not marked today counts staff with no status saved for today and scrolls to the first of those rows. It does not mark anyone present or absent.",
     ],
   },
   {
@@ -162,6 +165,7 @@ export const README_TOPICS: ReadmeTopic[] = [
     summary: "WhatsApp SMS templates and Member Portal verification are separate menus.",
     how: [
       "WhatsApp Verification is how a member gets into the portal. A portal tile or a guide page does not change that login.",
+      "Before send shows the example message and every name for that message type, including anyone with no mobile. The send button on each row stays the same.",
     ],
   },
   {
