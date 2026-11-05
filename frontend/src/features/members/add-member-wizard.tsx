@@ -341,6 +341,20 @@ export function AddMemberWizard({
     setForm((f) => ({ ...f, staff: staffName }));
   }, [open, staffName]);
 
+  useEffect(() => {
+    if (!open) return;
+    const html = document.documentElement;
+    const body = document.body;
+    const prevHtml = html.style.overflow;
+    const prevBody = body.style.overflow;
+    html.style.overflow = "hidden";
+    body.style.overflow = "hidden";
+    return () => {
+      html.style.overflow = prevHtml;
+      body.style.overflow = prevBody;
+    };
+  }, [open]);
+
   // Convert Visitor: clear draft and seed identity (prod convertVisitorToMember).
   useEffect(() => {
     if (!open || !prefillVisitor) return;
@@ -762,7 +776,7 @@ export function AddMemberWizard({
   ];
 
   return (
-    <div className="fixed inset-0 z-50 flex items-end justify-center overflow-y-auto bg-black/40 p-2 sm:items-center sm:p-4">
+    <div className="fixed inset-0 z-50 flex items-end justify-center overflow-hidden overscroll-none bg-slate-950/70 p-2 backdrop-blur-xl sm:items-center sm:p-4">
       <div className="flex max-h-[95dvh] w-full max-w-3xl flex-col overflow-hidden rounded-t-3xl bg-background shadow-2xl sm:max-h-[92vh] sm:rounded-3xl">
         <div className="flex items-center justify-between px-4 py-4 sm:px-6">
           <h3 className="inline-flex items-center rounded-full border border-sky-200 bg-sky-50 px-4 py-1.5 text-base font-semibold text-sky-800">
