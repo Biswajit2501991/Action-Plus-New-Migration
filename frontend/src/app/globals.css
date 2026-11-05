@@ -330,7 +330,7 @@
   --my: 40%;
 }
 
-/* Swap the photo by replacing frontend/public/brand/login-background.webp. */
+/* 5440×2160 photo. Left alignment keeps both athletes in frame on a large or wide screen. */
 .login-colour-stage {
   z-index: 0;
   overflow: hidden;
@@ -339,7 +339,7 @@
     linear-gradient(105deg, rgba(11, 16, 32, 0.72) 0%, rgba(34, 27, 59, 0.42) 46%, rgba(11, 16, 32, 0.62) 100%),
     url("/brand/login-background.webp");
   background-size: cover, cover;
-  background-position: center center, center center;
+  background-position: center center, left center;
   background-repeat: no-repeat, no-repeat;
 }
 
