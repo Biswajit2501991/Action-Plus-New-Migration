@@ -59,6 +59,7 @@ export const README_TOPICS: ReadmeTopic[] = [
       "The row shows the plan amount and the mobile number. Tapping the number copies it. The member record stays the same.",
       "Needs reminder lists Active members whose bill is due and who have not been sent a reminder for this bill. The chip only changes which rows you see.",
       "Search and the status chips stay at the top while the list scrolls. A bill date that is today shows Due today on the row.",
+      "All Members starts with Hold, Deactivated, and Cancelled collapsed. Show opens that list for this visit. Choosing that status chip opens it too. Member records stay the same.",
       "Open a member to see plan, status, bill date, and portal details.",
       "T-shirt size, when the member has saved one, shows on the member record. The owner can tap Unlock T-shirt size to give that member two saves again. The saved size stays.",
       "Member Portal “Next Payment Date” for the member is the Bill Date on this record. The stored bill date is not rewritten by the portal label.",

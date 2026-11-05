@@ -218,9 +218,9 @@ export function MembersPage() {
   const [hiddenSections, setHiddenSections] = useState<Record<SectionKey, boolean>>({
     Active: false,
     Birthday: false,
-    Hold: false,
-    Deactivated: false,
-    Cancelled: false,
+    Hold: true,
+    Deactivated: true,
+    Cancelled: true,
     NeedsReminder: false,
   });
   const [expandedId, setExpandedId] = useState<string | null>(null);
@@ -271,6 +271,11 @@ export function MembersPage() {
     setPages({ Active: 1, Birthday: 1, Hold: 1, Deactivated: 1, Cancelled: 1, NeedsReminder: 1 });
     setSelectedIds([]);
   }, [filters, appliedQuickSearch, focusStatus]);
+
+  useEffect(() => {
+    if (focusStatus !== "Hold" && focusStatus !== "Deactivated" && focusStatus !== "Cancelled") return;
+    setHiddenSections((prev) => (prev[focusStatus] ? { ...prev, [focusStatus]: false } : prev));
+  }, [focusStatus]);
 
   const anyFilterActive = useMemo(
     () => Object.values(filters).some((v) => Boolean(String(v || "").trim())),
