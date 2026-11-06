@@ -812,17 +812,17 @@
 .signout-glass-tile {
   display: flex;
   width: 100%;
-  height: 56px;
+  height: 40px;
   align-items: center;
   justify-content: flex-start;
-  gap: 12px;
-  border-radius: 15px;
+  gap: 10px;
+  border-radius: 12px;
   border: 1px solid #383d46;
   background: #191c22;
   box-shadow: 0 5px 16px rgba(0, 0, 0, 0.12);
   color: #ffffff;
-  padding: 0 18px;
-  font-size: 16px;
+  padding: 0 12px 0 6px;
+  font-size: 14px;
   font-weight: 600;
   line-height: 1;
   cursor: pointer;
@@ -835,18 +835,18 @@
 
 .signout-glass-tile__mark {
   display: grid;
-  width: 40px;
-  height: 40px;
+  width: 28px;
+  height: 28px;
   flex: none;
   place-items: center;
-  border-radius: 10px;
+  border-radius: 8px;
   background: #2a2d35;
   color: #ff646d;
 }
 
 .signout-glass-tile__icon {
-  width: 22px;
-  height: 22px;
+  width: 16px;
+  height: 16px;
 }
 
 .signout-glass-tile__label {
