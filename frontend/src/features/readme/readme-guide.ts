@@ -22,6 +22,7 @@ export const README_TOPICS: ReadmeTopic[] = [
       "Each block says what a part of the app does and how to use it.",
       "You see the blocks for menus you can already open. The owner sees the full guide.",
       "On a phone, the header names the open section, such as Members or Finance, next to the staff role.",
+      "Sign out at the bottom of the menu is the graphite button. It still ends this session the same way.",
       "Staff see Read Me only after it is turned on under Staff → Web view — sections & access.",
     ],
   },
