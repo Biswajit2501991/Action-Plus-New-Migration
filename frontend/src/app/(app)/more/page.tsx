@@ -154,7 +154,7 @@ export default function MorePage() {
             );
           })}
         </div>
-        <MobilePanel className="p-2">
+        <MobilePanel className="px-3.5 py-2">
           <SignOutGlassButton onClick={() => void logout()} />
         </MobilePanel>
       </div>

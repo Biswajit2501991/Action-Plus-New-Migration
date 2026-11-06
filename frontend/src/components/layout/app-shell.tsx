@@ -376,7 +376,7 @@ function DesktopShell({ children }: { children: React.ReactNode }) {
             })}
           </nav>
 
-          <div className="border-t border-border/70 p-3">
+          <div className={cn("border-t border-border/70", sidebarCollapsed ? "p-3" : "px-[1.375rem] py-3")}>
             <SignOutGlassButton
               collapsed={sidebarCollapsed}
               onClick={() => void logout()}
