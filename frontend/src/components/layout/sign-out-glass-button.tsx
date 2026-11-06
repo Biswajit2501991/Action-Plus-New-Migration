@@ -1,6 +1,6 @@
 "use client";
 
-import { ChevronRight, LogOut } from "lucide-react";
+import { LogOut } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 /**
@@ -23,14 +23,9 @@ export function SignOutGlassButton({
       className={cn("signout-glass-tile", collapsed && "signout-glass-tile--compact", className)}
     >
       <span className="signout-glass-tile__mark" aria-hidden>
-        <LogOut className="h-3.5 w-3.5" strokeWidth={2.25} />
+        <LogOut className="signout-glass-tile__icon" strokeWidth={1.9} />
       </span>
-      {!collapsed ? (
-        <>
-          <span className="signout-glass-tile__label">Sign out</span>
-          <ChevronRight className="signout-glass-tile__chevron" aria-hidden />
-        </>
-      ) : null}
+      {!collapsed ? <span className="signout-glass-tile__label">Sign out</span> : null}
     </button>
   );
 }
