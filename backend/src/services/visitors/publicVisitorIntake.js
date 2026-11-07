@@ -302,5 +302,15 @@ export async function submitPublicVisitorIntake(gymCode, body, req) {
   };
 
   const saved = await createOrUpsertPublicVisitor(visitor);
+  if (String(saved?.id || '') === visitor.id) {
+    try {
+      const { notifyNewVisitor } = await import('../staffPush/staffDeskPush.js');
+      void notifyNewVisitor(saved).catch((err) => {
+        console.error('visitor alert skipped', err?.message || err);
+      });
+    } catch (err) {
+      console.error('visitor alert skipped', err?.message || err);
+    }
+  }
   return saved;
 }

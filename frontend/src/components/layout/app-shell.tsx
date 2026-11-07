@@ -39,6 +39,7 @@ import { CommandPalette } from "@/features/search/command-palette";
 import { AddMemberHost } from "@/features/members/add-member-host";
 import { HistoryControls } from "@/components/layout/history-controls";
 import { NotificationCenter } from "@/features/notifications/notification-center";
+import { StaffPushToggle } from "@/components/layout/staff-push-toggle";
 import { StaffPinGate } from "@/features/auth/staff-pin-gate";
 import { LateArrivalNoteHost } from "@/features/attendance/late-arrival-note-host";
 import { StaffSelfSalaryHost } from "@/features/staff/auto-salary-calculator/staff-self-salary-host";
@@ -459,6 +460,7 @@ function DesktopShell({ children }: { children: React.ReactNode }) {
 
             <HistoryControls />
 
+            <StaffPushToggle />
             <NotificationCenter />
 
             {showBranchSwitcher ? (
