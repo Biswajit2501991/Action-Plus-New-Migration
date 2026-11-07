@@ -10,6 +10,16 @@ const PUBLIC_PATHS = new Set(['/health', '/v1/health']);
 export function bindGymContext(req, res, next) {
   const path = req.path || '';
   if (PUBLIC_PATHS.has(path)) return next();
+  if (path === '/internal/staff-push/portal-chat') {
+    const configured = String(env.APG_GYM_ID || '').trim();
+    if (!configured) {
+      return res.status(503).json({
+        error: 'gym-not-configured',
+        message: 'APG_GYM_ID is not set.',
+      });
+    }
+    return runWithGymContext({ gymId: configured }, () => next());
+  }
 
   const tokenGymId = String(req.auth?.gymId || '').trim();
   const envGymId = String(env.APG_GYM_ID || '').trim();

@@ -20,6 +20,7 @@ export function requireApiAuth(req, res, next) {
   if (PUBLIC_PATHS.has(path)) return next();
   // Public QR / intake endpoints (also mounted before this middleware).
   if (path.startsWith('/public/')) return next();
+  if (path === '/internal/staff-push/portal-chat' && req.method === 'POST') return next();
 
   if (path.startsWith('/process/') && env.PROCESS_CONTROL_ENABLED) {
     if (env.NODE_ENV === 'production' && !isLoopbackRequest(req)) {

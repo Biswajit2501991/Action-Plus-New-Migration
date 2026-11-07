@@ -23,6 +23,7 @@ export const README_TOPICS: ReadmeTopic[] = [
       "You see the blocks for menus you can already open. The owner sees the full guide.",
       "On a phone, the header names the open section, such as Members or Finance, next to the staff role.",
       "Sign out at the bottom of the menu is the graphite button. It still ends this session the same way.",
+      "Phone alerts sits next to Alerts. Turn it on once on this phone. It stays on for this login until you turn it off.",
       "Staff see Read Me only after it is turned on under Staff → Web view — sections & access.",
     ],
   },
@@ -53,6 +54,7 @@ export const README_TOPICS: ReadmeTopic[] = [
     how: [
       "Search matches name, member ID, mobile, email, and staff.",
       "New Visitor flashes on the Members row in the left menu for 24 hours after a visitor is added, including a website enquiry. Tap it to open Visitors. It does not change the visitor or member record.",
+      "When a new visitor is saved, staff who turned on Phone alerts and can open Visitors for that branch get a phone message: New visitor added. Log in to the Gym app to check. Saving a visitor who is already on the list does not send it again.",
       "The visitor form goal list is Weight loss, Weight gain, Strength training, Just to stay fit, and Recovering from injury or medical condition. The posted QR link stays the same.",
       "Visitor intake QR is drawn in this browser from the public visit link. Copy link, Open form, and convert-to-member stay the same.",
       "Visitors shows 10 at a time. All, Converted, and Not converted only change which cards you see. They do not change visitor or member records.",
@@ -180,6 +182,16 @@ export const README_TOPICS: ReadmeTopic[] = [
     how: [
       "WhatsApp Verification is how a member gets into the portal. A portal tile or a guide page does not change that login.",
       "Before send shows the example message and every name for that message type, including anyone with no mobile. The send button on each row stays the same.",
+    ],
+  },
+  {
+    id: "portal-chat",
+    title: "Portal Chat",
+    gate: "WhatsApp Verification",
+    summary: "Member messages from the Member Portal.",
+    how: [
+      "When a member sends a message, staff who turned on Phone alerts and can open Portal Chat for that member get: the member's name, then has sent a message. Log in to reply.",
+      "A reply from staff does not send that phone alert. The message stays in Portal Chat if the phone alert cannot be sent.",
     ],
   },
   {

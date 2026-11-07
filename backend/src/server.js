@@ -123,6 +123,16 @@ import attendancePresenceRouter from './routes/attendancePresence.js';
 import attendanceKioskRouter from './routes/attendanceKiosk.js';
 import { registerMemberPortalPhase2Routes } from './routes/memberPortalPhase2.js';
 import { notifyMemberPaymentReceived, registerPortalPushBroadcastRoutes } from './routes/portalPushBroadcast.js';
+import {
+  existingVisitorIds,
+  notifyNewVisitor,
+  notifyPortalChatMessage,
+  publicVapidKey,
+  removeStaffPushSubscription,
+  saveStaffPushSubscription,
+  staffPushEnabled,
+} from './services/staffPush/staffDeskPush.js';
+import { cronSecretMatches } from './services/staffPush/staffPushSecret.js';
 import { registerMembershipPlansCatalogRoutes } from './routes/membershipPlansCatalog.js';
 import { registerVisitorStaffCommentRoutes } from './routes/visitorStaffComments.js';
 import { registerOffersRoutes } from './routes/offers.js';
@@ -1371,9 +1381,83 @@ app.put('/api/visitors/bulk', requireAccess(Access.visitorsWrite), async (req, r
     });
   }
   const stamped = stampBranchOnRows(incoming, req.auth);
+  let knownVisitorIds = null;
+  if (useSupabase()) {
+    try {
+      knownVisitorIds = await existingVisitorIds(stamped.map((row) => row?.id));
+    } catch (err) {
+      console.error('visitor alert lookup skipped', err?.message || err);
+    }
+  }
   await writeScopedCollection(req, 'apg.visitors', stamped);
   queueDatabaseBackup('visitors-bulk');
+  if (knownVisitorIds) {
+    for (const row of stamped) {
+      const id = String(row?.id || '').trim();
+      if (!id || knownVisitorIds.has(id)) continue;
+      void notifyNewVisitor(row).catch((err) => {
+        console.error('visitor alert skipped', err?.message || err);
+      });
+    }
+  }
   res.json({ ok: true });
+});
+
+app.get('/api/staff-push/vapid', async (_req, res) => {
+  try {
+    const publicKey = await publicVapidKey();
+    if (!publicKey) {
+      return res.status(503).json({ ok: false, error: 'web-push-not-configured' });
+    }
+    return res.json({ ok: true, publicKey });
+  } catch (err) {
+    return res.status(500).json({ ok: false, error: err?.message || 'vapid-failed' });
+  }
+});
+
+app.get('/api/staff-push/status', async (req, res) => {
+  try {
+    const enabled = await staffPushEnabled(req.auth?.userId);
+    return res.json({ ok: true, enabled });
+  } catch (err) {
+    return res.status(500).json({ ok: false, error: err?.message || 'staff-push-status-failed' });
+  }
+});
+
+app.post('/api/staff-push/subscribe', async (req, res) => {
+  try {
+    const result = await saveStaffPushSubscription(req.auth?.userId, req.body || {});
+    return res.json(result);
+  } catch (err) {
+    return res.status(err?.status || 500).json({ ok: false, error: err?.message || 'subscribe-failed' });
+  }
+});
+
+app.delete('/api/staff-push/subscribe', async (req, res) => {
+  try {
+    const result = await removeStaffPushSubscription(req.auth?.userId, req.body?.endpoint);
+    return res.json(result);
+  } catch (err) {
+    return res.status(500).json({ ok: false, error: err?.message || 'unsubscribe-failed' });
+  }
+});
+
+app.post('/api/internal/staff-push/portal-chat', async (req, res) => {
+  if (!cronSecretMatches(req)) {
+    return res.status(401).json({ ok: false, error: 'unauthorized' });
+  }
+  const messageId = String(req.body?.messageId || '').trim();
+  const memberName = String(req.body?.memberName || '').trim();
+  const branchId = String(req.body?.branchId || '').trim();
+  if (!messageId) {
+    return res.status(400).json({ ok: false, error: 'message-id-required' });
+  }
+  try {
+    const result = await notifyPortalChatMessage({ messageId, memberName, branchId });
+    return res.json(result);
+  } catch (err) {
+    return res.status(500).json({ ok: false, error: err?.message || 'chat-alert-failed' });
+  }
 });
 
 app.delete('/api/visitors/:visitorId', requireAccess(Access.visitorsDelete), async (req, res) => {
