@@ -1470,12 +1470,18 @@ export function MembersPage() {
                   ? `Needs reminder (${list.length})`
                   : `${key} Members (${list.length})`;
 
+            const collapsed = Boolean(hiddenSections[key]);
+            const toggleSection = () =>
+              setHiddenSections((prev) => ({ ...prev, [key]: !prev[key] }));
             return (
               <div key={key} className="space-y-3">
                 <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
-                  <h3
+                  <button
+                    type="button"
+                    onClick={toggleSection}
+                    aria-expanded={!collapsed}
                     className={cn(
-                      "inline-flex w-fit items-center gap-2 overflow-hidden rounded-xl border px-3 py-1.5 text-base font-semibold md:text-lg",
+                      "inline-flex w-fit cursor-pointer items-center gap-2 overflow-hidden rounded-xl border px-3 py-1.5 text-left text-base font-semibold md:text-lg",
                       key === "Active" &&
                         "border-emerald-200/80 bg-gradient-to-r from-emerald-50 to-white text-emerald-900 dark:border-emerald-500/25 dark:from-emerald-950/40 dark:to-slate-950 dark:text-emerald-100",
                       key === "Birthday" &&
@@ -1502,21 +1508,19 @@ export function MembersPage() {
                       )}
                     />
                     {sectionTitle}
-                  </h3>
+                  </button>
                   <div className="flex flex-wrap items-center gap-2">
                     <Button
                       variant="outline"
                       size="sm"
-                      onClick={() =>
-                        setHiddenSections((prev) => ({ ...prev, [key]: !prev[key] }))
-                      }
+                      onClick={toggleSection}
                     >
-                      {hiddenSections[key] ? "Show" : "Hide"}
+                      {collapsed ? "Show" : "Hide"}
                     </Button>
                   </div>
                 </div>
 
-                {!hiddenSections[key] ? (
+                {!collapsed ? (
                   <Card>
                     <CardContent className="space-y-1.5 p-2 sm:p-3">
                       <div className="overflow-x-auto">
