@@ -66,6 +66,7 @@ export const README_TOPICS: ReadmeTopic[] = [
       "Actions keeps Import CSV and Add Expense under Tools. Status changes sit in a separate box and still use the same buttons.",
       "Hold and Deactivated rows show the saved hold length, the note, and the hold message already on the record, next to how long they have been inactive.",
       "The row shows the date of the latest saved payment. It does not add or change a payment.",
+      "When a payment is saved, that member gets a phone notification and a bell message with the saved amount and date. Editing or deleting a payment does not send it. The receipt stays in the Member Portal.",
       "Active Members, Hold Members, Risk Alert, and Win-back Opportunity filter as you type. Names that start with the letters come first. A column heading still sorts that list. Nothing is saved.",
       "Open a member to see plan, status, bill date, and portal details.",
       "T-shirt size, when the member has saved one, shows on the member record. The owner can tap Unlock T-shirt size to give that member two saves again. The saved size stays.",
@@ -130,6 +131,7 @@ export const README_TOPICS: ReadmeTopic[] = [
       "Broadcast to members sends a phone notification and a bell message. Billing reminders are separate and are not changed by a broadcast.",
     how: [
       "Broadcast now goes to every active member who has notifications turned on. There is a 5-minute wait between gym-wide sends.",
+      "A saved payment thanks that member with the amount and the date, and points them to the receipt. It does not send when a payment is edited or deleted. Gym-wide broadcast is unchanged.",
       "Send test to Bis Test sends only to Bis Test (APG-1037/26-AP01). It shows in that member's portal bell and on the phone. Other members are not included, and it does not start the gym-wide wait.",
       "The bell opens a Notifications screen with every message. Tap a title to read it. That marks it read. Messages leave the inbox after 7 days.",
       "The red overdue card on the portal home is the Alerts tile, not the bell.",

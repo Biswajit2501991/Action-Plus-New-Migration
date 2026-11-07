@@ -95,6 +95,11 @@ async function callWebsiteBroadcast(method, payload) {
   return callWebsite("/api/member/push/broadcast", method, payload);
 }
 
+/** One member, after Gym Manager has saved that payment. Does not write the payment. */
+export async function notifyMemberPaymentReceived(payload) {
+  return callWebsite("/api/member/push/payment-received", "POST", payload);
+}
+
 export function registerPortalPushBroadcastRoutes(app, { appendAuditLog } = {}) {
   app.get("/api/portal-push-broadcast", requireOwner, async (_req, res) => {
     try {

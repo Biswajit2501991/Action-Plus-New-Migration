@@ -122,7 +122,7 @@ import publicAttendanceKioskRouter from './routes/publicAttendanceKiosk.js';
 import attendancePresenceRouter from './routes/attendancePresence.js';
 import attendanceKioskRouter from './routes/attendanceKiosk.js';
 import { registerMemberPortalPhase2Routes } from './routes/memberPortalPhase2.js';
-import { registerPortalPushBroadcastRoutes } from './routes/portalPushBroadcast.js';
+import { notifyMemberPaymentReceived, registerPortalPushBroadcastRoutes } from './routes/portalPushBroadcast.js';
 import { registerMembershipPlansCatalogRoutes } from './routes/membershipPlansCatalog.js';
 import { registerVisitorStaffCommentRoutes } from './routes/visitorStaffComments.js';
 import { registerOffersRoutes } from './routes/offers.js';
@@ -1258,6 +1258,15 @@ app.post('/api/members/:memberId/payments', requireAccess(Access.membersWrite), 
       },
     });
     queueDatabaseBackup('member-payment-create');
+    try {
+      const memberUuid = String(result.member?.memberUuid || '').trim();
+      const paymentId = String(result.paymentId || '').trim();
+      if (memberUuid && paymentId) {
+        await notifyMemberPaymentReceived({ memberUuid, paymentId });
+      }
+    } catch (pushErr) {
+      console.error('payment-received push skipped', pushErr?.message || pushErr);
+    }
     return res.status(201).json(result);
   } catch (err) {
     const status = err?.status || 500;
