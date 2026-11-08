@@ -31,6 +31,7 @@ import {
   NEW_MEMBER_JOIN_DISCOUNT_INR,
   joinCollectAmount,
 } from "@/lib/domain/referral-billing";
+import { isAdmissionAmount, isSpinCode, spinChargeInr } from "@/lib/domain/spin-admission";
 import { membersApi } from "@/services/api";
 import type { AppSettings, AuthUser, GymCode, Member } from "@/types";
 
@@ -240,6 +241,8 @@ type Props = {
       familyGroupId?: string;
       familyPrimaryMemberId?: string;
       referredByCode?: string;
+      spinCode?: string;
+      spinChargeInr?: number;
     },
   ) => Promise<void> | void;
   settings?: AppSettings | null;
@@ -326,13 +329,34 @@ export function AddMemberWizard({
   const [referralOk, setReferralOk] = useState(false);
   const [referralLooking, setReferralLooking] = useState(false);
   const [referralReferrerLabel, setReferralReferrerLabel] = useState("");
+  const [codeKind, setCodeKind] = useState<"" | "referral" | "spin">("");
+  const [spinPercent, setSpinPercent] = useState(0);
 
   useEffect(() => {
-    if (!referralOk || !referralReferrerLabel) return;
-    setReferralHint(
-      `Referrer: ${referralReferrerLabel} · Collect now ₹${joinCollectAmount(form.amount, true)} (₹${NEW_MEMBER_JOIN_DISCOUNT_INR} join discount)`,
-    );
-  }, [form.amount, referralOk, referralReferrerLabel]);
+    if (!codeKind) return;
+    if (!isAdmissionAmount(form.amount)) {
+      setReferralOk(false);
+      setReferralHint("");
+      setReferralError("Enter the correct amount first.");
+      return;
+    }
+    if (codeKind === "spin" && spinPercent > 0) {
+      const charge = spinChargeInr(form.amount, spinPercent);
+      setReferralOk(true);
+      setReferralError("");
+      setReferralHint(
+        `Charge ₹${charge} (${spinPercent}% off ₹${form.amount}). Enter this in Add Payment. The plan amount stays ₹${form.amount}.`,
+      );
+      return;
+    }
+    if (codeKind === "referral" && referralReferrerLabel) {
+      setReferralOk(true);
+      setReferralError("");
+      setReferralHint(
+        `Referrer: ${referralReferrerLabel} · Collect now ₹${joinCollectAmount(form.amount, true)} (₹${NEW_MEMBER_JOIN_DISCOUNT_INR} join discount)`,
+      );
+    }
+  }, [form.amount, codeKind, spinPercent, referralReferrerLabel]);
 
   const draftKey = draftKeyForUser(currentUser);
 
@@ -698,7 +722,7 @@ export function AddMemberWizard({
   const persistSave = async (member: Member, family?: { groupId: string; primaryMemberId: string }) => {
     const code = String(form.referredByCode || "").trim();
     if (code && !referralOk) {
-      setWarn("Referral code is invalid. Clear it or enter a valid Active/Hold member code.");
+      setWarn(referralError || "Check the code before saving. Only one code can be used.");
       return;
     }
     try {
@@ -708,7 +732,10 @@ export function AddMemberWizard({
           ...(family
             ? { familyGroupId: family.groupId, familyPrimaryMemberId: family.primaryMemberId }
             : {}),
-          ...(code ? { referredByCode: code } : {}),
+          ...(code && codeKind === "referral" ? { referredByCode: code } : {}),
+          ...(code && codeKind === "spin"
+            ? { spinCode: code, spinChargeInr: spinChargeInr(form.amount, spinPercent) }
+            : {}),
         },
       );
       try {
@@ -982,15 +1009,17 @@ export function AddMemberWizard({
                 />
               </div>
               <div className="sm:col-span-2">
-                <Label>Referred by code (optional)</Label>
+                <Label>Referred by code or Spin code (optional)</Label>
                 <Input
                   id="add-member-referredByCode"
                   className="mt-1"
-                  placeholder="Member portal referral code"
+                  placeholder="One code only"
                   value={form.referredByCode}
                   onChange={(e) => {
                     const next = e.target.value.toUpperCase();
                     setForm({ ...form, referredByCode: next });
+                    setCodeKind("");
+                    setSpinPercent(0);
                     setReferralOk(false);
                     setReferralHint("");
                     setReferralReferrerLabel("");
@@ -998,16 +1027,54 @@ export function AddMemberWizard({
                   }}
                   onBlur={() => {
                     const code = String(form.referredByCode || "").trim();
+                    setCodeKind("");
+                    setSpinPercent(0);
+                    setReferralOk(false);
+                    setReferralHint("");
+                    setReferralReferrerLabel("");
                     if (!code) {
-                      setReferralOk(false);
-                      setReferralHint("");
                       setReferralError("");
                       return;
                     }
+                    if (!isAdmissionAmount(form.amount)) {
+                      setReferralError("Enter the correct amount first.");
+                      return;
+                    }
                     setReferralLooking(true);
+                    if (isSpinCode(code)) {
+                      void membersApi
+                        .lookupSpinCoupon(code)
+                        .then((res) => {
+                          const coupon = res.coupon;
+                          if (!coupon || coupon.status !== "issued" || !(coupon.discount > 0)) {
+                            setReferralError(
+                              coupon?.status === "redeemed"
+                                ? "This Spin code was already used."
+                                : coupon?.status === "expired"
+                                  ? "This Spin code has expired."
+                                  : "This Spin code cannot be used.",
+                            );
+                            return;
+                          }
+                          const charge = spinChargeInr(form.amount, coupon.discount);
+                          setCodeKind("spin");
+                          setSpinPercent(coupon.discount);
+                          setReferralOk(true);
+                          setReferralError("");
+                          setReferralHint(
+                            `Charge ₹${charge} (${coupon.discount}% off ₹${form.amount}). Enter this in Add Payment. The plan amount stays ₹${form.amount}.`,
+                          );
+                        })
+                        .catch(() => {
+                          setReferralError("Code not found.");
+                        })
+                        .finally(() => setReferralLooking(false));
+                      return;
+                    }
                     void membersApi
                       .lookupReferral(code)
                       .then((res) => {
+                        setCodeKind("referral");
                         setReferralOk(true);
                         setReferralError("");
                         const label = `${res.referrer?.fullName || res.referrer?.memberCode || "Member"} (${res.referrer?.status || "Active"})`;
@@ -1017,13 +1084,10 @@ export function AddMemberWizard({
                         );
                       })
                       .catch((e: Error) => {
-                        setReferralOk(false);
-                        setReferralHint("");
-                        setReferralReferrerLabel("");
                         const msg = String(e?.message || "");
                         setReferralError(
                           msg === "referral-code-not-found" || msg.includes("404")
-                            ? "Referral code not found (or referral API not deployed yet). Try again after deploy, or check the code."
+                            ? "Code not found."
                             : msg === "referrer-not-eligible"
                               ? "Referrer must be Active or Hold"
                               : msg || "Invalid referral code",
@@ -1043,8 +1107,8 @@ export function AddMemberWizard({
                 ) : null}
                 {!form.referredByCode && form.amount ? (
                   <p className="mt-1 text-xs text-muted-foreground">
-                    Plan amount stays as entered. With a valid referral code, collect ₹
-                    {joinCollectAmount(form.amount, true)} at admission (one-time).
+                    Plan amount stays as entered. One code only: a referral takes ₹
+                    {NEW_MEMBER_JOIN_DISCOUNT_INR} off the amount to collect, or a Spin code takes its percent off.
                   </p>
                 ) : null}
               </div>

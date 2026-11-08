@@ -147,6 +147,16 @@ export const membersApi = {
         amount: number | null;
       } | null;
     }>(`/receipts/verify?q=${encodeURIComponent(q)}`),
+  lookupSpinCoupon: (code: string) =>
+    apiFetch<{
+      ok?: boolean;
+      coupon?: { code: string; discount: number; status: string; expiresAt?: string | null };
+    }>(`/spin-wheel/lookup?code=${encodeURIComponent(code)}`),
+  redeemSpinAdmission: (code: string) =>
+    apiFetch<{ ok?: boolean; coupon?: { code: string; discount: number; status: string } }>(
+      "/spin-wheel/redeem-admission",
+      { method: "POST", body: JSON.stringify({ code }) },
+    ),
   lookupReferral: (code: string) =>
     apiFetch<{
       ok?: boolean;
