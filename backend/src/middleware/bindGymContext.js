@@ -10,7 +10,7 @@ const PUBLIC_PATHS = new Set(['/health', '/v1/health']);
 export function bindGymContext(req, res, next) {
   const path = req.path || '';
   if (PUBLIC_PATHS.has(path)) return next();
-  if (path === '/internal/staff-push/portal-chat') {
+  if (path === '/internal/staff-push/portal-chat' || path === '/internal/spin-wheel/spin') {
     const configured = String(env.APG_GYM_ID || '').trim();
     if (!configured) {
       return res.status(503).json({

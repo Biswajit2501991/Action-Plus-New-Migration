@@ -227,4 +227,18 @@ export const README_TOPICS: ReadmeTopic[] = [
       "Today sets the date range to today. This staff member sets the actor filter to the person signed in. Both use the filters already on this page.",
     ],
   },
+  {
+    id: "spin-wheel",
+    title: "Spin Offer Wheel",
+    gate: "Settings",
+    summary:
+      "A discount wheel for the website, the Member Portal, and Gym Manager. The server picks the prize. A coupon does not change a payment.",
+    how: [
+      "Open Settings and choose Spin wheel. The wheel stays off until the master switch and a surface switch are on.",
+      "Website, Member Portal, and Gym Manager each have their own switch. Turning one off hides the wheel there on the next visit.",
+      "Save stores the slices, dates, and who can spin. Preview spins on this screen and does not create a coupon.",
+      "A winning code is single use. Check it or mark it redeemed under Spin wheel. That does not write a payment. Type any discounted amount into Add Payment yourself.",
+      "The report counts spins, people, and redeemed codes. The discount total is percentage points, not rupees, and it does not change Finance.",
+    ],
+  },
 ];

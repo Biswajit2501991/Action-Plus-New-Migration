@@ -116,6 +116,7 @@ import leaveBalanceRouter from './routes/leaveBalance.js';
 import salaryCalculatorRouter from './routes/salaryCalculator.js';
 import publicPaymentQrRouter from './routes/publicPaymentQr.js';
 import publicVisitorsRouter from './routes/publicVisitors.js';
+import publicSpinWheelRouter, { registerSpinWheelRoutes } from './routes/spinWheel.js';
 import publicMemberStatusRouter from './routes/publicMemberStatus.js';
 import publicAttendancePresenceRouter from './routes/publicAttendancePresence.js';
 import publicAttendanceKioskRouter from './routes/publicAttendanceKiosk.js';
@@ -549,6 +550,7 @@ app.get('/api/version', (_req, res) => {
 
 app.use('/api/public/payment-qr', publicPaymentQrRouter);
 app.use('/api/public/visitors', publicVisitorsRouter);
+app.use('/api/public/spin-wheel', publicSpinWheelRouter);
 app.use('/api/public/member-status', publicMemberStatusRouter);
 app.use('/api/public/attendance/presence', publicAttendancePresenceRouter);
 app.use('/api/public/attendance-kiosk', publicAttendanceKioskRouter);
@@ -566,6 +568,7 @@ app.use('/api/attendance-kiosk', attendanceKioskRouter);
 // Member Portal Phase 2: member QR check-in, portal chat, billing push settings
 registerMemberPortalPhase2Routes(app, { appendAuditLog });
 registerPortalPushBroadcastRoutes(app, { appendAuditLog });
+registerSpinWheelRoutes(app, { appendAuditLog });
 registerMembershipPlansCatalogRoutes(app, { appendAuditLog });
 registerOffersRoutes(app, { appendAuditLog });
 registerPtTrainerExpenseRoutes(app, { appendAuditLog });

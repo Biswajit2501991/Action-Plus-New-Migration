@@ -49,6 +49,7 @@ import { PtTrainerExpenseOwnerToastHost } from "@/features/pt/pt-trainer-expense
 import { PtTrainerExpenseStaffToastHost } from "@/features/pt/pt-trainer-expense-staff-toast-host";
 import { AppSectionTabs } from "@/components/layout/section-tabs";
 import { MobileShell } from "@/components/layout/mobile-shell";
+import { SpinWheelHost } from "@/features/spin-wheel/spin-wheel-host";
 import { MembersTodayVisitorBadge } from "@/components/layout/members-today-visitor-badge";
 import { NewVisitorMenuButton } from "@/components/layout/new-visitor-menu-button";
 import { PortalChatUnreadBadge } from "@/components/layout/portal-chat-unread-badge";
@@ -571,6 +572,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     <>
       <FestivalLayer />
       {isMobile ? <MobileShell>{children}</MobileShell> : <DesktopShell>{children}</DesktopShell>}
+      {isAuthenticated ? <SpinWheelHost active /> : null}
     </>
   );
 }
