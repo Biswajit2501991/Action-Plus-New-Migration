@@ -58,6 +58,7 @@ import { WorkoutPlanMusicPanel } from "@/features/settings/workout-plan-music-pa
 import { BranchPortalAccessPanel } from "@/features/settings/branch-portal-access-panel";
 import { PortalPushBroadcastPanel } from "@/features/settings/portal-push-broadcast-panel";
 import { FestivalThemesCard } from "@/features/settings/festival-themes-card";
+import { SpinWheelSettings } from "@/features/spin-wheel/spin-wheel-settings";
 
 function readFileAsDataUrl(file: File) {
   return new Promise<string>((resolve, reject) => {
@@ -746,6 +747,7 @@ export function SettingsPage() {
     business: false,
     member: false,
     recovery: false,
+    spin: false,
   });
   const [drafts, setDrafts] = useState<Record<string, string>>({});
   const [gymForm, setGymForm] = useState({ code: "", name: "" });
@@ -1436,6 +1438,15 @@ export function SettingsPage() {
               Home tiles
             </button>
           ) : null}
+          {canSystemFeatures ? (
+            <button
+              type="button"
+              className="rounded-full border border-amber-200 bg-amber-50 px-3 py-1.5 text-xs font-semibold text-amber-900 dark:border-amber-500/30 dark:bg-amber-950/40 dark:text-amber-100"
+              onClick={() => openSettingsBlock("spin", "settings-spin")}
+            >
+              Spin wheel
+            </button>
+          ) : null}
           {isOwner && canPortalUi ? (
             <button
               type="button"
@@ -1786,6 +1797,14 @@ export function SettingsPage() {
             />
           </div>
         </SettingsSectionShell>
+      ) : null}
+
+      {canSystemFeatures ? (
+        <SpinWheelSettings
+          open={Boolean(openCat.spin)}
+          onToggle={() => toggleCat("spin")}
+          gymCodes={gymCodes as GymCode[]}
+        />
       ) : null}
 
       {canSystemFeatures ? (
