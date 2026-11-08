@@ -6,7 +6,8 @@
 
 import express from "express";
 import { isOwnerAuth } from "../middleware/requireOwner.js";
-import { getStaffAccessForUser } from "../auth/accessControl.js";
+import { Access, getStaffAccessForUser } from "../auth/accessControl.js";
+import { requireAccess } from "../middleware/permissions.js";
 import { cronSecretMatches } from "../services/staffPush/staffPushSecret.js";
 import {
   getSpinCampaign,
@@ -138,6 +139,46 @@ export async function registerSpinWheelRoutes(app, { appendAuditLog } = {}) {
       return res.json(report);
     } catch (err) {
       return res.status(500).json({ error: "spin-report-failed", message: err?.message || "Could not load the report." });
+    }
+  });
+
+  app.get("/api/spin-wheel/lookup", requireAccess(Access.membersRead), async (req, res) => {
+    try {
+      const found = await lookupSpinCoupon(req.query?.code);
+      if (!found.ok) {
+        return res.status(found.status || 400).json({
+          ...found,
+          message: found.error === "not-found" ? "Code not found." : "This Spin code cannot be used.",
+        });
+      }
+      return res.json({
+        ok: true,
+        coupon: {
+          code: found.coupon.code,
+          discount: found.coupon.discount,
+          status: found.coupon.status,
+          expiresAt: found.coupon.expiresAt,
+        },
+      });
+    } catch (err) {
+      return res.status(500).json({ error: "spin-lookup-failed" });
+    }
+  });
+
+  app.post("/api/spin-wheel/redeem-admission", requireAccess(Access.membersWrite), async (req, res) => {
+    try {
+      const result = await redeemSpinCoupon(req.body?.code, req.auth?.userId);
+      if (result.ok && typeof appendAuditLog === "function") {
+        await appendAuditLog(req, {
+          action: "spin.coupon.redeemed",
+          entityType: "spin_coupon",
+          entityId: result.coupon.code,
+          after: { discount: result.coupon.discount, source: "admission" },
+        });
+      }
+      return res.status(result.ok ? 200 : result.status || 400).json(result);
+    } catch (err) {
+      return res.status(500).json({ error: "spin-redeem-failed" });
     }
   });
 

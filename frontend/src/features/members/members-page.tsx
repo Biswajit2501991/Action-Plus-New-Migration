@@ -11,6 +11,7 @@ import {
   Plus,
   ScrollText,
   Search,
+  Ticket,
   X,
 } from "lucide-react";
 import { AccentMetricCard } from "@/components/ui/accent-metric-card";
@@ -21,6 +22,7 @@ import { Input, Label, Select } from "@/components/ui/input";
 import { useMembers, useSettings, useVisitors, useGymCodes } from "@/hooks/use-data";
 import { useMemberPhotoHydration } from "@/hooks/use-member-photo-hydration";
 import { membersApi, logsApi, whatsappApi } from "@/services/api";
+import { SpinCouponCheckDialog } from "@/features/spin-wheel/spin-coupon-check-dialog";
 import {
   addMemberDeleteTombstone,
   removeMemberDeleteTombstone,
@@ -215,6 +217,7 @@ export function MembersPage() {
   const [quickSearchInput, setQuickSearchInput] = useState(params.get("q") || "");
   const [appliedQuickSearch, setAppliedQuickSearch] = useState(params.get("q") || "");
   const [verifyOpen, setVerifyOpen] = useState(() => Boolean(params.get("verify")));
+  const [spinCheckOpen, setSpinCheckOpen] = useState(false);
   const [verifyQuery, setVerifyQuery] = useState(() => params.get("verify") || "");
 
   useEffect(() => {
@@ -1120,6 +1123,10 @@ export function MembersPage() {
                 Offline queue: {offlinePendingCount}
               </span>
             ) : null}
+            <Button type="button" variant="outline" onClick={() => setSpinCheckOpen(true)}>
+              <Ticket className="h-4 w-4" />
+              Check a coupon
+            </Button>
             {canAccessMembershipPlansNav(user, settings) ? (
               <Button
                 type="button"
@@ -1867,6 +1874,8 @@ export function MembersPage() {
           openEdit(m);
         }}
       />
+
+      <SpinCouponCheckDialog open={spinCheckOpen} onClose={() => setSpinCheckOpen(false)} />
 
       <VerifyReceiptModal
         open={verifyOpen}

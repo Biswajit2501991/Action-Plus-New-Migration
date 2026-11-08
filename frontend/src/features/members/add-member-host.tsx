@@ -137,11 +137,17 @@ export function AddMemberHost() {
         const membersSnapshot = members;
         const visitorsSnapshot = visitors;
         const referredByCode = String(opts?.referredByCode || "").trim();
+        const spinCode = String(opts?.spinCode || "").trim();
+        const spinCharge = Number(opts?.spinChargeInr || 0);
 
         try {
           const { queued, member: saved } = await createMemberWithOfflineFallback(payload);
           if (queued) {
-            toast.message("Saved offline — will sync when online");
+            toast.message(
+              spinCode
+                ? "Saved offline — will sync when online. The Spin code was not marked used."
+                : "Saved offline — will sync when online",
+            );
             close();
             return;
           }
@@ -150,7 +156,25 @@ export function AddMemberHost() {
           upsertMemberInCache(qc, confirmed);
           clearPendingMemberCreate(id);
 
-          if (referredByCode) {
+          if (spinCode) {
+            try {
+              await membersApi.redeemSpinAdmission(spinCode);
+              toast.success(
+                `${confirmed.name || "Member"} saved · collect ₹${spinCharge} in Add Payment`,
+              );
+            } catch (spinErr) {
+              toast.success(
+                convertVisitor
+                  ? `${confirmed.name || "Member"} saved · visitor converted`
+                  : `${confirmed.name || "Member"} has been saved successfully`,
+              );
+              toast.error(
+                spinErr instanceof Error
+                  ? `Spin code was not marked used: ${spinErr.message}`
+                  : "Spin code was not marked used. The member stays saved.",
+              );
+            }
+          } else if (referredByCode) {
             try {
               const applied = await membersApi.applyReferral(id, referredByCode);
               toast.success(
