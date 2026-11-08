@@ -1,6 +1,6 @@
 "use client";
 
-import { FormEvent, PointerEvent, useEffect, useState } from "react";
+import { FormEvent, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { ArrowRight, Eye, EyeOff, KeyRound, Lock, User } from "lucide-react";
 import { BranchLogo } from "@/components/branding/branch-logo";
@@ -82,15 +82,6 @@ export function LoginForm() {
     }
   };
 
-  function onPointerMove(e: PointerEvent<HTMLDivElement>) {
-    if (e.pointerType !== "mouse") return;
-    const rect = e.currentTarget.getBoundingClientRect();
-    const x = ((e.clientX - rect.left) / rect.width) * 100;
-    const y = ((e.clientY - rect.top) / rect.height) * 100;
-    e.currentTarget.style.setProperty("--mx", `${x}%`);
-    e.currentTarget.style.setProperty("--my", `${y}%`);
-  }
-
   const subtitle =
     mode === "login"
       ? "Sign in with your password or PIN."
@@ -104,21 +95,8 @@ export function LoginForm() {
       style={{
         fontFamily: "var(--font-login-sans), ui-sans-serif, system-ui, sans-serif",
       }}
-      onPointerMove={onPointerMove}
     >
-      <div className="login-colour-stage pointer-events-none fixed inset-0" aria-hidden>
-        <div className="login-colour-wash absolute inset-0" />
-        <div className="login-cursor-glow" />
-        <span className="login-orb login-orb-a" />
-        <span className="login-orb login-orb-b" />
-        <span className="login-orb login-orb-c" />
-        <span className="login-ring login-ring-a" />
-        <span className="login-ring login-ring-b" />
-        <span className="login-streak" />
-        <span className="login-dot" style={{ left: "18%", top: "24%" }} />
-        <span className="login-dot" style={{ left: "72%", top: "32%", animationDelay: "1.2s" }} />
-        <span className="login-dot" style={{ left: "44%", top: "68%", animationDelay: "0.6s" }} />
-      </div>
+      <div className="login-colour-stage pointer-events-none fixed inset-0" aria-hidden />
 
       <div className="login-signature">
         <div className="login-signature-mark">
@@ -134,27 +112,12 @@ export function LoginForm() {
         </div>
       </div>
 
-      <div className="login-stage-copy relative z-10 grid min-h-[100dvh] min-h-screen w-full items-center gap-8 px-4 pb-8 lg:grid-cols-[minmax(0,1fr)_minmax(20rem,440px)] lg:gap-16 lg:px-12">
-        <div className="login-brand text-left lg:mt-[clamp(2.5rem,8vh,5.5rem)] lg:max-w-md lg:self-center">
-          <h1
-            className="text-[clamp(2.15rem,4vw,3.75rem)] font-semibold tracking-tight text-white"
-            style={{ fontFamily: "var(--font-login-display), var(--font-login-sans), sans-serif" }}
-          >
-            Welcome
-            <span className="block bg-gradient-to-r from-white via-[#C4B5FD] to-[#906BFF] bg-clip-text text-transparent">
-              Back
-            </span>
-          </h1>
-          <p className="mt-4 max-w-sm text-sm leading-relaxed text-[#AAB3C5] sm:text-base">
-            Your Journey. Your Strength. Your Progress.
-          </p>
-        </div>
-
+      <div className="login-stage-copy relative z-10 flex min-h-[100dvh] min-h-screen w-full items-center justify-center px-4">
         <form
           onSubmit={onSubmit}
-          className="login-panel relative w-full max-w-[440px] justify-self-center rounded-[1.75rem] border border-[#C4B5FD]/25 bg-[#0B1020]/80 p-7 shadow-[0_40px_100px_-28px_rgba(0,0,0,0.75),0_0_80px_-24px_rgba(144,107,255,0.45)] backdrop-blur-2xl sm:p-9 lg:justify-self-end"
+          className="login-panel relative w-full max-w-[440px] rounded-[1.75rem] border border-white/15 bg-[#0B1020]/78 p-7 shadow-[0_40px_100px_-28px_rgba(0,0,0,0.75)] backdrop-blur-xl sm:p-9"
         >
-          <div className="flex flex-col items-center text-center lg:items-start lg:text-left">
+          <div className="flex flex-col items-center text-center">
             <h2
               className="text-2xl font-semibold tracking-tight text-white"
               style={{ fontFamily: "var(--font-login-display), var(--font-login-sans), sans-serif" }}
