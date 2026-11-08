@@ -31,7 +31,7 @@ import {
   NEW_MEMBER_JOIN_DISCOUNT_INR,
   joinCollectAmount,
 } from "@/lib/domain/referral-billing";
-import { isAdmissionAmount, isSpinCode, spinChargeInr } from "@/lib/domain/spin-admission";
+import { admissionFeeNote, isAdmissionAmount, isSpinCode, spinChargeInr } from "@/lib/domain/spin-admission";
 import { membersApi } from "@/services/api";
 import type { AppSettings, AuthUser, GymCode, Member } from "@/types";
 
@@ -331,32 +331,20 @@ export function AddMemberWizard({
   const [referralReferrerLabel, setReferralReferrerLabel] = useState("");
   const [codeKind, setCodeKind] = useState<"" | "referral" | "spin">("");
   const [spinPercent, setSpinPercent] = useState(0);
+  const [checkedPlanAmount, setCheckedPlanAmount] = useState("");
+  const codeCheckGen = useRef(0);
+  const skipNextCodeBlur = useRef(false);
 
-  useEffect(() => {
-    if (!codeKind) return;
-    if (!isAdmissionAmount(form.amount)) {
-      setReferralOk(false);
-      setReferralHint("");
-      setReferralError("Enter the correct amount first.");
-      return;
-    }
-    if (codeKind === "spin" && spinPercent > 0) {
-      const charge = spinChargeInr(form.amount, spinPercent);
-      setReferralOk(true);
-      setReferralError("");
-      setReferralHint(
-        `Charge ₹${charge} (${spinPercent}% off ₹${form.amount}). Enter this in Add Payment. The plan amount stays ₹${form.amount}.`,
-      );
-      return;
-    }
-    if (codeKind === "referral" && referralReferrerLabel) {
-      setReferralOk(true);
-      setReferralError("");
-      setReferralHint(
-        `Referrer: ${referralReferrerLabel} · Collect now ₹${joinCollectAmount(form.amount, true)} (₹${NEW_MEMBER_JOIN_DISCOUNT_INR} join discount)`,
-      );
-    }
-  }, [form.amount, codeKind, spinPercent, referralReferrerLabel]);
+  function releaseCodeCheck() {
+    codeCheckGen.current += 1;
+    setCodeKind("");
+    setSpinPercent(0);
+    setReferralOk(false);
+    setReferralHint("");
+    setReferralReferrerLabel("");
+    setCheckedPlanAmount("");
+    setReferralLooking(false);
+  }
 
   const draftKey = draftKeyForUser(currentUser);
 
@@ -725,6 +713,10 @@ export function AddMemberWizard({
       setWarn(referralError || "Check the code before saving. Only one code can be used.");
       return;
     }
+    if (code && String(form.amount).trim() !== checkedPlanAmount) {
+      setWarn("Enter the plan fee, then check the code again.");
+      return;
+    }
     try {
       await onSave(
         member,
@@ -734,7 +726,7 @@ export function AddMemberWizard({
             : {}),
           ...(code && codeKind === "referral" ? { referredByCode: code } : {}),
           ...(code && codeKind === "spin"
-            ? { spinCode: code, spinChargeInr: spinChargeInr(form.amount, spinPercent) }
+            ? { spinCode: code, spinChargeInr: spinChargeInr(checkedPlanAmount, spinPercent) }
             : {}),
         },
       );
@@ -999,14 +991,35 @@ export function AddMemberWizard({
                 <Input
                   id="add-member-amount"
                   inputMode="numeric"
-                  placeholder="Enter amount"
-                  className={fieldCls(req2.amount)}
+                  placeholder="Enter plan fee"
+                  readOnly={referralOk || referralLooking}
+                  className={fieldCls(req2.amount, referralOk || referralLooking)}
                   value={form.amount}
                   onChange={(e) => {
+                    if (referralOk || referralLooking) return;
                     const val = e.target.value;
                     if (/^\d*$/.test(val)) setForm({ ...form, amount: val });
                   }}
                 />
+                {referralOk ? (
+                  <button
+                    type="button"
+                    className="mt-1 text-xs font-semibold text-primary underline-offset-2 hover:underline"
+                    onMouseDown={(event) => {
+                      event.preventDefault();
+                      skipNextCodeBlur.current = document.activeElement?.id === "add-member-referredByCode";
+                    }}
+                    onClick={() => {
+                      releaseCodeCheck();
+                      setReferralError("Enter the plan fee, then check the code again.");
+                      document.getElementById("add-member-amount")?.focus();
+                    }}
+                  >
+                    Change amount
+                  </button>
+                ) : (
+                  <p className="mt-1 text-xs text-muted-foreground">This is the plan fee.</p>
+                )}
               </div>
               <div className="sm:col-span-2">
                 <Label>Referred by code or Spin code (optional)</Label>
@@ -1018,25 +1031,23 @@ export function AddMemberWizard({
                   onChange={(e) => {
                     const next = e.target.value.toUpperCase();
                     setForm({ ...form, referredByCode: next });
-                    setCodeKind("");
-                    setSpinPercent(0);
-                    setReferralOk(false);
-                    setReferralHint("");
-                    setReferralReferrerLabel("");
+                    releaseCodeCheck();
                     setReferralError("");
                   }}
                   onBlur={() => {
+                    if (skipNextCodeBlur.current) {
+                      skipNextCodeBlur.current = false;
+                      return;
+                    }
                     const code = String(form.referredByCode || "").trim();
-                    setCodeKind("");
-                    setSpinPercent(0);
-                    setReferralOk(false);
-                    setReferralHint("");
-                    setReferralReferrerLabel("");
+                    const planAmount = String(form.amount || "").trim();
+                    releaseCodeCheck();
+                    const gen = codeCheckGen.current;
                     if (!code) {
                       setReferralError("");
                       return;
                     }
-                    if (!isAdmissionAmount(form.amount)) {
+                    if (!isAdmissionAmount(planAmount)) {
                       setReferralError("Enter the correct amount first.");
                       return;
                     }
@@ -1045,6 +1056,7 @@ export function AddMemberWizard({
                       void membersApi
                         .lookupSpinCoupon(code)
                         .then((res) => {
+                          if (gen !== codeCheckGen.current) return;
                           const coupon = res.coupon;
                           if (!coupon || coupon.status !== "issued" || !(coupon.discount > 0)) {
                             setReferralError(
@@ -1056,34 +1068,39 @@ export function AddMemberWizard({
                             );
                             return;
                           }
-                          const charge = spinChargeInr(form.amount, coupon.discount);
+                          const charge = spinChargeInr(planAmount, coupon.discount);
+                          setCheckedPlanAmount(planAmount);
                           setCodeKind("spin");
                           setSpinPercent(coupon.discount);
                           setReferralOk(true);
                           setReferralError("");
-                          setReferralHint(
-                            `Charge ₹${charge} (${coupon.discount}% off ₹${form.amount}). Enter this in Add Payment. The plan amount stays ₹${form.amount}.`,
-                          );
+                          setReferralHint(admissionFeeNote(planAmount, charge));
                         })
                         .catch(() => {
+                          if (gen !== codeCheckGen.current) return;
                           setReferralError("Code not found.");
                         })
-                        .finally(() => setReferralLooking(false));
+                        .finally(() => {
+                          if (gen === codeCheckGen.current) setReferralLooking(false);
+                        });
                       return;
                     }
                     void membersApi
                       .lookupReferral(code)
                       .then((res) => {
+                        if (gen !== codeCheckGen.current) return;
+                        const label = `${res.referrer?.fullName || res.referrer?.memberCode || "Member"} (${res.referrer?.status || "Active"})`;
+                        setCheckedPlanAmount(planAmount);
                         setCodeKind("referral");
+                        setReferralReferrerLabel(label);
                         setReferralOk(true);
                         setReferralError("");
-                        const label = `${res.referrer?.fullName || res.referrer?.memberCode || "Member"} (${res.referrer?.status || "Active"})`;
-                        setReferralReferrerLabel(label);
                         setReferralHint(
-                          `Referrer: ${label} · Collect now ₹${joinCollectAmount(form.amount, true)} (₹${NEW_MEMBER_JOIN_DISCOUNT_INR} join discount)`,
+                          `Referrer: ${label}.\n${admissionFeeNote(planAmount, joinCollectAmount(planAmount, true))}`,
                         );
                       })
                       .catch((e: Error) => {
+                        if (gen !== codeCheckGen.current) return;
                         const msg = String(e?.message || "");
                         setReferralError(
                           msg === "referral-code-not-found" || msg.includes("404")
@@ -1093,22 +1110,24 @@ export function AddMemberWizard({
                               : msg || "Invalid referral code",
                         );
                       })
-                      .finally(() => setReferralLooking(false));
+                      .finally(() => {
+                        if (gen === codeCheckGen.current) setReferralLooking(false);
+                      });
                   }}
                 />
                 {referralLooking ? (
                   <p className="mt-1 text-xs text-muted-foreground">Checking code…</p>
                 ) : null}
                 {referralHint ? (
-                  <p className="mt-1 text-xs text-emerald-700 dark:text-emerald-300">{referralHint}</p>
+                  <p className="mt-1 whitespace-pre-line text-xs text-emerald-700 dark:text-emerald-300">{referralHint}</p>
                 ) : null}
                 {referralError ? (
                   <p className="mt-1 text-xs text-rose-600">{referralError}</p>
                 ) : null}
                 {!form.referredByCode && form.amount ? (
                   <p className="mt-1 text-xs text-muted-foreground">
-                    Plan amount stays as entered. One code only: a referral takes ₹
-                    {NEW_MEMBER_JOIN_DISCOUNT_INR} off the amount to collect, or a Spin code takes its percent off.
+                    Amount is the plan fee. One code only. After it is accepted, Amount locks and the amount to collect is shown separately. A referral takes ₹
+                    {NEW_MEMBER_JOIN_DISCOUNT_INR} off that collect amount. A Spin code takes its percent off.
                   </p>
                 ) : null}
               </div>
