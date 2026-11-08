@@ -330,16 +330,16 @@
   --my: 40%;
 }
 
-/* 5440×2160 photo. Left alignment keeps both athletes in frame on a large or wide screen. */
+/* Real gym floor. Cover keeps the photo full-bleed; the sign-in window sits in the center. */
 .login-colour-stage {
   z-index: 0;
   overflow: hidden;
-  background-color: #0b1020;
+  background-color: #1a1c1f;
   background-image:
-    linear-gradient(105deg, rgba(11, 16, 32, 0.72) 0%, rgba(34, 27, 59, 0.42) 46%, rgba(11, 16, 32, 0.62) 100%),
-    url("/brand/login-background.webp");
+    linear-gradient(180deg, rgba(8, 10, 16, 0.28) 0%, rgba(8, 10, 16, 0.18) 42%, rgba(8, 10, 16, 0.38) 100%),
+    url("/brand/login-gym-floor.jpg");
   background-size: cover, cover;
-  background-position: center center, left center;
+  background-position: center center, center center;
   background-repeat: no-repeat, no-repeat;
 }
 
@@ -483,7 +483,8 @@
 }
 
 .login-stage-copy {
-  padding-top: clamp(6.75rem, 18vw, 8.5rem);
+  padding-top: clamp(5.5rem, 14vw, 7rem);
+  padding-bottom: 1.5rem;
 }
 
 @media (min-width: 1024px) {
@@ -501,8 +502,9 @@
   }
 
   .login-stage-copy {
-    padding-top: clamp(8rem, 14vh, 11rem);
-    padding-inline: clamp(2.5rem, 4vw, 5rem);
+    padding-top: 0;
+    padding-bottom: 0;
+    padding-inline: 1.5rem;
   }
 }
 
@@ -546,22 +548,7 @@
 
 @media (max-width: 1023px) {
   .login-colour-stage {
-    background-image:
-      linear-gradient(180deg, rgba(11, 16, 32, 0.8) 0%, rgba(34, 27, 59, 0.55) 42%, rgba(11, 16, 32, 0.84) 100%),
-      url("/brand/login-background.webp");
-    background-position: center center, 34% center;
-  }
-
-  .login-ring,
-  .login-streak,
-  .login-dot {
-    display: none;
-  }
-}
-
-@media (max-width: 640px) {
-  .login-colour-stage {
-    background-position: center center, 28% center;
+    background-position: center center, center 42%;
   }
 }
 
