@@ -15,3 +15,9 @@ export function spinChargeInr(amount: string | number | undefined, percent: numb
 export function isSpinCode(code: string) {
   return /^APG-/i.test(String(code || "").trim());
 }
+
+export function admissionFeeNote(planAmount: string | number, collectAmount: number) {
+  const plan = String(planAmount ?? "").trim();
+  const collect = Math.max(0, Math.round(Number(collectAmount) || 0));
+  return `Plan amount ₹${plan}. This is saved on the member.\nCollect ₹${collect} in Add Payment.`;
+}
