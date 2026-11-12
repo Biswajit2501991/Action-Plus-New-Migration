@@ -224,13 +224,18 @@ export function attendanceNotesFeatureMeta() {
 export async function readAttendanceNotesFeatureEnabled() {
   const sb = getSupabase();
   const gid = gymId();
+  // Duplicate settings rows exist. maybeSingle throws PGRST116
+  // ("JSON object requested, multiple (or no) rows returned").
+  // Same as settings load: newest row only.
   const { data, error } = await sb
     .from(T.settings_app_config)
     .select('config_json')
     .eq('gym_id', gid)
-    .maybeSingle();
+    .order('updated_at', { ascending: false })
+    .limit(1);
   if (error) throw error;
-  const cfg = data?.config_json && typeof data.config_json === 'object' ? data.config_json : {};
+  const row = Array.isArray(data) ? data[0] : null;
+  const cfg = row?.config_json && typeof row.config_json === 'object' ? row.config_json : {};
   return cfg.attendanceNotesEnabled === true;
 }
 
