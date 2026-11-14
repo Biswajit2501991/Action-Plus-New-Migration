@@ -68,7 +68,7 @@ export const README_TOPICS: ReadmeTopic[] = [
       "Search and the status chips stay at the top while the list scrolls. A bill date that is today shows Due today on the row.",
       "All Members starts with Hold, Deactivated, and Cancelled collapsed. The section title or Show opens that list for this visit. Choosing that status chip opens it too. Member records stay the same.",
       "This browser remembers the last status chip. A link that already includes a status still opens that status. Choosing a chip does not change a member.",
-      "Actions keeps Import CSV and Add Expense under Tools. Status changes sit in a separate box and still use the same buttons.",
+      "Actions keeps Import CSV and Add Expense under Tools. Close, Escape, or a click outside hides that menu. Status changes sit in a separate box and still use the same buttons.",
       "Hold and Deactivated rows show the saved hold length, the note, and the hold message already on the record, next to how long they have been inactive.",
       "The row shows the date of the latest saved payment. It does not add or change a payment.",
       "When a payment is saved, that member gets a phone notification and a bell message with the saved amount and date. Editing or deleting a payment does not send it. The receipt stays in the Member Portal.",
