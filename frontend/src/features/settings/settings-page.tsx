@@ -116,6 +116,7 @@ function SettingsToggle({
 
 type FeatureFlagState = {
   attendanceNotesEnabled: boolean;
+  admissionPdfEnabled: boolean;
   qrVisitorIntakeEnabled: boolean;
   attendanceRequirePresenceQr: boolean;
   customTemplatesEnabled: boolean;
@@ -1120,6 +1121,7 @@ export function SettingsPage() {
   const flags = useMemo<FeatureFlagState>(
     () => ({
       attendanceNotesEnabled: settings?.attendanceNotesEnabled === true,
+      admissionPdfEnabled: settings?.admissionPdfEnabled === true,
       qrVisitorIntakeEnabled:
         settings?.qrVisitorIntakeEnabled === true ||
         settings?.qrVisitorAttendanceEnabled === true,
@@ -1205,6 +1207,9 @@ export function SettingsPage() {
     }
     if (flags.attendanceNotesEnabled && patch.attendanceNotesEnabled === undefined) {
       patch.attendanceNotesEnabled = true;
+    }
+    if (flags.admissionPdfEnabled && patch.admissionPdfEnabled === undefined) {
+      patch.admissionPdfEnabled = true;
     }
     if (flags.qrVisitorIntakeEnabled && patch.qrVisitorIntakeEnabled === undefined) {
       patch.qrVisitorIntakeEnabled = true;
@@ -1427,6 +1432,15 @@ export function SettingsPage() {
               onClick={() => openSettingsBlock("themes", "settings-themes")}
             >
               Themes
+            </button>
+          ) : null}
+          {isOwner ? (
+            <button
+              type="button"
+              className="rounded-full border border-sky-200 bg-sky-50 px-3 py-1.5 text-xs font-semibold text-sky-900 dark:border-sky-500/30 dark:bg-sky-950/40 dark:text-sky-100"
+              onClick={() => openSettingsBlock("features", "settings-admission-pdf")}
+            >
+              Admission PDF
             </button>
           ) : null}
           {canPortalUi ? (
@@ -1820,6 +1834,18 @@ export function SettingsPage() {
             <p className="text-xs text-muted-foreground">
               Turn on as many as you need — each save keeps all other flags.
             </p>
+            <div id="settings-admission-pdf">
+              <SettingsToggle
+                checked={flags.admissionPdfEnabled}
+                disabled={!isOwner || saveFlags.isPending}
+                label="Download admission PDF"
+                description="On lets Add New Member download the admission form. Off leaves that button disabled."
+                onChange={(next) => {
+                  if (!isOwner) return;
+                  setFeatureFlags({ admissionPdfEnabled: next });
+                }}
+              />
+            </div>
             <SettingsToggle
               checked={flags.attendanceNotesEnabled}
               label="Attendance late notes"

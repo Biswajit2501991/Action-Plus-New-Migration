@@ -277,6 +277,45 @@ describe('shouldSkipLookupCategorySync', () => {
   });
 });
 
+describe('admissionPdfEnabled', () => {
+  const live = {
+    fine_sms_enabled: true,
+    fine_sms_grace_days: 0,
+    fine_sms_immediate_roles_json: [],
+    finance_use_estimated_expense: true,
+    config_json: {
+      attendanceNotesEnabled: true,
+      admissionPdfEnabled: false,
+    },
+  };
+
+  it('turns the admission PDF on without clearing attendance notes', () => {
+    const row = buildSettingsAppConfigWriteFromLive(live, { admissionPdfEnabled: true });
+    expect(row.config_json.admissionPdfEnabled).toBe(true);
+    expect(row.config_json.attendanceNotesEnabled).toBe(true);
+  });
+
+  it('keeps the admission PDF on when another flag is saved', () => {
+    const row = buildSettingsAppConfigWriteFromLive(
+      {
+        ...live,
+        config_json: { ...live.config_json, admissionPdfEnabled: true },
+      },
+      { attendanceNotesEnabled: true },
+    );
+    expect(row.config_json.admissionPdfEnabled).toBe(true);
+  });
+
+  it('stays off until the owner turns it on', () => {
+    const row = buildSettingsAppConfigWriteFromLive(
+      { ...live, config_json: { attendanceNotesEnabled: true } },
+      { customTemplatesEnabled: true },
+    );
+    expect(row.config_json.admissionPdfEnabled).toBe(false);
+    expect(row.config_json.attendanceNotesEnabled).toBe(true);
+  });
+});
+
 describe('findActiveLookupDuplicate', () => {
   const branchA = 'branch-a';
   const branchB = 'branch-b';

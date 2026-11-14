@@ -559,8 +559,9 @@ export function AddMemberWizard({
   };
   const req3 = { paymentMethod: !form.paymentMethod };
   const isMinor = ageFromDob(form.dob) !== null && (ageFromDob(form.dob) as number) < 18;
+  const admissionPdfOn = settings?.admissionPdfEnabled === true;
   async function downloadAdmission() {
-    if (!form.name.trim()) return;
+    if (!admissionPdfOn || !form.name.trim()) return;
     try {
       await downloadAdmissionPdf({
         name: form.name,
@@ -1749,7 +1750,8 @@ export function AddMemberWizard({
                 type="button"
                 variant="outline"
                 onClick={() => void downloadAdmission()}
-                disabled={!form.name.trim()}
+                disabled={!admissionPdfOn || !form.name.trim()}
+                title={admissionPdfOn ? "Download the admission form" : "The owner turns this on in Settings"}
               >
                 Download admission PDF
               </Button>

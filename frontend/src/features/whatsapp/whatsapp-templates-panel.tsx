@@ -134,6 +134,7 @@ export function WhatsappTemplatesPanel({
     mutationFn: async (enabled: boolean) => {
       const patch: Record<string, boolean> = { customTemplatesEnabled: enabled };
       if (settings?.attendanceNotesEnabled === true) patch.attendanceNotesEnabled = true;
+      if (settings?.admissionPdfEnabled === true) patch.admissionPdfEnabled = true;
       if (settings?.qrVisitorIntakeEnabled === true || settings?.qrVisitorAttendanceEnabled === true) {
         patch.qrVisitorIntakeEnabled = true;
       }

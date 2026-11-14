@@ -1833,6 +1833,7 @@ function buildSettingsObject({ lookups, templates, configRow, staffDir, roles, l
     financeUseEstimatedExpense: true,
     customTemplatesEnabled: false,
     attendanceNotesEnabled: false,
+    admissionPdfEnabled: false,
     qrVisitorIntakeEnabled: false,
     qrVisitorAttendanceEnabled: false,
     attendanceRequirePresenceQr: false,
