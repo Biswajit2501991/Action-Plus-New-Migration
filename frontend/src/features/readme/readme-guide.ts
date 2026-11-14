@@ -58,6 +58,7 @@ export const README_TOPICS: ReadmeTopic[] = [
       "The visitor form goal list is Weight loss, Weight gain, Strength training, Just to stay fit, and Recovering from injury or medical condition. The posted QR link stays the same.",
       "Visitor intake QR is drawn in this browser from the public visit link. Copy link, Open form, and convert-to-member stay the same.",
       "Visitors shows 10 at a time. All, Converted, and Not converted only change which cards you see. They do not change visitor or member records.",
+      "Add New Member blurs and locks the page behind it. A yellow bar shows how much of the form is valid and turns green only when every section is complete. The bar does not save the member. The form still scrolls. Opening or closing it does not change a member record.",
       "Check a coupon sits before Membership Plans. It shows whether a Spin code is still usable. It does not save a member or a payment.",
       "Add New Member takes one optional code, a referral or a Spin code. Enter the plan fee in Amount first. After the code is accepted, Amount locks. The plan amount and the amount to collect are shown on separate lines. Change amount clears that check so the discount is not taken twice. The plan amount saved on the member stays the locked fee. After the member is saved, enter the collect amount in Add Payment. The Spin code is then marked used. If that mark fails, the member stays saved.",
       "Add New Member blurs and locks the page behind it. The form still scrolls. Opening or closing it does not change a member record.",
