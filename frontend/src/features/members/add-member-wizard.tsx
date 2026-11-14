@@ -1,8 +1,14 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
+import { Check } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input, Label, Select, Textarea } from "@/components/ui/input";
+import {
+  computeAddMemberProgress,
+  countMedicalProgressAnswers,
+  MEDICAL_PROGRESS_SLOTS,
+} from "@/features/members/add-member-progress";
 import { ageFromDob, isValidEmail, isValidPhone } from "@/lib/domain/members";
 import {
   membersSharingNormalizedPhone,
@@ -195,12 +201,20 @@ function isPositiveInt(val: string) {
   return /^\d+$/.test(String(val).trim()) && Number(val) > 0;
 }
 
+const primaryBtn =
+  "border-0 bg-[#FFC400] text-[#101A32] shadow-[0_8px_22px_rgba(255,196,0,0.38)] hover:bg-[#FFD24D] hover:text-[#101A32] dark:bg-[#FFC400] dark:text-[#101A32] dark:hover:bg-[#FFD24D]";
+
 function fieldCls(invalid?: boolean, readOnly?: boolean) {
   return cn(
-    "mt-1 w-full rounded-xl border px-3 py-2 text-sm",
-    readOnly && "border-border bg-muted text-muted-foreground",
-    !readOnly && invalid && "border-rose-300 bg-rose-50 text-rose-700",
-    !readOnly && !invalid && "border-border bg-background",
+    "mt-1.5 h-11 w-full rounded-2xl border px-3.5 text-sm text-[#172238] shadow-none transition-[border-color,box-shadow] duration-200",
+    "placeholder:text-[#94A3B8] focus-visible:outline-none focus-visible:ring-2",
+    readOnly && "border-[#E2E8F0] bg-[#F8FAFC] text-[#64748B]",
+    !readOnly &&
+      invalid &&
+      "border-[#DC2626] bg-[#FEF2F2] text-[#991B1B] focus-visible:border-[#DC2626] focus-visible:ring-[#DC2626]/30",
+    !readOnly &&
+      !invalid &&
+      "border-[#E2E8F0] bg-white/95 focus-visible:border-[#FFC400] focus-visible:ring-[#FFC400]/45",
   );
 }
 
@@ -767,59 +781,116 @@ export function AddMemberWizard({
 
   if (!open) return null;
 
-  const sectionChips = [
-    { label: "Member Details", done: sectionCompletion.memberDetailsDone },
-    { label: "Membership Details", done: sectionCompletion.membershipDetailsDone },
-    { label: "Payment Details", done: sectionCompletion.paymentDetailsDone },
-    { label: "Medical Details", done: sectionCompletion.medicalDone },
-    { label: "Acknowledgement", done: sectionCompletion.acknowledgementDone },
-  ];
+  const progress = computeAddMemberProgress({
+    req1,
+    req2,
+    req3,
+    req5,
+    medicalDone: sectionCompletion.medicalDone,
+    medicalAnswered: countMedicalProgressAnswers(form.medicalAnswers),
+    medicalSlots: MEDICAL_PROGRESS_SLOTS,
+  });
+  const sectionChips = progress.sections;
+
+  const stepTitle = sectionChips[step - 1]?.label || "Member Details";
 
   return (
-    <div className="fixed inset-0 z-50 flex items-end justify-center overflow-hidden overscroll-none bg-slate-950/70 p-2 backdrop-blur-xl sm:items-center sm:p-4">
-      <div className="flex max-h-[95dvh] w-full max-w-3xl flex-col overflow-hidden rounded-t-3xl bg-background shadow-2xl sm:max-h-[92vh] sm:rounded-3xl">
-        <div className="flex items-center justify-between px-4 py-4 sm:px-6">
-          <h3 className="inline-flex items-center rounded-full border border-sky-200 bg-sky-50 px-4 py-1.5 text-base font-semibold text-sky-800">
-            Add New Member — Step {step}
-          </h3>
-          <button type="button" onClick={onClose} className="rounded-xl p-2 hover:bg-muted" aria-label="Close">
-            ✕
-          </button>
-        </div>
+    <div className="fixed inset-0 z-50 flex items-end justify-center overflow-hidden overscroll-none bg-[#101A32]/55 p-0 backdrop-blur-md sm:items-center sm:p-4">
+      <div className="flex h-[100dvh] w-full max-w-3xl flex-col overflow-hidden rounded-none border border-white/50 bg-[#F5F7FB]/90 shadow-[0_28px_80px_rgba(16,26,50,0.32)] backdrop-blur-xl sm:h-auto sm:max-h-[92vh] sm:rounded-[24px]">
+        <div className="sticky top-0 z-20 border-b border-white/50 bg-white/75 px-4 py-4 backdrop-blur-xl sm:px-6">
+          <div className="flex items-start justify-between gap-3">
+            <div className="min-w-0">
+              <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-[#64748B]">
+                Action Plus Gym
+              </p>
+              <h3 className="mt-1 text-xl font-semibold tracking-tight text-[#101A32]">Add New Member</h3>
+              <p className="mt-0.5 text-sm text-[#64748B]">
+                Step {step} of 5 · {stepTitle}
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={onClose}
+              className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl border border-white/70 bg-white/80 text-[#172238] shadow-sm transition hover:bg-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#FFC400]"
+              aria-label="Close"
+            >
+              ✕
+            </button>
+          </div>
 
-        <div className="px-4 pb-3 sm:px-6">
-          <div className="h-2 overflow-hidden rounded-full bg-muted">
-            <div className="h-full bg-sky-600 transition-all" style={{ width: `${(step / 5) * 100}%` }} />
+          <div className="mt-4">
+            <div className="mb-1.5 flex items-center justify-between text-xs font-medium text-[#64748B]">
+              <span>{progress.complete ? "Registration complete" : "Registration progress"}</span>
+              <span className={cn("tabular-nums", progress.complete ? "text-[#16A34A]" : "text-[#101A32]")}>
+                {progress.complete ? (
+                  <span className="inline-flex items-center gap-1">
+                    <Check className="h-3.5 w-3.5" aria-hidden />
+                    100%
+                  </span>
+                ) : (
+                  `${progress.percent}%`
+                )}
+              </span>
+            </div>
+            <div
+              className="h-2.5 overflow-hidden rounded-full bg-[#E5EAF1]"
+              role="progressbar"
+              aria-valuenow={progress.percent}
+              aria-valuemin={0}
+              aria-valuemax={100}
+              aria-label="Registration progress"
+            >
+              <div
+                className={cn(
+                  "h-full rounded-full transition-[width,background-color,box-shadow] duration-300 ease-out motion-reduce:transition-none",
+                  progress.complete
+                    ? "bg-[#16A34A] shadow-[0_0_18px_rgba(22,163,74,0.55)]"
+                    : "bg-[#FFC400] shadow-[0_0_18px_rgba(255,196,0,0.7)]",
+                )}
+                style={{ width: `${progress.percent}%` }}
+              />
+            </div>
           </div>
-          <div className="mt-2 text-xs text-muted-foreground">
-            <span className="font-semibold text-rose-600">*</span> Required fields
-          </div>
-          <div className="mt-3 flex flex-wrap items-center gap-3">
-            {sectionChips.map((item) => (
-              <div key={item.label} className="flex items-center gap-2">
-                <div
+
+          <ol className="mt-3 flex gap-2 overflow-x-auto pb-1 [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+            {sectionChips.map((item, index) => {
+              const active = step === index + 1;
+              return (
+                <li
+                  key={item.label}
+                  aria-current={active ? "step" : undefined}
                   className={cn(
-                    "grid h-6 w-6 place-items-center rounded-full border text-xs font-bold",
-                    item.done
-                      ? "border-emerald-300 bg-emerald-100 text-emerald-700"
-                      : "border-border bg-muted text-muted-foreground",
+                    "flex min-w-[158px] shrink-0 items-center gap-2 rounded-2xl border px-2.5 py-2",
+                    item.done && "border-[#16A34A]/30 bg-[#16A34A]/10",
+                    active && !item.done && "border-[#FFC400] bg-[#FFC400]/18 shadow-[0_6px_16px_rgba(255,196,0,0.18)]",
+                    !active && !item.done && "border-[#E2E8F0] bg-white/80",
                   )}
                 >
-                  {item.done ? "✓" : "○"}
-                </div>
-                <span className={cn("text-xs font-medium", item.done ? "text-emerald-700" : "text-muted-foreground")}>
-                  {item.label}
-                </span>
-              </div>
-            ))}
-          </div>
+                  <span
+                    className={cn(
+                      "grid h-7 w-7 place-items-center rounded-full text-xs font-bold",
+                      item.done && "bg-[#16A34A] text-white",
+                      active && !item.done && "bg-[#FFC400] text-[#101A32]",
+                      !active && !item.done && "bg-[#E5EAF1] text-[#64748B]",
+                    )}
+                  >
+                    {item.done ? <Check className="h-3.5 w-3.5" aria-hidden /> : index + 1}
+                  </span>
+                  <span className="text-xs font-medium text-[#172238]">{item.label}</span>
+                </li>
+              );
+            })}
+          </ol>
+          <p className="mt-2 text-xs text-[#64748B]">
+            <span className="font-semibold text-[#DC2626]">*</span> Required fields
+          </p>
         </div>
 
         <div
           ref={scrollRef}
           className={cn(
-            "flex-1 overflow-auto px-4 sm:px-6",
-            step === 4 || step === 5 ? "pb-52 sm:pb-24" : "pb-36 sm:pb-6",
+            "flex-1 overflow-auto bg-[#F5F7FB]/70 px-4 text-[#172238] sm:px-6",
+            step === 4 || step === 5 ? "pb-52 sm:pb-28" : "pb-40 sm:pb-8",
           )}
         >
           {warn ? (
@@ -832,7 +903,7 @@ export function AddMemberWizard({
           ) : null}
 
           {step === 1 ? (
-            <div className="grid grid-cols-1 gap-3 sm:gap-4 lg:grid-cols-2">
+            <div className="grid grid-cols-1 gap-4 rounded-[20px] border border-white/80 bg-white/92 p-4 shadow-[0_10px_30px_rgba(16,26,50,0.06)] sm:gap-5 lg:grid-cols-2">
               <div>
                 <Label>
                   Form Number <span className="text-rose-600">*</span>
@@ -960,7 +1031,7 @@ export function AddMemberWizard({
           ) : null}
 
           {step === 2 ? (
-            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 sm:gap-4">
+            <div className="grid grid-cols-1 gap-4 rounded-[20px] border border-white/80 bg-white/92 p-4 shadow-[0_10px_30px_rgba(16,26,50,0.06)] sm:grid-cols-2 sm:gap-5">
               <div>
                 <Label>Staff (logged in)</Label>
                 <Input className={fieldCls(false, true)} value={form.staff} readOnly />
@@ -985,7 +1056,7 @@ export function AddMemberWizard({
                 <Label>Referred by code (optional)</Label>
                 <Input
                   id="add-member-referredByCode"
-                  className="mt-1"
+                  className={fieldCls(false)}
                   placeholder="Member portal referral code"
                   value={form.referredByCode}
                   onChange={(e) => {
@@ -1129,7 +1200,7 @@ export function AddMemberWizard({
           ) : null}
 
           {step === 3 ? (
-            <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+            <div className="grid grid-cols-1 gap-4 rounded-[20px] border border-white/80 bg-white/92 p-4 shadow-[0_10px_30px_rgba(16,26,50,0.06)] md:grid-cols-2">
               <div>
                 <Label>
                   Payment Mode <span className="text-rose-600">*</span>
@@ -1149,8 +1220,8 @@ export function AddMemberWizard({
               </div>
               <div>
                 <Label>Member Photo</Label>
-                <div className="mt-1 flex items-center gap-3">
-                  <div className="grid h-12 w-12 place-items-center overflow-hidden rounded-full border bg-muted text-xs font-semibold">
+                <div className="mt-1.5 flex items-center gap-3 rounded-2xl border border-[#E2E8F0] bg-white/95 p-3">
+                  <div className="grid h-14 w-14 place-items-center overflow-hidden rounded-2xl border border-[#E2E8F0] bg-[#F8FAFC] text-sm font-semibold text-[#101A32]">
                     {form.photo ? (
                       // eslint-disable-next-line @next/next/no-img-element
                       <img src={form.photo} alt="" className="h-full w-full object-cover" />
@@ -1158,7 +1229,7 @@ export function AddMemberWizard({
                       (form.name || "?").slice(0, 1).toUpperCase()
                     )}
                   </div>
-                  <label className="cursor-pointer rounded-xl border px-3 py-2 text-sm hover:bg-muted">
+                  <label className="cursor-pointer rounded-2xl border border-[#E2E8F0] bg-white px-3 py-2 text-sm font-medium text-[#172238] shadow-sm transition hover:border-[#FFC400] focus-within:ring-2 focus-within:ring-[#FFC400]/50">
                     {form.photo ? "Change Photo" : "Upload Photo"}
                     <input
                       type="file"
@@ -1180,8 +1251,9 @@ export function AddMemberWizard({
               </div>
               <div>
                 <Label>Upload Documents (up to 10MB each)</Label>
-                <label className="mt-1 inline-block cursor-pointer rounded-xl border px-3 py-2 text-sm hover:bg-muted">
-                  Add Document
+                <label className="mt-1.5 flex cursor-pointer flex-col gap-1 rounded-2xl border border-dashed border-[#E2E8F0] bg-white/95 px-4 py-4 text-sm text-[#172238] shadow-sm transition hover:border-[#FFC400] focus-within:ring-2 focus-within:ring-[#FFC400]/50">
+                  <span className="font-medium">Add Document</span>
+                  <span className="text-xs text-[#64748B]">Up to 10MB each. Tap a file below to remove it.</span>
                   <input
                     type="file"
                     multiple
@@ -1230,7 +1302,7 @@ export function AddMemberWizard({
                       <button
                         key={a.id}
                         type="button"
-                        className="rounded-full border bg-background px-3 py-1 text-xs hover:bg-muted"
+                        className="rounded-full border border-[#E2E8F0] bg-white px-3 py-1 text-xs text-[#172238] hover:border-[#DC2626] hover:bg-[#FEF2F2]"
                         onClick={() =>
                           setForm((f) => ({
                             ...f,
@@ -1247,7 +1319,7 @@ export function AddMemberWizard({
               <div className="md:col-span-2">
                 <Label>Remark</Label>
                 <Textarea
-                  className="mt-1"
+                  className={cn(fieldCls(false), "h-auto min-h-[96px]")}
                   rows={3}
                   placeholder="Enter a short note"
                   value={form.remark}
@@ -1258,14 +1330,14 @@ export function AddMemberWizard({
           ) : null}
 
           {step === 4 ? (
-            <div className="space-y-4 pb-6">
-              <div className="whitespace-pre-wrap text-sm text-muted-foreground">
+            <div className="space-y-4 rounded-[20px] border border-white/80 bg-white/92 p-4 pb-6 shadow-[0_10px_30px_rgba(16,26,50,0.06)]">
+              <div className="whitespace-pre-wrap text-sm leading-relaxed text-[#64748B]">
                 {String(settings?.medicalQuestionnaireTemplate || MEDICAL_QUESTIONNAIRE_DEFAULT)}
               </div>
               <div className="flex justify-end">
                 <button
                   type="button"
-                  className="rounded-full border border-emerald-300 bg-emerald-50 px-3 py-1 text-xs font-semibold text-emerald-700 hover:bg-emerald-100"
+                  className="rounded-full border border-[#16A34A]/30 bg-[#16A34A]/10 px-3 py-1.5 text-xs font-semibold text-[#166534] transition hover:bg-[#16A34A]/15 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#16A34A]/40"
                   onClick={() =>
                     setForm((prev) => ({
                       ...prev,
@@ -1282,11 +1354,12 @@ export function AddMemberWizard({
               </div>
               <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
                 {MEDICAL_YES_NO_FIELDS.map(([key, label]) => (
-                  <div key={key} className="rounded-xl border p-3">
+                  <div key={key} className="rounded-2xl border border-[#E2E8F0] bg-[#F8FAFC] p-3">
                     <div className="mb-1 text-sm font-medium">{label}</div>
                     <div className="flex gap-3 text-sm">
                       <label className="flex items-center gap-1">
                         <input
+                          className="h-4 w-4 accent-[#FFC400]"
                           type="radio"
                           name={key}
                           checked={String((form.medicalAnswers as unknown as Record<string, unknown>)[key] || "") === "Y"}
@@ -1301,6 +1374,7 @@ export function AddMemberWizard({
                       </label>
                       <label className="flex items-center gap-1">
                         <input
+                          className="h-4 w-4 accent-[#FFC400]"
                           type="radio"
                           name={key}
                           checked={String((form.medicalAnswers as unknown as Record<string, unknown>)[key] || "") === "N"}
@@ -1317,12 +1391,13 @@ export function AddMemberWizard({
                   </div>
                 ))}
               </div>
-              <div className="rounded-xl border p-3">
+              <div className="rounded-2xl border border-[#E2E8F0] bg-[#F8FAFC] p-3">
                 <div className="mb-2 text-sm font-medium">Injury areas</div>
                 <div className="flex flex-wrap gap-3 text-sm">
                   {INJURY_KEYS.map((item) => (
                     <label key={item.key} className="flex items-center gap-1">
                       <input
+                        className="h-4 w-4 accent-[#FFC400]"
                         type="checkbox"
                         checked={Boolean(form.medicalAnswers.injuries?.[item.key])}
                         onChange={(e) =>
@@ -1340,7 +1415,7 @@ export function AddMemberWizard({
                   ))}
                 </div>
                 <Input
-                  className="mt-2"
+                    className={fieldCls(false)}
                   placeholder="Other injury notes"
                   value={form.medicalAnswers.injuries?.other || ""}
                   onChange={(e) =>
@@ -1355,6 +1430,7 @@ export function AddMemberWizard({
                 />
                 <div className="mt-3 flex gap-2">
                   <Input
+                    className={fieldCls(false)}
                     placeholder="Add injury note"
                     value={injuryNote}
                     onChange={(e) => setInjuryNote(e.target.value)}
@@ -1399,6 +1475,7 @@ export function AddMemberWizard({
                 <Label>Pregnant (Yes/No) and weeks</Label>
                 <div className="mt-1 flex gap-2">
                   <Select
+                    className={fieldCls(false)}
                     value={form.medicalAnswers.pregnant || "No"}
                     onChange={(e) =>
                       setForm({
@@ -1411,6 +1488,7 @@ export function AddMemberWizard({
                     <option value="Yes">Yes</option>
                   </Select>
                   <Input
+                    className={fieldCls(false)}
                     placeholder="Weeks"
                     value={form.medicalAnswers.pregnantWeeks}
                     onChange={(e) =>
@@ -1434,7 +1512,7 @@ export function AddMemberWizard({
                 <div key={key}>
                   <Label>{label}</Label>
                   <Input
-                    className="mt-1"
+                    className={fieldCls(false)}
                     value={String(form.medicalAnswers[key] || "")}
                     onChange={(e) =>
                       setForm({
@@ -1449,13 +1527,14 @@ export function AddMemberWizard({
           ) : null}
 
           {step === 5 ? (
-            <div className="space-y-4 pb-6">
-              <div className="whitespace-pre-wrap rounded-xl border bg-muted/40 p-3 text-xs">
+            <div className="space-y-4 rounded-[20px] border border-white/80 bg-white/92 p-4 pb-6 shadow-[0_10px_30px_rgba(16,26,50,0.06)]">
+              <div className="whitespace-pre-wrap rounded-2xl border border-[#E2E8F0] bg-[#F8FAFC] p-4 text-xs leading-relaxed text-[#172238]">
                 {String(settings?.acknowledgementTemplate || ACK_DEFAULT)}
               </div>
               <label className="flex items-center gap-2 text-sm">
                 <input
                   id="add-member-ackAccepted"
+                  className="h-4 w-4 accent-[#FFC400]"
                   type="checkbox"
                   checked={form.ackAccepted}
                   onChange={(e) => setForm({ ...form, ackAccepted: e.target.checked })}
@@ -1473,7 +1552,7 @@ export function AddMemberWizard({
                   <Label>Date</Label>
                   <Input
                     type="date"
-                    className="mt-1"
+                    className={fieldCls(false)}
                     value={form.ackDate}
                     onChange={(e) => setForm({ ...form, ackDate: e.target.value })}
                   />
@@ -1481,7 +1560,7 @@ export function AddMemberWizard({
               </div>
               {isMinor ? (
                 <div className="space-y-3">
-                  <div className="whitespace-pre-wrap rounded-xl border border-amber-200 bg-amber-50 p-3 text-xs">
+                  <div className="whitespace-pre-wrap rounded-2xl border border-amber-200 bg-amber-50 p-4 text-xs leading-relaxed text-[#172238]">
                     {String(settings?.acknowledgementUnder18Template || ACK_U18_DEFAULT)}
                   </div>
                   <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
@@ -1500,7 +1579,7 @@ export function AddMemberWizard({
                       <Label>Parent/Guardian DOB</Label>
                       <Input
                         type="date"
-                        className="mt-1"
+                        className={fieldCls(false)}
                         value={form.parentGuardianDob}
                         onChange={(e) => setForm({ ...form, parentGuardianDob: e.target.value })}
                       />
@@ -1523,13 +1602,13 @@ export function AddMemberWizard({
           ) : null}
         </div>
 
-        <div className="sticky bottom-0 z-10 flex flex-col-reverse justify-end gap-3 border-t bg-background px-4 py-4 sm:flex-row sm:px-6">
+        <div className="sticky bottom-0 z-10 flex flex-col-reverse justify-end gap-2 border-t border-white/60 bg-white/80 px-4 py-3 backdrop-blur-xl sm:flex-row sm:px-6">
           {step === 5 ? (
             <>
               <Button variant="outline" onClick={() => setStep(4)} disabled={saving}>
                 Back
               </Button>
-              <Button onClick={() => void save()} disabled={saving}>
+              <Button className={primaryBtn} onClick={() => void save()} disabled={saving}>
                 {saving ? "Saving…" : "Save New Member"}
               </Button>
             </>
@@ -1547,21 +1626,21 @@ export function AddMemberWizard({
               >
                 Skip For Now
               </Button>
-              <Button onClick={next}>Next</Button>
+              <Button className={primaryBtn} onClick={next}>Next</Button>
             </>
           ) : step >= 2 ? (
             <>
               <Button variant="outline" onClick={() => setStep((s) => Math.max(1, s - 1))}>
                 Back
               </Button>
-              <Button onClick={next}>Next</Button>
+              <Button className={primaryBtn} onClick={next}>Next</Button>
             </>
           ) : (
             <>
               <Button variant="outline" onClick={onClose}>
                 Cancel
               </Button>
-              <Button onClick={next}>Next</Button>
+              <Button className={primaryBtn} onClick={next}>Next</Button>
             </>
           )}
         </div>

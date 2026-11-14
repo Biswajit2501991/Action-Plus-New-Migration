@@ -58,7 +58,7 @@ export const README_TOPICS: ReadmeTopic[] = [
       "The visitor form goal list is Weight loss, Weight gain, Strength training, Just to stay fit, and Recovering from injury or medical condition. The posted QR link stays the same.",
       "Visitor intake QR is drawn in this browser from the public visit link. Copy link, Open form, and convert-to-member stay the same.",
       "Visitors shows 10 at a time. All, Converted, and Not converted only change which cards you see. They do not change visitor or member records.",
-      "Add New Member blurs and locks the page behind it. The form still scrolls. Opening or closing it does not change a member record.",
+      "Add New Member blurs and locks the page behind it. A yellow bar shows how much of the form is valid and turns green only when every section is complete. The bar does not save the member. The form still scrolls. Opening or closing it does not change a member record.",
       "On a phone, each member is a card with photo, name, status, bill date, Payment By, amount, mobile, and the same Reminder or Fine button. The wide table stays on a desktop.",
       "The row shows the plan amount and the mobile number. Tapping the number copies it. The member record stays the same.",
       "Needs reminder lists Active members whose bill is due and who have not been sent a reminder for this bill. The chip only changes which rows you see.",
