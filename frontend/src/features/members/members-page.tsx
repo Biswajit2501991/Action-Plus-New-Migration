@@ -252,6 +252,26 @@ export function MembersPage() {
   const [draftFilters, setDraftFilters] = useState<MemberFilters>(EMPTY_FILTERS);
   const [filterOpen, setFilterOpen] = useState(false);
   const [actionsOpen, setActionsOpen] = useState(false);
+  const actionsMenuRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!actionsOpen) return;
+    function onKey(event: KeyboardEvent) {
+      if (event.key === "Escape") setActionsOpen(false);
+    }
+    function onPointer(event: MouseEvent) {
+      const target = event.target;
+      if (!(target instanceof Node)) return;
+      if (actionsMenuRef.current?.contains(target)) return;
+      if (target instanceof Element && target.closest("[data-members-actions-toggle]")) return;
+      setActionsOpen(false);
+    }
+    document.addEventListener("keydown", onKey);
+    document.addEventListener("mousedown", onPointer);
+    return () => {
+      document.removeEventListener("keydown", onKey);
+      document.removeEventListener("mousedown", onPointer);
+    };
+  }, [actionsOpen]);
   const [sortField, setSortField] = useState<SortField>("joiningDate");
   const [sortDirection, setSortDirection] = useState<"asc" | "desc">("desc");
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
@@ -1241,6 +1261,7 @@ export function MembersPage() {
                       variant="outline"
                       size="sm"
                       className="h-8 gap-1 rounded-xl border-slate-200/80 bg-white/70 px-2.5 text-[11px] font-medium text-slate-700 shadow-none hover:bg-slate-50 dark:border-white/10 dark:bg-white/[0.04] dark:text-slate-200 dark:hover:bg-white/[0.08]"
+                      data-members-actions-toggle=""
                       onClick={() => setActionsOpen((v) => !v)}
                     >
                       <MoreHorizontal className="h-3.5 w-3.5" />
@@ -1322,6 +1343,7 @@ export function MembersPage() {
                     variant="outline"
                     size="sm"
                     className="h-9 gap-1.5 rounded-xl border-slate-200/80 bg-white/70 px-3 text-[12px] font-medium text-slate-700 shadow-none hover:bg-slate-50 dark:border-white/10 dark:bg-white/[0.04] dark:text-slate-200 dark:hover:bg-white/[0.08]"
+                    data-members-actions-toggle=""
                     onClick={() => setActionsOpen((v) => !v)}
                   >
                     <MoreHorizontal className="h-3.5 w-3.5" />
@@ -1334,10 +1356,23 @@ export function MembersPage() {
                   </Button>
                 </div>
                 {actionsOpen ? (
-                  <div className="absolute right-3 top-[3.25rem] z-30 min-w-[240px] overflow-hidden rounded-2xl border border-black/5 bg-white/95 p-1.5 shadow-xl backdrop-blur-xl dark:border-white/10 dark:bg-slate-950/95 xl:right-2 xl:top-11">
-                    <p className="px-3 pb-1 pt-1 text-[10px] font-semibold uppercase tracking-wide text-slate-400">
-                      Tools
-                    </p>
+                  <div
+                    ref={actionsMenuRef}
+                    className="absolute right-3 top-[3.25rem] z-30 min-w-[240px] overflow-hidden rounded-2xl border border-black/5 bg-white/95 p-1.5 shadow-xl backdrop-blur-xl dark:border-white/10 dark:bg-slate-950/95 xl:right-2 xl:top-11"
+                  >
+                    <div className="flex items-center justify-between gap-2 px-2 pb-1 pt-1">
+                      <p className="text-[10px] font-semibold uppercase tracking-wide text-slate-400">
+                        Tools
+                      </p>
+                      <button
+                        type="button"
+                        className="inline-flex h-7 items-center gap-1 rounded-lg px-2 text-[11px] font-semibold text-slate-500 hover:bg-slate-100 hover:text-slate-800 dark:text-slate-300 dark:hover:bg-white/10 dark:hover:text-white"
+                        onClick={() => setActionsOpen(false)}
+                      >
+                        <X className="h-3.5 w-3.5" />
+                        Close
+                      </button>
+                    </div>
                     <button
                       type="button"
                       className="w-full rounded-xl px-3 py-2.5 text-left text-sm text-slate-700 hover:bg-slate-100 dark:text-slate-200 dark:hover:bg-white/5"
