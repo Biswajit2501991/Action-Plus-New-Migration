@@ -716,6 +716,12 @@ export function AddMemberWizard({
     setStep((s) => Math.min(5, s + 1));
   };
 
+  const jumpToStep = (target: number) => {
+    if (saving || target < 1 || target > 5 || target === step) return;
+    setStep(target);
+    scrollTop();
+  };
+
   const buildMemberPayload = (): Member | null => {
     setWarn("");
     if (
@@ -919,27 +925,31 @@ export function AddMemberWizard({
             {sectionChips.map((item, index) => {
               const active = step === index + 1;
               return (
-                <li
-                  key={item.label}
-                  aria-current={active ? "step" : undefined}
-                  className={cn(
-                    "flex min-w-[158px] shrink-0 items-center gap-2 rounded-2xl border px-2.5 py-2",
-                    item.done && "border-[#16A34A]/30 bg-[#16A34A]/10",
-                    active && !item.done && "border-[#FFC400] bg-[#FFC400]/18 shadow-[0_6px_16px_rgba(255,196,0,0.18)]",
-                    !active && !item.done && "border-[#E2E8F0] bg-white/80",
-                  )}
-                >
-                  <span
+                <li key={item.label} className="min-w-[158px] shrink-0">
+                  <button
+                    type="button"
+                    aria-current={active ? "step" : undefined}
+                    disabled={Boolean(saving)}
+                    onClick={() => jumpToStep(index + 1)}
                     className={cn(
-                      "grid h-7 w-7 place-items-center rounded-full text-xs font-bold",
-                      item.done && "bg-[#16A34A] text-white",
-                      active && !item.done && "bg-[#FFC400] text-[#101A32]",
-                      !active && !item.done && "bg-[#E5EAF1] text-[#64748B]",
+                      "flex w-full items-center gap-2 rounded-2xl border px-2.5 py-2 text-left transition hover:brightness-[0.98] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#FFC400] disabled:cursor-not-allowed",
+                      item.done && "border-[#16A34A]/30 bg-[#16A34A]/10",
+                      active && !item.done && "border-[#FFC400] bg-[#FFC400]/18 shadow-[0_6px_16px_rgba(255,196,0,0.18)]",
+                      !active && !item.done && "border-[#E2E8F0] bg-white/80",
                     )}
                   >
-                    {item.done ? <Check className="h-3.5 w-3.5" aria-hidden /> : index + 1}
-                  </span>
-                  <span className="text-xs font-medium text-[#172238]">{item.label}</span>
+                    <span
+                      className={cn(
+                        "grid h-7 w-7 place-items-center rounded-full text-xs font-bold",
+                        item.done && "bg-[#16A34A] text-white",
+                        active && !item.done && "bg-[#FFC400] text-[#101A32]",
+                        !active && !item.done && "bg-[#E5EAF1] text-[#64748B]",
+                      )}
+                    >
+                      {item.done ? <Check className="h-3.5 w-3.5" aria-hidden /> : index + 1}
+                    </span>
+                    <span className="text-xs font-medium text-[#172238]">{item.label}</span>
+                  </button>
                 </li>
               );
             })}
