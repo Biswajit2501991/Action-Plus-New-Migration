@@ -4,6 +4,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { Check } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input, Label, Select, Textarea } from "@/components/ui/input";
+import { downloadAdmissionPdf } from "@/features/members/add-member-admission-pdf";
 import {
   computeAddMemberProgress,
   countMedicalProgressAnswers,
@@ -558,6 +559,45 @@ export function AddMemberWizard({
   };
   const req3 = { paymentMethod: !form.paymentMethod };
   const isMinor = ageFromDob(form.dob) !== null && (ageFromDob(form.dob) as number) < 18;
+  async function downloadAdmission() {
+    if (!form.name.trim()) return;
+    try {
+      await downloadAdmissionPdf({
+        name: form.name,
+        formNo: form.formNo,
+        email: form.email,
+        dob: form.dob,
+        gender: form.gender,
+        mobile: form.mobile,
+        address: form.address,
+        branch: gymCodeLabel(gymCodes, form.assignedGymCodeId),
+        staff: form.staff,
+        amount: form.amount,
+        plan: form.plan,
+        joiningDate: form.joiningDate,
+        billingDate: form.billingDate,
+        nextPaymentDate: form.nextPaymentDate,
+        paymentBy: form.paymentBy,
+        status: form.status,
+        paymentMethod: form.paymentMethod,
+        remark: form.remark,
+        photoDataUrl: form.photo,
+        medicalSkipped: form.medicalSkipped,
+        medical: form.medicalAnswers,
+        acknowledgement: String(settings?.acknowledgementTemplate || ACK_DEFAULT),
+        ackAccepted: form.ackAccepted,
+        ackDate: form.ackDate,
+        signature: form.name.trim(),
+        isMinor,
+        under18Acknowledgement: String(settings?.acknowledgementUnder18Template || ACK_U18_DEFAULT),
+        parentGuardianName: form.parentGuardianName,
+        parentGuardianDob: form.parentGuardianDob,
+        parentGuardianSignature: form.parentGuardianSignature,
+      });
+    } catch (err) {
+      setWarn(err instanceof Error ? err.message : "Could not download the admission PDF.");
+    }
+  }
   const req5 = {
     ackAccepted: !form.ackAccepted,
     ackSignature: !String(form.name || "").trim(),
@@ -1694,6 +1734,14 @@ export function AddMemberWizard({
             <>
               <Button variant="outline" onClick={() => setStep(4)} disabled={saving}>
                 Back
+              </Button>
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => void downloadAdmission()}
+                disabled={!form.name.trim()}
+              >
+                Download admission PDF
               </Button>
               <Button className={primaryBtn} onClick={() => void save()} disabled={saving}>
                 {saving ? "Saving…" : "Save New Member"}
