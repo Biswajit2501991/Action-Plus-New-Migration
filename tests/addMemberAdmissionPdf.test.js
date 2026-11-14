@@ -76,27 +76,32 @@ describe('add member admission pdf', () => {
     expect(admissionPdfFileName('   ')).toBeNull();
   });
 
-  it('puts the acknowledgement and the full name signature on the sheet', () => {
-    const text = buildAdmissionPdfSections(sample()).map((section) => section.body).join('\n');
+  it('puts the printed acknowledgement and the full name signature on the sheet', () => {
+    const sections = buildAdmissionPdfSections(sample());
+    const text = sections.map((section) => `${section.title}\n${section.body}`).join('\n');
+    expect(text).toContain('Membership Registration Form');
+    expect(text).toContain('Name: Bis');
     expect(text).toContain('ACKNOWLEDGEMENT RELEASE AND ASSUMPTION OF RISK');
-    expect(text).toContain('Signed: Bis');
-    expect(text).toContain('Accepted: Yes');
-    expect(text).toContain('Full Name: Bis');
-    expect(text).not.toContain('Parent/Guardian');
+    expect(text).toContain('Signature: Bis');
+    expect(text).toContain('Which Membership are you signing up for: Monthly');
+    expect(text).toContain('Form Number: 12');
+    const parent = sections.find((section) => section.title.includes('UNDER 18'));
+    expect(parent.body).toContain('Full Name of Parent / Guardian:');
+    expect(parent.body).not.toContain('Ada Parent');
   });
 
-  it('marks a skipped medical questionnaire and includes a parent block for a minor', () => {
+  it('marks a skipped medical questionnaire and fills the parent lines for a minor', () => {
     const skipped = buildAdmissionPdfSections(sample({ medicalSkipped: true }))
-      .find((section) => section.title === 'Medical');
+      .find((section) => section.title === 'Medical questionnaire');
     expect(skipped.body).toContain('Medical questionnaire skipped.');
 
     const minor = buildAdmissionPdfSections(sample({
       isMinor: true,
       parentGuardianName: 'Ada Parent',
       parentGuardianSignature: 'Ada Parent',
-    })).find((section) => section.title === 'Parent or guardian');
-    expect(minor.body).toContain('Parent acknowledgement');
-    expect(minor.body).toContain('Parent/Guardian Signed: Ada Parent');
+    })).find((section) => section.title.includes('UNDER 18'));
+    expect(minor.body).toContain('Full Name of Parent / Guardian: Ada Parent');
+    expect(minor.body).toContain('Signature of Parent / Guardian: Ada Parent');
   });
 
   it('builds a pdf file', async () => {
