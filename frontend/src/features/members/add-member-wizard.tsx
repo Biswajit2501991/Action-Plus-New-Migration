@@ -812,6 +812,8 @@ export function AddMemberWizard({
   const sectionChips = progress.sections;
 
   const stepTitle = sectionChips[step - 1]?.label || "Member Details";
+  const typedName = form.name.trim();
+  const screenTitle = typedName ? `${typedName} - Add New Member` : "Add New Member";
 
   return (
     <div className="fixed inset-0 z-50 flex items-end justify-center overflow-hidden overscroll-none bg-[#101A32]/55 p-0 backdrop-blur-md sm:items-center sm:p-4">
@@ -822,7 +824,9 @@ export function AddMemberWizard({
               <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-[#64748B]">
                 Action Plus Gym
               </p>
-              <h3 className="mt-1 text-xl font-semibold tracking-tight text-[#101A32]">Add New Member</h3>
+              <h3 className="mt-1 truncate text-xl font-semibold tracking-tight text-[#101A32]" title={screenTitle}>
+                {screenTitle}
+              </h3>
               <p className="mt-0.5 text-sm text-[#64748B]">
                 Step {step} of 5 · {stepTitle}
               </p>
