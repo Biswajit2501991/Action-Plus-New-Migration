@@ -334,6 +334,8 @@ export type AppSettings = {
   gmailWelcomeTemplate?: string;
   financeUseEstimatedExpense?: boolean;
   attendanceNotesEnabled?: boolean;
+  /** Owner switch for Add New Member → Download admission PDF. Default off. */
+  admissionPdfEnabled?: boolean;
   /** Visitor intake QR (public form + staff Visitor QR card). Default off. */
   qrVisitorIntakeEnabled?: boolean;
   /** @deprecated Combined master; prefer qrVisitorIntakeEnabled. */
