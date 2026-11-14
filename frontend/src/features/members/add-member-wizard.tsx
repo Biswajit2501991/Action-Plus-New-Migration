@@ -1097,8 +1097,6 @@ export function AddMemberWizard({
                 <Input
                   id="add-member-referredByCode"
                   className={fieldCls(false)}
-                  placeholder="Member portal referral code"
-                  className="mt-1"
                   placeholder="One code only"
                   value={form.referredByCode}
                   onChange={(e) => {

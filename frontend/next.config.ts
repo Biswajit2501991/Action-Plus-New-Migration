@@ -14,10 +14,14 @@ function resolveApiProxyTarget() {
 const backendTarget = resolveApiProxyTarget();
 
 const nextConfig: NextConfig = {
-  // Railway runs lint and typecheck together and the lint worker exits 1
-  // before it prints anything. Types are still checked during `next build`.
+  // Next runs typecheck in a worker after webpack is already in memory.
+  // On Railway that worker exits 1 without printing the error. `npm run build`
+  // runs `tsc` first, in the main process, so type errors still fail the build.
   eslint: {
     ignoreDuringBuilds: true,
+  },
+  typescript: {
+    ignoreBuildErrors: true,
   },
   turbopack: {
     root: path.join(__dirname),
