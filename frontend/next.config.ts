@@ -14,6 +14,11 @@ function resolveApiProxyTarget() {
 const backendTarget = resolveApiProxyTarget();
 
 const nextConfig: NextConfig = {
+  // Railway runs lint and typecheck together and the lint worker exits 1
+  // before it prints anything. Types are still checked during `next build`.
+  eslint: {
+    ignoreDuringBuilds: true,
+  },
   turbopack: {
     root: path.join(__dirname),
   },
